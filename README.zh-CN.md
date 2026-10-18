@@ -89,11 +89,14 @@ cd Kiwi
 
 生产环境使用独立的 Compose 文件，默认全部采用非常规端口：Web `18473`、API `18474`、PostgreSQL `15432`、Qdrant `16333 / 16334`。
 
+前端在宿主机完成构建，并以只读方式挂载进 nginx，Docker 镜像构建阶段不再执行 npm / Vite：
+
 ```bash
+(cd frontend && npm ci && npm run build)
 ./deploy.sh
 ```
 
-脚本会自动生成 `.env.prod`、随机密码与 Fernet 密钥，构建前后端镜像并完成数据库迁移。访问 `http://<host>:18473` 即可。
+`./deploy.sh` 负责构建后端镜像并执行数据库迁移；`./deploy.sh frontend` 只重新构建静态产物。前端改动后重新生成 `frontend/dist` 并刷新浏览器即可，无需重建容器。访问 `http://<host>:18473` 即可。
 
 端口调整、数据备份、升级、沙箱权限与排障见 [docs/DEPLOY.md](docs/DEPLOY.md)。版本演进见 [版本迭代记录](docs/CHANGELOG.md)。
 

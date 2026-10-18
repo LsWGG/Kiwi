@@ -89,11 +89,14 @@ On first launch, Kiwi seeds the built-in **“Kiwi Quick Start · Feature Demo�
 
 Production uses a separate Compose file with non-standard ports by default: Web `18473`, API `18474`, PostgreSQL `15432`, Qdrant `16333 / 16334`.
 
+The frontend is built on the host and mounted read-only into nginx — the Docker image no longer runs npm or Vite:
+
 ```bash
+(cd frontend && npm ci && npm run build)
 ./deploy.sh
 ```
 
-The script generates `.env.prod`, random passwords, and a Fernet key, builds both images, and runs database migrations. Then open `http://<host>:18473`.
+`./deploy.sh` builds the backend image and runs database migrations; `./deploy.sh frontend` rebuilds the static bundle only. Rebuild `frontend/dist` and refresh the browser after frontend changes — no container rebuild is needed. Then open `http://<host>:18473`.
 
 See [docs/DEPLOY.md](docs/DEPLOY.md) for port changes, backups, upgrades, sandbox permissions, and troubleshooting. See the [changelog](docs/CHANGELOG.md) for releases.
 

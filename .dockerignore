@@ -16,9 +16,10 @@ backend/node_modules
 backend/package.json
 backend/package-lock.json
 
-# Node / 前端构建产物
+# Node / 前端依赖与中间产物
+# 注意：frontend/dist 不排除——可选的前端运行时镜像需要把预构建产物 COPY 进去；
+# 生产 Compose 则直接挂载该目录，不经过 docker build。
 frontend/node_modules
-frontend/dist
 frontend/.vite
 frontend/tsconfig.tsbuildinfo
 

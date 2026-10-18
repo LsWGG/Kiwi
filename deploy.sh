@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Kiwi Docker 生产部署脚本
-#   ./deploy.sh            构建并启动（首次自动生成 .env.prod 与密钥）
+#   ./deploy.sh            构建后端镜像并启动（前端使用已构建的 frontend/dist）
+#   ./deploy.sh frontend   在宿主机构建前端（npm ci + npm run build）
 #   ./deploy.sh ps         查看状态
 #   ./deploy.sh logs [svc] 跟踪日志
 #   ./deploy.sh restart    重启
@@ -57,6 +58,27 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+build_frontend() {
+  command -v npm >/dev/null 2>&1 || die "未找到 npm，请先安装 Node.js 20+ 后在 frontend/ 中构建"
+  echo "[kiwi-deploy] 在宿主机构建前端（frontend/dist）…"
+  (
+    cd frontend
+    if [ ! -d node_modules ]; then
+      npm ci --no-audit --no-fund
+    fi
+    npm run build
+  )
+  [ -f frontend/dist/index.html ] || die "前端构建失败：frontend/dist/index.html 不存在"
+}
+
+ensure_frontend_dist() {
+  if [ -f frontend/dist/index.html ]; then
+    return
+  fi
+  echo "[kiwi-deploy] 未找到 frontend/dist，先构建前端…"
+  build_frontend
+}
+
 usage() {
   sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
 }
@@ -68,6 +90,7 @@ CMD="${1:-up}"
 case "$CMD" in
   up|start)
     ensure_env
+    ensure_frontend_dist
     compose up -d --build
     set -a
     # shellcheck disable=SC1090
@@ -97,8 +120,12 @@ case "$CMD" in
     ensure_env
     compose logs -f --tail=200 "$@"
     ;;
+  frontend)
+    build_frontend
+    ;;
   build)
     ensure_env
+    build_frontend
     compose build
     ;;
   *)

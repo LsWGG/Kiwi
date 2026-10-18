@@ -1,7 +1,11 @@
 # Kiwi 生产部署（Docker Compose）
 #
 #   cp .env.prod.example .env.prod    # 填写密码 / Fernet 密钥
+#   (cd frontend && npm ci && npm run build)   # 前端在宿主机构建
 #   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#
+# 前端容器不再执行 npm / Vite 构建，只把宿主机的 frontend/dist 挂载进 nginx，
+# 避免低内存主机在 Docker 构建阶段被 OOM 杀死。
 #
 # 默认端口均为非常规端口，避免与开发环境（5173 / 8000 / 5432 / 6333）冲突：
 #   Web 18473 · API 18474 · PostgreSQL 15432 · Qdrant 16333 / 16334
@@ -112,15 +116,9 @@ services:
     logging: *default-logging
 
   frontend:
-    build:
-      context: .
-      dockerfile: deploy/frontend.Dockerfile
-      args:
-        # npm 国内镜像；海外网络可在 .env.prod 覆盖为 https://registry.npmjs.org
-        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
-        # Node 堆上限（MB）；Vite 打包约需 2 GB，内存充裕可调高
-        NODE_MAX_OLD_SPACE_MB: ${NODE_MAX_OLD_SPACE_MB:-2048}
-    image: kiwi-frontend:0.1.2
+    # 直接使用 nginx 运行时镜像，前端在宿主机预先构建（见文件头注释）。
+    # dist 只读挂载，重新执行 npm run build 后无需重建 / 重启容器。
+    image: nginx:1.27-alpine
     container_name: kiwi-prod-frontend
     restart: unless-stopped
     depends_on:
@@ -128,6 +126,18 @@ services:
         condition: service_healthy
     ports:
       - "${KIWI_HTTP_PORT:-18473}:80"
+    volumes:
+      - type: bind
+        source: ./deploy/nginx.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+      # 不自动创建空目录：缺少 dist 时直接报错，避免 nginx 返回空白页。
+      - type: bind
+        source: ./frontend/dist
+        target: /usr/share/nginx/html
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
       interval: 10s

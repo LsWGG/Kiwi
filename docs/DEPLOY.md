@@ -29,22 +29,28 @@ frontend (nginx)
 
 - Docker Engine 24+，Docker Compose v2
 - 建议 4 核 / 8 GB 内存 / 10 GB 可用磁盘
+- 构建前端需要 Node.js 20+ 与 npm（仅宿主机使用）
 - 首次摄入文档时需要联网下载嵌入模型（约数百 MB）
 - 若当前用户无 Docker 权限：将用户加入 `docker` 组，或以 `sudo` 运行部署脚本
 
 ## 快速开始
 
+前端在宿主机构建后挂载进 nginx；Docker 只负责后端、数据库与向量库：
+
 ```bash
 git clone https://github.com/LsWGG/Kiwi.git
 cd Kiwi
+(cd frontend && npm ci && npm run build)
 ./deploy.sh
 ```
+
+`frontend/dist` 不存在时 `./deploy.sh` 也会自动在宿主机构建一次；也可以随时单独执行 `./deploy.sh frontend`。
 
 首次执行会：
 
 1. 从 `.env.prod.example` 生成 `.env.prod`（权限 600）；
 2. 生成随机的 PostgreSQL 密码与 Fernet 密钥；
-3. 构建前后端镜像并启动四个容器；
+3. 构建后端镜像，并以 `nginx:1.27-alpine` 挂载 `frontend/dist` 启动四个容器；
 4. 自动执行数据库迁移，并注入内置演示知识库。
 
 访问：
@@ -75,14 +81,19 @@ python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).deco
 
 ### 国内网络加速
 
-前后端镜像默认使用国内镜像下载依赖，无需额外配置：
+后端镜像默认使用国内镜像下载依赖，无需额外配置：
 
 - **PyPI**：`https://pypi.tuna.tsinghua.edu.cn/simple`（`uv` 及其管理的全部 Python 包）
 - **Debian**：`https://mirrors.tuna.tsinghua.edu.cn/debian` 与 `debian-security`（编译工具、bubblewrap、中文字体）
-- **npm**：`https://registry.npmmirror.com`（前端构建依赖，含 npm 缓存挂载）
 - **Hugging Face**：`https://hf-mirror.com`（首次摄入时下载嵌入模型）
 
-构建阶段会缓存 apt、uv 与 npm 下载，重复构建不会重新拉取依赖。海外网络或需要使用其他镜像时，在 `.env.prod` 中覆盖：
+构建阶段会缓存 apt 与 uv 下载，重复构建不会重新拉取依赖。前端在宿主机构建，建议为 npm 配置国内源：
+
+```bash
+npm config set registry https://registry.npmmirror.com
+```
+
+后端镜像源可在 `.env.prod` 中覆盖：
 
 ```dotenv
 PYPI_INDEX_URL=https://pypi.org/simple
@@ -92,24 +103,26 @@ NPM_REGISTRY=https://registry.npmjs.org
 HF_ENDPOINT=https://huggingface.co
 ```
 
-修改后重新执行 `./deploy.sh` 即可生效。基础镜像（Python / Node / nginx / PostgreSQL / Qdrant）仍从 Docker Hub 拉取；若拉取缓慢，可为本机 Docker 配置 registry mirror，或提前 `docker pull` 对应镜像。
+修改后重新执行 `./deploy.sh` 即可生效。基础镜像（Python / nginx / PostgreSQL / Qdrant）仍从 Docker Hub 拉取；若拉取缓慢，可为本机 Docker 配置 registry mirror，或提前 `docker pull` 对应镜像。
 
-### 低内存主机构建
+### 低内存主机构建（前端）
 
-前端构建会执行 TypeScript 检查与 Vite 打包。镜像默认把 Node 堆上限设为 2048 MB：实测完整构建的峰值常驻内存约 2.0–2.2 GB，低于 1.5 GB 会直接堆溢出。旧版本使用 4 GB 上限，容易在内存较小的主机上触发 OOM（常见表现是构建到 `vite build` 时 SSH 连接被远端关闭，或构建容器被系统杀死）。
+前端不再在 Docker 镜像内构建：Compose 使用 `nginx:1.27-alpine`，把宿主机的 `frontend/dist` 只读挂载到容器。这样低内存主机不会因 Vite 打包占用 2 GB 以上内存而在 `docker build` 阶段被 OOM 杀死（退出码 137）。
 
-若构建仍然中断：
+推荐流程：
 
-- 先暂停其他容器，再单独构建前端，完成后恢复：
+```bash
+# 在内存充足的机器或本机构建
+(cd frontend && npm ci && npm run build)
 
-  ```bash
-  docker compose -f docker-compose.prod.yml stop backend postgres qdrant
-  docker compose -f docker-compose.prod.yml build frontend
-  docker compose -f docker-compose.prod.yml up -d
-  ```
+# 把 frontend/dist 同步到服务器（或直接在服务器上构建）
+rsync -av --delete frontend/dist/ user@server:/path/to/Kiwi/frontend/dist/
 
-- 或在宿主机增加 swap；
-- 内存充裕时可在 `.env.prod` 中提高上限，例如 `NODE_MAX_OLD_SPACE_MB=3072`；不建议低于 1536。
+# 服务器上只启动 / 更新后端容器
+./deploy.sh
+```
+
+前端更新后重新生成 `frontend/dist` 即可，nginx 直接读取新文件，无需重启或重建容器。若希望把静态产物打进不可变镜像，可先构建 `dist`，再执行 `docker build -f deploy/frontend.Dockerfile -t kiwi-frontend .`。
 
 ### 线上嵌入模型（无法本地向量化时）
 
@@ -167,8 +180,7 @@ QDRANT_GRPC_PORT=16334
 | `KIWI_FERNET_KEY` | 自动生成 | 模型 Key 加密密钥，必须长期保持 |
 | `PYPI_INDEX_URL` | 清华 PyPI 镜像 | 后端构建时的 Python 包源 |
 | `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` | 清华 Debian 镜像 | 后端构建时的系统包源 |
-| `NPM_REGISTRY` | `https://registry.npmmirror.com` | 前端构建时的 npm 源 |
-| `NODE_MAX_OLD_SPACE_MB` | `2048` | 前端构建 Node 堆上限；不建议低于 1536 |
+| `NPM_REGISTRY` | `https://registry.npmmirror.com` | 宿主机前端构建建议使用的 npm 源（手动 `npm config set registry`） |
 | `HF_ENDPOINT` | `https://hf-mirror.com` | 本地嵌入模型下载地址，海外可设为官方地址 |
 | `KIWI_EMBED_PROVIDER` | `local` | `local` 本地 fastembed；`openai` 使用线上接口 |
 | `KIWI_EMBED_API_BASE` | 空 | 线上 embedding 接口地址，如 `https://api.openai.com/v1` |
@@ -311,7 +323,7 @@ deploy.sh                    一键部署脚本
 docker-compose.prod.yml      生产 Compose
 .env.prod.example            环境变量模板
 deploy/backend.Dockerfile    后端镜像
-deploy/frontend.Dockerfile   前端构建 + nginx 镜像
+deploy/frontend.Dockerfile   可选：预构建 dist 的 nginx 运行时镜像
 deploy/nginx.conf            静态托管与 API / 媒体代理
 deploy/entrypoint.sh         迁移 + 启动
 .dockerignore                构建上下文裁剪
