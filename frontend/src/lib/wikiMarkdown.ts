@@ -30,6 +30,21 @@ function cleanInline(value: string): string {
     .trim()
 }
 
+/**
+ * 编译产物与导入笔记常以 `# 标题` 开头，而页面头部/笔记头部已经展示标题。
+ * 若正文首个一级标题与外部标题一致，渲染时去掉它，避免同一标题出现两次。
+ */
+export function stripLeadingTitleHeading(content: string, title: string): string {
+  const body = content || ''
+  const wanted = cleanInline(title || '').replace(/\s+/g, ' ')
+  if (!wanted) return body
+  const match = /^\s*#\s+(.+?)\s*(?:\r?\n|$)/.exec(body)
+  if (!match) return body
+  const heading = cleanInline(match[1]).replace(/\s+/g, ' ')
+  if (heading !== wanted) return body
+  return body.slice(match[0].length).replace(/^\s+/, '')
+}
+
 export function extractHeadings(content: string): HeadingItem[] {
   const items: HeadingItem[] = []
   let inFence = false

@@ -11,7 +11,12 @@ import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import KiwiSkeleton from '@/components/ui/KiwiSkeleton.vue'
 import WikiMarkdown from '@/components/wiki/WikiMarkdown.vue'
 import WikiPageTree from '@/components/wiki/WikiPageTree.vue'
-import { extractHeadings, type HeadingItem, type WikiLinkTarget } from '@/lib/wikiMarkdown'
+import {
+  extractHeadings,
+  stripLeadingTitleHeading,
+  type HeadingItem,
+  type WikiLinkTarget,
+} from '@/lib/wikiMarkdown'
 import { toast } from '@/components/ui/toast'
 
 interface WikiSource {
@@ -129,23 +134,9 @@ const linkIndex = computed<WikiLinkTarget[]>(() =>
   pages.value.map((p) => ({ id: p.id, slug: p.slug, title: p.title })),
 )
 
-/**
- * 编译产物通常以 `# 页面标题` 开头，页面头部已经展示标题；
- * 阅读时去掉重复的一级标题，避免同一标题连续出现两次。
- */
-const displayBody = computed(() => {
-  const body = page.value?.body_md || ''
-  const title = (page.value?.title || '').trim()
-  if (!title) return body
-  const match = body.match(/^\s*#\s+(.+?)\s*(?:\r?\n|$)/)
-  if (!match) return body
-  const heading = match[1]
-    .replace(/[*_`]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (heading !== title.replace(/\s+/g, ' ')) return body
-  return body.slice(match[0].length).replace(/^\s+/, '')
-})
+const displayBody = computed(() =>
+  stripLeadingTitleHeading(page.value?.body_md || '', page.value?.title || ''),
+)
 
 const headings = computed<HeadingItem[]>(() => extractHeadings(displayBody.value))
 const toc = computed(() => headings.value.filter((h) => h.level <= 3))

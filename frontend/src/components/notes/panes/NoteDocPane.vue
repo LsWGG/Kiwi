@@ -21,6 +21,7 @@ import NoteTagButton from '@/components/notes/NoteTagButton.vue'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
 import { useSyncedScroll } from '@/composables/useSyncedScroll'
+import { stripLeadingTitleHeading } from '@/lib/wikiMarkdown'
 import {
   resolveDocxPrefs,
   resolveEditorMode,
@@ -73,6 +74,10 @@ const viewMode = ref<DocView>(initialView())
 const readMode = computed(() => viewMode.value === 'read')
 const showOutline = computed(() => viewMode.value === 'outline')
 const splitMode = computed(() => viewMode.value === 'split')
+
+// 头部已经展示标题，阅读态与分屏预览不再重复渲染正文的首个同名一级标题。
+const previewBody = computed(() => stripLeadingTitleHeading(body.value, title.value))
+const readBody = computed(() => (readMode.value ? previewBody.value : body.value))
 
 function setView(mode: DocView) {
   if (viewMode.value === mode) return
@@ -849,7 +854,7 @@ async function copyMarkdown() {
             :key="editorMode"
             ref="editorRef"
             class="flex-1"
-            :content="body"
+            :content="readBody"
             :note-id="note.id"
             :readonly="readMode || importing"
             :mode="editorMode"
@@ -918,7 +923,7 @@ async function copyMarkdown() {
           <h1 class="mb-3 text-[24px] leading-tight font-semibold text-slate-800">
             {{ title || '无标题文档' }}
           </h1>
-          <MarkdownView :content="body" />
+          <MarkdownView :content="previewBody" />
         </div>
       </div>
 
