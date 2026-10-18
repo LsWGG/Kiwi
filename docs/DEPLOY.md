@@ -187,6 +187,7 @@ QDRANT_GRPC_PORT=16334
 | `KIWI_EMBED_API_BASE` | 空 | 线上 embedding 接口地址，如 `https://api.openai.com/v1` |
 | `KIWI_EMBED_API_KEY` | 空 | 线上接口 API Key（本地服务可留空） |
 | `KIWI_EMBED_API_MODEL` | `text-embedding-3-small` | 线上 embedding 模型名 |
+| `KIWI_RETRIEVAL_MIN_SCORE` | `0.4` | 检索最低余弦相似度；低于该值的命中不进入问答上下文与引用，设为 `0` 关闭过滤 |
 | `KIWI_LLM_TIMEOUT` | `600` | LLM 请求超时（秒） |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 
@@ -315,6 +316,16 @@ sudo apt-get install docker-buildx-plugin
 ```
 
 或改用官方 Docker 软件源升级 Docker Engine 24+。不建议为了兼容旧版构建器删除缓存挂载，否则每次构建都会重新下载全部依赖。
+
+### 部署后没有内置演示知识库
+
+内置演示库会在后端启动时写入；若写入失败，API 仍会启动，知识库列表为空。先查看日志：
+
+```bash
+./deploy.sh logs backend | grep -i "内置\|builtin"
+```
+
+0.1.3 已修复演示数据中日期字段导致的首次建库回滚。升级后重启即可自动创建；也可以在知识库页点击「创建内置知识库」手动生成。该操作会按当前随包内容重建演示数据。
 
 ### 上传返回 413
 

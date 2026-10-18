@@ -66,7 +66,7 @@ services:
         PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian}
         DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
-    image: kiwi-backend:0.1.2
+    image: kiwi-backend:0.1.3
     container_name: kiwi-prod-backend
     restart: unless-stopped
     init: true
