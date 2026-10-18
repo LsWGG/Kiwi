@@ -1265,67 +1265,6 @@ main,
   font-size: 11px;
 }
 
-/* ---------- why ---------- */
-.why-grid {
-  display: grid;
-  grid-template-columns: 0.9fr 1.1fr;
-  align-items: start;
-  gap: 76px;
-}
-
-.why-intro {
-  position: sticky;
-  top: 126px;
-}
-
-.why-intro .section-title {
-  font-size: clamp(31px, 3.5vw, 45px);
-}
-
-.why-list {
-  display: grid;
-  gap: 15px;
-}
-
-.why-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 22px;
-  padding: 27px 28px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012));
-  transition: border-color 0.3s, transform 0.4s var(--ease), background 0.3s;
-}
-
-.why-item:hover {
-  transform: translateY(-3px);
-  border-color: var(--line-strong);
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.018));
-}
-
-.why-num {
-  padding-top: 3px;
-  color: var(--mint);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-}
-
-.why-item h3 {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.why-item p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13.5px;
-  line-height: 1.74;
-}
-
 /* ---------- start ---------- */
 .start-card {
   position: relative;
@@ -2364,16 +2303,6 @@ main,
   .hero-visual {
     width: min(100%, 780px);
     margin-inline: auto;
-  }
-
-  .why-grid {
-    grid-template-columns: 1fr;
-    gap: 42px;
-  }
-
-  .why-intro {
-    position: static;
-    max-width: 640px;
   }
 
   .start-card {
