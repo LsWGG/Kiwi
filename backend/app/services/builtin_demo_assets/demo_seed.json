@@ -277,7 +277,7 @@
       "folder_id": "7f35561b-a6c0-58ca-b677-a8f91aed364e",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 0,
       "props_json": {
         "wiki_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0"
@@ -294,7 +294,7 @@
       "folder_id": "7f35561b-a6c0-58ca-b677-a8f91aed364e",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 1,
       "props_json": {
         "wiki_page_id": "55fb6016-fe93-5c5a-b256-1fdbade63767"
@@ -311,7 +311,7 @@
       "folder_id": "7f35561b-a6c0-58ca-b677-a8f91aed364e",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 2,
       "props_json": {},
       "created_at": "2026-10-18T09:09:00+00:00",
@@ -326,7 +326,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 0,
       "props_json": {
         "wiki_page_id": "55fb6016-fe93-5c5a-b256-1fdbade63767"
@@ -343,7 +343,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 1,
       "props_json": {
         "wiki_page_id": "80f00220-0846-5e7d-b163-04c75b7162b9"
@@ -360,7 +360,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 2,
       "props_json": {
         "wiki_page_id": "cb34aa6e-e2e4-53b5-b1df-fd9986483a22"
@@ -377,7 +377,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 3,
       "props_json": {
         "wiki_page_id": "cd5f975a-9d44-5601-93dc-8242187901bb"
@@ -394,30 +394,26 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 4,
       "props_json": {
         "wiki_page_id": "58403d26-d1ef-5913-bc2f-1bc36acc523b",
         "notebook_doc": {
-          "version": 1,
-          "language": "python",
           "cells": [
             {
               "id": "nb-md-1",
               "type": "markdown",
-              "source": "# 学习记录分析\n\n> 数据范围：2026-10-06 至 2026-10-18 ｜ 分析人：许澄\n>\n> 这个 Notebook 演示三件事：用 pandas 汇总学习记录、把 DataFrame 直接渲染成表格、把结论写回同一篇文档。代码单元格可以直接运行。\n\n下面的数据来自本库「学习」页的知识点掌握度与练习记录（已做脱敏与取整）。",
-              "outputs": [],
-              "execution_count": null
+              "source": "# 学习记录分析\n\n> 数据范围：2026-10-06 至 2026-10-18 ｜ 分析人：许澄\n>\n> 这个 Notebook 演示三件事：用 pandas 汇总学习记录、把结果渲染成 KPI 面板与掌握度分布图、把结论写回同一篇文档。代码单元格可以直接运行。\n\n下面的数据来自本库「学习」页的知识点掌握度与练习记录（已做脱敏与取整）。"
             },
             {
               "id": "nb-code-1",
               "type": "code",
-              "source": "import pandas as pd\n\nrecords = [\n    (\"笔记工作区\", 0.86, 12, 11),\n    (\"双向链接\", 0.80, 10, 9),\n    (\"知识库\", 0.78, 9, 8),\n    (\"Wiki 编译\", 0.72, 11, 9),\n    (\"学习图谱\", 0.68, 8, 6),\n    (\"学习闭环\", 0.65, 6, 5),\n    (\"画布\", 0.62, 7, 5),\n    (\"Notebook\", 0.58, 6, 4),\n    (\"学习模式\", 0.57, 9, 6),\n    (\"数据表视图\", 0.54, 7, 4),\n    (\"间隔重复\", 0.40, 8, 4),\n    (\"导入流水线\", 0.34, 6, 3),\n    (\"仿真考试\", 0.31, 5, 2),\n]\n\ndf = pd.DataFrame(records, columns=[\"知识点\", \"掌握度\", \"练习题\", \"答对\"])\ndf[\"正确率\"] = (df[\"答对\"] / df[\"练习题\"] * 100).round(0).astype(int)\n\nprint(f\"平均掌握度：{df['掌握度'].mean():.0%}\")\nprint(f\"总正确率：{df['答对'].sum() / df['练习题'].sum():.0%}\")\nprint(\"最薄弱的三个知识点：\", \"、\".join(df.nsmallest(3, \"掌握度\")[\"知识点\"]))\n",
+              "source": "import pandas as pd\nfrom string import Template\n\nrecords = [\n    (\"笔记工作区\", 0.86, 12, 11),\n    (\"双向链接\", 0.80, 10, 9),\n    (\"知识库\", 0.78, 9, 8),\n    (\"Wiki 编译\", 0.72, 11, 9),\n    (\"学习图谱\", 0.68, 8, 6),\n    (\"学习闭环\", 0.65, 6, 5),\n    (\"画布\", 0.62, 7, 5),\n    (\"Notebook\", 0.58, 6, 4),\n    (\"学习模式\", 0.57, 9, 6),\n    (\"数据表视图\", 0.54, 7, 4),\n    (\"间隔重复\", 0.40, 8, 4),\n    (\"导入流水线\", 0.34, 6, 3),\n    (\"仿真考试\", 0.31, 5, 2),\n]\n\ndf = pd.DataFrame(records, columns=[\"知识点\", \"掌握度\", \"练习题\", \"答对\"])\ndf[\"正确率\"] = (df[\"答对\"] / df[\"练习题\"] * 100).round(0).astype(int)\n\n\nclass Panel:\n    \"\"\"让内核把 HTML 作为富输出渲染，而不是打印对象。\"\"\"\n\n    def __init__(self, html):\n        self.html = html\n\n    def __repr__(self):\n        return \"Kiwi 学习数据面板\"\n\n    def _repr_html_(self):\n        return self.html\n\n\navg = df[\"掌握度\"].mean()\naccuracy = df[\"答对\"].sum() / df[\"练习题\"].sum()\npending = int((df[\"掌握度\"] < 0.45).sum())\n\nCARD = Template(\"\"\"\n<div style=\"padding:12px 14px;border-radius:12px;background:rgba(148,163,184,.07);border:1px solid rgba(148,163,184,.13);\">\n  <div style=\"font-size:10px;letter-spacing:.08em;color:#8fa0bf;\">$label</div>\n  <div style=\"display:flex;align-items:baseline;gap:6px;margin-top:4px;white-space:nowrap;\">\n    <span style=\"font-size:23px;font-weight:700;letter-spacing:-.03em;color:$color;font-variant-numeric:tabular-nums;\">$value</span>\n    <span style=\"font-size:10px;color:#8294b3;\">$note</span>\n  </div>\n</div>\"\"\")\n\ncards = \"\".join(\n    CARD.substitute(label=label, value=value, note=note, color=color)\n    for label, value, note, color in [\n        (\"总正确率\", f\"{accuracy:.0%}\", \"76 / 104 题\", \"#67e8f9\"),\n        (\"练习总量\", f\"{df['练习题'].sum()}\", \"13 个知识点\", \"#c4b5fd\"),\n        (\"待加强\", str(pending), \"掌握度 < 45%\", \"#fbbf24\"),\n    ]\n)\n\nPANEL = Template(\"\"\"\n<div style=\"position:relative;overflow:hidden;padding:20px 22px 18px;border-radius:16px;color:#e2e8f0;background:linear-gradient(145deg,#0b1220 0%,#101a2f 55%,#0d1526 100%);border:1px solid rgba(148,163,184,.16);box-shadow:0 18px 50px -24px rgba(15,23,42,.65);\">\n  <div style=\"position:absolute;top:-80px;right:-40px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.25),rgba(139,92,246,0) 68%);\"></div>\n  <div style=\"position:absolute;bottom:-110px;left:-50px;width:230px;height:230px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.13),rgba(34,211,238,0) 70%);\"></div>\n  <div style=\"position:relative;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;\">\n    <div>\n      <div style=\"font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:#7c8db5;\">Learning Pulse</div>\n      <div style=\"margin-top:5px;font-size:18px;font-weight:600;letter-spacing:-.02em;color:#f1f5f9;\">学习记录概览</div>\n    </div>\n    <div style=\"font-size:10.5px;color:#8294b3;letter-spacing:.04em;white-space:nowrap;\">2026.10.06 — 10.18</div>\n  </div>\n  <div style=\"position:relative;display:flex;align-items:center;gap:22px;flex-wrap:wrap;\">\n    <div style=\"display:flex;align-items:center;gap:14px;min-width:196px;\">\n      <div style=\"width:94px;height:94px;border-radius:50%;background:conic-gradient(#a78bfa 0 $ring%,rgba(148,163,184,.16) $ring% 100%);display:grid;place-items:center;box-shadow:0 0 0 1px rgba(167,139,250,.2),0 0 32px rgba(139,92,246,.26);\">\n        <div style=\"width:70px;height:70px;border-radius:50%;background:#0d1628;display:grid;place-items:center;text-align:center;\">\n          <div>\n            <div style=\"font-size:20px;font-weight:700;letter-spacing:-.03em;color:#fff;font-variant-numeric:tabular-nums;\">$avg</div>\n            <div style=\"margin-top:1px;font-size:8.5px;letter-spacing:.1em;color:#8294b3;\">平均掌握度</div>\n          </div>\n        </div>\n      </div>\n      <div style=\"font-size:10.5px;line-height:1.9;color:#8294b3;white-space:nowrap;\">\n        <div><span style=\"color:#a78bfa;\">●</span> 13 个知识点</div>\n        <div><span style=\"color:#22d3ee;\">●</span> 104 次作答</div>\n        <div><span style=\"color:#fbbf24;\">●</span> 3 个待加强</div>\n      </div>\n    </div>\n    <div style=\"flex:1;min-width:300px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;\">\n      $cards\n    </div>\n  </div>\n</div>\"\"\")\n\ndisplay(Panel(PANEL.substitute(ring=int(avg * 100), avg=f\"{avg:.0%}\", cards=cards)))\n",
               "outputs": [
                 {
-                  "type": "stream",
-                  "name": "stdout",
-                  "text": "平均掌握度：60%\n总正确率：73%（76/104）\n最薄弱的三个知识点：仿真考试、导入流水线、间隔重复\n"
+                  "type": "execute_result",
+                  "text": "Kiwi 学习数据面板",
+                  "html": "\n<div style=\"position:relative;overflow:hidden;padding:20px 22px 18px;border-radius:16px;color:#e2e8f0;background:linear-gradient(145deg,#0b1220 0%,#101a2f 55%,#0d1526 100%);border:1px solid rgba(148,163,184,.16);box-shadow:0 18px 50px -24px rgba(15,23,42,.65);\">\n  <div style=\"position:absolute;top:-80px;right:-40px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.25),rgba(139,92,246,0) 68%);\"></div>\n  <div style=\"position:absolute;bottom:-110px;left:-50px;width:230px;height:230px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.13),rgba(34,211,238,0) 70%);\"></div>\n  <div style=\"position:relative;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;\">\n    <div>\n      <div style=\"font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:#7c8db5;\">Learning Pulse</div>\n      <div style=\"margin-top:5px;font-size:18px;font-weight:600;letter-spacing:-.02em;color:#f1f5f9;\">学习记录概览</div>\n    </div>\n    <div style=\"font-size:10.5px;color:#8294b3;letter-spacing:.04em;white-space:nowrap;\">2026.10.06 — 10.18</div>\n  </div>\n  <div style=\"position:relative;display:flex;align-items:center;gap:22px;flex-wrap:wrap;\">\n    <div style=\"display:flex;align-items:center;gap:14px;min-width:196px;\">\n      <div style=\"width:94px;height:94px;border-radius:50%;background:conic-gradient(#a78bfa 0 60%,rgba(148,163,184,.16) 60% 100%);display:grid;place-items:center;box-shadow:0 0 0 1px rgba(167,139,250,.2),0 0 32px rgba(139,92,246,.26);\">\n        <div style=\"width:70px;height:70px;border-radius:50%;background:#0d1628;display:grid;place-items:center;text-align:center;\">\n          <div>\n            <div style=\"font-size:20px;font-weight:700;letter-spacing:-.03em;color:#fff;font-variant-numeric:tabular-nums;\">60%</div>\n            <div style=\"margin-top:1px;font-size:8.5px;letter-spacing:.1em;color:#8294b3;\">平均掌握度</div>\n          </div>\n        </div>\n      </div>\n      <div style=\"font-size:10.5px;line-height:1.9;color:#8294b3;white-space:nowrap;\">\n        <div><span style=\"color:#a78bfa;\">●</span> 13 个知识点</div>\n        <div><span style=\"color:#22d3ee;\">●</span> 104 次作答</div>\n        <div><span style=\"color:#fbbf24;\">●</span> 3 个待加强</div>\n      </div>\n    </div>\n    <div style=\"flex:1;min-width:300px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;\">\n      \n<div style=\"padding:12px 14px;border-radius:12px;background:rgba(148,163,184,.07);border:1px solid rgba(148,163,184,.13);\">\n  <div style=\"font-size:10px;letter-spacing:.08em;color:#8fa0bf;\">总正确率</div>\n  <div style=\"display:flex;align-items:baseline;gap:6px;margin-top:4px;white-space:nowrap;\">\n    <span style=\"font-size:23px;font-weight:700;letter-spacing:-.03em;color:#67e8f9;font-variant-numeric:tabular-nums;\">73%</span>\n    <span style=\"font-size:10px;color:#8294b3;\">76 / 104 题</span>\n  </div>\n</div>\n<div style=\"padding:12px 14px;border-radius:12px;background:rgba(148,163,184,.07);border:1px solid rgba(148,163,184,.13);\">\n  <div style=\"font-size:10px;letter-spacing:.08em;color:#8fa0bf;\">练习总量</div>\n  <div style=\"display:flex;align-items:baseline;gap:6px;margin-top:4px;white-space:nowrap;\">\n    <span style=\"font-size:23px;font-weight:700;letter-spacing:-.03em;color:#c4b5fd;font-variant-numeric:tabular-nums;\">104</span>\n    <span style=\"font-size:10px;color:#8294b3;\">13 个知识点</span>\n  </div>\n</div>\n<div style=\"padding:12px 14px;border-radius:12px;background:rgba(148,163,184,.07);border:1px solid rgba(148,163,184,.13);\">\n  <div style=\"font-size:10px;letter-spacing:.08em;color:#8fa0bf;\">待加强</div>\n  <div style=\"display:flex;align-items:baseline;gap:6px;margin-top:4px;white-space:nowrap;\">\n    <span style=\"font-size:23px;font-weight:700;letter-spacing:-.03em;color:#fbbf24;font-variant-numeric:tabular-nums;\">3</span>\n    <span style=\"font-size:10px;color:#8294b3;\">掌握度 < 45%</span>\n  </div>\n</div>\n    </div>\n  </div>\n</div>"
                 }
               ],
               "execution_count": 1
@@ -425,12 +421,12 @@
             {
               "id": "nb-code-2",
               "type": "code",
-              "source": "df.sort_values(\"掌握度\")[[\"知识点\", \"掌握度\", \"正确率\"]]",
+              "source": "from string import Template\n\nBAR = Template(\"\"\"\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">$name</span>\n    <span style=\"font-size:10.5px;color:$color;font-variant-numeric:tabular-nums;\">$mastery%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:$mastery%;height:100%;border-radius:999px;background:linear-gradient(90deg,$c1,$c2);box-shadow:0 0 12px $glow;\"></div>\n    <div style=\"position:absolute;left:$accuracy%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 $accuracy%\"></div>\n  </div>\n</div>\"\"\")\n\n\ndef bar(name, mastery, accuracy):\n    if mastery < 0.45:\n        c1, c2, glow = \"#f59e0b\", \"#fbbf24\", \"rgba(251,191,36,.45)\"\n    elif mastery < 0.65:\n        c1, c2, glow = \"#7c3aed\", \"#a78bfa\", \"rgba(167,139,250,.45)\"\n    else:\n        c1, c2, glow = \"#0d9488\", \"#34d399\", \"rgba(52,211,153,.4)\"\n    return BAR.substitute(\n        name=name,\n        mastery=int(mastery * 100),\n        accuracy=int(accuracy),\n        color=c2,\n        c1=c1,\n        c2=c2,\n        glow=glow,\n    )\n\n\nranked = df.sort_values(\"掌握度\")\nrows = \"\".join(\n    bar(row[\"知识点\"], row[\"掌握度\"], row[\"正确率\"])\n    for _, row in ranked.iterrows()\n)\n\nPANEL = Template(\"\"\"\n<div style=\"position:relative;overflow:hidden;padding:20px 22px 18px;border-radius:16px;color:#e2e8f0;background:linear-gradient(145deg,#0b1220 0%,#111a2e 55%,#0d1526 100%);border:1px solid rgba(148,163,184,.16);box-shadow:0 18px 50px -24px rgba(15,23,42,.65);\">\n  <div style=\"position:absolute;top:-90px;right:-30px;width:250px;height:250px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.18),rgba(34,211,238,0) 68%);\"></div>\n  <div style=\"position:relative;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;\">\n    <div>\n      <div style=\"font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:#7c8db5;\">Mastery Map</div>\n      <div style=\"margin-top:5px;font-size:18px;font-weight:600;letter-spacing:-.02em;color:#f1f5f9;\">掌握度分布</div>\n      <div style=\"margin-top:3px;font-size:10.5px;color:#8294b3;\">按掌握度升序 · 越低越需要优先复习</div>\n    </div>\n    <div style=\"display:flex;gap:16px;align-items:center;padding-top:4px;font-size:10px;color:#8294b3;white-space:nowrap;\">\n      <span><span style=\"display:inline-block;width:14px;height:5px;border-radius:99px;background:linear-gradient(90deg,#7c3aed,#a78bfa);vertical-align:middle;margin-right:5px;\"></span>掌握度</span>\n      <span><span style=\"display:inline-block;width:2px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);vertical-align:middle;margin-right:5px;\"></span>正确率</span>\n    </div>\n  </div>\n  <div style=\"position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:12px 22px;margin-top:16px;\">\n    $rows\n  </div>\n  <div style=\"position:relative;display:flex;align-items:baseline;gap:10px;margin-top:16px;padding:11px 14px;border-radius:11px;background:linear-gradient(90deg,rgba(251,191,36,.13),rgba(139,92,246,.07));border:1px solid rgba(251,191,36,.2);\">\n    <span style=\"font-size:9px;font-weight:600;letter-spacing:.14em;padding:3px 7px;border-radius:999px;background:rgba(251,191,36,.16);color:#fbbf24;\">NEXT</span>\n    <span style=\"font-size:11px;line-height:1.6;color:#cbd5e1;\">先清空到期复习，再对 <span style=\"color:#fbbf24;\">仿真考试</span> 与 <span style=\"color:#fbbf24;\">导入流水线</span> 各做一轮定向训练。</span>\n  </div>\n</div>\"\"\")\n\ndisplay(Panel(PANEL.substitute(rows=rows)))\n",
               "outputs": [
                 {
                   "type": "execute_result",
-                  "text": "按掌握度升序排列的知识点",
-                  "html": "<table border=\"1\" class=\"dataframe\"><thead><tr><th>知识点</th><th>掌握度</th><th>练习题</th><th>答对</th><th>正确率</th></tr></thead><tbody><tr><td>笔记工作区</td><td>86%</td><td>12</td><td>11</td><td>92%</td></tr><tr><td>双向链接</td><td>80%</td><td>10</td><td>9</td><td>90%</td></tr><tr><td>知识库</td><td>78%</td><td>9</td><td>8</td><td>89%</td></tr><tr><td>Wiki 编译</td><td>72%</td><td>11</td><td>9</td><td>82%</td></tr><tr><td>学习图谱</td><td>68%</td><td>8</td><td>6</td><td>75%</td></tr><tr><td>学习闭环</td><td>65%</td><td>6</td><td>5</td><td>83%</td></tr><tr><td>画布</td><td>62%</td><td>7</td><td>5</td><td>71%</td></tr><tr><td>Notebook</td><td>57%</td><td>6</td><td>4</td><td>67%</td></tr><tr><td>学习模式</td><td>56%</td><td>9</td><td>6</td><td>67%</td></tr><tr><td>数据表视图</td><td>54%</td><td>7</td><td>4</td><td>57%</td></tr><tr><td>间隔重复</td><td>40%</td><td>8</td><td>4</td><td>50%</td></tr><tr><td>导入流水线</td><td>34%</td><td>6</td><td>3</td><td>50%</td></tr><tr><td>仿真考试</td><td>31%</td><td>5</td><td>2</td><td>40%</td></tr></tbody></table>"
+                  "text": "Kiwi 学习数据面板",
+                  "html": "\n<div style=\"position:relative;overflow:hidden;padding:20px 22px 18px;border-radius:16px;color:#e2e8f0;background:linear-gradient(145deg,#0b1220 0%,#111a2e 55%,#0d1526 100%);border:1px solid rgba(148,163,184,.16);box-shadow:0 18px 50px -24px rgba(15,23,42,.65);\">\n  <div style=\"position:absolute;top:-90px;right:-30px;width:250px;height:250px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.18),rgba(34,211,238,0) 68%);\"></div>\n  <div style=\"position:relative;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;\">\n    <div>\n      <div style=\"font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:#7c8db5;\">Mastery Map</div>\n      <div style=\"margin-top:5px;font-size:18px;font-weight:600;letter-spacing:-.02em;color:#f1f5f9;\">掌握度分布</div>\n      <div style=\"margin-top:3px;font-size:10.5px;color:#8294b3;\">按掌握度升序 · 越低越需要优先复习</div>\n    </div>\n    <div style=\"display:flex;gap:16px;align-items:center;padding-top:4px;font-size:10px;color:#8294b3;white-space:nowrap;\">\n      <span><span style=\"display:inline-block;width:14px;height:5px;border-radius:99px;background:linear-gradient(90deg,#7c3aed,#a78bfa);vertical-align:middle;margin-right:5px;\"></span>掌握度</span>\n      <span><span style=\"display:inline-block;width:2px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);vertical-align:middle;margin-right:5px;\"></span>正确率</span>\n    </div>\n  </div>\n  <div style=\"position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:12px 22px;margin-top:16px;\">\n    \n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">仿真考试</span>\n    <span style=\"font-size:10.5px;color:#fbbf24;font-variant-numeric:tabular-nums;\">31%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:31%;height:100%;border-radius:999px;background:linear-gradient(90deg,#f59e0b,#fbbf24);box-shadow:0 0 12px rgba(251,191,36,.45);\"></div>\n    <div style=\"position:absolute;left:40%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 40%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">导入流水线</span>\n    <span style=\"font-size:10.5px;color:#fbbf24;font-variant-numeric:tabular-nums;\">34%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:34%;height:100%;border-radius:999px;background:linear-gradient(90deg,#f59e0b,#fbbf24);box-shadow:0 0 12px rgba(251,191,36,.45);\"></div>\n    <div style=\"position:absolute;left:50%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 50%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">间隔重复</span>\n    <span style=\"font-size:10.5px;color:#fbbf24;font-variant-numeric:tabular-nums;\">40%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:40%;height:100%;border-radius:999px;background:linear-gradient(90deg,#f59e0b,#fbbf24);box-shadow:0 0 12px rgba(251,191,36,.45);\"></div>\n    <div style=\"position:absolute;left:50%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 50%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">数据表视图</span>\n    <span style=\"font-size:10.5px;color:#a78bfa;font-variant-numeric:tabular-nums;\">54%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:54%;height:100%;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#a78bfa);box-shadow:0 0 12px rgba(167,139,250,.45);\"></div>\n    <div style=\"position:absolute;left:57%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 57%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">学习模式</span>\n    <span style=\"font-size:10.5px;color:#a78bfa;font-variant-numeric:tabular-nums;\">56%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:56%;height:100%;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#a78bfa);box-shadow:0 0 12px rgba(167,139,250,.45);\"></div>\n    <div style=\"position:absolute;left:67%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 67%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">Notebook</span>\n    <span style=\"font-size:10.5px;color:#a78bfa;font-variant-numeric:tabular-nums;\">57%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:57%;height:100%;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#a78bfa);box-shadow:0 0 12px rgba(167,139,250,.45);\"></div>\n    <div style=\"position:absolute;left:67%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 67%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">画布</span>\n    <span style=\"font-size:10.5px;color:#a78bfa;font-variant-numeric:tabular-nums;\">62%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:62%;height:100%;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#a78bfa);box-shadow:0 0 12px rgba(167,139,250,.45);\"></div>\n    <div style=\"position:absolute;left:71%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 71%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">学习闭环</span>\n    <span style=\"font-size:10.5px;color:#34d399;font-variant-numeric:tabular-nums;\">65%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:65%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0d9488,#34d399);box-shadow:0 0 12px rgba(52,211,153,.4);\"></div>\n    <div style=\"position:absolute;left:83%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 83%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">学习图谱</span>\n    <span style=\"font-size:10.5px;color:#34d399;font-variant-numeric:tabular-nums;\">68%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:68%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0d9488,#34d399);box-shadow:0 0 12px rgba(52,211,153,.4);\"></div>\n    <div style=\"position:absolute;left:75%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 75%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">Wiki 编译</span>\n    <span style=\"font-size:10.5px;color:#34d399;font-variant-numeric:tabular-nums;\">72%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:72%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0d9488,#34d399);box-shadow:0 0 12px rgba(52,211,153,.4);\"></div>\n    <div style=\"position:absolute;left:82%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 82%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">知识库</span>\n    <span style=\"font-size:10.5px;color:#34d399;font-variant-numeric:tabular-nums;\">78%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:78%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0d9488,#34d399);box-shadow:0 0 12px rgba(52,211,153,.4);\"></div>\n    <div style=\"position:absolute;left:89%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 89%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">双向链接</span>\n    <span style=\"font-size:10.5px;color:#34d399;font-variant-numeric:tabular-nums;\">80%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:80%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0d9488,#34d399);box-shadow:0 0 12px rgba(52,211,153,.4);\"></div>\n    <div style=\"position:absolute;left:90%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 90%\"></div>\n  </div>\n</div>\n<div style=\"min-width:0;\">\n  <div style=\"display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px;\">\n    <span style=\"font-size:11.5px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">笔记工作区</span>\n    <span style=\"font-size:10.5px;color:#34d399;font-variant-numeric:tabular-nums;\">86%</span>\n  </div>\n  <div style=\"position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.14);\">\n    <div style=\"width:86%;height:100%;border-radius:999px;background:linear-gradient(90deg,#0d9488,#34d399);box-shadow:0 0 12px rgba(52,211,153,.4);\"></div>\n    <div style=\"position:absolute;left:92%;top:-2px;width:1.5px;height:10px;border-radius:2px;background:rgba(226,232,240,.72);\" title=\"正确率 92%\"></div>\n  </div>\n</div>\n  </div>\n  <div style=\"position:relative;display:flex;align-items:baseline;gap:10px;margin-top:16px;padding:11px 14px;border-radius:11px;background:linear-gradient(90deg,rgba(251,191,36,.13),rgba(139,92,246,.07));border:1px solid rgba(251,191,36,.2);\">\n    <span style=\"font-size:9px;font-weight:600;letter-spacing:.14em;padding:3px 7px;border-radius:999px;background:rgba(251,191,36,.16);color:#fbbf24;\">NEXT</span>\n    <span style=\"font-size:11px;line-height:1.6;color:#cbd5e1;\">先清空到期复习，再对 <span style=\"color:#fbbf24;\">仿真考试</span> 与 <span style=\"color:#fbbf24;\">导入流水线</span> 各做一轮定向训练。</span>\n  </div>\n</div>"
                 }
               ],
               "execution_count": 2
@@ -438,11 +434,11 @@
             {
               "id": "nb-md-2",
               "type": "markdown",
-              "source": "## 三点发现\n\n1. **输入链路最弱**：导入流水线掌握度 34%，说明「资料进来之后发生了什么」还没有建立稳定心智；\n2. **复习没有形成节奏**：间隔重复 40%，练习量不少（8 题）但正确率只有 50%，属于「做过但没记住」；\n3. **考试暴露了边界问题**：仿真考试 31%，其中判断题失分最多，定义边界需要再读原文。\n\n## 下一步\n\n- 本周优先清空到期复习，再做一轮定向训练；\n- 回到 [[复习与仿真考试]] 重读「复习队列」与「成绩怎么看」；\n- 每完成一次仿真考试，就把薄弱知识点加进下一次学习计划。\n\n> 结论不是终点：把这段文字留在 Notebook 里，下次复盘可以直接对照数据变化。",
-              "outputs": [],
-              "execution_count": null
+              "source": "## 三点发现\n\n1. **输入链路最弱**：导入流水线掌握度 34%，说明「资料进来之后发生了什么」还没有建立稳定心智；\n2. **复习没有形成节奏**：间隔重复 40%，练习量不少（8 题）但正确率只有 50%，属于「做过但没记住」；\n3. **考试暴露了边界问题**：仿真考试 31%，其中判断题失分最多，定义边界需要再读原文。\n\n## 下一步\n\n- 本周优先清空到期复习，再做一轮定向训练；\n- 回到 [[复习与仿真考试]] 重读「复习队列」与「成绩怎么看」；\n- 每完成一次仿真考试，就把薄弱知识点加进下一次学习计划。\n\n> 结论不是终点：把这段文字留在 Notebook 里，下次复盘可以直接对照数据变化。"
             }
-          ]
+          ],
+          "version": 1,
+          "language": "python"
         }
       },
       "created_at": "2026-10-18T09:41:00+00:00",
@@ -457,7 +453,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": "777991d3-1ab7-570e-a11b-eab4f6ba0c5e",
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 5,
       "props_json": {
         "wiki_page_id": "9d63ee17-708b-5557-8294-e8f18b6bd897",
@@ -486,7 +482,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 6,
       "props_json": {
         "link": {
@@ -513,7 +509,7 @@
       "folder_id": "fa350d69-0675-5b93-b02e-fb641bb77063",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 0,
       "props_json": {
         "wiki_page_id": "b56058d7-d986-5e09-8d32-dac328d9b55c"
@@ -530,7 +526,7 @@
       "folder_id": "fa350d69-0675-5b93-b02e-fb641bb77063",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 1,
       "props_json": {
         "wiki_page_id": "2ce15a8a-4795-5f04-8ae1-d614076e6e20"
@@ -547,7 +543,7 @@
       "folder_id": "fa350d69-0675-5b93-b02e-fb641bb77063",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 2,
       "props_json": {
         "wiki_page_id": "ab903b64-50f0-5618-89f0-4d69ecb742be"
@@ -564,7 +560,7 @@
       "folder_id": "39896f23-8be7-52c9-8668-6f5478fe4de1",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 0,
       "props_json": {
         "wiki_page_id": "d8c50cbf-39de-571a-86d1-c6ebba20eb03"
@@ -581,7 +577,7 @@
       "folder_id": "39896f23-8be7-52c9-8668-6f5478fe4de1",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 1,
       "props_json": {
         "wiki_page_id": "38afa9e7-b21f-53df-9da5-408823b81159"
@@ -598,7 +594,7 @@
       "folder_id": "667b6873-0f9f-5132-b46b-49e69b2db15d",
       "source_id": "9b55131b-50fc-5a2c-9dd5-f569c33b06ce",
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 0,
       "props_json": {
         "wiki_page_id": "58a6dfac-240e-5699-b0ea-62ed601b140f",
@@ -627,7 +623,7 @@
       "folder_id": "667b6873-0f9f-5132-b46b-49e69b2db15d",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 1,
       "props_json": {},
       "created_at": "2026-10-18T10:44:00+00:00",
@@ -642,7 +638,7 @@
       "folder_id": "667b6873-0f9f-5132-b46b-49e69b2db15d",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 2,
       "props_json": {},
       "created_at": "2026-10-18T10:51:00+00:00",
@@ -657,7 +653,7 @@
       "folder_id": "667b6873-0f9f-5132-b46b-49e69b2db15d",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 3,
       "props_json": {},
       "created_at": "2026-10-18T10:58:00+00:00",
@@ -672,7 +668,7 @@
       "folder_id": "f5143f48-b530-5891-af32-855c84b7994f",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 0,
       "props_json": {},
       "created_at": "2026-10-18T11:05:00+00:00",
@@ -687,7 +683,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 7,
       "props_json": {
         "canvas_doc": {
@@ -993,7 +989,7 @@
       "folder_id": "77dc62ad-a928-5ea0-b7fe-ac6616ac9559",
       "source_id": null,
       "status": "active",
-      "view_mode": "edit",
+      "view_mode": "read",
       "sort_order": 8,
       "props_json": {
         "canvas_doc": {
