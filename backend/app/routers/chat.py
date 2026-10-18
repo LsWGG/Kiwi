@@ -1,10 +1,12 @@
 """流式问答路由：检索增强 → LLM 流式生成 → SSE 事件。
 
-事件：chunk(citation 内嵌) / citation / done / error / keepalive。
-引用严格限定在用户检索范围内（kb_id 边界由检索层强制）。
+检索范围为 Wiki 页面 + 工作区笔记；笔记是素材整理后的最终形态，
+因此不再检索 raw_chunks。事件：chunk(citation 内嵌) / citation / done /
+error / keepalive。引用严格限定在用户检索范围内（kb_id 边界由检索层强制）。
 """
 
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,11 +14,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import KnowledgeBase, LLMConfig, WikiLink, WikiPage
+from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
 from app.services.llm_factory import LLMCrypto, llm_factory
+from app.services.note_indexer import ensure_notes_indexed
 from app.services.retrieval import route_intent, search
+
+logger = logging.getLogger("kiwi.chat")
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -140,23 +145,33 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         raise HTTPException(400, "问题不能为空")
 
     intent = route_intent(query) if data.intent in (None, "auto") else data.intent
-    if intent not in ("wiki", "raw"):
+    # 兼容旧客户端：raw 意图改由笔记承载（笔记是素材整理后的最终形态）。
+    if intent == "raw":
+        intent = "note"
+    if intent not in ("wiki", "note"):
         raise HTTPException(400, "无效的检索意图")
-    # 意图路由：Wiki 优先（概念/综合）或 Raw 优先（精确引用/事实核验）
+    # 意图路由：Wiki 优先（概念/综合）或笔记优先（精确定位、事实核验）
     wiki_limit = 8 if intent == "wiki" else 4
-    raw_limit = 8 if intent == "raw" else 4
+    # 多取一些笔记分块：数据表 / 长文档的相邻行可能排在稍后的名次，
+    # 只取 8 条会漏掉尾部记录；合并后仍按笔记去重并受上下文预算约束。
+    note_limit = 16
     wiki_hits = await search(
         session, query, kb_ids, limit=wiki_limit, collection="wiki"
     )
-    raw_hits = await search(
-        session, query, kb_ids, limit=raw_limit, collection="raw"
+    try:
+        # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
+        await ensure_notes_indexed(kb_ids)
+    except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
+        logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
+    note_hits = await search(
+        session, query, kb_ids, limit=note_limit, collection="note"
     )
     kb_names = await _kb_names(session, kb_ids)
 
     context_parts: list[str] = []
     citations: list[Citation] = []
     seen_pages: set[uuid.UUID] = set()
-    seen_chunks: set[tuple[str, int]] = set()
+    seen_notes: set[uuid.UUID] = set()
 
     def add_wiki(
         *,
@@ -190,40 +205,100 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         # 资料序号与 citations 下标一致，供模型输出 [n] 引用
         context_parts.append(f"[{len(citations)}] ({prefix}) {title}\n{(body or '')[:1500]}")
 
-    def add_raw(
+    def add_note(
         *,
-        source_id: str,
-        source_title: str,
+        note_id: str,
+        title: str,
+        kind: str,
         text: str,
         kb_id: str,
-        chunk_index: int,
     ) -> None:
-        key = (str(source_id), int(chunk_index or 0))
-        if not source_id or key in seen_chunks:
+        try:
+            nid = uuid.UUID(str(note_id))
+        except (ValueError, TypeError):
             return
-        seen_chunks.add(key)
+        if nid in seen_notes:
+            return
+        seen_notes.add(nid)
         kb_label = kb_names.get(kb_id, "")
-        prefix = f"原文·{kb_label}" if kb_label and len(kb_ids) > 1 else "原文"
+        prefix = f"笔记·{kb_label}" if kb_label and len(kb_ids) > 1 else "笔记"
+        kind_label = {
+            "database": "数据表",
+            "canvas": "画布",
+            "notebook": "Notebook",
+            "link": "链接笔记",
+            "import": "导入文档",
+            "doc": "文档",
+        }.get(kind, "笔记")
         citations.append(
             Citation(
                 kb_id=kb_id,
                 kb_name=kb_label,
-                collection="raw",
-                title=source_title,
+                collection="note",
+                title=title,
                 slug=None,
                 chunk_text=(text or "")[:300],
-                target_id=str(source_id),
+                target_id=str(nid),
+                kind=kind,
             )
         )
+        # 数据表的行内容可能分布在多个分块中，给笔记更宽的上下文预算。
         context_parts.append(
-            f"[{len(citations)}] ({prefix}) {source_title}\n{(text or '')[:1500]}"
+            f"[{len(citations)}] ({prefix}·{kind_label}) {title}\n{(text or '')[:2000]}"
         )
 
     wiki_entries = [
         (h, str((h.get("payload") or {}).get("page_id") or "")) for h in wiki_hits
     ]
-    raw_entries = [
-        (h, str((h.get("payload") or {}).get("source_id") or "")) for h in raw_hits
+
+    # 同一条笔记可能命中多个分块：合并相邻高分块，引用时按笔记去重。
+    note_groups: dict[str, dict] = {}
+    for hit in note_hits:
+        payload = hit.get("payload") or {}
+        note_id = str(payload.get("note_id") or "")
+        if not note_id:
+            continue
+        group = note_groups.setdefault(
+            note_id,
+            {
+                "kb_id": str(hit.get("kb_id") or ""),
+                "title": str(payload.get("title") or ""),
+                "kind": str(payload.get("kind") or "doc"),
+                "chunks": [],
+            },
+        )
+        text = str(payload.get("text") or "").strip()
+        if (
+            text
+            and all(text != existing for _, existing in group["chunks"])
+            and len(group["chunks"]) < 4
+        ):
+            group["chunks"].append((int(payload.get("chunk_index") or 0), text))
+
+    # 以数据库为准过滤已删除 / 回收站笔记，并取最新标题（向量 payload 可能滞后）。
+    note_meta: dict[str, tuple[str, str]] = {}
+    note_ids: list[uuid.UUID] = []
+    for note_id in note_groups:
+        try:
+            note_ids.append(uuid.UUID(note_id))
+        except ValueError:
+            continue
+    if note_ids:
+        rows = (
+            await session.execute(
+                select(Note.id, Note.title, Note.kind).where(
+                    Note.id.in_(note_ids),
+                    Note.kb_id.in_(kb_ids),
+                    Note.status == "active",
+                )
+            )
+        ).all()
+        note_meta = {str(row.id): (row.title, row.kind) for row in rows}
+
+    note_entries = [
+        (note_id, group)
+        for note_id, group in note_groups.items()
+        if note_id in note_meta and group["chunks"]
     ]
 
     def feed_wiki() -> None:
@@ -237,19 +312,20 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 kb_id=str(hit.get("kb_id") or ""),
             )
 
-    def feed_raw() -> None:
-        for hit, source_id in raw_entries:
-            payload = hit.get("payload") or {}
-            add_raw(
-                source_id=source_id,
-                source_title=str(payload.get("source_title") or payload.get("title") or ""),
-                text=str(payload.get("text") or ""),
-                kb_id=str(hit.get("kb_id") or ""),
-                chunk_index=int(payload.get("chunk_index") or 0),
+    def feed_notes() -> None:
+        for note_id, group in note_entries:
+            title, kind = note_meta[note_id]
+            add_note(
+                note_id=note_id,
+                title=title or group["title"] or "未命名笔记",
+                kind=kind or group["kind"],
+                # 按原始分块顺序拼接，避免打乱表格行的语义。
+                text="\n\n".join(text for _, text in sorted(group["chunks"])),
+                kb_id=group["kb_id"],
             )
 
-    if intent == "raw":
-        feed_raw()
+    if intent == "note":
+        feed_notes()
         feed_wiki()
     else:
         feed_wiki()
@@ -265,10 +341,11 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 kb_id=str(page.kb_id),
                 label="相关 Wiki",
             )
-        feed_raw()
+        feed_notes()
 
+    # 上下文与引用必须严格等长，否则模型可能引用到未提供的序号。
     context_parts = context_parts[:10]
-    citations = citations[:12]
+    citations = citations[: len(context_parts)]
 
     # LLM 生成（页面级模型覆盖仅对本次请求生效）
     # 模型级联：页面级 > 单库绑定 > 全局默认；多库 / 全局不做任意单库绑定推断
@@ -278,11 +355,14 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
     client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
 
     system_prompt = (
-        "你是 Kiwi 个人知识库助手。基于提供的知识库资料回答用户问题。\n"
+        "你是 Kiwi 个人知识库助手。基于提供的 Wiki 页面与工作区笔记回答用户问题。\n"
         "规则：\n"
-        "1. 优先综合 Wiki 页面的结构化内容；原文引用到具体章节。\n"
+        "1. 综合 Wiki 的概念结构与笔记中的事实、数据、出处；笔记是用户整理后的最终内容，"
+        "两者冲突时以笔记记录的出处为准，并明确指出冲突。\n"
         "2. 资料不足以回答时，明确说'知识库中未找到相关内容'，不要编造。\n"
-        "3. 引用资料时在句末标注 [n]（n 为资料序号），不要编造序号。\n"
+        "3. 每个事实性结论都要在句末标注来源 [n]（n 为资料序号），可并列多个如 [1][3]；"
+        "不要编造序号，也不要在正文中另列来源清单。\n"
+        "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
         "资料：\n\n"
         + "\n\n---\n\n".join(context_parts)
         + ("\n\n（本次检索未命中任何资料，请如实告知用户。）" if not context_parts else "")

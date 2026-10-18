@@ -1,6 +1,7 @@
 """数据模型注册：供 Alembic 与业务导入。"""
 
 from app.db.models.attachment import NoteAttachment
+from app.db.models.chat import ChatSession
 from app.db.models.collection_row import CollectionRow
 from app.db.models.embedding_config import EmbeddingConfig
 from app.db.models.import_batch import ImportBatch
@@ -36,6 +37,7 @@ from app.db.models.wiki import WikiLink, WikiLintReport, WikiPage
 __all__ = [
     "KnowledgeBase",
     "Source",
+    "ChatSession",
     "Note",
     "NoteFolder",
     "NoteTag",

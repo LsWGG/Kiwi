@@ -12,6 +12,7 @@ from app.config import settings
 from app.routers import (
     attachments,
     chat,
+    chat_sessions,
     code_run,
     health,
     ingest,
@@ -30,6 +31,7 @@ from app.routers import (
 from app.db.session import async_session_factory
 from app.services import embedding_settings, qdrant_store
 from app.services.builtin_demo import ensure_builtin_demo, start_vector_seed_task
+from app.services.note_indexer import start_note_index_task
 from app.services.notebook_kernel import kernel_manager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -63,18 +65,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("内置演示库初始化失败（不影响启动）：%s", e)
 
+    # 后台核对笔记索引：只对变更过的笔记重新嵌入。
+    note_index_task = start_note_index_task()
+
     yield
 
-    if builtin_task is not None and not builtin_task.done():
-        builtin_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await builtin_task
+    for task in (builtin_task, note_index_task):
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
     kernel_manager.shutdown_all()
 
 
 app = FastAPI(
     title="Kiwi · 知识编译与检索系统",
-    version="0.1.2",
+    version="0.1.3",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url=None,
@@ -103,6 +109,7 @@ app.include_router(sources.router)
 app.include_router(ingest.router)
 app.include_router(wiki.router)
 app.include_router(search.router)
+app.include_router(chat_sessions.router)
 app.include_router(chat.router)
 app.include_router(study.router)
 

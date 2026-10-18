@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     embed_api_timeout: float = 60.0
     embed_api_batch_size: int = 64
     embed_api_concurrency: int = 4
+    # 检索最低余弦相似度：低于该分数的命中视为与问题无关，不进入问答上下文
+    # 与引用列表。设为 0 可关闭过滤。
+    retrieval_min_score: float = 0.4
 
     # --- LLM ---
     # 本地大模型（Ollama 等）冷启动与长文编译可能远超 60s，默认放宽到 10 分钟。

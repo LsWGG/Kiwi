@@ -17,7 +17,8 @@ import {
 import { normalizeDataTable, type DataTableModel } from './extensions/dataTableModel'
 import type { DbField, DbView } from '@/stores/noteDatabase'
 
-const props = defineProps<{ content: string }>()
+const props = defineProps<{ content: string; citationCount?: number }>()
+const emit = defineEmits<{ (e: 'citation-click', n: number): void }>()
 const router = useRouter()
 const root = ref<HTMLElement | null>(null)
 
@@ -27,6 +28,89 @@ const md = new MarkdownIt({
   breaks: false,
   typographer: false,
 }).use(taskLists, { enabled: true, label: true })
+
+/**
+ * 问答引用标注：把 [1] / [1,2] / [1-3] 渲染成可点击的引用角标。
+ * 仅在传入 citationCount 时启用，普通笔记阅读不受影响；
+ * 代码、链接文字内部的方括号保持原样。
+ */
+// 兼容中文模型常用的全角括号：【1】、［1］，以及顿号分隔的 [1、2]。
+const CITE_PATTERN =
+  /(?:\[|【|［)(\d+(?:\s*[-–]\s*\d+)?(?:\s*[,，、]\s*\d+(?:\s*[-–]\s*\d+)?)*)(?:\]|】|］)/g
+
+function citationNumbers(raw: string): number[] {
+  const numbers: number[] = []
+  for (const part of raw.split(/[,，、]/)) {
+    const bounds = part.split(/[-–]/).map((item) => Number(item.trim()))
+    if (bounds.length === 2 && bounds[0] <= bounds[1]) {
+      for (let n = bounds[0]; n <= bounds[1] && n - bounds[0] < 20; n += 1) numbers.push(n)
+    } else if (bounds.length === 1) {
+      numbers.push(bounds[0])
+    }
+  }
+  return numbers
+}
+
+function makeTextToken(state: any, content: string, source: any) {
+  const token = new state.Token('text', '', 0)
+  token.content = content
+  token.level = source.level
+  return token
+}
+
+function makeCiteToken(state: any, n: number, source: any) {
+  const token = new state.Token('html_inline', '', 0)
+  token.content =
+    `<a class="md-cite-ref" href="#kiwi-cite-${n}" data-cite="${n}"` +
+    ` title="查看引用 ${n}">[${n}]</a>`
+  token.level = source.level
+  return token
+}
+
+function splitCitations(state: any, token: any, total: number): any[] {
+  const value: string = token.content
+  const out: any[] = []
+  let last = 0
+  CITE_PATTERN.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = CITE_PATTERN.exec(value))) {
+    const valid = citationNumbers(match[1])
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= total)
+      .slice(0, 20)
+    if (!valid.length) continue
+    if (match.index > last) {
+      out.push(makeTextToken(state, value.slice(last, match.index), token))
+    }
+    valid.forEach((n, index) => {
+      if (index) out.push(makeTextToken(state, ',', token))
+      out.push(makeCiteToken(state, n, token))
+    })
+    last = match.index + match[0].length
+  }
+  if (!out.length) return [token]
+  if (last < value.length) out.push(makeTextToken(state, value.slice(last), token))
+  return out
+}
+
+md.core.ruler.after('inline', 'kiwi_citations', (state: any) => {
+  const total = Number(props.citationCount || 0)
+  if (total <= 0) return
+  for (const block of state.tokens) {
+    if (block.type !== 'inline' || !Array.isArray(block.children)) continue
+    const out: any[] = []
+    let linkDepth = 0
+    for (const child of block.children) {
+      if (child.type === 'link_open') linkDepth += 1
+      else if (child.type === 'link_close') linkDepth = Math.max(0, linkDepth - 1)
+      if (child.type !== 'text' || linkDepth > 0) {
+        out.push(child)
+        continue
+      }
+      out.push(...splitCitations(state, child, total))
+    }
+    block.children = out
+  }
+})
 
 function escapeHtml(value: string): string {
   return value
@@ -609,7 +693,11 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   return defaultLinkOpen(tokens, idx, options, env, self)
 }
 
-const html = computed(() => md.render(props.content || ''))
+const html = computed(() => {
+  // 引用数量变化时也要重渲染（引用事件可能先于最后一个文本 chunk 到达）。
+  void props.citationCount
+  return md.render(props.content || '')
+})
 
 // ---------- 特殊块的 DOM 增强 ----------
 /**
@@ -871,6 +959,12 @@ onBeforeUnmount(() => window.clearTimeout(decorateTimer))
 function onClick(event: MouseEvent) {
   const anchor = (event.target as HTMLElement | null)?.closest('a')
   const href = anchor?.getAttribute('href') || ''
+  const cite = anchor?.getAttribute('data-cite')
+  if (cite) {
+    event.preventDefault()
+    emit('citation-click', Number(cite))
+    return
+  }
   if (
     href.startsWith('/sources/') ||
     href.startsWith('/wiki/') ||
@@ -887,6 +981,29 @@ function onClick(event: MouseEvent) {
 </template>
 
 <style>
+/* 问答引用角标：与引用卡片一一对应，可点击定位 */
+.markdown-view .md-cite-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15em;
+  margin: 0 0.08em;
+  padding: 0 0.28em;
+  border-radius: 0.4em;
+  background: rgb(236 238 247);
+  color: rgb(76 70 166);
+  font-size: 0.76em;
+  font-weight: 600;
+  line-height: 1.45;
+  text-decoration: none !important;
+  vertical-align: 0.1em;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.markdown-view .md-cite-ref:hover {
+  background: rgb(217 220 240);
+  color: rgb(62 59 133);
+}
+
 /* 阅读预览不展示组件外框，只呈现内容 */
 .markdown-view .md-formula {
   margin: 0.9rem 0;

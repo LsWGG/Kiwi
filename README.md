@@ -42,7 +42,7 @@ Most tools stop at “captured.” Kiwi keeps asking: **How do you know you have
 - **Structured Wiki**: schema-driven, incrementally updated, source-cited, with health checks and one-click rebuild.
 - **Knowledge star map**: explore page relationships as a star map; node size reflects citation count.
 - **Learning loop**: profile → plan → progressive practice → spaced repetition → mock exam → mistake notebook.
-- **Answers with sources**: hybrid retrieval across the Wiki and raw notes; answers are traceable and can be saved as new pages.
+- **Answers with sources**: retrieval across the Wiki and notes, with persistent chat sessions and inline citations; answers are traceable and can be saved as new pages.
 
 ## Interface
 

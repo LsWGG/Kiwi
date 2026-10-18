@@ -22,7 +22,7 @@ class SearchRequest(BaseModel):
 class SearchHit(BaseModel):
     kb_id: uuid.UUID
     kb_name: str = ""
-    collection: str  # wiki or raw
+    collection: str  # wiki / note / raw
     payload: dict = {}
     score: float = 0.0
     rank: int = 0
@@ -36,11 +36,12 @@ class SearchResponse(BaseModel):
 class Citation(BaseModel):
     kb_id: uuid.UUID
     kb_name: str = ""
-    collection: str
+    collection: str  # wiki / note
     title: str
     slug: str | None = None
     chunk_text: str = ""
-    target_id: str = ""  # source/wiki id，供前端跳转
+    target_id: str = ""  # wiki 页面 / 笔记 id，供前端跳转
+    kind: str = ""  # 笔记类型（doc/database/canvas/...），Wiki 引用为空
 
 
 class ChatRequest(BaseModel):

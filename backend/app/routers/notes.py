@@ -2650,6 +2650,26 @@ def _schedule_note_compile(
     )
 
 
+@router.post("/reindex", response_model=dict)
+async def reindex_notes(
+    kb_id: uuid.UUID,
+    force: bool = Query(False, description="忽略版本缓存，强制重建全部笔记向量"),
+    session: AsyncSession = Depends(get_session),
+):
+    """重建知识库的笔记向量索引（问答检索使用）。
+
+    正常情况下索引会随笔记编辑自动同步；该接口用于切换嵌入模型或排查
+    检索异常后手动重建。
+    """
+    kb = await session.get(KnowledgeBase, kb_id)
+    if kb is None:
+        raise HTTPException(404, "知识库不存在")
+    from app.services.note_indexer import ensure_notes_indexed
+
+    stats = await ensure_notes_indexed([kb_id], force=force)
+    return {"kb_id": str(kb_id), **stats}
+
+
 @router.post("/compile-all", response_model=dict, status_code=202)
 async def compile_all_notes(
     kb_id: uuid.UUID,

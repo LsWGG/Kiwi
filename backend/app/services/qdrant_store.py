@@ -20,8 +20,10 @@ DEFAULT_EMBED_MODEL = settings.embed_model
 # 其他模型按模型名哈希分 collection，避免不同向量空间/维度混写。
 RAW_COLLECTION = "raw_chunks"
 WIKI_COLLECTION = "wiki_pages"
+NOTE_COLLECTION = "note_chunks"
 _MODEL_PREFIX_RAW = "raw_chunks__"
 _MODEL_PREFIX_WIKI = "wiki_pages__"
+_MODEL_PREFIX_NOTE = "note_chunks__"
 
 _ensured: set[str] = set()
 _ensure_lock = threading.Lock()
@@ -54,6 +56,15 @@ def raw_collection(model: str | None = None) -> str:
 
 def wiki_collection(model: str | None = None) -> str:
     return collection_names(model)[1]
+
+
+def note_collection(model: str | None = None) -> str:
+    """笔记向量 collection；默认模型使用稳定名称，其他模型按向量空间分表。"""
+    space = embedding_space(model)
+    if space == DEFAULT_EMBED_MODEL:
+        return NOTE_COLLECTION
+    suffix = hashlib.sha1(space.encode("utf-8")).hexdigest()[:12]
+    return f"{_MODEL_PREFIX_NOTE}{suffix}"
 
 
 def _ensure_named(client: QdrantClient, name: str, dim: int) -> None:
@@ -92,7 +103,7 @@ def ensure_collections(client: QdrantClient | None = None) -> None:
     if is_remote_provider():
         return
     client = client or get_client()
-    for name in (RAW_COLLECTION, WIKI_COLLECTION):
+    for name in (RAW_COLLECTION, WIKI_COLLECTION, NOTE_COLLECTION):
         _ensure_named(client, name, EMBED_DIM)
 
 
@@ -164,6 +175,73 @@ def upsert_wiki_pages(
             for p in points
         ],
     )
+
+
+def upsert_note_chunks(
+    kb_id: uuid.UUID, points: list[dict], model: str | None = None
+) -> None:
+    """upsert 笔记分块向量（写入该知识库 embedding 模型对应的 collection）。"""
+    if not points:
+        return
+    client = get_client()
+    name = note_collection(model)
+    _ensure_named(client, name, len(points[0]["vector"]))
+    client.upsert(
+        collection_name=name,
+        points=[
+            models.PointStruct(
+                id=uuid.uuid4(),
+                vector=p["vector"],
+                payload={**p.get("payload", {}), "kb_id": str(kb_id)},
+            )
+            for p in points
+        ],
+    )
+
+
+def delete_note_chunks(note_id: uuid.UUID | str, model: str | None = None) -> None:
+    """删除某条笔记的全部向量（重新索引或笔记失效时调用）。"""
+    client = get_client()
+    name = note_collection(model)
+    if not client.collection_exists(name):
+        return
+    client.delete(
+        collection_name=name,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="note_id", match=models.MatchValue(value=str(note_id))
+                    )
+                ]
+            )
+        ),
+    )
+
+
+def scroll_note_chunks(
+    kb_id: uuid.UUID, model: str | None = None, limit: int = 1000
+) -> list[dict]:
+    """按租户读取全部笔记向量 payload（用于启动时核对索引版本）。"""
+    client = get_client()
+    name = note_collection(model)
+    if not client.collection_exists(name):
+        return []
+    out: list[dict] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=name,
+            scroll_filter=_kb_filter(kb_id),
+            limit=limit,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        out.extend(p.payload or {} for p in points)
+        if offset is None or not points:
+            break
+    return out
 
 
 def search(
@@ -267,7 +345,7 @@ def count_collection(name: str) -> int:
 
 
 def list_vector_collections() -> list[str]:
-    """全部 raw/wiki collection（含各 embedding 模型的分区）。"""
+    """全部 raw/wiki/note collection（含各 embedding 模型的分区）。"""
     client = get_client()
     names = [c.name for c in client.get_collections().collections]
     return [
@@ -275,8 +353,10 @@ def list_vector_collections() -> list[str]:
         for n in names
         if n == RAW_COLLECTION
         or n == WIKI_COLLECTION
+        or n == NOTE_COLLECTION
         or n.startswith(_MODEL_PREFIX_RAW)
         or n.startswith(_MODEL_PREFIX_WIKI)
+        or n.startswith(_MODEL_PREFIX_NOTE)
     ]
 
 

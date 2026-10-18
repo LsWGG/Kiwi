@@ -32,9 +32,9 @@ async def do_search(data: SearchRequest, session: AsyncSession = Depends(get_ses
         raise HTTPException(422, "查询不能为空")
     kb_ids = await _resolve_kb_ids(session, data.scope.kb_ids, data.scope.scope)
 
-    # 双 collection 检索 + 融合
+    # Wiki + 笔记双 collection 检索 + 融合（笔记是素材整理后的最终形态）
     results = []
-    for collection, weight in (("wiki", 1.0), ("raw", 0.9)):
+    for collection, weight in (("wiki", 1.0), ("note", 0.9)):
         hits = await search(session, data.query, kb_ids, limit=data.top_k, collection=collection)
         kb_info = {}
         for h in hits:

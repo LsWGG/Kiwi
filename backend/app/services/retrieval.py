@@ -64,8 +64,12 @@ async def _kb_models(
 
 
 def _normalize_kind(collection: str) -> str:
-    """兼容旧的 collection 名称调用。"""
-    return "wiki" if collection.startswith("wiki") else "raw"
+    """归一化 collection 类型：wiki / note / raw（raw 仅保留给素材检索）。"""
+    if collection.startswith("wiki"):
+        return "wiki"
+    if collection.startswith("note"):
+        return "note"
+    return "raw"
 
 
 async def search(
@@ -96,16 +100,22 @@ async def search(
         if not vector:
             per_kb_results.append([])
             continue
-        name = (
-            qdrant_store.wiki_collection(model)
-            if kind == "wiki"
-            else qdrant_store.raw_collection(model)
-        )
+        if kind == "wiki":
+            name = qdrant_store.wiki_collection(model)
+        elif kind == "note":
+            name = qdrant_store.note_collection(model)
+        else:
+            name = qdrant_store.raw_collection(model)
         hits = qdrant_store.search(
             collection=name,
             vector=vector,
             kb_id=kb_id,
             limit=limit,
+            # 向量检索总会返回 top-k，即使内容与问题无关；先按相似度过滤，
+            # 避免问答把无关分块当作资料并展示成引用来源。
+            score_threshold=(
+                settings.retrieval_min_score if settings.retrieval_min_score > 0 else None
+            ),
         )
         for h in hits:
             h["kb_id"] = str(kb_id)
@@ -119,26 +129,33 @@ async def search(
     return _rrf(per_kb_results, limit)
 
 
-async def hyrid_search(
+async def hybrid_search(
     db: AsyncSession,
     query: str,
     kb_ids: list[uuid.UUID],
     limit: int = 10,
 ) -> dict:
-    """Wiki + Raw 双检索，返回结构化命中。
+    """Wiki + 笔记双检索，返回结构化命中。
 
     Returns: {
-        wiki: [...],   # 每条 {score, rank, payload, kb_id}
-        raw:  [...],
+        wiki:  [...],   # 每条 {score, rank, payload, kb_id}
+        notes: [...],
     }
     """
     wiki_hits = await search(db, query, kb_ids, limit=limit, collection="wiki")
-    raw_hits = await search(db, query, kb_ids, limit=limit, collection="raw")
-    return {"wiki": wiki_hits, "raw": raw_hits}
+    note_hits = await search(db, query, kb_ids, limit=limit, collection="note")
+    return {"wiki": wiki_hits, "notes": note_hits}
+
+
+# 兼容旧调用名。
+hyrid_search = hybrid_search
 
 
 def route_intent(query: str) -> str:
-    """轻量意图路由：事实/引用类 → raw；概念/综合类 → wiki。"""
+    """轻量意图路由：事实/出处类 → 笔记；概念/综合类 → wiki。
+
+    笔记是素材整理后的最终形态，问答不再路由到 raw_chunks。
+    """
     q = query.lower()
     wiki_markers = [
         "是什么",
@@ -155,7 +172,7 @@ def route_intent(query: str) -> str:
         "compare",
         "difference",
     ]
-    raw_markers = [
+    note_markers = [
         "哪年",
         "数字",
         "版本",
@@ -168,15 +185,17 @@ def route_intent(query: str) -> str:
         "引用",
         "多少",
         "何时",
+        "笔记",
+        "记录",
         "quote",
         "citation",
         "number",
         "version",
     ]
-    raw_score = sum(1 for m in raw_markers if m in q)
+    note_score = sum(1 for m in note_markers if m in q)
     wiki_score = sum(1 for m in wiki_markers if m in q)
-    if raw_score > wiki_score:
-        return "raw"
-    if wiki_score >= raw_score and wiki_score > 0:
+    if note_score > wiki_score:
+        return "note"
+    if wiki_score >= note_score and wiki_score > 0:
         return "wiki"
     return "wiki"  # 默认 wiki 优先（设计文档 "Wiki 优先"）
