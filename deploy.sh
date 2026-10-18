@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Kiwi Docker 生产部署脚本
+#   ./deploy.sh            构建并启动（首次自动生成 .env.prod 与密钥）
+#   ./deploy.sh ps         查看状态
+#   ./deploy.sh logs [svc] 跟踪日志
+#   ./deploy.sh restart    重启
+#   ./deploy.sh down       停止（保留数据卷）
+# ==============================================================================
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+ENV_FILE=".env.prod"
+COMPOSE_FILE="docker-compose.prod.yml"
+
+die() { echo "[kiwi-deploy] $*" >&2; exit 1; }
+
+gen_password() {
+  openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | cut -c1-24
+}
+
+gen_fernet_key() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 32 | tr '+/' '-_'
+  else
+    die "需要 python3 或 openssl 来生成 Fernet 密钥"
+  fi
+}
+
+ensure_env() {
+  if [ ! -f "$ENV_FILE" ]; then
+    cp .env.prod.example "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    echo "[kiwi-deploy] 已创建 $ENV_FILE"
+  fi
+
+  if grep -q '^POSTGRES_PASSWORD=change_me' "$ENV_FILE"; then
+    local pass
+    pass="$(gen_password)"
+    sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${pass}|" "$ENV_FILE"
+    echo "[kiwi-deploy] 已生成 PostgreSQL 密码"
+  fi
+
+  if grep -q '^KIWI_FERNET_KEY=change_me' "$ENV_FILE"; then
+    local key
+    key="$(gen_fernet_key)"
+    sed -i "s|^KIWI_FERNET_KEY=.*|KIWI_FERNET_KEY=${key}|" "$ENV_FILE"
+    echo "[kiwi-deploy] 已生成 Fernet 密钥"
+  fi
+}
+
+compose() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+usage() {
+  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+command -v docker >/dev/null 2>&1 || die "未找到 docker，请先安装 Docker Engine"
+docker compose version >/dev/null 2>&1 || die "未找到 docker compose 插件"
+
+CMD="${1:-up}"
+case "$CMD" in
+  up|start)
+    ensure_env
+    compose up -d --build
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+    echo
+    echo "[kiwi-deploy] Kiwi 已启动"
+    echo "  Web   http://localhost:${KIWI_HTTP_PORT:-18473}"
+    echo "  API   http://localhost:${KIWI_API_PORT:-18474}/docs"
+    echo "  数据卷 kiwi-prod-pgdata / kiwi-prod-qdrantdata / kiwi-prod-data"
+    ;;
+  down|stop)
+    ensure_env
+    compose down
+    echo "[kiwi-deploy] 已停止（数据卷保留）"
+    ;;
+  restart)
+    ensure_env
+    compose restart
+    ;;
+  ps|status)
+    ensure_env
+    compose ps
+    ;;
+  logs)
+    shift || true
+    ensure_env
+    compose logs -f --tail=200 "$@"
+    ;;
+  build)
+    ensure_env
+    compose build
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

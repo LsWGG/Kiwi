@@ -1,0 +1,126 @@
+# Kiwi 生产部署（Docker Compose）
+#
+#   cp .env.prod.example .env.prod    # 填写密码 / Fernet 密钥
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#
+# 默认端口均为非常规端口，避免与开发环境（5173 / 8000 / 5432 / 6333）冲突：
+#   Web 18473 · API 18474 · PostgreSQL 15432 · Qdrant 16333 / 16334
+# 仅 Web 端口对外监听，其余端口绑定 127.0.0.1。
+
+name: kiwi-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kiwi-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kiwi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env.prod 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-kiwi}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kiwi} -d ${POSTGRES_DB:-kiwi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.2-unprivileged
+    container_name: kiwi-prod-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-16333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-16334}:6334"
+    volumes:
+      - qdrantdata:/qdrant/storage
+    healthcheck:
+      # Qdrant 官方镜像不含 curl / wget / nc，使用 bash 的 /dev/tcp 做 HTTP 就绪探测。
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && printf \"GET /readyz HTTP/1.0\\r\\n\\r\\n\" >&3 && head -n 1 <&3 | grep -q 200'"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    logging: *default-logging
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    image: kiwi-backend:0.1.0
+    container_name: kiwi-prod-backend
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      KIWI_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kiwi}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-kiwi}
+      KIWI_QDRANT_URL: http://qdrant:6333
+      KIWI_FERNET_KEY: ${KIWI_FERNET_KEY:?请在 .env.prod 中生成 KIWI_FERNET_KEY}
+      KIWI_UPLOAD_DIR: /app/data/uploads
+      KIWI_CORS_ORIGINS: '["${KIWI_PUBLIC_ORIGIN:-http://localhost:18473}"]'
+      KIWI_LLM_TIMEOUT: ${KIWI_LLM_TIMEOUT:-600}
+      FASTEMBED_CACHE_PATH: /app/data/models/fastembed
+      HF_HOME: /app/data/models/huggingface
+      HF_ENDPOINT: ${HF_ENDPOINT:-}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      # 仅供本机调试 / API 文档；浏览器统一走 Web 端口的 /api 代理。
+      - "127.0.0.1:${KIWI_API_PORT:-18474}:8000"
+    volumes:
+      - kiwi_data:/app/data
+    # Notebook 的 bubblewrap 沙箱需要创建命名空间与挂载点。
+    # 沙箱内部仍会 --cap-drop ALL、--unshare-* 并只挂载 /work。
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    image: kiwi-frontend:0.1.0
+    container_name: kiwi-prod-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${KIWI_HTTP_PORT:-18473}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *default-logging
+
+volumes:
+  pgdata:
+    name: kiwi-prod-pgdata
+  qdrantdata:
+    name: kiwi-prod-qdrantdata
+  kiwi_data:
+    name: kiwi-prod-data

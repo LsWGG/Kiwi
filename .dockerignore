@@ -1,0 +1,27 @@
+# 构建上下文只保留源码与部署物料，避免把本地依赖、运行数据与密钥送进镜像。
+.git
+.gitignore
+.env
+.env.prod
+.env.*.local
+
+# Python
+backend/.venv
+backend/.ruff_cache
+backend/.pytest_cache
+backend/**/__pycache__
+backend/**/*.py[cod]
+backend/data
+backend/node_modules
+backend/package.json
+backend/package-lock.json
+
+# Node / 前端构建产物
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/tsconfig.tsbuildinfo
+
+# 文档与截图不参与运行
+docs
+*.log
