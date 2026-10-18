@@ -412,7 +412,10 @@ async function resetToEnv() {
               参数超出允许范围，修正后才能保存
             </span>
           </div>
-          <div v-if="showAdvanced" class="grid sm:grid-cols-3 gap-3 mt-3">
+          <p v-if="showAdvanced" class="text-[11px] text-slate-400 mt-3 leading-relaxed">
+            批大小是每次请求携带的文本数，并发数是同时发出的请求数。默认 64 / 4 适合大多数服务；调高可提升吞吐，但更容易触发服务商的单请求上限或 429 限流。
+          </p>
+          <div v-if="showAdvanced" class="grid sm:grid-cols-3 gap-3 mt-2">
             <div>
               <label class="text-[11px] text-slate-500">超时（秒，5–600）</label>
               <input
@@ -430,7 +433,7 @@ async function resetToEnv() {
               </p>
             </div>
             <div>
-              <label class="text-[11px] text-slate-500">批大小（1–512）</label>
+              <label class="text-[11px] text-slate-500">批大小（每请求文本数，1–512）</label>
               <input
                 v-model.number="form.api_batch_size"
                 type="number"
@@ -447,7 +450,7 @@ async function resetToEnv() {
               </p>
             </div>
             <div>
-              <label class="text-[11px] text-slate-500">并发数（1–16）</label>
+              <label class="text-[11px] text-slate-500">并发数（同时请求数，1–16）</label>
               <input
                 v-model.number="form.api_concurrency"
                 type="number"
