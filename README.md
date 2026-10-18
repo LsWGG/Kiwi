@@ -69,5 +69,3 @@ cd Kiwi
 访问 http://localhost:5173，在设置中填写任意 OpenAI 兼容模型即可使用。
 
 首次启动会注入内置的 **「Kiwi 上手指南 · 功能演示知识库」**，包含 22 篇笔记、29 个 Wiki 页面以及完整的学习与考试数据，可自由修改、删除或还原。
-
-更多设计细节见 [docs/design/kiwi-design-v1.2.md](docs/design/kiwi-design-v1.2.md)。
