@@ -1,6 +1,6 @@
 [project]
 name = "kiwi-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Kiwi — 个人知识编译与检索系统（阶段一后端）"
 requires-python = ">=3.12,<3.13"
 dependencies = [

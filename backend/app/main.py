@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Kiwi · 知识编译与检索系统",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url=None,
