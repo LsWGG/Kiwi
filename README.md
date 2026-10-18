@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/assets/screenshots/notebook.png" alt="Kiwi Notebook 图形化分析" width="920" />
+  <img src="docs/assets/screenshots/notebook.png" alt="Kiwi Notebook graphical analysis" width="920" />
 </p>
 
-<h1 align="center">Kiwi · 知识编译与学习系统</h1>
+<h1 align="center">Kiwi · Knowledge Compilation &amp; Learning System</h1>
 
 <p align="center">
-  把笔记编译成知识，把知识变成掌握度。<br />
-  <a href="https://lswgg.github.io/Kiwi/">产品主页</a> · <strong>简体中文</strong> · <a href="README.en.md">English</a>
+  Compile notes into knowledge. Turn knowledge into mastery.<br />
+  <a href="https://lswgg.github.io/Kiwi/">Product site</a> · <a href="README.zh-CN.md">简体中文</a> · <strong>English</strong>
 </p>
 
 <p align="center">
@@ -20,60 +20,60 @@
 
 ---
 
-Kiwi 不是另一个「把东西存起来」的笔记软件。
+Kiwi is not another note-taking app that stops at storing things.
 
-文档、PDF、网页、数据表、画布与 Notebook 在这里是原材料：编译流水线把它们拆成概念、合并成相互引用的 Wiki 页面，并为每一条结论保留来源。随后，同一份知识进入学习引擎——画像、训练、间隔重复、仿真考试，掌握度再回写到页面。
+Documents, PDFs, web pages, spreadsheets, canvases, and notebooks are raw material here. A compilation pipeline breaks them into concepts, merges them into cross-referenced Wiki pages, and preserves the source behind every conclusion. The same knowledge then enters the learning engine—profile, practice, spaced repetition, mock exams—and mastery is written back to the pages.
 
-大多数工具在「记下来」处结束。Kiwi 继续追问：**你怎么知道自己真的学会了？**
+Most tools stop at “captured.” Kiwi keeps asking: **How do you know you have actually learned it?**
 
-## 为什么不同
+## Why it is different
 
-- **知识是编译出来的。** 不靠手工维护目录，而由 Schema、增量编译与引用关系让结构自己长出来。
-- **图谱也是掌握度地图。** 页面引用、笔记关联、薄弱点与掌握度共用一套坐标；既看知识怎么连，也看哪里还没学会。
-- **学习闭环长在知识库里。** 出题、复习、考试与掌握度更新都在库内完成，不需要把内容导出到另一个工具。
-- **本地优先，模型可替换。** PostgreSQL + Qdrant 单机运行，兼容任意 OpenAI 协议模型；数据与推理都留在自己的机器上。
+- **Knowledge is compiled.** No hand-maintained hierarchy. Schema, incremental compilation, and references let structure grow on its own.
+- **The graph is also a mastery map.** Page references, note links, weak spots, and mastery share one coordinate system—see how knowledge connects and where you have not learned it yet.
+- **The learning loop lives inside the knowledge base.** Questions, review, exams, and mastery updates all happen in the same library; no exporting content to another tool.
+- **Local-first, swappable models.** Runs on a single machine with PostgreSQL + Qdrant and supports any OpenAI-compatible model; data and inference stay on your hardware.
 
-## 核心能力
+## Core capabilities
 
-- **笔记工作区**：文档、数据表、导入、外链、画布、Notebook 共用目录、标签、模板与双向链接。
-- **三种编辑模式**：同一份 Markdown 在 Simple、Notion-like 与 DOCX 编辑器间切换，专注写作、块级组织与正式排版各取所需。
-- **可执行代码块**：Python 在 bubblewrap 沙箱中运行，输出与退出码以块的形式留在正文；HTML / JS 在隔离 iframe 中预览。
-- **编译任务**：所有笔记与素材统一编译进 Wiki，追踪解析质量、任务进度与受影响页面。
-- **结构化 Wiki**：Schema 驱动、增量更新、来源引用、健康检查与一键重建。
-- **知识星图**：星图式浏览页面关系，节点大小反映被引次数。
-- **学习闭环**：画像 → 计划 → 渐进练习 → 间隔重复 → 仿真考试 → 错题本。
-- **有出处的问答**：混合检索 Wiki 与原文，回答可溯源，也可回写为新页面。
+- **Note workspace**: docs, databases, imports, links, canvas, and notebooks share folders, tags, templates, and bidirectional links.
+- **Three editing modes**: switch the same Markdown between Simple, Notion-like, and DOCX editors—focused writing, block-level organization, and formal layout each get the right tool.
+- **Executable code blocks**: Python runs in a bubblewrap sandbox, with output and exit code kept in the document; HTML / JS previews inside an isolated iframe.
+- **Compilation jobs**: every note and source compiles into the Wiki, with parse quality, job progress, and affected pages tracked.
+- **Structured Wiki**: schema-driven, incrementally updated, source-cited, with health checks and one-click rebuild.
+- **Knowledge star map**: explore page relationships as a star map; node size reflects citation count.
+- **Learning loop**: profile → plan → progressive practice → spaced repetition → mock exam → mistake notebook.
+- **Answers with sources**: hybrid retrieval across the Wiki and raw notes; answers are traceable and can be saved as new pages.
 
-## 界面
+## Interface
 
 <table>
   <tr>
-    <th width="50%" align="left">编辑模式 · 编译与组织</th>
-    <th width="50%" align="left">学习模式 · 练习与检验</th>
+    <th width="50%" align="left">Editing · Compile and organize</th>
+    <th width="50%" align="left">Learning · Practice and assess</th>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/wiki-page-basic.png" alt="结构化 Wiki" /><br /><sub>结构化 Wiki：目录、大纲与反向链接</sub></td>
-    <td><img src="docs/assets/screenshots/learn-plan.png" alt="学习计划" /><br /><sub>学习计划：按掌握度动态排程</sub></td>
+    <td><img src="docs/assets/screenshots/wiki-page-basic.png" alt="Structured Wiki" /><br /><sub>Structured Wiki: contents, outline, and backlinks</sub></td>
+    <td><img src="docs/assets/screenshots/learn-plan.png" alt="Learning plan" /><br /><sub>Learning plan: dynamically scheduled by mastery</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/notes-welcome.png" alt="笔记工作区" /><br /><sub>笔记工作区：目录树、双链与上手引导</sub></td>
-    <td><img src="docs/assets/screenshots/exam-report.png" alt="仿真考试报告" /><br /><sub>仿真考试：分卷表现与知识点雷达</sub></td>
+    <td><img src="docs/assets/screenshots/notes-welcome.png" alt="Note workspace" /><br /><sub>Note workspace: tree, wikilinks, and onboarding</sub></td>
+    <td><img src="docs/assets/screenshots/exam-report.png" alt="Mock exam report" /><br /><sub>Mock exam: section performance and knowledge radar</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/wiki-graph.png" alt="知识星图" /><br /><sub>知识星图：概念关系与被引次数</sub></td>
-    <td><img src="docs/assets/screenshots/learn-graph.png" alt="学习图谱" /><br /><sub>学习图谱：掌握度分布与薄弱点</sub></td>
+    <td><img src="docs/assets/screenshots/wiki-graph.png" alt="Knowledge star map" /><br /><sub>Knowledge star map: concept relationships and citations</sub></td>
+    <td><img src="docs/assets/screenshots/learn-graph.png" alt="Learning graph" /><br /><sub>Learning graph: mastery distribution and weak spots</sub></td>
   </tr>
 </table>
 
-## 技术栈
+## Tech stack
 
 Vue 3.5 · TypeScript · Vite · Pinia · Tailwind CSS · TipTap · AntV G6  
 FastAPI · SQLAlchemy 2 · PostgreSQL 16 · Qdrant · fastembed  
 Docker Compose · uv · Node.js
 
-## 启动
+## Getting started
 
-需要 Python 3.12、uv、Node.js ≥ 20 与 Docker：
+Requires Python 3.12, uv, Node.js ≥ 20, and Docker:
 
 ```bash
 git clone https://github.com/LsWGG/Kiwi.git
@@ -81,26 +81,26 @@ cd Kiwi
 ./run.sh
 ```
 
-访问 http://localhost:5173 默认进入产品门户；应用工作区位于 http://localhost:5173/kbs，在设置中填写任意 OpenAI 兼容模型即可使用。若运行环境无法加载本地向量模型，可在 **设置 → 向量模型** 切换为线上 embedding 接口。
+<http://localhost:5173> opens the product portal by default; the app workspace is at <http://localhost:5173/kbs>. Add any OpenAI-compatible model in Settings to start. If local embedding models cannot load in your environment, switch to a hosted embedding API under **Settings → Embedding model**.
 
-首次启动会注入内置的 **「Kiwi 上手指南 · 功能演示知识库」**，包含 22 篇笔记、29 个 Wiki 页面以及完整的学习与考试数据，可自由修改、删除或还原。
+On first launch, Kiwi seeds the built-in **“Kiwi Quick Start · Feature Demo”** knowledge base, containing 22 notes, 29 Wiki pages, and complete learning and exam data. You can edit, delete, or restore it at any time.
 
-## Docker 部署
+## Docker deployment
 
-生产环境使用独立的 Compose 文件，默认全部采用非常规端口：Web `18473`、API `18474`、PostgreSQL `15432`、Qdrant `16333 / 16334`。
+Production uses a separate Compose file with non-standard ports by default: Web `18473`, API `18474`, PostgreSQL `15432`, Qdrant `16333 / 16334`.
 
 ```bash
 ./deploy.sh
 ```
 
-脚本会自动生成 `.env.prod`、随机密码与 Fernet 密钥，构建前后端镜像并完成数据库迁移。访问 `http://<host>:18473` 即可。
+The script generates `.env.prod`, random passwords, and a Fernet key, builds both images, and runs database migrations. Then open `http://<host>:18473`.
 
-端口调整、数据备份、升级、沙箱权限与排障见 [docs/DEPLOY.md](docs/DEPLOY.md)。版本演进见 [版本迭代记录](docs/CHANGELOG.md)。
+See [docs/DEPLOY.md](docs/DEPLOY.md) for port changes, backups, upgrades, sandbox permissions, and troubleshooting. See the [changelog](docs/CHANGELOG.md) for releases.
 
 ---
 
-## 版权声明
+## Copyright
 
-Copyright © 2026 LsWGG. 保留所有权利。
+Copyright © 2026 LsWGG. All rights reserved.
 
-未经授权，不得复制、修改、分发或将本项目用于商业用途。完整条款见 [LICENSE](LICENSE)。
+No part of this project may be copied, modified, distributed, or used commercially without permission. See [LICENSE](LICENSE) for the full terms.
