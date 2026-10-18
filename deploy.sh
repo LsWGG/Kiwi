@@ -16,6 +16,11 @@ cd "$ROOT_DIR"
 ENV_FILE=".env.prod"
 COMPOSE_FILE="docker-compose.prod.yml"
 
+# 后端 Dockerfile 使用 RUN --mount=type=cache 复用依赖缓存，必须启用 BuildKit。
+# 显式导出可覆盖宿主机 / daemon 中 DOCKER_BUILDKIT=0 的配置。
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 die() { echo "[kiwi-deploy] $*" >&2; exit 1; }
 
 gen_password() {
@@ -58,6 +63,14 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+ensure_buildkit() {
+  # Compose v2 优先调用 buildx；没有插件时由 daemon 内建 BuildKit 兜底。
+  if ! docker buildx version >/dev/null 2>&1; then
+    echo "[kiwi-deploy] 提示：未检测到 docker buildx 插件。若构建报 '--mount option requires BuildKit'，" >&2
+    echo "              请安装 docker-buildx-plugin（或升级 Docker Engine）后重试。" >&2
+  fi
+}
+
 build_frontend() {
   command -v npm >/dev/null 2>&1 || die "未找到 npm，请先安装 Node.js 20+ 后在 frontend/ 中构建"
   echo "[kiwi-deploy] 在宿主机构建前端（frontend/dist）…"
@@ -91,6 +104,7 @@ case "$CMD" in
   up|start)
     ensure_env
     ensure_frontend_dist
+    ensure_buildkit
     compose up -d --build
     set -a
     # shellcheck disable=SC1090
@@ -126,6 +140,7 @@ case "$CMD" in
   build)
     ensure_env
     build_frontend
+    ensure_buildkit
     compose build
     ;;
   *)

@@ -28,6 +28,7 @@ frontend (nginx)
 ## 前置条件
 
 - Docker Engine 24+，Docker Compose v2
+- 启用 BuildKit（后端 Dockerfile 使用缓存挂载；建议安装 `docker-buildx-plugin`）
 - 建议 4 核 / 8 GB 内存 / 10 GB 可用磁盘
 - 构建前端需要 Node.js 20+ 与 npm（仅宿主机使用）
 - 首次摄入文档时需要联网下载嵌入模型（约数百 MB）
@@ -276,6 +277,26 @@ sysctl kernel.unprivileged_userns_clone user.max_user_namespaces
 ```
 
 部分发行版需要开启 `kernel.unprivileged_userns_clone=1`。沙箱内部依然会丢弃全部 capabilities、限制进程与内存，并只挂载当前笔记本的工作目录。
+
+### 构建报 `the --mount option requires BuildKit`
+
+后端 Dockerfile 使用 `RUN --mount=type=cache` 复用 PyPI / apt 缓存，需要 BuildKit。`deploy.sh` 已自动导出 `DOCKER_BUILDKIT=1`，仍报错通常是因为直接调用了 Compose 或用了 `sudo` 清空环境变量：
+
+```bash
+# 手动构建时显式启用
+DOCKER_BUILDKIT=1 docker compose --env-file .env.prod -f docker-compose.prod.yml build
+
+# 使用 sudo 时保留该变量
+sudo DOCKER_BUILDKIT=1 docker compose --env-file .env.prod -f docker-compose.prod.yml build
+```
+
+若提示找不到 buildx，请安装插件（Debian / Ubuntu）：
+
+```bash
+sudo apt-get install docker-buildx-plugin
+```
+
+或改用官方 Docker 软件源升级 Docker Engine 24+。不建议为了兼容旧版构建器删除缓存挂载，否则每次构建都会重新下载全部依赖。
 
 ### 上传返回 413
 
