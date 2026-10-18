@@ -96,3 +96,11 @@ cd Kiwi
 脚本会自动生成 `.env.prod`、随机密码与 Fernet 密钥，构建前后端镜像并完成数据库迁移。访问 `http://<host>:18473` 即可。
 
 端口调整、数据备份、升级、沙箱权限与排障见 [docs/DEPLOY.md](docs/DEPLOY.md)。版本演进见 [版本迭代记录](docs/CHANGELOG.md)。
+
+---
+
+## 版权声明
+
+Copyright © 2026 LsWGG. 保留所有权利。
+
+未经授权，不得复制、修改、分发或将本项目用于商业用途。
