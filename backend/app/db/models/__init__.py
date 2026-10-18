@@ -2,6 +2,7 @@
 
 from app.db.models.attachment import NoteAttachment
 from app.db.models.collection_row import CollectionRow
+from app.db.models.embedding_config import EmbeddingConfig
 from app.db.models.import_batch import ImportBatch
 from app.db.models.ingest_job import IngestJob
 from app.db.models.knowledge_base import KnowledgeBase
@@ -48,6 +49,7 @@ __all__ = [
     "WikiLink",
     "WikiLintReport",
     "LLMConfig",
+    "EmbeddingConfig",
     "IngestJob",
     "ImportBatch",
     "StudyProfile",

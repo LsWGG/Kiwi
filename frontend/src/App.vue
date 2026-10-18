@@ -9,6 +9,7 @@ import SideNav from '@/components/layout/SideNav.vue'
 import LearnSideNav from '@/components/study/LearnSideNav.vue'
 import KbSwitcher from '@/components/layout/KbSwitcher.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import KiwiToastHost from '@/components/ui/KiwiToastHost.vue'
 
 const kbs = useKbsStore()
@@ -22,7 +23,14 @@ const route = useRoute()
 const isLearn = computed(() => mode.mode === 'learn' || route.path.startsWith('/learn'))
 watch(
   isLearn,
-  (value) => document.body.classList.toggle('theme-learn', value),
+  (value) => {
+    document.body.classList.toggle('theme-learn', value)
+    // 两种模式使用不同的品牌标记，浏览器标签页同步切换。
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    if (icon) {
+      icon.href = `${import.meta.env.BASE_URL}${value ? 'favicon-learn.svg' : 'favicon.svg'}`
+    }
+  },
   { immediate: true },
 )
 
@@ -77,12 +85,11 @@ onBeforeUnmount(() => {
         class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-kiwi-400/50 to-transparent"
       />
       <div class="flex items-center gap-2.5 select-none">
-        <div
-          class="relative w-8 h-8 rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 flex items-center justify-center text-white text-sm font-bold shadow-glow"
-        >
-          <div class="absolute inset-0 rounded-xl bg-white/20 blur-[2px]" />
-          <span class="relative">K</span>
-        </div>
+        <KiwiLogo
+          :mode="isLearn ? 'learn' : 'edit'"
+          :size="32"
+          class="relative shrink-0 rounded-xl shadow-glow"
+        />
         <div class="leading-tight">
           <span class="font-bold text-slate-800 tracking-wide text-[15px]">Kiwi</span>
           <p class="text-[10px] text-slate-400 leading-none mt-0.5">

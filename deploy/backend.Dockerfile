@@ -1,53 +1,91 @@
 # syntax=docker/dockerfile:1.7
 # Kiwi 后端镜像：FastAPI + 迁移 + bubblewrap Notebook 沙箱。
 # 构建上下文为仓库根目录：docker build -f deploy/backend.Dockerfile .
+#
+# 国内网络默认使用清华镜像下载 PyPI 与 Debian 依赖，构建时可通过
+# --build-arg PYPI_INDEX_URL=... / DEBIAN_MIRROR=... 覆盖。
 
 FROM python:3.12-slim-bookworm AS builder
 
+ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG DEBIAN_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    UV_DEFAULT_INDEX=${PYPI_INDEX_URL} \
+    PIP_INDEX_URL=${PYPI_INDEX_URL}
 
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
+# uv 通过 PyPI 镜像安装，避免额外从 ghcr.io 拉取镜像。
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install "uv==0.12.13"
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential libxml2-dev libxslt1-dev \
-  && rm -rf /var/lib/apt/lists/*
+# 切换 Debian 软件源（兼容 sources.list 与 deb822 的 debian.sources）。
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    set -eux; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+      [ -f "$f" ] || continue; \
+      sed -i \
+        -e "s|http[s]*://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+        -e "s|http[s]*://security.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+        -e "s|http[s]*://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+        "$f"; \
+    done; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends build-essential libxml2-dev libxslt1-dev
 
 WORKDIR /app
 
 # 先只装第三方依赖，源码变化时复用依赖层。
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python3.12
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python3.12
 
 COPY backend/ ./
-RUN uv sync --frozen --no-dev --python /usr/local/bin/python3.12
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --python /usr/local/bin/python3.12
 
 
 FROM python:3.12-slim-bookworm AS runtime
+
+ARG DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG DEBIAN_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
 # bubblewrap / prlimit 是 Notebook 沙箱的运行时依赖；字体用于图表中文渲染。
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    bubblewrap \
-    util-linux \
-    curl \
-    ca-certificates \
-    libgomp1 \
-    libglib2.0-0 \
-    libgl1 \
-    libxml2 \
-    libxslt1.1 \
-    fonts-noto-cjk \
-    media-types \
-  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    set -eux; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+      [ -f "$f" ] || continue; \
+      sed -i \
+        -e "s|http[s]*://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+        -e "s|http[s]*://security.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+        -e "s|http[s]*://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+        "$f"; \
+    done; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bubblewrap \
+      util-linux \
+      curl \
+      ca-certificates \
+      libgomp1 \
+      libglib2.0-0 \
+      libgl1 \
+      libxml2 \
+      libxslt1.1 \
+      fonts-noto-cjk \
+      media-types
 
-# 保留 uv：Notebook 的 %uv / uv pip 与独立虚拟环境需要它。
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /usr/local/bin/uv
+# 保留 uv / uvx：Notebook 的 %uv / uv pip 与独立虚拟环境需要它。
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=builder /usr/local/bin/uvx /usr/local/bin/uvx
 COPY --from=builder /app /app
 
 COPY deploy/entrypoint.sh /usr/local/bin/kiwi-entrypoint

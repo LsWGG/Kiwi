@@ -57,7 +57,12 @@ services:
     build:
       context: .
       dockerfile: deploy/backend.Dockerfile
-    image: kiwi-backend:0.1.0
+      args:
+        # 国内镜像默认值；海外网络可在 .env.prod 覆盖为官方源。
+        PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
+    image: kiwi-backend:0.1.2
     container_name: kiwi-prod-backend
     restart: unless-stopped
     init: true
@@ -76,7 +81,15 @@ services:
       KIWI_LLM_TIMEOUT: ${KIWI_LLM_TIMEOUT:-600}
       FASTEMBED_CACHE_PATH: /app/data/models/fastembed
       HF_HOME: /app/data/models/huggingface
-      HF_ENDPOINT: ${HF_ENDPOINT:-}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      # 无法运行本地嵌入模型时，可切换到 OpenAI 兼容的线上接口。
+      KIWI_EMBED_PROVIDER: ${KIWI_EMBED_PROVIDER:-local}
+      KIWI_EMBED_API_BASE: ${KIWI_EMBED_API_BASE:-}
+      KIWI_EMBED_API_KEY: ${KIWI_EMBED_API_KEY:-}
+      KIWI_EMBED_API_MODEL: ${KIWI_EMBED_API_MODEL:-text-embedding-3-small}
+      KIWI_EMBED_API_TIMEOUT: ${KIWI_EMBED_API_TIMEOUT:-60}
+      KIWI_EMBED_API_BATCH_SIZE: ${KIWI_EMBED_API_BATCH_SIZE:-64}
+      KIWI_EMBED_API_CONCURRENCY: ${KIWI_EMBED_API_CONCURRENCY:-4}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       # 仅供本机调试 / API 文档；浏览器统一走 Web 端口的 /api 代理。
@@ -102,7 +115,7 @@ services:
     build:
       context: .
       dockerfile: deploy/frontend.Dockerfile
-    image: kiwi-frontend:0.1.0
+    image: kiwi-frontend:0.1.2
     container_name: kiwi-prod-frontend
     restart: unless-stopped
     depends_on:

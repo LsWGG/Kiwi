@@ -73,6 +73,52 @@ python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).deco
 
 `KIWI_PUBLIC_ORIGIN` 必须与浏览器实际访问地址一致（含端口），否则跨域相关能力可能异常；同源部署下 CORS 不参与主要流程，但仍建议填写正确。
 
+### 国内网络加速
+
+后端镜像默认使用国内镜像下载依赖，无需额外配置：
+
+- **PyPI**：`https://pypi.tuna.tsinghua.edu.cn/simple`（`uv` 及其管理的全部 Python 包）
+- **Debian**：`https://mirrors.tuna.tsinghua.edu.cn/debian` 与 `debian-security`（编译工具、bubblewrap、中文字体）
+- **Hugging Face**：`https://hf-mirror.com`（首次摄入时下载嵌入模型）
+
+构建阶段会缓存 apt 与 uv 下载，重复构建不会重新拉取依赖。海外网络或需要使用其他镜像时，在 `.env.prod` 中覆盖：
+
+```dotenv
+PYPI_INDEX_URL=https://pypi.org/simple
+DEBIAN_MIRROR=http://deb.debian.org/debian
+DEBIAN_SECURITY_MIRROR=http://security.debian.org/debian-security
+HF_ENDPOINT=https://huggingface.co
+```
+
+修改后重新执行 `./deploy.sh` 即可生效。基础镜像（Python / Node / nginx / PostgreSQL / Qdrant）仍从 Docker Hub 拉取；若拉取缓慢，可为本机 Docker 配置 registry mirror，或提前 `docker pull` 对应镜像。
+
+### 线上嵌入模型（无法本地向量化时）
+
+默认使用本地 `fastembed` 模型，首次摄入时下载数百 MB 的 ONNX 模型。若部署环境内存不足、无法下载模型，或希望统一使用线上向量服务，推荐在应用内 **设置 → 向量模型** 切换到「线上接口」，填写地址、Key 与模型名并测试连接。应用内配置会加密保存到数据库，并优先于环境变量。
+
+也可以在 `.env.prod` 中配置任意 OpenAI 兼容的 `/embeddings` 接口作为兜底（应用内未保存配置时生效）：
+
+```dotenv
+KIWI_EMBED_PROVIDER=openai
+KIWI_EMBED_API_BASE=https://api.openai.com/v1
+KIWI_EMBED_API_KEY=sk-...
+KIWI_EMBED_API_MODEL=text-embedding-3-small
+# 可选：请求超时、单批文本数与并发批次数
+# KIWI_EMBED_API_TIMEOUT=60
+# KIWI_EMBED_API_BATCH_SIZE=64
+# KIWI_EMBED_API_CONCURRENCY=4
+```
+
+也兼容本地 Ollama 等实现，例如 `KIWI_EMBED_API_BASE=http://host.docker.internal:11434/v1`、`KIWI_EMBED_API_MODEL=nomic-embed-text`（无需 API Key）。
+
+说明：
+
+- 应用内保存配置后，`KIWI_EMBED_*` 仅在点击「恢复环境变量配置」后重新生效。
+- 远程模式下所有知识库共享同一向量空间，知识库设置中的本地模型选项不再生效。
+- 远程向量写入独立的 Qdrant collection，不会与本地模型的历史向量混用；切换模型或服务商会自动使用新 collection。
+- 切换后已有素材的 raw 向量不会自动迁移，建议重新导入素材，并对 Wiki 执行一次「重建 Wiki」；否则旧内容只能依赖 Wiki 页面重新编译后的向量。
+- 启用后，笔记、Wiki 与检索查询文本会发送到所配置的线上接口，请确认该服务的数据合规性。
+
 ### 端口调整
 
 所有端口都在 `.env.prod` 中配置，修改后重新执行 `./deploy.sh`：
@@ -100,7 +146,13 @@ QDRANT_GRPC_PORT=16334
 | `POSTGRES_USER` / `POSTGRES_DB` | `kiwi` / `kiwi` | 数据库账号与库名 |
 | `POSTGRES_PASSWORD` | 自动生成 | 建议仅使用字母、数字、`-`、`_` |
 | `KIWI_FERNET_KEY` | 自动生成 | 模型 Key 加密密钥，必须长期保持 |
-| `HF_ENDPOINT` | 官方地址 | 网络受限时可设为 `https://hf-mirror.com` |
+| `PYPI_INDEX_URL` | 清华 PyPI 镜像 | 后端构建时的 Python 包源 |
+| `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` | 清华 Debian 镜像 | 后端构建时的系统包源 |
+| `HF_ENDPOINT` | `https://hf-mirror.com` | 本地嵌入模型下载地址，海外可设为官方地址 |
+| `KIWI_EMBED_PROVIDER` | `local` | `local` 本地 fastembed；`openai` 使用线上接口 |
+| `KIWI_EMBED_API_BASE` | 空 | 线上 embedding 接口地址，如 `https://api.openai.com/v1` |
+| `KIWI_EMBED_API_KEY` | 空 | 线上接口 API Key（本地服务可留空） |
+| `KIWI_EMBED_API_MODEL` | `text-embedding-3-small` | 线上 embedding 模型名 |
 | `KIWI_LLM_TIMEOUT` | `600` | LLM 请求超时（秒） |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 
@@ -204,7 +256,7 @@ nginx 默认允许 220 MB，后端单文件导入上限 200 MB。若需更大文
 ./deploy.sh logs backend
 ```
 
-网络受限时在 `.env.prod` 设置 `HF_ENDPOINT=https://hf-mirror.com` 后执行 `./deploy.sh restart`。
+默认已通过 `HF_ENDPOINT=https://hf-mirror.com` 使用国内镜像。若仍失败，可在 `.env.prod` 中换用其他镜像或官方地址后执行 `./deploy.sh restart`。
 
 ### 页面 502 / API 不通
 

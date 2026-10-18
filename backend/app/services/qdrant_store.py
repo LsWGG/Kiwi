@@ -11,6 +11,7 @@ import uuid
 from qdrant_client import QdrantClient, models
 
 from app.config import settings
+from app.services.embedder import embedding_space, is_remote_provider
 
 EMBED_DIM = settings.embed_dim
 DEFAULT_EMBED_MODEL = settings.embed_model
@@ -35,11 +36,15 @@ def get_client() -> QdrantClient:
 
 
 def collection_names(model: str | None = None) -> tuple[str, str]:
-    """(raw, wiki) collection 名；默认模型使用历史名称。"""
-    model = model or DEFAULT_EMBED_MODEL
-    if model == DEFAULT_EMBED_MODEL:
+    """(raw, wiki) collection 名；默认本地模型使用历史名称。
+
+    远程 embedding 使用独立的 ``remote:<模型>`` 向量空间，避免与本地模型
+    的维度或语义空间混写。切换线上模型后会自动落到新的 collection。
+    """
+    space = embedding_space(model)
+    if space == DEFAULT_EMBED_MODEL:
         return RAW_COLLECTION, WIKI_COLLECTION
-    suffix = hashlib.sha1(model.encode("utf-8")).hexdigest()[:12]
+    suffix = hashlib.sha1(space.encode("utf-8")).hexdigest()[:12]
     return f"{_MODEL_PREFIX_RAW}{suffix}", f"{_MODEL_PREFIX_WIKI}{suffix}"
 
 
@@ -80,7 +85,12 @@ def _ensure_named(client: QdrantClient, name: str, dim: int) -> None:
 
 
 def ensure_collections(client: QdrantClient | None = None) -> None:
-    """幂等创建默认模型的两个 collection + kb_id 租户索引。"""
+    """幂等创建默认本地模型的两个 collection + kb_id 租户索引。
+
+    远程 embedding 的维度由线上模型决定，首次写入向量时再按实际维度建表。
+    """
+    if is_remote_provider():
+        return
     client = client or get_client()
     for name in (RAW_COLLECTION, WIKI_COLLECTION):
         _ensure_named(client, name, EMBED_DIM)

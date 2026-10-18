@@ -22,12 +22,13 @@ from app.routers import (
     notebooks,
     notes,
     search,
+    settings_embedding,
     sources,
     study,
     wiki,
 )
 from app.db.session import async_session_factory
-from app.services import qdrant_store
+from app.services import embedding_settings, qdrant_store
 from app.services.builtin_demo import ensure_builtin_demo, start_vector_seed_task
 from app.services.notebook_kernel import kernel_manager
 
@@ -37,7 +38,16 @@ logger = logging.getLogger("kiwi")
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时初始化：确保向量 collection 与租户索引存在。"""
+    """启动时初始化：加载向量模型配置，确保 collection 与租户索引存在。"""
+    # 先加载应用内向量模型配置：collection 命名依赖当前向量空间。
+    try:
+        async with async_session_factory() as db:
+            row = await embedding_settings.load_runtime(db)
+        if row is not None:
+            logger.info("Embedding runtime loaded from app settings (%s)", row.provider)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("向量模型配置加载失败，回退环境变量：%s", e)
+
     try:
         await asyncio.to_thread(qdrant_store.ensure_collections)
         logger.info("Qdrant collections ready (raw_chunks / wiki_pages, kb_id tenant index)")
@@ -64,7 +74,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Kiwi · 知识编译与检索系统",
-    version="0.2.0",
+    version="0.1.2",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url=None,
@@ -82,6 +92,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(kb.router)
 app.include_router(llm.router)
+app.include_router(settings_embedding.router)
 app.include_router(notes.router)
 app.include_router(note_databases.router)
 app.include_router(note_editor.router)

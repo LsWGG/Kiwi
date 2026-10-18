@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,8 +25,17 @@ class Settings(BaseSettings):
     fernet_key: str = "change_me_change_me_change_me_change_me_"
 
     # --- 嵌入 ---
+    # provider=local 使用 fastembed 本地模型；openai 调用 OpenAI 兼容的线上接口。
+    embed_provider: Literal["local", "openai", "remote", "api"] = "local"
     embed_model: str = "BAAI/bge-small-zh-v1.5"
     embed_dim: int = 512
+    # 线上接口：base 形如 https://api.openai.com/v1（也兼容 Ollama /v1）。
+    embed_api_base: str = ""
+    embed_api_key: str = ""
+    embed_api_model: str = "text-embedding-3-small"
+    embed_api_timeout: float = 60.0
+    embed_api_batch_size: int = 64
+    embed_api_concurrency: int = 4
 
     # --- LLM ---
     # 本地大模型（Ollama 等）冷启动与长文编译可能远超 60s，默认放宽到 10 分钟。

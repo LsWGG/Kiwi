@@ -37,6 +37,11 @@ const router = createRouter({
         { path: 'import', redirect: '/notes' },
         { path: 'chat', name: 'chat', component: () => import('@/views/edit/ChatView.vue') },
         { path: 'settings', name: 'settings', component: () => import('@/views/settings/LlmConfigView.vue') },
+        {
+          path: 'settings/embedding',
+          name: 'settings-embedding',
+          component: () => import('@/views/settings/EmbeddingConfigView.vue'),
+        },
         // 学习模式（阶段一核心闭环：画像→训练→掌握度→错题）
         { path: 'learn', name: 'learn', component: () => import('@/views/learn/StudyView.vue') },
       ],

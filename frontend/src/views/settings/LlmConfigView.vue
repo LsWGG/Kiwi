@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useLlmStore, LlmConfig } from '@/stores/llm'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 
 const llm = useLlmStore()
@@ -141,7 +142,7 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
 <template>
   <div class="page-wrap-slim px-8 py-8">
     <!-- 页头 -->
-    <div class="flex items-end justify-between mb-8 animate-fade-up">
+    <div class="flex items-end justify-between mb-5 animate-fade-up">
       <div class="flex items-center gap-3">
         <span
           class="w-10 h-10 rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 grid place-items-center text-white shadow-glow"
@@ -160,6 +161,8 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
         新增配置
       </button>
     </div>
+
+    <SettingsTabs />
 
     <!-- 编辑表单 -->
     <div

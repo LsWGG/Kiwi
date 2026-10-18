@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import KnowledgeBase
 from app.services import qdrant_store
-from app.services.embedder import embed_one_async
+from app.services.embedder import embed_one_async, embedding_space
 
 
 def _rrf(ranked_lists: list[list[dict]], k: int = 60, limit: int = 10) -> list[dict]:
@@ -60,7 +60,7 @@ async def _kb_models(
             )
         )
     ).all()
-    return {row[0]: (row[1] or settings.embed_model) for row in rows}
+    return {row[0]: embedding_space(row[1] or settings.embed_model) for row in rows}
 
 
 def _normalize_kind(collection: str) -> str:
@@ -113,7 +113,7 @@ async def search(
             h["id"] = h.get("id", f"{kb_id}-{len(per_kb_results)}")
         per_kb_results.append(hits)
 
-    same_model = len({models.get(k, settings.embed_model) for k in kb_ids}) <= 1
+    same_model = len({models.get(k, embedding_space()) for k in kb_ids}) <= 1
     if same_model:
         return _cosine_merge(per_kb_results, limit)
     return _rrf(per_kb_results, limit)

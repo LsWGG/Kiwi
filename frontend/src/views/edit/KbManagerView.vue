@@ -15,11 +15,19 @@ const kbs = useKbsStore()
 const llm = useLlmStore()
 const router = useRouter()
 
+/** 系统级向量模型：线上模式下各库的本地模型选择会被忽略 */
+const embeddingProvider = ref<'local' | 'openai'>('local')
+
 onMounted(() => {
   // 拉 LLM 配置，用于映射「默认模型」绑定显示
   llm.fetchConfigs().catch(() => { /* 配置拉取失败不阻塞知识库管理 */ })
   // 内置演示库状态：决定是否展示「还原」入口
   void kbs.fetchBuiltinStatus()
+  request<{ provider: string }>('/settings/embedding')
+    .then((c) => {
+      embeddingProvider.value = c.provider === 'openai' ? 'openai' : 'local'
+    })
+    .catch(() => { /* 旧后端或读取失败时按本地模式展示 */ })
 })
 
 // 置顶的知识库排在前面；同等状态按创建时间倒序。
@@ -691,7 +699,13 @@ async function restoreBuiltin() {
               {{ m.label }}
             </option>
           </select>
-          <p class="text-[11px] text-slate-400 mt-1">
+          <p v-if="embeddingProvider === 'openai'" class="text-[11px] text-amber-600 mt-1">
+            系统已启用线上向量模型，此处选择暂不生效。
+            <RouterLink to="/settings/embedding" class="underline hover:text-amber-700">
+              前往设置
+            </RouterLink>
+          </p>
+          <p v-else class="text-[11px] text-slate-400 mt-1">
             每个知识库独立编码与检索；更换模型后需重新导入素材以重建向量。
           </p>
         </div>
