@@ -129,7 +129,25 @@ const linkIndex = computed<WikiLinkTarget[]>(() =>
   pages.value.map((p) => ({ id: p.id, slug: p.slug, title: p.title })),
 )
 
-const headings = computed<HeadingItem[]>(() => extractHeadings(page.value?.body_md || ''))
+/**
+ * 编译产物通常以 `# 页面标题` 开头，页面头部已经展示标题；
+ * 阅读时去掉重复的一级标题，避免同一标题连续出现两次。
+ */
+const displayBody = computed(() => {
+  const body = page.value?.body_md || ''
+  const title = (page.value?.title || '').trim()
+  if (!title) return body
+  const match = body.match(/^\s*#\s+(.+?)\s*(?:\r?\n|$)/)
+  if (!match) return body
+  const heading = match[1]
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (heading !== title.replace(/\s+/g, ' ')) return body
+  return body.slice(match[0].length).replace(/^\s+/, '')
+})
+
+const headings = computed<HeadingItem[]>(() => extractHeadings(displayBody.value))
 const toc = computed(() => headings.value.filter((h) => h.level <= 3))
 
 // 增量重导入后，引用该素材的人工编辑页会带源漂移标记
@@ -604,7 +622,7 @@ const tabCounts = computed(() => ({
         </div>
 
         <!-- 阅读态 -->
-        <WikiMarkdown v-else :content="page.body_md" :pages="linkIndex" />
+        <WikiMarkdown v-else :content="displayBody" :pages="linkIndex" />
 
         <div
           v-if="!editing && page.related_notes.length"
