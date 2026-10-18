@@ -2,10 +2,11 @@
 # ==============================================================================
 # Kiwi Docker 生产部署脚本
 #   ./deploy.sh            构建后端镜像并启动（前端使用已构建的 frontend/dist）
+#   ./deploy.sh update     更新后端代码后重启 backend（源码已挂载，无需重建镜像）
 #   ./deploy.sh frontend   在宿主机构建前端（npm ci + npm run build）
 #   ./deploy.sh ps         查看状态
 #   ./deploy.sh logs [svc] 跟踪日志
-#   ./deploy.sh restart    重启
+#   ./deploy.sh restart    重启全部服务
 #   ./deploy.sh down       停止（保留数据卷）
 # ==============================================================================
 set -euo pipefail
@@ -93,7 +94,7 @@ ensure_frontend_dist() {
 }
 
 usage() {
-  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 command -v docker >/dev/null 2>&1 || die "未找到 docker，请先安装 Docker Engine"
@@ -141,6 +142,13 @@ case "$CMD" in
     ensure_env
     compose down
     echo "[kiwi-deploy] 已停止（数据卷保留）"
+    ;;
+  update|reload)
+    ensure_env
+    # 后端 app / alembic 以 bind mount 运行，重启进程即可加载新代码。
+    # 依赖（pyproject.toml / uv.lock）变化时仍需 ./deploy.sh up 重新构建。
+    compose restart backend
+    echo "[kiwi-deploy] 后端已重启，挂载的源码已生效"
     ;;
   restart)
     ensure_env

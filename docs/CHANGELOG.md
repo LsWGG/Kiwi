@@ -13,6 +13,7 @@
 ### 变更
 
 - 前端不再在 Docker 镜像构建阶段执行 npm / Vite：生产 Compose 改用 `nginx:1.27-alpine` 运行时镜像，只读挂载宿主机预构建的 `frontend/dist`；前端更新后重新 `npm run build` 即可生效，无需重建或重启容器。
+- 后端源码（`app` / `alembic` / `alembic.ini`）以只读 bind mount 挂载进容器：日常代码更新执行 `./deploy.sh update` 重启 backend 即可生效，只有 `pyproject.toml` / `uv.lock` / Dockerfile 变化时才需要重新构建镜像。
 - `./deploy.sh frontend` 可在宿主机单独重建静态产物；`frontend/dist` 缺失时 `./deploy.sh` 会自动构建一次。
 - `deploy/frontend.Dockerfile` 调整为可选的运行时镜像，仅 `COPY` 预构建的 `dist`，供需要不可变镜像的部署使用。
 

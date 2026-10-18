@@ -248,10 +248,18 @@ Qdrant 向量可以在恢复数据库后通过 Wiki 的「重建」/「重新索
 
 ```bash
 git pull
+
+# 仅后端代码变化：重启 backend 即可，无需打包
+./deploy.sh update
+
+# 仅前端代码变化：重新生成 dist，nginx 直接读取新文件
+./deploy.sh frontend
+
+# 依赖（backend/pyproject.toml、uv.lock、Dockerfile）变化或首次部署
 ./deploy.sh
 ```
 
-镜像会重新构建，数据库迁移在 backend 启动时自动执行，数据卷保持不变。
+生产 Compose 把 `backend/app`、`backend/alembic` 与 `backend/alembic.ini` 以只读方式挂载进容器，镜像内的虚拟环境与系统依赖保持不变。`./deploy.sh update` 重启 backend 时会重新执行入口脚本，数据库迁移仍会自动应用，数据卷不受影响。只有依赖变化时才需要重新构建镜像。
 
 ## 排障
 

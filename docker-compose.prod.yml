@@ -7,6 +7,11 @@
 # 前端容器不再执行 npm / Vite 构建，只把宿主机的 frontend/dist 挂载进 nginx，
 # 避免低内存主机在 Docker 构建阶段被 OOM 杀死。
 #
+# 后端源码（app / alembic）同样只读挂载进容器：日常改代码后执行
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml restart backend
+# 即可生效，无需重新构建镜像；只有依赖变化（pyproject.toml / uv.lock /
+# Dockerfile）时才需要 `up -d --build`。
+#
 # 默认端口均为非常规端口，避免与开发环境（5173 / 8000 / 5432 / 6333）冲突：
 #   Web 18473 · API 18474 · PostgreSQL 15432 · Qdrant 16333 / 16334
 # 仅 Web 端口对外监听，其余端口绑定 127.0.0.1。
@@ -100,6 +105,26 @@ services:
       - "127.0.0.1:${KIWI_API_PORT:-18474}:8000"
     volumes:
       - kiwi_data:/app/data
+      # 源码只读挂载：重启容器即可加载最新代码，镜像中的依赖与环境保持不变。
+      # 不使用 ./backend:/app，否则会遮住镜像内的 .venv 与已安装依赖。
+      - type: bind
+        source: ./backend/app
+        target: /app/app
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./backend/alembic
+        target: /app/alembic
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./backend/alembic.ini
+        target: /app/alembic.ini
+        read_only: true
+        bind:
+          create_host_path: false
     # Notebook 的 bubblewrap 沙箱需要创建命名空间与挂载点。
     # 沙箱内部仍会 --cap-drop ALL、--unshare-* 并只挂载 /work。
     cap_add:
