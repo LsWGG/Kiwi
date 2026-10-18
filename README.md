@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/assets/screenshots/kb-manager.png" alt="Kiwi 知识库管理" width="920" />
+  <img src="docs/assets/screenshots/notebook.png" alt="Kiwi Notebook 图形化分析" width="920" />
 </p>
 
 <h1 align="center">Kiwi · 知识编译与学习系统</h1>
 
 <p align="center">
-  把零散笔记与素材，编译成一张可以阅读、追问、练习和复习的知识网络。
+  把笔记编译成知识，把知识变成掌握度。
 </p>
 
 <p align="center">
@@ -19,34 +19,46 @@
 
 ---
 
-Kiwi 是一个本地优先的个人知识库系统。文档、PDF、网页、数据表、画布和 Notebook 先成为可编辑的**笔记**；再由编译流水线抽取概念、合并页面、建立引用，长成结构化的 **Wiki**；最后交给学习模式，生成学习计划、练习题、间隔复习和仿真考试。
+Kiwi 不是另一个「把东西存起来」的笔记软件。
 
-它想解决的不只是「知识存在哪里」，而是知识如何被**读懂、连接、练习和记住**。
+文档、PDF、网页、数据表、画布与 Notebook 在这里是原材料：编译流水线把它们拆成概念、合并成相互引用的 Wiki 页面，并为每一条结论保留来源。随后，同一份知识进入学习引擎——画像、训练、间隔重复、仿真考试，掌握度再回写到页面。
 
-## 核心功能
+大多数工具在「记下来」处结束。Kiwi 继续追问：**你怎么知道自己真的学会了？**
+
+## 为什么不同
+
+- **知识是编译出来的。** 不靠手工维护目录，而由 Schema、增量编译与引用关系让结构自己长出来。
+- **图谱也是掌握度地图。** 页面引用、笔记关联、薄弱点与掌握度共用一套坐标；既看知识怎么连，也看哪里还没学会。
+- **学习闭环长在知识库里。** 出题、复习、考试与掌握度更新都在库内完成，不需要把内容导出到另一个工具。
+- **本地优先，模型可替换。** PostgreSQL + Qdrant 单机运行，兼容任意 OpenAI 协议模型；数据与推理都留在自己的机器上。
+
+## 核心能力
 
 - **笔记工作区**：文档、数据表、导入、外链、画布、Notebook 共用目录、标签、模板与双向链接。
-- **编译任务**：所有笔记和素材统一编译进 Wiki，追踪解析质量、任务进度与受影响页面。
-- **结构化 Wiki**：Schema 驱动的页面生成、增量更新、引用图谱、健康检查与一键重建。
-- **知识图谱**：星图式浏览页面关系，节点大小反映被引次数。
-- **学习闭环**：学习画像 → 计划 → 渐进练习 → 间隔重复 → 仿真考试 → 错题本。
-- **有出处的问答**：基于笔记与 Wiki 的混合检索，回答可溯源，也可回写为 Wiki 页面。
-- **本地优先**：PostgreSQL + Qdrant，兼容任意 OpenAI 协议模型（Ollama 或云端）。
+- **编译任务**：所有笔记与素材统一编译进 Wiki，追踪解析质量、任务进度与受影响页面。
+- **结构化 Wiki**：Schema 驱动、增量更新、来源引用、健康检查与一键重建。
+- **知识星图**：星图式浏览页面关系，节点大小反映被引次数。
+- **学习闭环**：画像 → 计划 → 渐进练习 → 间隔重复 → 仿真考试 → 错题本。
+- **有出处的问答**：混合检索 Wiki 与原文，回答可溯源，也可回写为新页面。
 
 ## 界面
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/notes-doc.png" alt="笔记工作区" /><br /><sub>笔记工作区</sub></td>
-    <td width="50%"><img src="docs/assets/screenshots/compile-jobs.png" alt="编译任务" /><br /><sub>编译任务</sub></td>
+    <th width="50%" align="left">编辑模式 · 编译与组织</th>
+    <th width="50%" align="left">学习模式 · 练习与检验</th>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/wiki-graph.png" alt="知识图谱" /><br /><sub>知识图谱</sub></td>
-    <td><img src="docs/assets/screenshots/canvas.png" alt="画布" /><br /><sub>画布</sub></td>
+    <td><img src="docs/assets/screenshots/wiki-graph.png" alt="知识星图" /><br /><sub>知识星图：概念关系与被引次数</sub></td>
+    <td><img src="docs/assets/screenshots/learn-graph.png" alt="学习图谱" /><br /><sub>学习图谱：掌握度分布与薄弱点</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/database-progress.png" alt="数据表" /><br /><sub>数据表</sub></td>
-    <td><img src="docs/assets/screenshots/learn-graph.png" alt="学习模式" /><br /><sub>学习模式</sub></td>
+    <td><img src="docs/assets/screenshots/compile-jobs.png" alt="编译任务" /><br /><sub>编译任务：从笔记到 Wiki 的流水线</sub></td>
+    <td><img src="docs/assets/screenshots/exam-report.png" alt="仿真考试报告" /><br /><sub>仿真考试：分卷表现与知识点雷达</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/wiki-page.png" alt="结构化 Wiki" /><br /><sub>结构化 Wiki：来源、引用与反向链接</sub></td>
+    <td><img src="docs/assets/screenshots/learn-plan.png" alt="学习计划" /><br /><sub>学习计划：按掌握度动态排程</sub></td>
   </tr>
 </table>
 
