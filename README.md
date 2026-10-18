@@ -6,7 +6,7 @@
 
 <p align="center">
   把笔记编译成知识，把知识变成掌握度。<br />
-  <a href="https://lswgg.github.io/Kiwi/">产品主页</a>
+  <a href="https://lswgg.github.io/Kiwi/">产品主页</a> · <strong>简体中文</strong> · <a href="README.en.md">English</a>
 </p>
 
 <p align="center">
