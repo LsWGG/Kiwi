@@ -1,0 +1,280 @@
+"""文档解析路由：md/txt 透传，PDF / DOCX / DOC 抽文本。
+
+策略：
+- 电子原生 PDF 先用 PyMuPDF 快速路径；文本覆盖率过低时尝试 OCR；
+- OCR 依赖本机 tesseract + pytesseract，缺失时标记「待人工复核」而非静默成功；
+- 旧版 .doc 通过 LibreOffice 转为 .docx 后复用 DOCX 解析；
+- 所有解析器输出统一 ParsedDocument（含 parse_engine / quality_report）。
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class ParsedDocument:
+    title: str
+    text: str
+    parse_engine: str = "native"
+    parse_quality: str = "clean"  # clean / ocr_aided / review
+    warnings: list[str] = field(default_factory=list)
+    quality_report: dict = field(default_factory=dict)
+
+
+class ParseError(Exception):
+    pass
+
+
+def parse_file(path: Path, file_type: str | None = None) -> ParsedDocument:
+    """按文件类型路由解析。"""
+    ft = (file_type or path.suffix.lstrip(".")).lower()
+    # note：工作区笔记编译前会序列化为 Markdown 快照，按文本解析。
+    if ft in ("md", "markdown", "txt", "text", "note"):
+        return _parse_text(path)
+    if ft == "pdf":
+        return _parse_pdf(path)
+    if ft == "docx":
+        return _parse_docx(path)
+    if ft == "doc":
+        return _parse_doc(path)
+    raise ParseError(f"不支持的格式：{ft}")
+
+
+def _parse_text(path: Path) -> ParsedDocument:
+    try:
+        data = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        data = path.read_text(encoding="utf-8", errors="replace")
+    title = path.stem or "未命名文档"
+    for line in data.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            break
+    return ParsedDocument(
+        title=title,
+        text=data,
+        parse_engine="native",
+        quality_report={
+            "chars": len(data),
+            "lines": len(data.splitlines()),
+            "encoding": "utf-8",
+        },
+    )
+
+
+def _ocr_pdf(path: Path) -> tuple[str, str, list[str]]:
+    """尝试 OCR。返回 (text, engine, warnings)。"""
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        return "", "", ["未安装 pytesseract / Pillow，无法对扫描件执行 OCR"]
+    tesseract = shutil.which("tesseract")
+    if not tesseract:
+        return "", "", ["未安装 tesseract，无法对扫描件执行 OCR"]
+
+    import fitz
+
+    try:
+        langs = pytesseract.get_languages(config="")
+    except Exception:  # noqa: BLE001
+        langs = []
+    lang = "chi_sim+eng" if "chi_sim" in langs else "eng"
+    warnings = []
+    if "chi_sim" not in langs:
+        warnings.append("未安装中文 OCR 语言包（chi_sim），中文识别质量可能较低")
+
+    doc = fitz.open(path)
+    chunks: list[str] = []
+    try:
+        for page in doc:
+            pix = page.get_pixmap(dpi=200)
+            image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            chunks.append(pytesseract.image_to_string(image, lang=lang))
+    finally:
+        doc.close()
+    return "\n\n".join(chunks).strip(), "tesseract-ocr", warnings
+
+
+def _parse_pdf(path: Path) -> ParsedDocument:
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as e:
+        raise ParseError("PyMuPDF 未安装，无法解析 PDF") from e
+    doc = fitz.open(path)
+    try:
+        pages = [page.get_text("text") for page in doc]
+        page_count = len(pages)
+    finally:
+        doc.close()
+    text = "\n\n".join(pages).strip()
+    chars = len(text)
+    coverage = chars / max(page_count, 1)
+    warnings: list[str] = []
+    engine = "pymupdf"
+    quality = "clean"
+
+    # 少于 ~30 字/页视为没有可用的文本层，尝试 OCR。
+    if coverage < 30:
+        ocr_text, ocr_engine, ocr_warnings = _ocr_pdf(path)
+        warnings.extend(ocr_warnings)
+        if ocr_text:
+            text = ocr_text
+            engine = ocr_engine
+            quality = "ocr_aided"
+            warnings.append("PDF 文本层不足，已使用 OCR 辅助解析")
+        else:
+            quality = "review"
+            warnings.append("PDF 未能提取到文本，可能为扫描件，需要人工复核")
+    if not text.strip():
+        text = f"[PDF 未能提取文本：{path.name}]"
+        quality = "review"
+
+    # 简单表格结构风险：文本中大量制表符或极短行，提示复核。
+    lines = [line for line in text.splitlines() if line.strip()]
+    short_ratio = (
+        sum(1 for line in lines if len(line.strip()) <= 2) / len(lines) if lines else 0
+    )
+    if quality == "clean" and short_ratio > 0.5:
+        quality = "review"
+        warnings.append("检测到大量极短文本行，表格结构可能未正确还原")
+
+    return ParsedDocument(
+        title=path.stem,
+        text=text,
+        parse_engine=engine,
+        parse_quality=quality,
+        warnings=warnings,
+        quality_report={
+            "pages": page_count,
+            "chars": chars,
+            "chars_per_page": round(coverage, 1),
+            "text_coverage": "low" if coverage < 30 else "normal",
+            "ocr": engine == "tesseract-ocr",
+        },
+    )
+
+
+def _parse_docx(path: Path) -> ParsedDocument:
+    try:
+        import docx
+    except ImportError as e:
+        raise ParseError("python-docx 未安装，无法解析 DOCX") from e
+    try:
+        d = docx.Document(str(path))
+    except Exception as e:  # noqa: BLE001
+        raise ParseError(f"DOCX 解析失败：{e}") from e
+
+    parts: list[str] = []
+    headings = 0
+    for p in d.paragraphs:
+        text = p.text.strip()
+        if not text:
+            continue
+        style = (p.style.name or "").lower() if p.style else ""
+        if style.startswith("heading") or style.startswith("标题"):
+            headings += 1
+            level = 1
+            digits = "".join(ch for ch in style if ch.isdigit())
+            if digits:
+                level = max(1, min(6, int(digits)))
+            parts.append(f"{'#' * level} {text}")
+        else:
+            parts.append(text)
+    table_count = len(d.tables)
+    for table in d.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            parts.append(" | ".join(cells))
+    text = "\n".join(parts)
+    warnings: list[str] = []
+    quality = "clean"
+    if not text.strip():
+        quality = "review"
+        warnings.append("DOCX 中未提取到正文")
+    if table_count:
+        warnings.append(f"包含 {table_count} 个表格，复杂合并单元格可能降级为纯文本")
+
+    return ParsedDocument(
+        title=path.stem,
+        text=text,
+        parse_engine="python-docx",
+        parse_quality=quality,
+        warnings=warnings,
+        quality_report={
+            "paragraphs": len(d.paragraphs),
+            "headings": headings,
+            "tables": table_count,
+            "chars": len(text),
+        },
+    )
+
+
+def _parse_doc(path: Path) -> ParsedDocument:
+    """旧版 .doc：尝试 LibreOffice 转 docx，失败标记复核。"""
+    binary = shutil.which("libreoffice") or shutil.which("soffice")
+    if not binary:
+        return ParsedDocument(
+            title=path.stem,
+            text=f"[旧版 DOC 需要 LibreOffice 转换：{path.name}]",
+            parse_engine="unavailable",
+            parse_quality="review",
+            warnings=["未安装 LibreOffice，无法转换旧版 .doc；请另存为 .docx"],
+            quality_report={"conversion": "unavailable"},
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            proc = subprocess.run(
+                [
+                    binary,
+                    "--headless",
+                    "--convert-to",
+                    "docx",
+                    "--outdir",
+                    tmp,
+                    str(path),
+                ],
+                capture_output=True,
+                timeout=90,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return ParsedDocument(
+                title=path.stem,
+                text=f"[旧版 DOC 转换失败：{path.name}]",
+                parse_engine="libreoffice",
+                parse_quality="review",
+                warnings=[f"LibreOffice 转换异常：{exc}"],
+                quality_report={"conversion": "error"},
+            )
+        converted = Path(tmp) / f"{path.stem}.docx"
+        if proc.returncode != 0 or not converted.exists():
+            return ParsedDocument(
+                title=path.stem,
+                text=f"[旧版 DOC 转换失败：{path.name}]",
+                parse_engine="libreoffice",
+                parse_quality="review",
+                warnings=[
+                    "LibreOffice 转换失败：" + (proc.stderr or b"").decode("utf-8", "replace")[:200]
+                ],
+                quality_report={"conversion": "error"},
+            )
+        parsed = _parse_docx(converted)
+        parsed.parse_engine = "libreoffice+python-docx"
+        parsed.quality_report = {**parsed.quality_report, "conversion": "docx"}
+        return parsed
+
+
+def parse_bytes(data: bytes, filename: str, file_type: str | None = None) -> ParsedDocument:
+    """从字节流解析（上传直传，不落盘）。"""
+    suffix = Path(filename).suffix or f".{file_type or 'bin'}"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+        tmp.write(data)
+        tmp.flush()
+        return parse_file(Path(tmp.name), file_type or suffix.lstrip("."))
