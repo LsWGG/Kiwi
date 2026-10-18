@@ -53,7 +53,7 @@ Kiwi 不是另一个「把东西存起来」的笔记软件。
     <td><img src="docs/assets/screenshots/learn-plan.png" alt="学习计划" /><br /><sub>学习计划：按掌握度动态排程</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/compile-jobs.png" alt="编译任务" /><br /><sub>编译任务：从笔记到 Wiki 的流水线</sub></td>
+    <td><img src="docs/assets/screenshots/notes-welcome.png" alt="笔记工作区" /><br /><sub>笔记工作区：目录树、双链与上手引导</sub></td>
     <td><img src="docs/assets/screenshots/exam-report.png" alt="仿真考试报告" /><br /><sub>仿真考试：分卷表现与知识点雷达</sub></td>
   </tr>
   <tr>
