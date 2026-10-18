@@ -29,7 +29,7 @@ export function matchesFilter(row: DbRow, field: DbField, filter: DbFilter): boo
 
   const targetMissing = target === null || target === undefined || target === ''
 
-  if (field.type === 'number' || field.type === 'rating') {
+  if (field.type === 'number' || field.type === 'rating' || field.type === 'progress') {
     const left = asNumber(value)
     const right = asNumber(target)
     if (left === null || right === null) return false
@@ -87,7 +87,7 @@ export function matchesFilter(row: DbRow, field: DbField, filter: DbFilter): boo
 function sortValue(row: DbRow, field: DbField): string | number | null {
   const value = row.data[field.id]
   if (isEmptyValue(value)) return null
-  if (field.type === 'number' || field.type === 'rating') return asNumber(value)
+  if (field.type === 'number' || field.type === 'rating' || field.type === 'progress') return asNumber(value)
   if (field.type === 'checkbox') return value ? 1 : 0
   if (field.type === 'select') {
     return (

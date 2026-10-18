@@ -108,7 +108,12 @@ function save() {
       <div v-for="field in fields" :key="field.id" class="flex items-start gap-3">
         <span class="w-24 shrink-0 pt-1.5 text-[11.5px] text-slate-500 truncate">{{ field.name }}</span>
         <div class="flex-1 min-w-0">
-          <DatabaseCell :field="field" :value="data[field.id]" @update="update(field, $event)" />
+          <DatabaseCell
+            :field="field"
+            :value="data[field.id]"
+            boxed
+            @update="update(field, $event)"
+          />
         </div>
       </div>
       <p v-if="!fields.length" class="py-6 text-center text-[12px] text-slate-400">

@@ -1,6 +1,7 @@
 """笔记路由：工作区目录树、CRUD、标签、模板、搜索、生命周期、[[标题]] 双向链接。"""
 
 import asyncio
+import logging
 import re
 import uuid
 from copy import deepcopy
@@ -96,6 +97,9 @@ from app.services.table_import import (
     parse_table,
     preview_payload,
 )
+from app.services.wiki_links import strip_code
+
+logger = logging.getLogger("kiwi.notes")
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
@@ -443,7 +447,7 @@ async def _rebuild_links(session: AsyncSession, kb_id: uuid.UUID, note: Note) ->
 
     命中的 Wiki 页面写入 ``props_json.wiki_links``，供知识图谱和反向链接使用。
     """
-    body = note.body_md or ""
+    body = strip_code(note.body_md or "")
     await session.execute(delete(NoteLink).where(NoteLink.from_note_id == note.id))
 
     targets = set(LINK_RE.findall(body))
@@ -2505,6 +2509,7 @@ async def _prepare_note_compile(
             status="parsed",
             parse_quality="clean",
             external_id=external_id,
+            parsed_at=datetime.now(timezone.utc),
         )
         session.add(source)
         await session.flush()
@@ -2519,6 +2524,7 @@ async def _prepare_note_compile(
         source.title = (note.title or "笔记")[:300]
         source.status = "parsed"
         source.parse_quality = "clean"
+        source.parsed_at = datetime.now(timezone.utc)
         # 旧版本按指纹命名的临时原文，迁移到稳定路径后清理。
         if old_path != raw_path and old_path.exists() and old_path.name.startswith("note-"):
             try:
@@ -2538,31 +2544,123 @@ async def _prepare_note_compile(
     return job, source, reused
 
 
+def _normalized_title(title: str) -> str:
+    """归一化标题：去掉「示例项目 ·」这类前缀与空白 / 标点，便于匹配。"""
+    text = str(title or "").strip()
+    if "·" in text:
+        text = text.rsplit("·", 1)[-1].strip()
+    return re.sub(r"[\s\-_/·:：,，。()（）\[\]【】]+", "", text.lower())
+
+
+def _pick_compiled_page(note_title: str, pages: list[WikiPage]) -> WikiPage | None:
+    """从一次编译触达的页面中选出笔记的主页面。
+
+    编译模型可能同时新建 / 更新多个页面，其中不少只是相关页面而非笔记本身。
+    只在标题明确对应时关联，避免把「画布示例」错误挂到「Wiki」页面；无法
+    判断时返回 None，宁可不展示入口也不产生误导。
+    """
+    title = _normalized_title(note_title)
+    if not title:
+        return pages[0] if len(pages) == 1 else None
+
+    exact = [page for page in pages if _normalized_title(page.title) == title]
+    if exact:
+        return exact[0]
+
+    related = [
+        page
+        for page in pages
+        if len(_normalized_title(page.title)) >= 3
+        and (
+            title in _normalized_title(page.title)
+            or _normalized_title(page.title) in title
+        )
+    ]
+    if related:
+        return max(related, key=lambda page: len(_normalized_title(page.title)))
+    return pages[0] if len(pages) == 1 else None
+
+
+async def _link_note_compiled_page(
+    note_id: uuid.UUID | None, kb_id: uuid.UUID, job_id: uuid.UUID
+) -> None:
+    """编译成功后把笔记关联到主 Wiki 页面，供笔记详情与列表直接跳转。"""
+    if note_id is None:
+        return
+    from app.db.session import async_session_factory
+
+    async with async_session_factory() as db:
+        job = await db.get(IngestJob, job_id)
+        if job is None or job.status != "succeeded":
+            return
+        page_ids = [
+            uuid.UUID(str(raw))
+            for raw in (job.touched_page_ids or [])
+            if str(raw).strip()
+        ]
+        if not page_ids:
+            return
+        pages = list(
+            (
+                await db.execute(
+                    select(WikiPage).where(
+                        WikiPage.kb_id == kb_id, WikiPage.id.in_(page_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        note = await db.get(Note, note_id)
+        if note is None or not pages:
+            return
+        chosen = _pick_compiled_page(note.title or "", pages)
+        if chosen is None:
+            return
+        props = dict(note.props_json or {})
+        if str(props.get("wiki_page_id") or "") == str(chosen.id):
+            return
+        props["wiki_page_id"] = str(chosen.id)
+        note.props_json = props
+        await db.commit()
+
+
 def _schedule_note_compile(
     job: IngestJob, kb_id: uuid.UUID, source_id: uuid.UUID, reused: bool
 ) -> None:
+    # 后台任务晚于请求会话执行，先取出主键与笔记 id，避免 detached 实例访问。
+    job_id, note_id = job.id, job.note_id
+
     async def _run() -> None:
         await ingest_service._process_ingest(
-            str(job.id),
+            str(job_id),
             kb_id,
             source_id,
             compile_now=True,
             note_id=None,
             embed_raw=not reused,
         )
+        try:
+            await _link_note_compiled_page(note_id, kb_id, job_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("笔记 %s 编译完成但关联 Wiki 页面失败", note_id)
 
-    ingest_service._running[str(job.id)] = asyncio.create_task(
-        _run(), name=f"note-compile:{job.id}"
+    ingest_service._running[str(job_id)] = asyncio.create_task(
+        _run(), name=f"note-compile:{job_id}"
     )
 
 
 @router.post("/compile-all", response_model=dict, status_code=202)
 async def compile_all_notes(
     kb_id: uuid.UUID,
-    limit: int = Query(20, ge=1, le=50),
+    limit: int | None = Query(None, ge=1, le=500),
     session: AsyncSession = Depends(get_session),
 ):
-    """把工作区全部活跃笔记（文档 / 导入 / 链接 / 数据表 / 画布）编译进 Wiki。"""
+    """把工作区全部活跃笔记编译进 Wiki。
+
+    默认不设上限，覆盖文档 / 导入 / 链接 / 数据表 / 画布 / Notebook；
+    数据表行笔记随所属数据表一起编译，不重复提交。``limit`` 仅用于分批调用。
+    """
     kb = await session.get(KnowledgeBase, kb_id)
     if kb is None:
         raise HTTPException(404, "知识库不存在")
@@ -2587,7 +2685,7 @@ async def compile_all_notes(
     busy = 0
     selected = 0
     for note in candidates:
-        if len(jobs) >= limit:
+        if limit is not None and len(jobs) >= limit:
             break
         selected += 1
         prepared = await _prepare_note_compile(session, kb_id, note)

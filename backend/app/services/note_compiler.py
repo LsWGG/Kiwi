@@ -1,12 +1,14 @@
 """把工作区笔记转成可编译进 Wiki 的 Markdown。
 
-文档 / 导入 / 链接直接使用正文；数据表与画布把结构化内容序列化，
+文档 / 导入 / 链接直接使用正文；数据表、画布与 Notebook 把结构化内容序列化，
 保证「全部笔记类型都能沉淀为 Wiki 知识」。
 """
 
 from __future__ import annotations
 
 import json
+import re
+from html.parser import HTMLParser
 from typing import Any
 
 from sqlalchemy import select
@@ -45,6 +47,7 @@ FIELD_TYPE_LABEL = {
     "long_text": "长文本",
     "number": "数字",
     "rating": "评分",
+    "progress": "进度",
     "select": "单选",
     "multi_select": "多选",
     "date": "日期",
@@ -241,12 +244,103 @@ def _link_markdown(note: Note) -> str:
     return "\n".join(lines).strip()
 
 
+class _HtmlTableParser(HTMLParser):
+    """把 Notebook 的 DataFrame HTML 输出还原成 Markdown 表格。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "tr":
+            self._row = []
+        elif tag in ("td", "th"):
+            self._cell = []
+        elif tag == "br" and self._cell is not None:
+            self._cell.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("td", "th") and self._cell is not None and self._row is not None:
+            self._row.append(re.sub(r"\s+", " ", "".join(self._cell)).strip())
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            if any(cell for cell in self._row):
+                self.rows.append(self._row)
+            self._row = None
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None:
+            self._cell.append(data)
+
+
+def _html_table_markdown(html: str) -> str:
+    if "<table" not in html.lower():
+        return ""
+    parser = _HtmlTableParser()
+    try:
+        parser.feed(html)
+    except Exception:
+        return ""
+    rows = parser.rows
+    if not rows:
+        return ""
+    width = max(len(row) for row in rows)
+    normalized = [row + [""] * (width - len(row)) for row in rows]
+    header, body = normalized[0], normalized[1:]
+
+    def line(cells: list[str]) -> str:
+        return "| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |"
+
+    lines = [line(header), "| " + " | ".join("---" for _ in range(width)) + " |"]
+    lines.extend(line(row) for row in body)
+    return "\n".join(lines)
+
+
+def _notebook_markdown(note: Note) -> str:
+    doc = (note.props_json or {}).get("notebook_doc")
+    if not isinstance(doc, dict):
+        return ""
+    cells = [cell for cell in doc.get("cells") or [] if isinstance(cell, dict)]
+    if not cells:
+        return ""
+    language = str(doc.get("language") or "python")
+    lines: list[str] = [f"# {note.title or 'Notebook'}", ""]
+    for index, cell in enumerate(cells, start=1):
+        kind = str(cell.get("type") or "code")
+        source = str(cell.get("source") or "").rstrip()
+        if kind == "markdown":
+            if source:
+                lines += [source, ""]
+            continue
+        if not source:
+            continue
+        lines += [f"## 代码单元 {index}", "", f"```{language}", source, "```", ""]
+        output_blocks: list[str] = []
+        for output in cell.get("outputs") or []:
+            if not isinstance(output, dict):
+                continue
+            table = _html_table_markdown(str(output.get("html") or ""))
+            if table:
+                output_blocks.append(table)
+                continue
+            text = str(output.get("text") or "").rstrip()
+            if text:
+                output_blocks.append(f"```text\n{text}\n```")
+        if output_blocks:
+            lines += ["**运行输出**", "", "\n\n".join(output_blocks), ""]
+    return "\n".join(lines).strip()
+
+
 async def build_note_compile_markdown(session: AsyncSession, note: Note) -> str:
     """返回编译用 Markdown；没有可编译内容时返回空字符串。"""
     if note.kind == "canvas":
         return _canvas_markdown(note)
     if note.kind == "link":
         return _link_markdown(note)
+    if note.kind == "notebook":
+        return _notebook_markdown(note)
     if note.kind == "database":
         collection = (
             await session.execute(

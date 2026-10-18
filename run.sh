@@ -32,11 +32,9 @@ if [ ! -f .env ]; then
   FERNET_KEY="$(uv run --with cryptography python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' 2>/dev/null \
     || python3 -c 'import secrets, base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')"
   PG_PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
-  SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
   sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${PG_PASS}|" .env
   sed -i "s|^KIWI_DATABASE_URL=.*|KIWI_DATABASE_URL=postgresql+asyncpg://kiwi:${PG_PASS}@localhost:5432/kiwi|" .env
   sed -i "s|^KIWI_FERNET_KEY=.*|KIWI_FERNET_KEY=${FERNET_KEY}|" .env
-  sed -i "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET}|" .env
   ok ".env 已生成（含随机密钥）。"
 else
   ok ".env 已存在，跳过生成。"
@@ -71,7 +69,7 @@ fi
 if [ "$INFRA_READY" = "1" ]; then
   ok "检测到外部基础设施已就绪（Qdrant/PG 可达），跳过 docker compose。"
 else
-  info "拉起基础设施容器（postgres / qdrant / redis）…"
+  info "拉起基础设施容器（postgres / qdrant）…"
   docker_cmd compose up -d 2>&1 | sed 's/^/[compose] /'
 
   info "等待容器健康…"
@@ -82,7 +80,7 @@ else
       unhealthy="$(echo "$status" | grep -cE "unhealthy|exited" || true)"
       healthy="$(echo "$status" | grep -c "\"Health\":\"healthy\"" || true)"
       [ "$unhealthy" -ge 1 ] && { echo "ERROR unhealthy container"; exit 2; }
-      [ "$healthy" -ge 3 ] && { echo "HEALTHY"; exit 0; }
+      [ "$healthy" -ge 2 ] && { echo "HEALTHY"; exit 0; }
       [ $((i % 5)) -eq 0 ] && echo "…等待中 ($((i * 5))s)"
       sleep 5
     done

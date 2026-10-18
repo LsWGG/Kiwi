@@ -144,6 +144,7 @@ const COMPONENTS = [
   { key: 'columns3', label: '分栏卡片 · 3 栏', hint: '三栏并排的富文本', icon: 'columns' },
   { key: 'calendar', label: '日历', hint: '月视图，可为日期添加安排', icon: 'calendar' },
   { key: 'datatable', label: '数据表', hint: '可增删行列，支持批量粘贴', icon: 'table' },
+  { key: 'taskProgress', label: '待办进度', hint: '绑定附近任务清单，实时统计完成度', icon: 'checkSquare' },
 ]
 
 function pickComponent(key: string) {
@@ -574,7 +575,7 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
         <button
           type="button"
           :class="[btn, componentMenuOpen ? activeBtn : '']"
-          title="插入组件：日期 / 公式 / 绘图 / 图册 / 分栏 / 笔记"
+          title="插入组件：日期 / 公式 / 绘图 / 图册 / 分栏 / 日历 / 数据表 / 待办进度"
           @mousedown.prevent
           @click="toggleComponentMenu"
         >

@@ -19,11 +19,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://kiwi:kiwi@localhost:5432/kiwi"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
-    redis_url: str = "redis://localhost:6379/0"
 
     # --- 安全 ---
     fernet_key: str = "change_me_change_me_change_me_change_me_"
-    secret_key: str = "change_me"
 
     # --- 嵌入 ---
     embed_model: str = "BAAI/bge-small-zh-v1.5"

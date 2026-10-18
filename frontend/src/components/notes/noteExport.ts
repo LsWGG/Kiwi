@@ -205,7 +205,7 @@ function csvCell(value: string): string {
 /** Excel 单元格：数字保持数值类型，其余转成可读文本。 */
 function excelCell(field: DbField, value: unknown): string | number {
   if (value === null || value === undefined) return ''
-  if (field.type === 'number' || field.type === 'rating') {
+  if (field.type === 'number' || field.type === 'rating' || field.type === 'progress') {
     const n = Number(value)
     return Number.isFinite(n) ? n : ''
   }

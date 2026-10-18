@@ -7,8 +7,14 @@ import DatabaseAttachmentCell from './DatabaseAttachmentCell.vue'
 import { chipClass, dotClass } from './colors'
 
 const props = withDefaults(
-  defineProps<{ field: DbField; value: any; readonly?: boolean }>(),
-  { readonly: false },
+  defineProps<{
+    field: DbField
+    value: any
+    readonly?: boolean
+    /** 弹窗等有背景的场景显示输入框边框，表格内保持无边框。 */
+    boxed?: boolean
+  }>(),
+  { readonly: false, boxed: false },
 )
 const emit = defineEmits<{ (e: 'update', value: any): void }>()
 
@@ -118,6 +124,27 @@ function setRating(n: number) {
   emit('update', rating.value === n ? 0 : n)
 }
 
+// ---------- 进度（0-100） ----------
+const progress = ref(0)
+
+watch(
+  () => props.value,
+  (value) => {
+    const n = Number(value)
+    progress.value = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0
+  },
+  { immediate: true },
+)
+
+function onProgressInput(e: Event) {
+  progress.value = Number((e.target as HTMLInputElement).value)
+}
+
+function commitProgress() {
+  if (progress.value === Number(props.value ?? 0)) return
+  emit('update', progress.value)
+}
+
 // ---------- 只读渲染（笔记阅读模式 / 内嵌数据表） ----------
 const staticText = computed(() => {
   const value = props.value
@@ -129,6 +156,7 @@ const staticText = computed(() => {
   if (props.field.type === 'multi_select') {
     return multiOptions.value.map((option) => option.name).join('、')
   }
+  if (props.field.type === 'progress') return `${progress.value}%`
   if (props.field.type === 'attachment') {
     return Array.isArray(value)
       ? value.map((item: any) => String(item?.filename ?? '')).filter(Boolean).join('、')
@@ -149,7 +177,7 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
 </script>
 
 <template>
-  <div class="min-w-0">
+  <div class="min-w-0" :class="{ 'db-boxed': boxed }">
     <!-- 只读：按字段类型呈现纯内容 -->
     <div v-if="readonly" class="db-static-value">
       <template v-if="field.type === 'checkbox'">
@@ -189,6 +217,14 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
             :size="11"
             :class="n <= rating ? 'text-amber-400 fill-current' : 'text-slate-200'"
           />
+        </span>
+      </template>
+      <template v-else-if="field.type === 'progress'">
+        <span class="db-progress-static" :class="{ 'is-complete': progress >= 100 }">
+          <span class="db-progress-static-track">
+            <i :style="{ width: `${progress}%` }" />
+          </span>
+          <span class="db-progress-static-label">{{ progress }}%</span>
         </span>
       </template>
       <template v-else-if="field.type === 'attachment'">
@@ -341,6 +377,29 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
       </button>
     </div>
 
+    <!-- progress -->
+    <div
+      v-else-if="field.type === 'progress'"
+      class="db-progress"
+      :class="{ 'is-complete': progress >= 100 }"
+      :style="{ '--db-progress': `${progress}%` }"
+    >
+      <input
+        class="db-progress-input"
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        :value="progress"
+        :aria-label="field.name"
+        @input="onProgressInput"
+        @change="commitProgress"
+        @mousedown.stop
+        @click.stop
+      />
+      <span class="db-progress-label">{{ progress }}%</span>
+    </div>
+
     <!-- attachment -->
     <DatabaseAttachmentCell
       v-else-if="field.type === 'attachment'"
@@ -391,7 +450,93 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
 .db-textarea {
   @apply w-full min-h-[50px] px-2 py-1.5 rounded-md bg-transparent text-[12px] leading-relaxed text-slate-700 outline-none border border-transparent resize-y transition-colors hover:bg-white/70 focus:bg-white focus:border-kiwi-300 focus:ring-2 focus:ring-kiwi-200/60;
 }
+.db-boxed .db-input,
+.db-boxed .db-textarea {
+  @apply border-slate-200 bg-white;
+}
+.db-boxed .db-input:hover,
+.db-boxed .db-textarea:hover {
+  @apply bg-white;
+}
+.db-boxed .db-input:focus,
+.db-boxed .db-textarea:focus {
+  @apply border-kiwi-300;
+}
 .rating-star {
   @apply w-5 h-6 grid place-items-center rounded transition-transform hover:scale-110;
+}
+
+/* ---------- 进度字段 ---------- */
+.db-progress {
+  --db-progress-color: #6f72dc;
+  @apply flex h-8 min-w-0 items-center gap-2 px-1.5;
+}
+.db-progress.is-complete {
+  --db-progress-color: #16a34a;
+}
+.db-progress-input {
+  @apply h-4 min-w-[64px] flex-1 cursor-pointer appearance-none bg-transparent;
+}
+.db-progress-input::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--db-progress-color) var(--db-progress, 0%),
+    rgb(226 232 240) var(--db-progress, 0%)
+  );
+}
+.db-progress-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -3px;
+  border: 2px solid var(--db-progress-color);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.16);
+  transition: transform 0.12s ease;
+}
+.db-progress-input:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+.db-progress-input::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(226 232 240);
+}
+.db-progress-input::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--db-progress-color);
+}
+.db-progress-input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--db-progress-color);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.16);
+}
+.db-progress-label {
+  @apply w-8 shrink-0 text-right text-[10.5px] tabular-nums text-slate-500;
+}
+.db-progress-static {
+  --db-progress-color: #6f72dc;
+  @apply flex w-full min-w-0 items-center gap-1.5;
+}
+.db-progress-static.is-complete {
+  --db-progress-color: #16a34a;
+}
+.db-progress-static-track {
+  @apply relative h-1.5 min-w-[32px] flex-1 overflow-hidden rounded-full bg-slate-200/80;
+}
+.db-progress-static-track i {
+  @apply absolute inset-y-0 left-0 rounded-full;
+  background: var(--db-progress-color);
+}
+.db-progress-static-label {
+  @apply w-7 shrink-0 text-right text-[10px] tabular-nums text-slate-500;
 }
 </style>

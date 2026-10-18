@@ -8,7 +8,7 @@ const items = [
   { to: '/kbs', icon: 'database', label: '知识库' },
   { to: '/notes', icon: 'note', label: '笔记' },
   { to: '/wiki', icon: 'wiki', label: 'Wiki' },
-  { to: '/sources', icon: 'bookOpen', label: '素材与任务' },
+  { to: '/sources', icon: 'bookOpen', label: '编译任务' },
   { to: '/chat', icon: 'chat', label: '问答' },
 ]
 

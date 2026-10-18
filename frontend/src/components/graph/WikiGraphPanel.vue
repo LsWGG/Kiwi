@@ -17,6 +17,7 @@ import KiwiGraph, {
   type GraphNodeData,
   type GraphEdgeData,
 } from '@/components/graph/KiwiGraph.vue'
+import { simplifyGraph } from '@/utils/graphSimplify'
 
 interface GraphData {
   nodes: GraphNodeData[]
@@ -46,8 +47,10 @@ const renderBusy = ref(false)
 const errorMsg = ref('')
 /** 全屏目标 wrapper */
 const wrapper = ref<HTMLDivElement>()
-const graphRef = ref<{ layout(): void } | null>(null)
+const graphRef = ref<{ layout(): void; fit(): void; zoomBy(ratio: number): void } | null>(null)
 const isFullscreen = ref(false)
+/** 精要视图：隐藏自动关联边并保留骨架节点，避免线条/标签堆叠；完整视图展示全量关系。 */
+const compact = ref(true)
 
 const TYPE_ORDER = ['entity', 'concept', 'summary', 'synthesis', 'note']
 const TYPE_LABEL: Record<string, string> = {
@@ -102,7 +105,8 @@ const EDGE_DASHED: Record<string, boolean> = {
 const filterOpen = ref(false)
 const FILTER_TYPES = ['entity', 'concept', 'summary', 'synthesis']
 const defaultFilters = (): GraphFilters => ({
-  includeNotes: true,
+  // 默认只看 Wiki 页面：笔记节点多为弱关联，全部展示会让主图显得松散。
+  includeNotes: false,
   types: [],
   humanOnly: 'all',
   focus: '',
@@ -177,6 +181,37 @@ async function load() {
   }
 }
 
+/**
+ * 实际交给画布的图数据：精要模式只保留骨架节点与显式引用边。
+ * 全量数据仍在 graph 中，切换到「完整」即可查看所有关系。
+ */
+const viewGraph = computed(() => {
+  if (!graph.value) return null
+  // 「包含笔记节点」是显式筛选：精要视图也要为笔记留出席位，
+  // 否则笔记节点按连接度排序会全部被裁掉，勾选后画布看起来毫无变化。
+  const noteKeepIds = applied.value.includeNotes
+    ? [...graph.value.nodes]
+        .filter((n) => n.kind === 'note')
+        .sort((a, b) => b.link_count - a.link_count)
+        .slice(0, 4)
+        .map((n) => n.id)
+    : []
+  const simplified = simplifyGraph(graph.value.nodes, graph.value.edges, {
+    compact: compact.value,
+    maxNodes: 14,
+    maxEdgesPerNode: 2,
+    keepIds: noteKeepIds,
+    focusActive: !!applied.value.focus,
+  })
+  return {
+    ...graph.value,
+    nodes: simplified.nodes,
+    edges: simplified.edges,
+    hidden_nodes: simplified.hiddenNodes,
+    hidden_edges: simplified.hiddenEdges,
+  }
+})
+
 onMounted(load)
 watch(() => kbs.currentKbId, () => {
   resetFilters()
@@ -190,6 +225,18 @@ function degrade() {
 
 function reLayout() {
   graphRef.value?.layout()
+}
+
+function fitView() {
+  graphRef.value?.fit()
+}
+
+function zoomIn() {
+  graphRef.value?.zoomBy(1.2)
+}
+
+function zoomOut() {
+  graphRef.value?.zoomBy(1 / 1.2)
 }
 
 async function toggleFullscreen() {
@@ -211,24 +258,24 @@ onMounted(() => document.addEventListener('fullscreenchange', onFsChange))
 onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFsChange))
 
 const isolatedCount = computed(() => {
-  if (!graph.value) return 0
+  if (!viewGraph.value) return 0
   const linked = new Set<string>()
-  for (const e of graph.value.edges) {
+  for (const e of viewGraph.value.edges) {
     linked.add(e.source)
     linked.add(e.target)
   }
-  return graph.value.nodes.filter((n) => !linked.has(n.id)).length
+  return viewGraph.value.nodes.filter((n) => !linked.has(n.id)).length
 })
 
 /** 图例只展示当前图谱真实出现的类型，避免「图例有色、画布没有」的错位。 */
 const legendTypes = computed(() => {
-  const present = new Set(graph.value?.nodes.map((n) => n.page_type) ?? [])
+  const present = new Set(viewGraph.value?.nodes.map((n) => n.page_type) ?? [])
   return TYPE_ORDER.filter((type) => present.has(type))
 })
 
 /** 边类型图例：仅展示当前图谱真实出现的边类型。 */
 const legendEdges = computed(() => {
-  const present = new Set(graph.value?.edges.map((e) => e.type) ?? [])
+  const present = new Set(viewGraph.value?.edges.map((e) => e.type) ?? [])
   return Object.keys(EDGE_LABEL).filter((type) => present.has(type))
 })
 
@@ -255,8 +302,13 @@ function titleOf(id: string) {
     ref="wrapper"
     class="relative overflow-hidden rounded-2xl kiwi-card !shadow-soft h-[34rem] lg:h-[44rem] animate-fade-up"
   >
-    <!-- 背景点阵：kiwi 色细点铺底，画布之上交互全保留 -->
+    <!-- 星空画布底：深空星云 + 缓慢呼吸的细星点；加载/空态仍用浅色点阵以保持可读 -->
+    <template v-if="graphReady && graph?.nodes.length">
+      <div class="absolute inset-0 pointer-events-none graph-nebula" />
+      <div class="absolute inset-0 pointer-events-none graph-starfield" />
+    </template>
     <div
+      v-else
       class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle,rgba(120,108,247,0.08)_1px,transparent_1px)]"
       style="background-size: 22px 22px"
     />
@@ -299,9 +351,10 @@ function titleOf(id: string) {
     <KiwiGraph
       v-else-if="graphReady"
       ref="graphRef"
-      class="absolute inset-0"
-      :nodes="graph!.nodes"
-      :edges="graph!.edges"
+      class="absolute inset-x-0 top-0 bottom-14"
+      :nodes="viewGraph!.nodes"
+      :edges="viewGraph!.edges"
+      :label-limit="compact ? 8 : 0"
       :storage-key="kbs.currentKbId || ''"
       @node:click="(id: string) => emit('select:node', id)"
       @unavailable="degrade"
@@ -314,12 +367,12 @@ function titleOf(id: string) {
         <KiwiIcon name="graph" :size="16" class="text-kiwi-500" />
         <p class="text-sm font-medium text-slate-600">图谱可视化组件未就绪，展示文本关系</p>
         <span class="text-[11px] text-slate-400 ml-auto">
-          {{ graph!.nodes.length }} 节点 · {{ graph!.edges.length }} 关系
+          {{ viewGraph!.nodes.length }} 节点 · {{ viewGraph!.edges.length }} 关系
         </span>
       </div>
       <div class="space-y-2.5">
         <div
-          v-for="n in graph!.nodes"
+          v-for="n in viewGraph!.nodes"
           :key="n.id"
           class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/60 border border-slate-200/60 cursor-pointer hover:border-kiwi-300 hover:bg-white/90 transition-all"
           @click="emit('select:node', n.id)"
@@ -338,14 +391,14 @@ function titleOf(id: string) {
           <span class="text-[11px] text-slate-400 shrink-0 tabular-nums">🔗 {{ n.link_count }}</span>
         </div>
       </div>
-      <div v-if="graph!.edges.length" class="mt-5 pt-4 border-t border-slate-100">
+      <div v-if="viewGraph!.edges.length" class="mt-5 pt-4 border-t border-slate-100">
         <p class="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1.5">
           <KiwiIcon name="link2" :size="12" />
-          引用关系（{{ graph!.edges.length }} 条）
+          引用关系（{{ viewGraph!.edges.length }} 条）
         </p>
         <div class="flex flex-wrap gap-1.5 text-[11px] text-slate-500">
           <span
-            v-for="(e, i) in graph!.edges"
+            v-for="(e, i) in viewGraph!.edges"
             :key="i"
             class="px-2 py-0.5 rounded-full bg-kiwi-50 text-kiwi-700"
           >
@@ -390,10 +443,32 @@ function titleOf(id: string) {
                 性能模式
               </span>
             </p>
-            <p class="text-[11px] text-slate-400 mt-1 tabular-nums">
-              {{ graph.nodes.length }} / {{ graph.total_nodes }} 节点 · {{ graph.edges.length }} 关系
-              <span v-if="graph.truncated" class="text-amber-500">· 已裁剪</span>
-            </p>
+            <div class="mt-1.5 flex items-center gap-2">
+              <p class="text-[11px] text-slate-400 tabular-nums">
+                {{ viewGraph!.nodes.length }} / {{ graph.total_nodes }} 节点 ·
+                {{ viewGraph!.edges.length }} 关系
+                <span v-if="graph.truncated" class="text-amber-500">· 已裁剪</span>
+              </p>
+              <span class="h-3 w-px bg-slate-200/80" />
+              <div class="pointer-events-auto flex rounded-lg bg-slate-100/90 p-0.5">
+                <button
+                  class="rounded-md px-1.5 py-0.5 text-[10px] transition-colors"
+                  :class="compact ? 'bg-white text-kiwi-700 shadow-sm font-medium' : 'text-slate-400'"
+                  title="精要视图：隐藏自动关联边，按连接度保留骨架节点"
+                  @click="compact = true"
+                >
+                  精要
+                </button>
+                <button
+                  class="rounded-md px-1.5 py-0.5 text-[10px] transition-colors"
+                  :class="!compact ? 'bg-white text-kiwi-700 shadow-sm font-medium' : 'text-slate-400'"
+                  title="完整视图：展示全部节点与关系（含自动关联边）"
+                  @click="compact = false"
+                >
+                  完整
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -498,6 +573,31 @@ function titleOf(id: string) {
           </div>
         </div>
 
+        <div class="flex items-center rounded-xl glass-strong overflow-hidden">
+          <button
+            class="w-8 h-8 grid place-items-center text-slate-500 hover:text-kiwi-700 transition-colors"
+            title="缩小"
+            @click="zoomOut"
+          >
+            <KiwiIcon name="minus" :size="14" />
+          </button>
+          <span class="w-px h-3.5 bg-slate-200/80" />
+          <button
+            class="w-8 h-8 grid place-items-center text-slate-500 hover:text-kiwi-700 transition-colors"
+            title="适配视图"
+            @click="fitView"
+          >
+            <KiwiIcon name="maximize" :size="13" />
+          </button>
+          <span class="w-px h-3.5 bg-slate-200/80" />
+          <button
+            class="w-8 h-8 grid place-items-center text-slate-500 hover:text-kiwi-700 transition-colors"
+            title="放大"
+            @click="zoomIn"
+          >
+            <KiwiIcon name="plus" :size="14" />
+          </button>
+        </div>
         <button
           class="w-8 h-8 grid place-items-center rounded-xl glass-strong text-slate-500 hover:text-kiwi-700 hover:border-kiwi-200 transition-all active:scale-95"
           title="重新布局"

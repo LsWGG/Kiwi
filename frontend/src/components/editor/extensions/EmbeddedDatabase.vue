@@ -361,6 +361,10 @@ function coercePasteValue(field: DbField, raw: string): any {
     const number = Number(text)
     return Number.isFinite(number) ? Math.max(0, Math.min(5, Math.round(number))) : null
   }
+  if (field.type === 'progress') {
+    const number = Number(text.replace(/%$/, ''))
+    return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : null
+  }
   if (field.type === 'date') return normalizePasteDate(text)
   if (field.type === 'select') {
     const option = (field.options ?? []).find(

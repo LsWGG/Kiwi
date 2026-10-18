@@ -26,7 +26,9 @@ from app.routers import (
     study,
     wiki,
 )
+from app.db.session import async_session_factory
 from app.services import qdrant_store
+from app.services.builtin_demo import ensure_builtin_demo, start_vector_seed_task
 from app.services.notebook_kernel import kernel_manager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -41,7 +43,22 @@ async def lifespan(app: FastAPI):
         logger.info("Qdrant collections ready (raw_chunks / wiki_pages, kb_id tenant index)")
     except Exception as e:  # noqa: BLE001
         logger.warning("Qdrant 初始化失败（服务仍启动，摄入时重试）：%s", e)
+
+    # 内置演示库：幂等确保存在（不自动还原用户主动隐藏的库）。
+    builtin_task: asyncio.Task[None] | None = None
+    try:
+        async with async_session_factory() as db:
+            await ensure_builtin_demo(db)
+        builtin_task = start_vector_seed_task()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("内置演示库初始化失败（不影响启动）：%s", e)
+
     yield
+
+    if builtin_task is not None and not builtin_task.done():
+        builtin_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await builtin_task
     kernel_manager.shutdown_all()
 
 

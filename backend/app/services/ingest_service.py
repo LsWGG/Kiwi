@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 # 全局任务注册表（job_id -> asyncio.Task）
 _running: dict[str, asyncio.Task] = {}
 
+# 「编译全部笔记」可能一次提交很多任务；限制同时调用 LLM 的编译数，
+# 避免瞬间打满供应商速率限制。解析、嵌入仍可并行。
+_compile_semaphore = asyncio.Semaphore(2)
+
 
 def _content_fingerprint(data: bytes) -> str:
     return sha256(data).hexdigest()
@@ -478,9 +482,10 @@ async def _process_ingest(
             await _update_import_note(note_id, progress=0.85)
 
         if compile_now:
-            # 入库后直接编译
+            # 入库后直接编译；批量编译时限制并发，避免同时打满 LLM 配额。
             await _emit(job_id, "compile_progress", {"status": "compiling"})
-            result = await compile_source(uuid.UUID(job_id), source_id, kb, chunks)
+            async with _compile_semaphore:
+                result = await compile_source(uuid.UUID(job_id), source_id, kb, chunks)
             await _update_job(
                 job_id,
                 progress=1.0,

@@ -386,6 +386,14 @@ export function buildSlashItems(
       run: (e) => c(e).insertCalendar().run(),
     },
     {
+      title: '待办进度',
+      hint: '绑定附近任务清单，实时统计完成度',
+      icon: 'checkSquare',
+      keywords: 'progress task todo checklist 进度 待办 任务 完成度',
+      group: '小工具',
+      run: (e) => c(e).insertTaskProgress().run(),
+    },
+    {
       title: '数据表',
       hint: '可增删行列、批量粘贴的表格',
       icon: 'table',

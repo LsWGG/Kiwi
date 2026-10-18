@@ -49,6 +49,10 @@ function applyUiScale() {
   const scale =
     width >= 4000 ? 1.75 : width >= 3200 ? 1.5 : width >= 2400 ? 1.3 : width >= 1800 ? 1.12 : 1
   document.documentElement.style.setProperty('--ui-scale', String(scale))
+  // body 的 zoom 会放大内容，而 100dvh 不随之缩放。Wiki 页面目录需要的是
+  // 视觉上不超过一屏的高度，因此先按缩放比换算成布局像素再下发。
+  const treeHeight = Math.max(320, Math.round(window.innerHeight / scale - 156))
+  document.documentElement.style.setProperty('--wiki-tree-h', `${treeHeight}px`)
 }
 
 onMounted(() => {

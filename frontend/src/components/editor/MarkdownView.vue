@@ -251,7 +251,16 @@ function dbFieldText(field: DbField | null | undefined, value: unknown): string 
       .filter(Boolean)
       .join('、')
   }
+  if (field.type === 'progress') {
+    const number = Number(value)
+    return Number.isFinite(number) ? `${Math.max(0, Math.min(100, Math.round(number)))}%` : ''
+  }
   return String(value)
+}
+
+function dbProgress(value: unknown): number {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : 0
 }
 
 function dbCellHtml(field: DbField, value: unknown): string {
@@ -278,6 +287,18 @@ function dbCellHtml(field: DbField, value: unknown): string {
           )
           .join('')}</td>`
       : '<td><span class="md-datatable-empty">—</span></td>'
+  }
+  if (field.type === 'progress') {
+    if (value === null || value === undefined || value === '') {
+      return '<td><span class="md-datatable-empty">—</span></td>'
+    }
+    const number = dbProgress(value)
+    return (
+      `<td><span class="md-db-progress${number >= 100 ? ' is-complete' : ''}">` +
+      `<span class="md-db-progress-track"><i style="width:${number}%"></i></span>` +
+      `<span class="md-db-progress-label">${number}%</span>` +
+      '</span></td>'
+    )
   }
   const text = dbFieldText(field, value)
   if (!text) return '<td><span class="md-datatable-empty">—</span></td>'
@@ -495,6 +516,40 @@ function dataTableHtml(content: string): string {
   )
 }
 
+function taskProgressCardHtml(content: string): string {
+  let data: Record<string, any> = {}
+  try {
+    data = JSON.parse(content) || {}
+  } catch {
+    data = {}
+  }
+  const label = escapeHtml(String(data.label || '待办进度').slice(0, 80))
+  const color = ['indigo', 'violet', 'green', 'blue', 'amber', 'rose', 'slate'].includes(
+    String(data.color),
+  )
+    ? String(data.color)
+    : 'indigo'
+  const bind = ['auto', 'next', 'prev'].includes(String(data.bind))
+    ? String(data.bind)
+    : 'auto'
+  return (
+    `<div class="kiwi-task-progress-card tone-${color}" data-kiwi-task-progress="true"` +
+    ` data-label="${label}" data-bind="${bind}"` +
+    ` data-show-count="${data.showCount !== false}" data-show-percent="${data.showPercent !== false}">` +
+    `<div class="kiwi-task-progress-head">` +
+    `<span class="kiwi-task-progress-badge">✓</span>` +
+    `<span class="kiwi-task-progress-label">${label}</span>` +
+    `<span class="kiwi-task-progress-meta" data-progress-meta></span>` +
+    `<span class="kiwi-task-progress-spacer"></span>` +
+    `</div>` +
+    `<div class="kiwi-task-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">` +
+    `<i class="kiwi-task-progress-fill" data-progress-fill></i>` +
+    `</div>` +
+    `<p class="kiwi-task-progress-empty" data-progress-empty hidden>未找到附近的任务清单</p>` +
+    `</div>`
+  )
+}
+
 const defaultFence =
   md.renderer.rules.fence ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
@@ -503,6 +558,9 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
   const lang = String(token.info ?? '').trim()
   const body = token.content.trim()
+  if (lang === 'kiwi-task-progress') {
+    return `${taskProgressCardHtml(body)}\n`
+  }
   if (lang === 'kiwi-math') {
     return `<div class="md-formula" data-formula="${escapeAttr(body)}"></div>\n`
   }
@@ -533,6 +591,19 @@ const defaultLinkOpen =
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
 
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const href = tokens[idx].attrGet('href') || ''
+  // @ 提及在 Markdown 里是 kiwi:// 自定义协议，阅读态要还原成站内 SPA 链接。
+  if (href.startsWith('kiwi://note/') || href.startsWith('kiwi://wiki/')) {
+    const target = href.startsWith('kiwi://wiki/') ? 'wiki' : 'note'
+    const prefix = target === 'wiki' ? 'kiwi://wiki/' : 'kiwi://note/'
+    const id = href.slice(prefix.length).split('?')[0]
+    tokens[idx].attrSet('href', target === 'wiki' ? `/wiki/${id}` : `/notes/${id}`)
+    tokens[idx].attrSet('class', 'md-mention')
+    tokens[idx].attrSet('data-type', 'mention')
+    tokens[idx].attrSet('data-target', target)
+    tokens[idx].attrSet('data-id', id)
+    return defaultLinkOpen(tokens, idx, options, env, self)
+  }
   tokens[idx].attrSet('target', '_blank')
   tokens[idx].attrSet('rel', 'noopener noreferrer')
   return defaultLinkOpen(tokens, idx, options, env, self)
@@ -541,6 +612,73 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 const html = computed(() => md.render(props.content || ''))
 
 // ---------- 特殊块的 DOM 增强 ----------
+/**
+ * 待办进度块：静态 Markdown 里无法直接拿到 ProseMirror 文档，
+ * 因此按 DOM 顺序绑定「下方 / 上方 / 最近的」任务清单并计算完成度。
+ */
+function decorateTaskProgressComponents(el: HTMLElement) {
+  const cards = Array.from(
+    el.querySelectorAll<HTMLElement>('[data-kiwi-task-progress]'),
+  )
+  if (!cards.length) return
+  const lists = Array.from(el.querySelectorAll<HTMLElement>('ul.contains-task-list'))
+
+  for (const card of cards) {
+    const bind = card.dataset.bind || 'auto'
+    const after = lists.find(
+      (list) => card.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    const before = lists.filter(
+      (list) => card.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_PRECEDING,
+    )
+    let list: HTMLElement | undefined
+    if (bind === 'prev') list = before[before.length - 1]
+    else if (bind === 'next') list = after
+    else list = after ?? before[before.length - 1]
+
+    const meta = card.querySelector<HTMLElement>('[data-progress-meta]')
+    const fill = card.querySelector<HTMLElement>('[data-progress-fill]')
+    const empty = card.querySelector<HTMLElement>('[data-progress-empty]')
+
+    if (!list) {
+      card.classList.add('is-empty')
+      if (empty) empty.hidden = false
+      if (meta) meta.textContent = '未找到任务清单'
+      if (fill) fill.style.width = '0%'
+      card.dataset.taskDone = '0'
+      card.dataset.taskTotal = '0'
+      card.dataset.taskPercent = '0'
+      continue
+    }
+
+    const items = Array.from(list.children).filter((child) =>
+      child.classList.contains('task-list-item'),
+    )
+    const done = items.filter((item) =>
+      item.querySelector('input[type="checkbox"]')?.hasAttribute('checked'),
+    ).length
+    const total = items.length
+    const percent = total ? Math.round((done / total) * 100) : 0
+
+    card.classList.remove('is-empty')
+    if (empty) empty.hidden = true
+    if (meta) {
+      const parts: string[] = []
+      if (card.dataset.showCount !== 'false') parts.push(`${done} / ${total}`)
+      if (card.dataset.showPercent !== 'false') parts.push(`${percent}%`)
+      meta.textContent = parts.join(' · ') || `${percent}%`
+    }
+    if (fill) fill.style.width = `${percent}%`
+    card.dataset.taskDone = String(done)
+    card.dataset.taskTotal = String(total)
+    card.dataset.taskPercent = String(percent)
+    card.querySelector('.kiwi-task-progress-track')?.setAttribute(
+      'aria-valuenow',
+      String(percent),
+    )
+  }
+}
+
 function decorateDates(el: HTMLElement) {
   const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT)
   const nodes: Text[] = []
@@ -707,6 +845,7 @@ async function decorate() {
   const seq = ++renderSeq
   decorateColumns(el)
   decorateCallouts(el)
+  decorateTaskProgressComponents(el)
   decorateDates(el)
   renderFormulas(el)
   try {
@@ -1105,6 +1244,39 @@ function onClick(event: MouseEvent) {
   font-size: 9.5px;
   line-height: 16px;
   white-space: nowrap;
+}
+.markdown-view .md-db-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 74px;
+  max-width: 130px;
+  vertical-align: middle;
+}
+.markdown-view .md-db-progress-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgb(226 232 240);
+  overflow: hidden;
+}
+.markdown-view .md-db-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6f72dc, #8a8cf0);
+}
+.markdown-view .md-db-progress.is-complete .md-db-progress-track i {
+  background: linear-gradient(90deg, #34a06b, #4cbf83);
+}
+.markdown-view .md-db-progress-label {
+  font-size: 9.5px;
+  color: rgb(100 116 139);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.markdown-view .md-db-progress.is-complete .md-db-progress-label {
+  color: rgb(21 128 61);
 }
 .markdown-view .md-db-kanban {
   display: grid;

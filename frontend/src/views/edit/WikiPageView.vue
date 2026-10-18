@@ -23,6 +23,8 @@ interface WikiSource {
   sha256: string
   import_batch_id: string | null
   parsed_at: string | null
+  /** 由该素材导入生成的笔记；用于从来源反向跳转到原始笔记。 */
+  note_id: string | null
 }
 
 interface RelatedNote {
@@ -447,7 +449,13 @@ const tabCounts = computed(() => ({
       class="grid lg:grid-cols-[minmax(0,1fr)_19rem] xl:grid-cols-[14rem_minmax(0,1fr)_19rem] gap-6 items-start"
     >
       <!-- 左侧：页面树 -->
-      <aside class="hidden xl:flex kiwi-card p-3 flex-col sticky top-4 max-h-[calc(100vh-6.5rem)]">
+      <aside
+        class="sticky top-4 hidden flex-col overflow-hidden kiwi-card p-3 xl:flex"
+        :style="{
+          height: 'var(--wiki-tree-h, calc(100dvh - 9.75rem))',
+          maxHeight: 'var(--wiki-tree-h, calc(100dvh - 9.75rem))',
+        }"
+      >
         <div class="mb-2 flex shrink-0 items-center justify-between px-1">
           <p class="text-xs font-medium text-slate-500 flex items-center gap-1.5">
             <KiwiIcon name="listTree" :size="12" class="text-kiwi-500" />
@@ -820,38 +828,58 @@ const tabCounts = computed(() => ({
           <!-- 来源 -->
           <div v-else class="p-3 max-h-[26rem] overflow-y-auto space-y-3">
             <div>
-              <p class="text-[10.5px] text-slate-400 mb-1.5">编译素材（{{ page.sources.length }}）</p>
+              <p class="text-[10.5px] text-slate-400 mb-1">编译素材（{{ page.sources.length }}）</p>
+              <p class="text-[10px] text-slate-300 leading-relaxed mb-1.5">
+                编译时的原始解析结果；导入工作区后会自动生成同名可编辑笔记，点击即可打开。
+              </p>
               <p v-if="!page.sources.length" class="text-[11px] text-slate-300 py-1">
                 人工创建或暂无可追溯素材
               </p>
-              <div
+              <component
+                :is="s.note_id ? 'button' : 'div'"
                 v-for="s in page.sources"
                 :key="s.id"
-                class="px-2 py-1.5 rounded-lg hover:bg-slate-50"
+                class="block w-full text-left px-2 py-1.5 rounded-lg"
+                :class="s.note_id ? 'hover:bg-kiwi-50 group cursor-pointer' : 'hover:bg-slate-50'"
+                :title="s.note_id ? '打开由该素材生成的笔记' : s.title"
+                @click="s.note_id && openNote(s.note_id)"
               >
-                <p class="text-[12px] text-slate-600 truncate" :title="s.title">{{ s.title }}</p>
+                <p class="text-[12px] text-slate-600 truncate flex items-center gap-1" :title="s.title">
+                  <span class="truncate">{{ s.title }}</span>
+                  <KiwiIcon
+                    v-if="s.note_id"
+                    name="arrowUpRight"
+                    :size="11"
+                    class="shrink-0 text-slate-300 group-hover:text-kiwi-500"
+                  />
+                </p>
                 <p class="text-[10px] text-slate-300 flex items-center gap-1.5 mt-0.5">
                   <span>{{ s.type }}</span>
                   <span>·</span>
                   <span>{{ s.parse_quality }}</span>
+                  <span v-if="s.note_id" class="text-kiwi-400/80">已生成笔记</span>
                   <span class="ml-auto font-mono">{{ s.sha256.slice(0, 8) }}</span>
                 </p>
-              </div>
+              </component>
             </div>
             <div class="pt-2 border-t border-slate-100">
-              <p class="text-[10.5px] text-slate-400 mb-1.5">
+              <p class="text-[10.5px] text-slate-400 mb-0.5">
                 关联笔记（{{ page.related_notes.length }}）
               </p>
+              <p class="text-[10px] text-slate-300 leading-relaxed mb-1.5">
+                在笔记中手动关联到此页的笔记，与上方素材来源相互独立。
+              </p>
               <p v-if="!page.related_notes.length" class="text-[11px] text-slate-300 py-1">
-                暂无笔记关联此页
+                暂无手动关联的笔记
               </p>
               <button
                 v-for="n in page.related_notes"
                 :key="n.id"
-                class="block w-full text-left px-2 py-1.5 rounded-lg hover:bg-kiwi-50 text-[12px] text-slate-600 hover:text-kiwi-700 truncate"
+                class="flex w-full items-center gap-1.5 text-left px-2 py-1.5 rounded-lg hover:bg-kiwi-50 text-[12px] text-slate-600 hover:text-kiwi-700"
                 @click="openNote(n.id)"
               >
-                {{ n.title }}
+                <span class="truncate">{{ n.title }}</span>
+                <span class="ml-auto shrink-0 text-[9.5px] text-slate-300">{{ n.kind }}</span>
               </button>
             </div>
           </div>

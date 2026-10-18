@@ -35,6 +35,7 @@ function opsFor(field: DbField): Op[] {
   switch (field.type) {
     case 'number':
     case 'rating':
+    case 'progress':
     case 'date':
       return ['is', 'is_not', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty']
     case 'select':
@@ -317,7 +318,7 @@ function clearSorts() {
                   @change="onDateValue(row.filter, $event)"
                 />
                 <input
-                  v-else-if="row.field.type === 'number' || row.field.type === 'rating'"
+                  v-else-if="row.field.type === 'number' || row.field.type === 'rating' || row.field.type === 'progress'"
                   type="number"
                   :value="textValue(row.filter)"
                   placeholder="数值"

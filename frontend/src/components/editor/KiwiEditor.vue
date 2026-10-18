@@ -17,7 +17,6 @@ import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
-import Table from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
@@ -57,10 +56,12 @@ import {
 } from './extensions/mention'
 import type { MentionWikiPage } from './extensions/mention'
 import { MENTION_DISPLAY_OPTIONS } from './extensions/mentionTypes'
+import { KiwiTable } from './extensions/table'
 import { createCodeBlock } from './extensions/codeBlock'
 import { CodeOutput, formatRunResult, upsertCodeOutput } from './extensions/codeOutput'
 import { buildPreviewDocument } from './extensions/preview'
 import { TrailingParagraph } from './extensions/trailingParagraph'
+import { KiwiTaskProgress } from './extensions/taskProgress'
 import { EmbedBlock, embedAttrs } from './extensions/embed'
 import { PageBreak } from './extensions/pageBreak'
 import { PagedDoc } from './extensions/pagedDoc'
@@ -1249,6 +1250,7 @@ function insertComponent(key: string) {
   else if (key === 'columns3') chain.insertColumns({ count: 3 })
   else if (key === 'calendar') chain.insertCalendar()
   else if (key === 'datatable') chain.insertDataTable()
+  else if (key === 'taskProgress') chain.insertTaskProgress()
   chain.run()
   if (ed.state.selection instanceof NodeSelection) {
     ed.chain().setTextSelection(ed.state.selection.to).run()
@@ -1499,12 +1501,13 @@ const editor = useEditor({
     Image.configure({ inline: false, allowBase64: false }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Highlight.configure({ multicolor: true }),
-    Table.configure({ resizable: true, lastColumnResizable: false }),
+    KiwiTable.configure({ resizable: true, lastColumnResizable: false }),
     TableRow,
     TableHeader,
     TableCell,
     TaskList,
     TaskItem.configure({ nested: true }),
+    KiwiTaskProgress,
     createCodeBlock(lowlight),
     CodeOutput,
     EmbedBlock,
@@ -1593,6 +1596,9 @@ const editor = useEditor({
   ],
   editable: !props.readonly,
   editorProps: {
+    // 浏览器拼写检查会在中文正文下画红色波浪线；编辑器自带 Markdown / 术语，
+    // 不需要原生拼写检查，统一关闭。
+    attributes: { spellcheck: 'false' },
     handleDOMEvents: {
       /** Word 模式：正文右击打开段落菜单（段落工具不放在工具栏）。 */
       contextmenu: (view, event) => {

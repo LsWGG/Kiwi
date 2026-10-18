@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -43,10 +44,11 @@ from app.schemas.wiki import (
     WikiSchemaOut,
     WikiSchemaUpdate,
 )
+from app.services.wiki_links import WIKI_LINK_RE, extract_links, strip_code
+
+logger = logging.getLogger("kiwi.wiki")
 
 router = APIRouter(prefix="/api/wiki", tags=["wiki"])
-
-WIKI_LINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
 
 
 # --------------------------------------------------------------------------- #
@@ -156,9 +158,9 @@ async def _mastery_state(
 
 def _summary_line(body_md: str) -> str:
     """取正文第一段有意义的纯文本，用于卡片摘要。"""
-    for raw in (body_md or "").splitlines():
+    for raw in strip_code(body_md or "").splitlines():
         line = raw.strip()
-        if not line or line.startswith(("#", "---", "|", ">", "-", "*", "```")):
+        if not line or line.startswith(("#", "---", "|", ">", "-", "*", "```", "~~~")):
             continue
         line = WIKI_LINK_RE.sub(lambda m: m.group(1), line)
         line = re.sub(r"[`*_~]", "", line)
@@ -225,6 +227,19 @@ async def overview(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session
             select(func.count())
             .select_from(Source)
             .where(Source.kb_id == kb_id, Source.parse_quality == "review")
+        )
+    ).scalar_one()
+    # 可与「编译全部笔记」一起进入 Wiki 的活跃笔记数。
+    # 数据表行笔记随所属数据表编译，不计入候选。
+    note_compile_candidates = (
+        await session.execute(
+            select(func.count())
+            .select_from(Note)
+            .where(
+                Note.kb_id == kb_id,
+                Note.status == "active",
+                ~Note.props_json.has_key("collection_row_id"),
+            )
         )
     ).scalar_one()
 
@@ -297,6 +312,7 @@ async def overview(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session
         page_type_distribution=type_dist,
         pending_compile_count=pending_compile,
         pending_review_count=pending_review,
+        note_compile_candidate_count=note_compile_candidates,
         human_edited_count=sum(1 for p in pages if p.human_edited),
         study_status=study_status,
         recent_activity=activity[:12],
@@ -622,7 +638,7 @@ def _lint_deterministic(
 
     for page in pages:
         seen_targets: set[str] = set()
-        for raw_target in WIKI_LINK_RE.findall(page.body_md or ""):
+        for raw_target in extract_links(page.body_md or ""):
             target = by_slug.get(raw_target.strip()) or by_title.get(_norm_link(raw_target))
             if target is None:
                 if raw_target in seen_targets:
@@ -686,7 +702,7 @@ def _lint_deterministic(
         index = index_pages[0]
         linked = {
             (by_slug.get(t.strip()) or by_title.get(_norm_link(t))).id
-            for t in WIKI_LINK_RE.findall(index.body_md or "")
+            for t in extract_links(index.body_md or "")
             if (by_slug.get(t.strip()) or by_title.get(_norm_link(t))) is not None
         }
         for page in pages:
@@ -1135,6 +1151,184 @@ async def reindex_wiki(
     return {"indexed": len(pages), "model": kb.embedding_model or "系统默认"}
 
 
+async def _clear_wiki_content(
+    session: AsyncSession, kb: KnowledgeBase
+) -> tuple[int, int, int]:
+    """删除知识库的全部 Wiki 页、向量、健康报告与页面批注。
+
+    返回 ``(页面数, 批注数, 健康报告数)``。笔记上的 wiki_page_id 只是
+    props 里的软关联，必须同步清空，避免列表继续指向已删除页面。
+    """
+    pages = list(
+        (
+            await session.execute(
+                select(WikiPage).where(WikiPage.kb_id == kb.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    from app.services import qdrant_store as qs
+
+    for page in pages:
+        try:
+            await asyncio.to_thread(
+                qs.delete_wiki_page, kb.id, page.id, kb.embedding_model
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("删除 Wiki 页向量失败 %s：%s", page.id, exc)
+
+    notes = list(
+        (
+            await session.execute(
+                select(Note).where(
+                    Note.kb_id == kb.id, Note.status == "active"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for note in notes:
+        props = dict(note.props_json or {})
+        if "wiki_page_id" in props:
+            props.pop("wiki_page_id", None)
+            note.props_json = props
+
+    annotations = await session.execute(
+        delete(LearningAnnotation).where(
+            LearningAnnotation.kb_id == kb.id,
+            LearningAnnotation.target_type == "wiki",
+        )
+    )
+    reports = await session.execute(
+        delete(WikiLintReport).where(WikiLintReport.kb_id == kb.id)
+    )
+    await session.execute(
+        delete(WikiPage)
+        .where(WikiPage.kb_id == kb.id)
+        .execution_options(synchronize_session=False)
+    )
+    await session.flush()
+    return len(pages), annotations.rowcount or 0, reports.rowcount or 0
+
+
+@router.post("/rebuild", status_code=202)
+async def rebuild_wiki(
+    kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """清空本库全部 Wiki 页面，并重新编译全部笔记与独立素材。
+
+    这是不可撤销的重建操作：人工编辑页、页面批注与健康检查历史会一并删除；
+    学习题目 / 复习 / 知识点仅解除页面关联，重新编译后会按 slug 自动关联。
+    """
+    kb = await _require_kb(session, kb_id)
+    deleted_pages, cleared_annotations, cleared_reports = await _clear_wiki_content(
+        session, kb
+    )
+    await session.commit()
+
+    from app.routers.notes import _prepare_note_compile, _schedule_note_compile
+    from app.services import ingest_service, note_compiler
+
+    notes = list(
+        (
+            await session.execute(
+                select(Note)
+                .where(Note.kb_id == kb_id, Note.status == "active")
+                .order_by(Note.updated_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    candidates = [
+        note for note in notes if not (note.props_json or {}).get("collection_row_id")
+    ]
+    note_jobs: list[dict] = []
+    empty = 0
+    busy = 0
+    for note in candidates:
+        prepared = await _prepare_note_compile(session, kb_id, note)
+        if prepared is None:
+            body = (await note_compiler.build_note_compile_markdown(session, note)).strip()
+            if body:
+                busy += 1
+            else:
+                empty += 1
+            continue
+        job, source, reused = prepared
+        await session.commit()
+        _schedule_note_compile(job, kb_id, source.id, reused)
+        note_jobs.append(
+            {
+                "job_id": str(job.id),
+                "note_id": str(note.id),
+                "note_title": note.title,
+                "source_id": str(source.id),
+            }
+        )
+
+    linked_sources: set[uuid.UUID] = set()
+    for note in notes:
+        props = note.props_json or {}
+        raw = props.get("source_id") or (props.get("import") or {}).get("source_id")
+        if not raw:
+            continue
+        try:
+            linked_sources.add(uuid.UUID(str(raw)))
+        except (ValueError, AttributeError):
+            continue
+
+    sources = list(
+        (
+            await session.execute(
+                select(Source).where(
+                    Source.kb_id == kb_id,
+                    Source.type != "note",
+                    Source.status.in_(("parsed", "compiled")),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    source_jobs: list[dict] = []
+    for source in sources:
+        if source.id in linked_sources or not Path(source.raw_path).exists():
+            continue
+        job = IngestJob(
+            kb_id=kb_id, source_id=source.id, kind="compile", status="pending"
+        )
+        session.add(job)
+        await session.flush()
+        job_id, source_id = job.id, source.id
+
+        async def _run(jid=job_id, sid=source_id):
+            await ingest_service._process_ingest(
+                str(jid), kb_id, sid, compile_now=True, embed_raw=False
+            )
+
+        ingest_service._running[str(job_id)] = asyncio.create_task(
+            _run(), name=f"rebuild-compile:{job_id}"
+        )
+        source_jobs.append({"job_id": str(job_id), "source_id": str(source_id)})
+
+    await session.commit()
+    return {
+        "deleted_pages": deleted_pages,
+        "cleared_annotations": cleared_annotations,
+        "cleared_lint_reports": cleared_reports,
+        "note_jobs": note_jobs,
+        "source_jobs": source_jobs,
+        "count": len(note_jobs) + len(source_jobs),
+        "notes": len(candidates),
+        "sources": len(source_jobs),
+        "skipped_empty": empty,
+        "skipped_busy": busy,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # 单页
 # --------------------------------------------------------------------------- #
@@ -1161,6 +1355,20 @@ async def get_page(
         sources = (
             await session.execute(select(Source).where(Source.id.in_(source_ids)))
         ).scalars().all()
+        # 素材 → 笔记的反向入口：素材由导入生成时会有一条 source_id 指向它的笔记，
+        # 前端据此支持从 Wiki 的「来源」面板跳回原始笔记。
+        source_note_rows = (
+            await session.execute(
+                select(Note.source_id, Note.id).where(
+                    Note.kb_id == kb_id,
+                    Note.source_id.in_(source_ids),
+                    Note.status != "trash",
+                )
+            )
+        ).all()
+        note_by_source: dict[uuid.UUID, uuid.UUID] = {}
+        for source_id, note_id in source_note_rows:
+            note_by_source.setdefault(source_id, note_id)
         out.sources = [
             {
                 "id": str(s.id),
@@ -1171,6 +1379,9 @@ async def get_page(
                 "sha256": s.sha256,
                 "import_batch_id": s.import_batch_id,
                 "parsed_at": s.parsed_at.isoformat() if s.parsed_at else None,
+                "note_id": (
+                    str(note_by_source[s.id]) if s.id in note_by_source else None
+                ),
             }
             for s in sources
         ]

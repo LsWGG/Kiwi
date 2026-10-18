@@ -225,6 +225,7 @@ function fieldMinWidth(field: DbField): string {
   if (field.type === 'attachment') return '80px'
   if (field.type === 'date') return '96px'
   if (field.type === 'rating' || field.type === 'number') return '60px'
+  if (field.type === 'progress') return '104px'
   if (field.type === 'checkbox') return '56px'
   if (field.type === 'select' || field.type === 'multi_select') return '80px'
   if (field.type === 'url') return '140px'
@@ -253,6 +254,12 @@ function cellText(row: DbRow, field: DbField): string {
     return labels.length ? labels.join('、') : '—'
   }
   if (typeof value === 'boolean') return value ? '✓' : '—'
+  if (field.type === 'progress') {
+    const number = Number(value)
+    return Number.isFinite(number)
+      ? `${Math.max(0, Math.min(100, Math.round(number)))}%`
+      : '—'
+  }
   if (field.type === 'select' || field.type === 'multi_select') {
     return optionLabel(field, value) || '—'
   }
@@ -331,6 +338,14 @@ function openItem() {
   if (target.value === 'wiki') void router.push(`/wiki/${itemId.value}`)
   else void router.push(`/notes/${itemId.value}`)
 }
+
+/** 行内 @ 提及默认只选中节点；按住 Ctrl/⌘ 点击才跳转，避免误触。 */
+function onMentionClick(event: MouseEvent) {
+  if (!(event.ctrlKey || event.metaKey)) return
+  event.preventDefault()
+  event.stopPropagation()
+  openItem()
+}
 </script>
 
 <template>
@@ -343,8 +358,13 @@ function openItem() {
     :data-id="itemId"
     :data-label="label"
     :data-display="display"
+    @click="onMentionClick"
   >
-    <span v-if="display === 'mention'" class="kiwi-mention is-mention">
+    <span
+      v-if="display === 'mention'"
+      class="kiwi-mention is-mention"
+      :title="`Ctrl/⌘ + 点击打开《${label}》`"
+    >
       {{ mentionText(display, label) }}
     </span>
 

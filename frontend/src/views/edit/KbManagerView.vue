@@ -18,6 +18,8 @@ const router = useRouter()
 onMounted(() => {
   // 拉 LLM 配置，用于映射「默认模型」绑定显示
   llm.fetchConfigs().catch(() => { /* 配置拉取失败不阻塞知识库管理 */ })
+  // 内置演示库状态：决定是否展示「还原」入口
+  void kbs.fetchBuiltinStatus()
 })
 
 // 置顶的知识库排在前面；同等状态按创建时间倒序。
@@ -308,8 +310,11 @@ interface KbDelete {
   sourceCount: number
   wikiCount: number
   noteCount: number
+  /** 内置演示库：仅隐藏，可还原 */
+  isBuiltin: boolean
 }
 const removing = ref(false)
+const restoring = ref(false)
 
 async function confirmDelete(k: (typeof kbs.kbs)[number]) {
   deleting.value = {
@@ -318,6 +323,7 @@ async function confirmDelete(k: (typeof kbs.kbs)[number]) {
     sourceCount: k.source_count,
     wikiCount: k.wiki_count,
     noteCount: k.note_count,
+    isBuiltin: !!k.is_builtin,
   }
 }
 
@@ -325,13 +331,27 @@ async function doDelete() {
   if (!deleting.value) return
   removing.value = true
   try {
+    const wasBuiltin = deleting.value.isBuiltin
     await kbs.deleteKb(deleting.value.id)
-    toast.success('已删除知识库')
+    toast.success(wasBuiltin ? '已隐藏内置知识库，可随时还原' : '已删除知识库')
     deleting.value = null
   } catch (e: any) {
     toast.error(e.message)
   } finally {
     removing.value = false
+  }
+}
+
+/** 还原内置演示库（数据与素材在隐藏期间完整保留）。 */
+async function restoreBuiltin() {
+  restoring.value = true
+  try {
+    await kbs.restoreBuiltin()
+    toast.success('内置知识库已还原')
+  } catch (e: any) {
+    toast.error(e.message || '还原失败')
+  } finally {
+    restoring.value = false
   }
 }
 </script>
@@ -356,6 +376,34 @@ async function doDelete() {
       <button class="kiwi-btn-primary animate-fade-up" @click="openEdit(null)">
         <KiwiIcon name="plus" :size="16" />
         新建知识库
+      </button>
+    </div>
+
+    <!-- 内置演示库被隐藏时的还原入口 -->
+    <div
+      v-if="kbs.builtinStatus?.deleted"
+      class="mb-6 flex flex-col gap-3 rounded-2xl border border-kiwi-200/80 bg-gradient-to-r from-kiwi-50/90 via-white to-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div class="flex items-start gap-3">
+        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-kiwi-100 text-kiwi-600">
+          <KiwiIcon name="learn" :size="17" />
+        </span>
+        <div>
+          <p class="text-sm font-medium text-slate-700">
+            内置知识库「{{ kbs.builtinStatus.name }}」已隐藏
+          </p>
+          <p class="mt-0.5 text-xs leading-relaxed text-slate-500">
+            演示数据、素材与学习记录均已保留，还原后可继续浏览系统全部功能。
+          </p>
+        </div>
+      </div>
+      <button
+        class="kiwi-btn-primary shrink-0"
+        :loading="restoring"
+        @click="restoreBuiltin"
+      >
+        <KiwiIcon name="refresh" :size="14" />
+        {{ restoring ? '还原中…' : '还原内置知识库' }}
       </button>
     </div>
 
@@ -432,6 +480,14 @@ async function doDelete() {
                 当前
               </span>
               <span
+                v-if="k.is_builtin"
+                class="inline-flex shrink-0 items-center gap-0.5 text-[10px] px-1.5 py-[1px] rounded-full bg-emerald-100 text-emerald-700 font-medium"
+                title="系统内置演示库：可随时隐藏，并在上方还原"
+              >
+                <KiwiIcon name="learn" :size="9" />
+                内置演示
+              </span>
+              <span
                 v-if="k.learning_enabled === false"
                 class="inline-flex shrink-0 items-center gap-0.5 text-[10px] px-1.5 py-[1px] rounded-full bg-slate-100 text-slate-500 font-medium"
                 title="仅用于记录与检索，学习模式已关闭"
@@ -464,7 +520,7 @@ async function doDelete() {
             </button>
             <button
               class="text-slate-300 hover:text-red-400 transition-colors p-1 hover:bg-red-50 hover:rounded-lg"
-              title="删除"
+              :title="k.is_builtin ? '隐藏（可还原）' : '删除'"
               @click.stop="confirmDelete(k)"
             >
               <KiwiIcon name="trash" :size="16" />
@@ -706,34 +762,60 @@ async function doDelete() {
       </div>
     </KiwiModal>
 
-    <!-- 删除确认模态 -->
-    <KiwiModal :open="!!deleting" title="删除知识库" @close="deleting = null">
+    <!-- 删除确认模态：内置演示库为「隐藏」，普通库为不可撤销删除 -->
+    <KiwiModal
+      :open="!!deleting"
+      :title="deleting?.isBuiltin ? '隐藏内置知识库' : '删除知识库'"
+      @close="deleting = null"
+    >
       <div v-if="deleting" class="space-y-4">
-        <p class="text-sm text-slate-600 leading-relaxed">
-          确定删除 <b class="text-slate-800">{{ deleting.name }}</b> 吗？
-          将同时删除：
-        </p>
-        <ul class="text-sm text-slate-500 space-y-1.5 bg-rose-50/60 border border-rose-100 rounded-xl p-4">
-          <li class="flex items-center gap-2">
-            <KiwiIcon name="file" :size="14" class="text-rose-400" />
-            {{ deleting.sourceCount }} 个素材与分块
-          </li>
-          <li class="flex items-center gap-2">
-            <KiwiIcon name="wiki" :size="14" class="text-rose-400" />
-            {{ deleting.wikiCount }} 个 Wiki 页面
-          </li>
-          <li class="flex items-center gap-2">
-            <KiwiIcon name="note" :size="14" class="text-rose-400" />
-            {{ deleting.noteCount }} 篇笔记（含向量索引）
-          </li>
-        </ul>
-        <p class="text-xs text-slate-400">此操作不可撤销。</p>
-        <div class="flex gap-2 justify-end pt-1">
-          <button class="kiwi-btn-ghost" @click="deleting = null">取消</button>
-          <button class="kiwi-btn-danger" :loading="removing" @click="doDelete">
-            {{ removing ? '删除中…' : '确认删除' }}
-          </button>
-        </div>
+        <template v-if="deleting.isBuiltin">
+          <p class="text-sm leading-relaxed text-slate-600">
+            确定隐藏 <b class="text-slate-800">{{ deleting.name }}</b> 吗？
+          </p>
+          <div class="rounded-xl border border-kiwi-100 bg-kiwi-50/60 p-4 text-sm leading-relaxed text-slate-600">
+            <p class="flex items-center gap-2 font-medium text-kiwi-700">
+              <KiwiIcon name="learn" :size="14" />
+              内置演示库不会被真正删除
+            </p>
+            <p class="mt-1.5 text-xs text-slate-500">
+              素材、Wiki、笔记、学习记录与向量索引都会完整保留。隐藏后可在知识库列表顶部随时还原。
+            </p>
+          </div>
+          <div class="flex justify-end gap-2 pt-1">
+            <button class="kiwi-btn-ghost" @click="deleting = null">取消</button>
+            <button class="kiwi-btn-danger" :loading="removing" @click="doDelete">
+              {{ removing ? '隐藏中…' : '隐藏知识库' }}
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="text-sm text-slate-600 leading-relaxed">
+            确定删除 <b class="text-slate-800">{{ deleting.name }}</b> 吗？
+            将同时删除：
+          </p>
+          <ul class="text-sm text-slate-500 space-y-1.5 bg-rose-50/60 border border-rose-100 rounded-xl p-4">
+            <li class="flex items-center gap-2">
+              <KiwiIcon name="file" :size="14" class="text-rose-400" />
+              {{ deleting.sourceCount }} 个素材与分块
+            </li>
+            <li class="flex items-center gap-2">
+              <KiwiIcon name="wiki" :size="14" class="text-rose-400" />
+              {{ deleting.wikiCount }} 个 Wiki 页面
+            </li>
+            <li class="flex items-center gap-2">
+              <KiwiIcon name="note" :size="14" class="text-rose-400" />
+              {{ deleting.noteCount }} 篇笔记（含向量索引）
+            </li>
+          </ul>
+          <p class="text-xs text-slate-400">此操作不可撤销。</p>
+          <div class="flex gap-2 justify-end pt-1">
+            <button class="kiwi-btn-ghost" @click="deleting = null">取消</button>
+            <button class="kiwi-btn-danger" :loading="removing" @click="doDelete">
+              {{ removing ? '删除中…' : '确认删除' }}
+            </button>
+          </div>
+        </template>
       </div>
     </KiwiModal>
   </div>

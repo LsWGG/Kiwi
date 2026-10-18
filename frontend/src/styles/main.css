@@ -134,6 +134,50 @@ body {
     focus:outline-none focus:ring-2 focus:ring-kiwi-300/60 focus:border-kiwi-300;
 }
 
+/* ---------- 图谱星空画布 ---------- */
+/* 深空底色 + 星云光晕：两种图谱模式共用，形成统一「星图」观感。 */
+.graph-nebula {
+  background:
+    radial-gradient(52% 58% at 16% 18%, rgba(79, 70, 229, 0.24), transparent 72%),
+    radial-gradient(44% 48% at 84% 22%, rgba(14, 165, 233, 0.16), transparent 72%),
+    radial-gradient(58% 58% at 58% 92%, rgba(168, 85, 247, 0.14), transparent 74%),
+    linear-gradient(158deg, #070b1a 0%, #0b1226 46%, #080d1d 100%);
+}
+
+/* 多层错位的细星点，缓慢呼吸；不拦截指针事件。 */
+.graph-starfield {
+  background-image:
+    radial-gradient(1.2px 1.2px at 20px 30px, rgba(255, 255, 255, 0.95), transparent 62%),
+    radial-gradient(1px 1px at 132px 96px, rgba(191, 219, 254, 0.85), transparent 62%),
+    radial-gradient(1.4px 1.4px at 232px 44px, rgba(255, 255, 255, 0.7), transparent 62%),
+    radial-gradient(0.9px 0.9px at 72px 168px, rgba(221, 214, 254, 0.8), transparent 62%),
+    radial-gradient(1.1px 1.1px at 184px 214px, rgba(255, 255, 255, 0.55), transparent 62%);
+  background-size:
+    260px 260px,
+    340px 340px,
+    420px 420px,
+    300px 300px,
+    380px 380px;
+  opacity: 0.75;
+  animation: star-twinkle 9s ease-in-out infinite alternate;
+}
+
+@keyframes star-twinkle {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0.92;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph-starfield {
+    animation: none;
+    opacity: 0.78;
+  }
+}
+
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar {
   width: 8px;
@@ -616,15 +660,257 @@ body {
   gap: 0.5rem;
 }
 .kiwi-editor .ProseMirror ul[data-type='taskList'] li > label {
-  margin-top: 0.3rem;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: calc(var(--doc-line, 1.8) * 1em);
+  margin: 0;
   user-select: none;
+}
+.kiwi-editor .ProseMirror ul[data-type='taskList'] li > label input[type='checkbox'] {
+  margin: 0;
 }
 .kiwi-editor .ProseMirror ul[data-type='taskList'] li > div {
   flex: 1;
   min-width: 0;
 }
+.kiwi-editor .ProseMirror ul[data-type='taskList'] li > div > p {
+  margin: 0;
+}
 .kiwi-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
   accent-color: #6f72dc;
+}
+
+/* ---------- 待办进度组件（可插入 / 可配置） ---------- */
+.kiwi-task-progress-card {
+  /* 默认与任务清单勾选框同色（accent-color: #6f72dc），保证配色一致 */
+  --tp-a: #6f72dc;
+  --tp-b: #6f72dc;
+  --tp-soft: #f1f2fd;
+  --tp-ink: #4a4dba;
+  --tp-border: rgba(111, 114, 220, 0.2);
+  --tp-ring: rgba(111, 114, 220, 0.14);
+  margin: 0.55rem 0;
+  padding: 9px 12px 10px;
+  border: 1px solid var(--tp-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.72));
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.kiwi-task-progress-card.is-selected {
+  border-color: var(--tp-a);
+  box-shadow: 0 0 0 3px var(--tp-ring);
+}
+.kiwi-task-progress-card.tone-indigo,
+.kiwi-task-progress-swatch.tone-indigo { --tp-a: #6f72dc; --tp-b: #6f72dc; --tp-soft: #f1f2fd; --tp-ink: #4a4dba; --tp-border: rgba(111, 114, 220, 0.2); --tp-ring: rgba(111, 114, 220, 0.14); }
+.kiwi-task-progress-card.tone-violet,
+.kiwi-task-progress-swatch.tone-violet { --tp-a: #7c3aed; --tp-b: #a78bfa; --tp-soft: #f5f3ff; --tp-ink: #6d28d9; --tp-border: rgba(124, 58, 237, 0.18); --tp-ring: rgba(124, 58, 237, 0.13); }
+.kiwi-task-progress-card.tone-green,
+.kiwi-task-progress-swatch.tone-green { --tp-a: #16a34a; --tp-b: #4ade80; --tp-soft: #f0fdf4; --tp-ink: #15803d; --tp-border: rgba(22, 163, 74, 0.18); --tp-ring: rgba(22, 163, 74, 0.13); }
+.kiwi-task-progress-card.tone-blue,
+.kiwi-task-progress-swatch.tone-blue { --tp-a: #2563eb; --tp-b: #60a5fa; --tp-soft: #eff6ff; --tp-ink: #1d4ed8; --tp-border: rgba(37, 99, 235, 0.18); --tp-ring: rgba(37, 99, 235, 0.13); }
+.kiwi-task-progress-card.tone-amber,
+.kiwi-task-progress-swatch.tone-amber { --tp-a: #d97706; --tp-b: #fbbf24; --tp-soft: #fffbeb; --tp-ink: #b45309; --tp-border: rgba(217, 119, 6, 0.2); --tp-ring: rgba(217, 119, 6, 0.13); }
+.kiwi-task-progress-card.tone-rose,
+.kiwi-task-progress-swatch.tone-rose { --tp-a: #e11d48; --tp-b: #fb7185; --tp-soft: #fff1f2; --tp-ink: #be123c; --tp-border: rgba(225, 29, 72, 0.18); --tp-ring: rgba(225, 29, 72, 0.13); }
+.kiwi-task-progress-card.tone-slate,
+.kiwi-task-progress-swatch.tone-slate { --tp-a: #475569; --tp-b: #94a3b8; --tp-soft: #f8fafc; --tp-ink: #334155; --tp-border: rgba(71, 85, 105, 0.18); --tp-ring: rgba(71, 85, 105, 0.12); }
+.kiwi-task-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+}
+.kiwi-task-progress-badge {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: var(--tp-soft);
+  color: var(--tp-ink);
+  font-size: 11px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.kiwi-task-progress-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+.kiwi-task-progress-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tp-ink);
+  font-variant-numeric: tabular-nums;
+}
+.kiwi-task-progress-meta.is-muted {
+  font-weight: 400;
+  color: #94a3b8;
+}
+.kiwi-task-progress-dot { margin: 0 3px; opacity: 0.5; }
+.kiwi-task-progress-spacer { flex: 1; }
+.kiwi-task-progress-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: color 0.14s ease, background-color 0.14s ease;
+}
+.kiwi-task-progress-icon:hover,
+.kiwi-task-progress-icon.is-active {
+  background: var(--tp-soft);
+  color: var(--tp-ink);
+}
+.kiwi-task-progress-icon.is-danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+.kiwi-task-progress-track {
+  height: 6px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+.kiwi-task-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--tp-a), var(--tp-b));
+  transition: width 0.25s ease;
+}
+.kiwi-task-progress-empty {
+  margin: 7px 0 0;
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+.kiwi-task-progress-inline-action {
+  margin-left: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--tp-ink);
+  font-size: 10.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kiwi-task-progress-settings {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px dashed #e2e8f0;
+}
+.kiwi-task-progress-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kiwi-task-progress-field-label {
+  flex: 0 0 52px;
+  font-size: 10.5px;
+  color: #64748b;
+}
+.kiwi-task-progress-input,
+.kiwi-task-progress-select {
+  flex: 1;
+  max-width: 230px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 11px;
+  color: #334155;
+  outline: none;
+}
+.kiwi-task-progress-input:focus,
+.kiwi-task-progress-select:focus {
+  border-color: var(--tp-a);
+  box-shadow: 0 0 0 2px var(--tp-ring);
+}
+.kiwi-task-progress-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.kiwi-task-progress-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: #64748b;
+  cursor: pointer;
+}
+.kiwi-task-progress-check input {
+  accent-color: var(--tp-a);
+}
+.kiwi-task-progress-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kiwi-task-progress-swatch {
+  --tp-a: #6f72dc;
+  --tp-b: #6f72dc;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+.kiwi-task-progress-swatch > span {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--tp-a), var(--tp-b));
+}
+.kiwi-task-progress-swatch.is-active {
+  border-color: var(--tp-a);
+}
+.markdown-view .kiwi-task-progress-empty[hidden] {
+  display: none;
+}
+
+/* @ 提及在只读 Markdown 中的样式 */
+.markdown-view a.md-mention {
+  display: inline;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: #f7fee7;
+  color: #4d7c0f;
+  font-weight: 500;
+  text-decoration: none;
+}
+.markdown-view a.md-mention:hover {
+  background: #ecfccb;
+}
+
+/* 反向链接跳转后的引用位置闪烁 */
+.kiwi-cite-flash {
+  animation: kiwi-cite-flash 2.2s ease;
+  border-radius: 5px;
+}
+@keyframes kiwi-cite-flash {
+  0%, 100% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
+  12%, 62% { background-color: #fef08a; box-shadow: 0 0 0 3px #fef08a; }
 }
 
 /* ---------- Notion 块：提示块 / 视频 / 拖动手柄 ---------- */
@@ -1180,12 +1466,17 @@ body {
   padding-left: 0;
 }
 .prose-wiki li.task-list-item {
+  display: block;
+}
+.prose-wiki li.task-list-item > label {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
+  min-height: 1.8em;
 }
 .prose-wiki .task-list-item-checkbox {
-  margin-top: 0.42em;
+  flex: 0 0 auto;
+  margin: 0;
   accent-color: #6f72dc;
 }
 .prose-wiki table {

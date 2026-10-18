@@ -20,6 +20,9 @@ dist/
 backend/data/
 data/
 uploads/
+# 例外：内置演示库随包附带的种子素材（演示库初始化时复制到 backend/data/uploads）
+!backend/app/services/builtin_demo_assets/uploads/
+!backend/app/services/builtin_demo_assets/uploads/**
 
 # infra data
 pgdata/

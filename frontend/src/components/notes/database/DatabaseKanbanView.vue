@@ -75,6 +75,10 @@ function cellText(row: DbRow, field: DbField): string {
       .join('、')
   }
   if (field.type === 'checkbox') return value ? '是' : '否'
+  if (field.type === 'progress') {
+    const n = Number(value)
+    return Number.isFinite(n) ? `${Math.round(n)}%` : ''
+  }
   if (field.type === 'attachment') {
     const count = Array.isArray(value) ? value.length : 0
     return count ? `${count} 个附件` : ''

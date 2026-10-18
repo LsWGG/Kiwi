@@ -12,6 +12,7 @@ export const FIELD_TYPES: FieldTypeMeta[] = [
   { type: 'long_text', label: '多行文本', icon: 'alignLeft' },
   { type: 'number', label: '数字', icon: 'hash' },
   { type: 'rating', label: '评分', icon: 'star' },
+  { type: 'progress', label: '进度', icon: 'target' },
   { type: 'select', label: '单选', icon: 'chevron' },
   { type: 'multi_select', label: '多选', icon: 'list' },
   { type: 'date', label: '日期', icon: 'calendar' },

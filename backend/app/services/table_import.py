@@ -238,7 +238,14 @@ def _infer(field_id: str, name: str, values: list[Any]) -> dict:
     if not present:
         return {"id": field_id, "name": name, "type": "text"}
 
-    if all(_to_number(value) is not None for value in present):
+    numbers = [_to_number(value) for value in present]
+    if all(number is not None for number in numbers):
+        lowered = name.lower()
+        is_progress_header = any(
+            marker in lowered for marker in ("进度", "完成度", "percent", "progress")
+        )
+        if is_progress_header and all(0 <= number <= 100 for number in numbers):
+            return {"id": field_id, "name": name, "type": "progress"}
         return {"id": field_id, "name": name, "type": "number"}
     if all(_to_date(value) is not None for value in present):
         return {"id": field_id, "name": name, "type": "date"}
@@ -255,6 +262,11 @@ def _typed_value(field: dict, value: Any) -> Any:
     ftype = field["type"]
     if ftype == "number":
         return _to_number(value)
+    if ftype == "progress":
+        number = _to_number(value)
+        if number is None:
+            return None
+        return max(0, min(100, int(round(number))))
     if ftype == "date":
         return _to_date(value)
     if ftype == "checkbox":

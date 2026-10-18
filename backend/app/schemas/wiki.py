@@ -93,6 +93,7 @@ class WikiOverview(BaseModel):
     page_type_distribution: dict[str, int] = {}
     pending_compile_count: int = 0
     pending_review_count: int = 0
+    note_compile_candidate_count: int = 0
     human_edited_count: int = 0
     study_status: dict = Field(default_factory=dict)
     recent_activity: list[dict] = []

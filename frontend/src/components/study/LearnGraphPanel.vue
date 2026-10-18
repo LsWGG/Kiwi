@@ -5,6 +5,7 @@ import { useStudyStore, type LearnGraphNode } from '@/stores/study'
 import KiwiGraph from '@/components/graph/KiwiGraph.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
+import { simplifyGraph } from '@/utils/graphSimplify'
 
 const emit = defineEmits<{
   (e: 'start-weak'): void
@@ -12,11 +13,13 @@ const emit = defineEmits<{
 }>()
 
 const study = useStudyStore()
-const graphRef = ref<any>(null)
+const graphRef = ref<{ layout(): void; fit(): void; zoomBy(ratio: number): void } | null>(null)
 const graphAvailable = ref(true)
 const selectedId = ref<string | null>(null)
 const query = ref('')
 const weakOnly = ref(false)
+/** 精要视图：只保留高连接度知识点与显式引用，减少关系堆叠。 */
+const compact = ref(true)
 
 const nodes = computed(() => study.learnGraph?.nodes || [])
 const edges = computed(() => study.learnGraph?.edges || [])
@@ -35,8 +38,18 @@ const filteredEdges = computed(() => {
   return edges.value.filter((e) => ids.has(e.source) && ids.has(e.target))
 })
 
+/** 精要/完整视图的骨架数据；完整模式保留全部知识点与关系。 */
+const viewGraph = computed(() =>
+  simplifyGraph(filteredNodes.value, filteredEdges.value, {
+    compact: compact.value,
+    maxNodes: 14,
+    maxEdgesPerNode: 2,
+    keepIds: selectedId.value ? [selectedId.value] : [],
+  }),
+)
+
 const graphNodes = computed(() =>
-  filteredNodes.value.map((n) => ({
+  viewGraph.value.nodes.map((n) => ({
     id: n.id,
     kind: 'topic',
     title: n.title,
@@ -48,6 +61,8 @@ const graphNodes = computed(() =>
     content_updated: n.content_updated,
   })),
 )
+
+const viewEdges = computed(() => viewGraph.value.edges)
 
 const selected = computed<LearnGraphNode | null>(
   () => nodes.value.find((n) => n.id === selectedId.value) || null,
@@ -83,12 +98,13 @@ const coveragePct = computed(() =>
   Math.round((study.learnGraph?.coverage || 0) * 100),
 )
 
+// 与 KiwiGraph MASTERY_STEPS 同源：越掌握越亮
 const masterySteps = [
-  { color: '#e6e8fb', label: '0–20%' },
-  { color: '#c9cdf7', label: '20–40%' },
-  { color: '#a9aef0', label: '40–60%' },
-  { color: '#878de6', label: '60–80%' },
-  { color: '#474dcb', label: '80–100%' },
+  { color: '#58678a', label: '0–20%' },
+  { color: '#6f80a8', label: '20–40%' },
+  { color: '#8fa4d0', label: '40–60%' },
+  { color: '#b6cbf5', label: '60–80%' },
+  { color: '#e8f2ff', label: '80–100%' },
 ]
 
 function onNodeClick(id: string) {
@@ -107,6 +123,18 @@ function masteryTone(v: number) {
 
 function relayout() {
   graphRef.value?.layout?.()
+}
+
+function fitView() {
+  graphRef.value?.fit?.()
+}
+
+function zoomIn() {
+  graphRef.value?.zoomBy?.(1.2)
+}
+
+function zoomOut() {
+  graphRef.value?.zoomBy?.(1 / 1.2)
 }
 
 function focusNode(n: LearnGraphNode) {
@@ -167,13 +195,25 @@ onMounted(() => {
       <!-- 图 -->
       <div class="min-w-0">
         <div
-          class="relative rounded-2xl overflow-hidden border border-slate-200/60 bg-[#0b1024] h-[520px]"
+          class="relative rounded-2xl overflow-hidden kiwi-card !shadow-soft h-[520px]"
         >
+          <!-- 与 Wiki 图谱共用星空画布底；无可绘制节点时退回浅色点阵 -->
+          <template v-if="graphAvailable && filteredNodes.length">
+            <div class="absolute inset-0 pointer-events-none graph-nebula" />
+            <div class="absolute inset-0 pointer-events-none graph-starfield" />
+          </template>
+          <div
+            v-else
+            class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle,rgba(120,108,247,0.08)_1px,transparent_1px)]"
+            style="background-size: 22px 22px"
+          />
           <KiwiGraph
             v-if="graphAvailable && filteredNodes.length"
             ref="graphRef"
+            class="absolute inset-x-0 top-0 bottom-14"
             :nodes="graphNodes"
-            :edges="filteredEdges"
+            :edges="viewEdges"
+            :label-limit="compact ? 8 : 0"
             mode="mastery"
             @node:click="onNodeClick"
             @unavailable="graphAvailable = false"
@@ -183,44 +223,135 @@ onMounted(() => {
             class="absolute inset-0 grid place-items-center text-center px-6"
           >
             <div>
-              <KiwiIcon name="filter" :size="26" class="text-slate-500 mx-auto mb-2" />
+              <KiwiIcon name="filter" :size="26" class="text-slate-300 mx-auto mb-2" />
               <p class="text-xs text-slate-400">当前筛选条件下没有知识点</p>
-              <button class="text-[11px] text-kiwi-300 mt-2" @click="query = ''; weakOnly = false">
+              <button class="text-[11px] text-kiwi-500 mt-2" @click="query = ''; weakOnly = false">
                 清除筛选
               </button>
             </div>
           </div>
 
-          <!-- 图例 -->
-          <div class="absolute left-3 bottom-3 rounded-xl bg-black/35 backdrop-blur px-3 py-2.5 border border-white/10">
-            <p class="text-[10px] text-slate-400 mb-1.5">掌握度</p>
-            <div class="flex items-center gap-1">
+          <!-- 左上：标题与统计（与 Wiki 图谱统一） -->
+          <div
+            v-if="filteredNodes.length"
+            class="absolute top-4 left-4 flex items-center gap-2 pointer-events-none animate-fade-up"
+          >
+            <div class="glass-strong rounded-2xl px-3.5 py-2 flex items-center gap-2.5 shadow-soft">
               <span
-                v-for="s in masterySteps"
-                :key="s.color"
-                class="w-6 h-1.5 rounded-full"
-                :style="{ background: s.color }"
-              />
-            </div>
-            <div class="flex justify-between text-[9px] text-slate-500 mt-1">
-              <span>0%</span>
-              <span>100%</span>
-            </div>
-            <div class="flex items-center gap-1.5 mt-2">
-              <span class="w-2.5 h-2.5 rounded-full border-2 border-rose-400" />
-              <span class="text-[9px] text-slate-400">薄弱知识点（红色描边）</span>
-            </div>
-            <div class="flex items-center gap-1.5 mt-1">
-              <span class="w-2.5 h-2.5 rounded-full border-2 border-dashed border-amber-400" />
-              <span class="text-[9px] text-slate-400">复习到期（琥珀虚线）</span>
+                class="w-7 h-7 rounded-lg bg-gradient-to-br from-kiwi-400 to-kiwi-600 grid place-items-center text-white shadow-glow"
+              >
+                <KiwiIcon name="graph" :size="14" />
+              </span>
+              <div class="leading-none">
+                <p class="text-sm font-semibold text-slate-800">学习图谱</p>
+                <div class="mt-1.5 flex items-center gap-2">
+                  <p class="text-[11px] text-slate-400 tabular-nums">
+                    {{ viewGraph.nodes.length }} / {{ filteredNodes.length }} 知识点 · 覆盖
+                    {{ coveragePct }}% · 平均掌握 {{ pct(stats.avg) }}%
+                  </p>
+                  <span class="h-3 w-px bg-slate-200/80" />
+                  <div class="pointer-events-auto flex rounded-lg bg-slate-100/90 p-0.5">
+                    <button
+                      class="rounded-md px-1.5 py-0.5 text-[10px] transition-colors"
+                      :class="compact ? 'bg-white text-kiwi-700 shadow-sm font-medium' : 'text-slate-400'"
+                      title="精要视图：隐藏自动关联边，按连接度保留核心知识点"
+                      @click="compact = true"
+                    >
+                      精要
+                    </button>
+                    <button
+                      class="rounded-md px-1.5 py-0.5 text-[10px] transition-colors"
+                      :class="!compact ? 'bg-white text-kiwi-700 shadow-sm font-medium' : 'text-slate-400'"
+                      title="完整视图：展示全部知识点与关系"
+                      @click="compact = false"
+                    >
+                      完整
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- 统计浮层 -->
-          <div class="absolute right-3 top-3 rounded-xl bg-black/35 backdrop-blur px-3 py-2 border border-white/10 text-right">
-            <p class="text-[10px] text-slate-400">覆盖率</p>
-            <p class="text-lg font-bold text-white/90 tabular-nums leading-tight">{{ coveragePct }}%</p>
-            <p class="text-[9px] text-slate-500">平均掌握 {{ pct(stats.avg) }}%</p>
+          <!-- 右上：与 Wiki 图谱一致的操作组 -->
+          <div
+            v-if="filteredNodes.length"
+            class="absolute top-4 right-4 flex items-center gap-1.5 animate-fade-up"
+            style="animation-delay: 60ms"
+          >
+            <div class="flex items-center rounded-xl glass-strong overflow-hidden">
+              <button
+                class="w-8 h-8 grid place-items-center text-slate-500 hover:text-kiwi-700 transition-colors"
+                title="缩小"
+                @click="zoomOut"
+              >
+                <KiwiIcon name="minus" :size="14" />
+              </button>
+              <span class="w-px h-3.5 bg-slate-200/80" />
+              <button
+                class="w-8 h-8 grid place-items-center text-slate-500 hover:text-kiwi-700 transition-colors"
+                title="适配视图"
+                @click="fitView"
+              >
+                <KiwiIcon name="maximize" :size="13" />
+              </button>
+              <span class="w-px h-3.5 bg-slate-200/80" />
+              <button
+                class="w-8 h-8 grid place-items-center text-slate-500 hover:text-kiwi-700 transition-colors"
+                title="放大"
+                @click="zoomIn"
+              >
+                <KiwiIcon name="plus" :size="14" />
+              </button>
+            </div>
+            <button
+              class="w-8 h-8 grid place-items-center rounded-xl glass-strong text-slate-500 hover:text-kiwi-700 transition-all active:scale-95"
+              title="重新布局"
+              @click="relayout"
+            >
+              <KiwiIcon name="refresh" :size="15" />
+            </button>
+          </div>
+
+          <!-- 底部：与 Wiki 图谱同款图例胶囊 -->
+          <div
+            v-if="filteredNodes.length"
+            class="absolute bottom-4 left-1/2 -translate-x-1/2 animate-fade-up"
+            style="animation-delay: 120ms"
+          >
+            <div
+              class="flex items-center gap-3 px-4 py-2 rounded-full glass-strong shadow-soft pointer-events-none"
+            >
+              <span class="text-[11px] text-slate-500">掌握度</span>
+              <span class="flex items-center gap-0.5">
+                <i
+                  v-for="s in masterySteps"
+                  :key="s.color"
+                  class="w-4 h-1.5 rounded-full"
+                  :style="{ background: s.color }"
+                />
+              </span>
+              <span class="text-[10px] text-slate-400">0% → 100%</span>
+              <span class="h-3 w-px bg-slate-200" />
+              <span class="flex items-center gap-1.5">
+                <i class="w-2.5 h-2.5 rounded-full border-2 border-rose-400" />
+                <span class="text-[11px] text-slate-500">薄弱知识点</span>
+              </span>
+              <span class="flex items-center gap-1.5">
+                <i class="w-2.5 h-2.5 rounded-full border-2 border-dashed border-amber-400" />
+                <span class="text-[11px] text-slate-500">复习到期</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- 右下：操作提示 -->
+          <div
+            v-if="filteredNodes.length"
+            class="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full glass-strong px-3 py-1.5 text-[11px] text-slate-400 shadow-soft pointer-events-none animate-fade-up"
+            style="animation-delay: 180ms"
+          >
+            <KiwiIcon name="graph" :size="11" class="text-kiwi-400" />
+            拖拽平移 · 滚轮缩放 · 点击查看
           </div>
         </div>
 

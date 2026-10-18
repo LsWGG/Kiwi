@@ -62,6 +62,7 @@ interface Overview {
   page_type_distribution: Record<string, number>
   pending_compile_count: number
   pending_review_count: number
+  note_compile_candidate_count: number
   human_edited_count: number
   study_status: StudyStatus
   recent_activity: ActivityItem[]
@@ -128,6 +129,41 @@ watch(() => kbId.value, load)
 
 const compilingNotes = ref(false)
 const compilingSources = ref(false)
+const rebuilding = ref(false)
+
+/** 清空全部 Wiki 页面与向量，再把全部笔记 / 独立素材重新编译。 */
+async function rebuildWiki() {
+  if (!kbId.value || rebuilding.value) return
+  const pageCount = ov.value?.page_count ?? 0
+  const ok = window.confirm(
+    `将删除本库全部 ${pageCount} 个 Wiki 页面、页面批注与健康检查历史，` +
+      '并重新编译全部笔记和独立素材。人工编辑保护的页面也会被删除，此操作不可撤销。\n\n' +
+      '确定继续重建吗？',
+  )
+  if (!ok) return
+  rebuilding.value = true
+  try {
+    const res = await request<{
+      deleted_pages: number
+      note_jobs: unknown[]
+      source_jobs: unknown[]
+      count: number
+      skipped_empty: number
+      skipped_busy: number
+    }>('/wiki/rebuild', { method: 'POST', kbId: kbId.value })
+    const skipped = res.skipped_empty + res.skipped_busy
+    toast.success(
+      `已清空 ${res.deleted_pages} 个页面，提交 ${res.count} 个编译任务` +
+        (skipped ? `（${skipped} 篇暂无可编译内容）` : ''),
+    )
+    await load()
+    if (res.count) router.push({ name: 'sources', query: { tab: 'jobs' } })
+  } catch (e: any) {
+    toast.error(e.message || 'Wiki 重建失败')
+  } finally {
+    rebuilding.value = false
+  }
+}
 
 /** Wiki 内的按需编译入口：把已解析、尚未编译的素材提交编译。 */
 async function compilePendingSources() {
@@ -165,9 +201,11 @@ async function compileAllNotes() {
   if (!kbId.value) return
   compilingNotes.value = true
   try {
-    const res = await notesStore.compileAllNotes(20)
+    const res = await notesStore.compileAllNotes()
     if (res.count) {
-      toast.success(`已提交 ${res.count} 个笔记编译任务`)
+      toast.success(
+        `已提交 ${res.count} 篇笔记编译任务（文档 / 导入 / 链接 / 数据表 / 画布 / Notebook）`,
+      )
       router.push({ name: 'sources', query: { tab: 'jobs' } })
     } else if (res.skipped_busy) {
       toast.info(`${res.skipped_busy} 篇笔记正在编译中`)
@@ -471,6 +509,16 @@ async function reindexWiki() {
           最近检查 {{ fmtDate(latestLint.generated_at) }}
           <span class="tabular-nums">· {{ latestLint.summary.issue_count ?? 0 }} 项问题</span>
         </button>
+        <button
+          type="button"
+          class="kiwi-btn-secondary !text-rose-600 hover:!border-rose-200 hover:!bg-rose-50"
+          :disabled="rebuilding || !ov?.page_count"
+          title="删除全部 Wiki 页面，并从全部笔记与独立素材重新编译"
+          @click="rebuildWiki"
+        >
+          <KiwiIcon :name="rebuilding ? 'loader' : 'trash'" :size="14" :spin="rebuilding" />
+          {{ rebuilding ? '重建中…' : '重建 Wiki' }}
+        </button>
         <button class="kiwi-btn-secondary" :disabled="linting" @click="runLint(false)">
           <KiwiIcon name="check" :size="14" />
           健康检查
@@ -593,6 +641,7 @@ async function reindexWiki() {
               type="button"
               class="text-[11px] text-slate-500 transition-colors hover:text-kiwi-700"
               :disabled="compilingNotes"
+              title="把本库全部笔记（文档 / 导入 / 链接 / 数据表 / 画布 / Notebook）编译进 Wiki"
               @click="compileAllNotes"
             >
               <KiwiIcon
@@ -602,6 +651,9 @@ async function reindexWiki() {
                 class="inline"
               />
               编译全部笔记
+              <span v-if="ov.note_compile_candidate_count" class="tabular-nums">
+                · {{ ov.note_compile_candidate_count }} 篇
+              </span>
             </button>
             <span class="text-slate-200">|</span>
             <button

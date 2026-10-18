@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import uuid
 
 from sqlalchemy import select
@@ -23,6 +22,7 @@ from app.repositories import WikiPageRepo
 from app.services import qdrant_store
 from app.services.embedder import embed_one_async, embed_texts_async
 from app.services.llm_factory import LLMCrypto, LLMFactory
+from app.services.wiki_links import WIKI_LINK_RE, strip_code
 from app.services.wiki_schema import load_schema
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,35 @@ def _validate_compile_output(data: dict) -> dict:
 
 class CompileError(Exception):
     pass
+
+
+async def _job_heartbeat(job_id: uuid.UUID, stop: asyncio.Event) -> None:
+    """LLM 生成期间定期刷新任务的 updated_at。
+
+    编译阶段一次 LLM 调用可能持续数分钟，期间没有进度落库；心跳让前端轮询
+    能持续看到「最近更新 / 用时」变化，而不是误以为任务卡死。
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update
+
+    from app.db.models import IngestJob
+
+    while not stop.is_set():
+        try:
+            async with async_session_factory() as db:
+                await db.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job_id)
+                    .values(updated_at=datetime.now(timezone.utc))
+                )
+                await db.commit()
+        except Exception:  # noqa: BLE001 —— 心跳失败不影响编译本身
+            logger.debug("刷新编译任务心跳失败", exc_info=True)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            pass
 
 
 async def _resolve_llm_config(db: AsyncSession, kb: KnowledgeBase) -> tuple[dict, str]:
@@ -198,9 +227,6 @@ async def _slugify(title: str) -> str:
     return slug or "page"
 
 
-WIKI_LINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
-
-
 async def _rebuild_wiki_links(db: AsyncSession, kb_id: uuid.UUID) -> None:
     """扫描本库全部 wiki 页的 [[slug]] 链接，重建 wiki_links 边。
 
@@ -236,7 +262,7 @@ async def _rebuild_wiki_links(db: AsyncSession, kb_id: uuid.UUID) -> None:
     refs: dict[uuid.UUID, set[uuid.UUID]] = {p.id: set() for p in pages}
     conflicts: set[tuple[uuid.UUID, uuid.UUID]] = set()
     for p in pages:
-        for line in (p.body_md or "").splitlines():
+        for line in strip_code(p.body_md or "").splitlines():
             link_slugs = WIKI_LINK_RE.findall(line)
             if not link_slugs:
                 continue
@@ -326,6 +352,8 @@ async def compile_source(
 
     from openai import APIError
 
+    heartbeat_stop = asyncio.Event()
+    heartbeat = asyncio.create_task(_job_heartbeat(job_id, heartbeat_stop))
     try:
         resp = await client.chat.completions.create(
             model=cfg.model_name,
@@ -336,6 +364,9 @@ async def compile_source(
         raw = resp.choices[0].message.content or ""
     except APIError as e:
         raise CompileError(f"LLM 调用失败：{e}") from e
+    finally:
+        heartbeat_stop.set()
+        await heartbeat
 
     data = _validate_compile_output(_parse_llm_json(raw))
     created_ids: list[uuid.UUID] = []
@@ -446,6 +477,40 @@ async def compile_source(
     # 重建页面间引用边（图谱数据）
     async with async_session_factory() as db:
         await _rebuild_wiki_links(db, kb.id)
+        # 重建 Wiki 后页面 id 会变化：按 slug 把学习题目 / 复习 / 知识点重新挂回页面。
+        if pages:
+            from sqlalchemy import update
+
+            from app.db.models import LearningTopic, StudyQuestion, StudyReview
+
+            for page in pages:
+                await db.execute(
+                    update(LearningTopic)
+                    .where(
+                        LearningTopic.kb_id == kb.id,
+                        LearningTopic.slug == page.slug,
+                        LearningTopic.wiki_page_id.is_(None),
+                    )
+                    .values(wiki_page_id=page.id)
+                )
+                await db.execute(
+                    update(StudyReview)
+                    .where(
+                        StudyReview.kb_id == kb.id,
+                        StudyReview.slug == page.slug,
+                        StudyReview.wiki_page_id.is_(None),
+                    )
+                    .values(wiki_page_id=page.id)
+                )
+                await db.execute(
+                    update(StudyQuestion)
+                    .where(
+                        StudyQuestion.kb_id == kb.id,
+                        StudyQuestion.topic_slug == page.slug,
+                        StudyQuestion.wiki_page_id.is_(None),
+                    )
+                    .values(wiki_page_id=page.id)
+                )
         await db.commit()
 
     await emit(

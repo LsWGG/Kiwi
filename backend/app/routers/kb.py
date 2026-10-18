@@ -11,16 +11,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import KnowledgeBase, Note, Source, StudyProfile, StudyReview, WikiPage
 from app.db.session import get_session
-from app.schemas.kb import KBCreate, KBOut, KBOverview, KBUpdate
+from app.schemas.kb import BuiltinKbStatus, KBCreate, KBOut, KBOverview, KBUpdate
 from app.services import qdrant_store
+from app.services.builtin_demo import (
+    restore_builtin,
+    get_builtin_status,
+)
 from app.services.notebook_kernel import kernel_manager
 
 router = APIRouter(prefix="/api/kbs", tags=["kbs"])
 
 
-async def _get_kb(session: AsyncSession, kb_id: uuid.UUID) -> KnowledgeBase:
+async def _get_kb(
+    session: AsyncSession, kb_id: uuid.UUID, *, include_deleted: bool = False
+) -> KnowledgeBase:
     kb = await session.get(KnowledgeBase, kb_id)
-    if kb is None:
+    if kb is None or (kb.deleted_at is not None and not include_deleted):
         raise HTTPException(404, "知识库不存在")
     return kb
 
@@ -35,9 +41,9 @@ async def list_kbs(session: AsyncSession = Depends(get_session)):
     rows = (
         (
             await session.execute(
-                select(KnowledgeBase).order_by(
-                    KnowledgeBase.pinned.desc(), KnowledgeBase.created_at.desc()
-                )
+                select(KnowledgeBase)
+                .where(KnowledgeBase.deleted_at.is_(None))
+                .order_by(KnowledgeBase.pinned.desc(), KnowledgeBase.created_at.desc())
             )
         )
         .scalars()
@@ -104,6 +110,9 @@ async def _overview(session: AsyncSession, kb: KnowledgeBase) -> KBOverview:
             "llm_config_id": kb.llm_config_id,
             "pinned": bool(kb.pinned),
             "learning_enabled": bool(kb.learning_enabled),
+            "is_builtin": bool(kb.is_builtin),
+            "builtin_key": kb.builtin_key,
+            "deleted_at": kb.deleted_at,
             "created_at": kb.created_at,
             "updated_at": kb.updated_at,
         },
@@ -145,6 +154,20 @@ async def create_kb(data: KBCreate, session: AsyncSession = Depends(get_session)
     return KBOut.model_validate(kb, from_attributes=True)
 
 
+@router.get("/builtin", response_model=BuiltinKbStatus)
+async def builtin_status(session: AsyncSession = Depends(get_session)):
+    """内置演示库状态：隐藏后供前端展示还原入口。"""
+    return BuiltinKbStatus(**await get_builtin_status(session))
+
+
+@router.post("/builtin/restore", response_model=KBOverview)
+async def builtin_restore(session: AsyncSession = Depends(get_session)):
+    kb = await restore_builtin(session)
+    if kb is None:
+        raise HTTPException(500, "内置知识库还原失败")
+    return await _overview(session, kb)
+
+
 @router.get("/{kb_id}", response_model=KBOverview)
 async def get_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     kb = await _get_kb(session, kb_id)
@@ -175,6 +198,12 @@ async def update_kb(kb_id: uuid.UUID, data: KBUpdate, session: AsyncSession = De
 @router.delete("/{kb_id}", status_code=204)
 async def delete_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     kb = await _get_kb(session, kb_id)
+    if kb.is_builtin:
+        # 内置演示库只隐藏，保留数据 / 素材 / 向量，支持随时还原。
+        kb.deleted_at = datetime.now(timezone.utc)
+        kb.pinned = False
+        await session.commit()
+        return
     # 级联删除库内数据，向量兜底清理
     try:
         qdrant_store.purge_kb(kb_id)

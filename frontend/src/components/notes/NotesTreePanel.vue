@@ -1234,10 +1234,10 @@ const createFolderMenu = () => openFolderDialog(null)
       <RouterLink
         to="/sources"
         class="flex items-center gap-1.5 px-3 py-1.5 text-[10.5px] text-slate-500 transition-colors hover:bg-white/60 hover:text-kiwi-700"
-        title="原始文件、解析质量、导入批次与编译任务"
+        title="笔记与导入素材统一编译进 Wiki，追踪解析质量与任务进度"
       >
         <KiwiIcon name="bookOpen" :size="12" class="shrink-0 text-kiwi-400" />
-        素材与编译任务
+        编译任务
         <KiwiIcon name="arrowRight" :size="10" class="ml-auto text-slate-300" />
       </RouterLink>
       <div class="flex items-center gap-1.5 px-3 pb-2 pt-0.5 text-[10px] text-slate-400">

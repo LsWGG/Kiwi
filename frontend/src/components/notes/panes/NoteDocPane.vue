@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 文档 / 导入笔记主面板：标题、自动保存、编辑/阅读、导入进度、反向链接。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
 import { useKbsStore } from '@/stores/kbs'
 import KiwiEditor from '@/components/editor/KiwiEditor.vue'
@@ -33,9 +33,15 @@ import { downloadNoteDocx } from '@/components/editor/docx'
 import { toast } from '@/components/ui/toast'
 
 const props = defineProps<{ note: NoteOut }>()
+const emit = defineEmits<{
+  (e: 'open-info'): void
+  (e: 'open-backlink', noteId: string, mentionId?: string): void
+}>()
 const notes = useNotesStore()
 const kbs = useKbsStore()
 const router = useRouter()
+const route = useRoute()
+const paneRef = ref<HTMLElement | null>(null)
 
 const title = ref(props.note.title)
 const body = ref(props.note.body_md || '')
@@ -87,6 +93,79 @@ function setView(mode: DocView) {
 
 const backlinks = ref<NoteSummary[]>([])
 const editorRef = ref<InstanceType<typeof KiwiEditor> | null>(null)
+
+// ---------- 反向链接浮层：直接展示列表，不再打开右侧信息面板 ----------
+const backlinkOpen = ref(false)
+const backlinkTrigger = ref<HTMLElement | null>(null)
+const backlinkPos = ref({ left: '0px', top: '0px' })
+
+/**
+ * 浮层挂到 <html> 下：外层用视口坐标定位，内层单独应用 --ui-scale。
+ * 若把 zoom 加在定位元素本身，left/top 会一起被放大，在 4K 下会飘到右下方。
+ */
+function backlinkScale(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')
+  const value = Number.parseFloat(raw)
+  return Number.isFinite(value) && value > 0 ? value : 1
+}
+
+function placeBacklinks() {
+  if (!backlinkOpen.value) return
+  const rect = backlinkTrigger.value?.getBoundingClientRect()
+  if (!rect) return
+  const scale = backlinkScale()
+  const width = 320 * scale
+  const height = 340 * scale
+  backlinkPos.value = {
+    left: `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`,
+    top: `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - height))}px`,
+  }
+}
+
+function toggleBacklinks() {
+  backlinkOpen.value = !backlinkOpen.value
+}
+
+function closeBacklinks() {
+  backlinkOpen.value = false
+}
+
+function onBacklinkKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeBacklinks()
+}
+
+function openBacklink(link: NoteSummary) {
+  closeBacklinks()
+  emit('open-backlink', link.id, props.note.id)
+}
+
+/** 引用上下文是正文切片，去掉 Markdown 标记后只保留可读摘要。 */
+function backlinkContext(raw?: string): string {
+  if (!raw) return ''
+  const text = raw
+    .replace(/!\[([^\]]*)\]\([^)\n]*(?:\)|$)/g, '$1')
+    .replace(/\[@([^\]]+)\]\([^)\n]*(?:\)|$)/g, '@$1')
+    .replace(/\[([^\]]+)\]\([^)\n]*(?:\)|$)/g, '$1')
+    .replace(/\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?/g, ' ')
+    .replace(/(^|\s)[-+]\s+/g, ' ')
+    .replace(/[#>*_`|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length > 150 ? `${text.slice(0, 150)}…` : text
+}
+
+watch(backlinkOpen, (value) => {
+  if (value) {
+    placeBacklinks()
+    window.addEventListener('keydown', onBacklinkKey)
+  } else {
+    window.removeEventListener('keydown', onBacklinkKey)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onBacklinkKey)
+})
 
 // ---------- 阅读演示层 ----------
 const readingAreaRef = ref<HTMLElement | null>(null)
@@ -402,6 +481,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize)
   previewResizeObserver?.disconnect()
   if (prefsPreviewTimer !== null) window.clearTimeout(prefsPreviewTimer)
+  clearCiteTimers()
 })
 
 // 自动保存完成后刷新预览，保证预览与正文同步
@@ -444,11 +524,70 @@ async function loadBacklinks() {
   }
 }
 
-onMounted(loadBacklinks)
+/* ---------- 反向链接跳转：定位并高亮正文中的引用位置 ---------- */
+let citeSeq = 0
+let citeRetry: number | null = null
+let citeFlashTimer: number | null = null
 
-function openBacklink(note: NoteSummary) {
-  void router.push({ name: 'notes', params: { id: note.id } })
+function clearCiteTimers() {
+  if (citeRetry !== null) {
+    window.clearTimeout(citeRetry)
+    citeRetry = null
+  }
+  if (citeFlashTimer !== null) {
+    window.clearTimeout(citeFlashTimer)
+    citeFlashTimer = null
+  }
 }
+
+function locateMention(raw: string, attempt = 0) {
+  const id = raw.trim()
+  if (!id) return
+  const seq = ++citeSeq
+  if (citeRetry !== null) {
+    window.clearTimeout(citeRetry)
+    citeRetry = null
+  }
+  const find = () => {
+    if (seq !== citeSeq) return
+    const root = paneRef.value
+    const target = root?.querySelector<HTMLElement>(
+      `[data-type="mention"][data-id="${CSS.escape(id)}"]`,
+    )
+    if (target) {
+      root
+        ?.querySelectorAll('.kiwi-cite-flash')
+        .forEach((el) => el.classList.remove('kiwi-cite-flash'))
+      target.classList.add('kiwi-cite-flash')
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (citeFlashTimer !== null) window.clearTimeout(citeFlashTimer)
+      citeFlashTimer = window.setTimeout(() => {
+        target.classList.remove('kiwi-cite-flash')
+        citeFlashTimer = null
+      }, 2300)
+      return
+    }
+    // 编辑器 / 只读渲染尚未完成时短暂重试，避免跳转落空。
+    if (attempt < 26) {
+      citeRetry = window.setTimeout(() => {
+        citeRetry = null
+        locateMention(id, attempt + 1)
+      }, 150)
+    }
+  }
+  void nextTick(find)
+}
+
+watch(
+  () => [route.query.mention, route.query.t, props.note.id],
+  () => {
+    const mention = route.query.mention
+    if (typeof mention === 'string' && mention) locateMention(mention)
+  },
+  { immediate: true },
+)
+
+onMounted(loadBacklinks)
 
 /** 一键复制为 Markdown：优先取编辑器序列化结果，阅读态回落到已保存正文。 */
 async function copyMarkdown() {
@@ -481,7 +620,7 @@ async function copyMarkdown() {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
+  <div ref="paneRef" class="h-full flex flex-col">
     <header class="shrink-0 h-11 flex items-center gap-2 px-4 border-b border-slate-200/50 bg-white/40">
       <NoteTitleBreadcrumb
         v-model:title="title"
@@ -515,6 +654,24 @@ async function copyMarkdown() {
         <template v-else-if="autosave.savedAt.value">已保存 {{ autosave.savedAt.value }}</template>
       </span>
       <NoteTagButton :note="note" />
+      <button
+        v-if="backlinks.length"
+        ref="backlinkTrigger"
+        type="button"
+        class="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] transition-colors"
+        :class="
+          backlinkOpen
+            ? 'bg-kiwi-50 text-kiwi-700'
+            : 'text-slate-500 hover:bg-kiwi-50 hover:text-kiwi-700'
+        "
+        title="查看引用本文的笔记"
+        :aria-expanded="backlinkOpen"
+        @click="toggleBacklinks"
+      >
+        <KiwiIcon name="link2" :size="12" />
+        反向链接
+        <span class="tabular-nums text-slate-400">{{ backlinks.length }}</span>
+      </button>
       <!-- 四种视图：编辑 / 大纲 / 分屏 / 阅读，按笔记持久化 -->
       <div class="flex shrink-0 items-center rounded-lg border border-slate-200/80 bg-white/70 p-0.5">
         <button
@@ -558,6 +715,72 @@ async function copyMarkdown() {
         <EditorModeMenu :mode="editorMode" @change="setEditorMode" />
       </template>
     </header>
+
+    <!-- 反向链接浮层：列表直接展示，点击条目跳到正文引用位置 -->
+    <Teleport to="html">
+      <div
+        v-if="backlinkOpen"
+        class="fixed inset-0 z-[95]"
+        @mousedown="closeBacklinks"
+        @contextmenu.prevent="closeBacklinks"
+      >
+        <div class="absolute" :style="backlinkPos">
+          <div
+            class="w-[320px] rounded-xl border border-slate-200/80 bg-white/95 p-2.5 shadow-lifted backdrop-blur-xl animate-scale-in"
+            :style="{ zoom: 'var(--ui-scale)' }"
+            @mousedown.stop
+          >
+          <div class="mb-1.5 flex items-center justify-between px-1">
+            <p class="text-[11.5px] font-medium text-slate-600">
+              反向链接
+              <span class="ml-1 text-[10px] font-normal text-slate-400">
+                {{ backlinks.length }} 篇笔记引用了本文
+              </span>
+            </p>
+            <button
+              type="button"
+              class="rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600"
+              title="关闭"
+              @click="closeBacklinks"
+            >
+              <KiwiIcon name="close" :size="11" />
+            </button>
+          </div>
+          <div class="max-h-[300px] space-y-0.5 overflow-y-auto">
+            <button
+              v-for="link in backlinks"
+              :key="link.id"
+              type="button"
+              class="group w-full rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-kiwi-50/70"
+              :title="backlinkContext(link.context) || link.title"
+              @click="openBacklink(link)"
+            >
+              <div class="flex items-center gap-1.5">
+                <KiwiIcon name="link2" :size="10" class="shrink-0 text-kiwi-300" />
+                <span class="truncate text-[11px] text-slate-600 group-hover:text-kiwi-700">
+                  {{ link.title || '无标题' }}
+                </span>
+                <KiwiIcon
+                  name="arrowUpRight"
+                  :size="10"
+                  class="ml-auto shrink-0 text-kiwi-400 opacity-0 transition-opacity group-hover:opacity-100"
+                />
+              </div>
+              <p
+                v-if="backlinkContext(link.context)"
+                class="mt-0.5 line-clamp-2 pl-[17px] text-[9.5px] leading-relaxed text-slate-400"
+              >
+                {{ backlinkContext(link.context) }}
+              </p>
+            </button>
+          </div>
+          <p class="mt-1.5 border-t border-slate-100 px-1 pt-1.5 text-[9.5px] text-slate-300">
+            点击条目打开来源笔记，并定位到引用位置
+          </p>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Word 分栏预览：工具栏横跨正文与预览两栏 -->
     <div v-if="docxToolbarExternal" class="shrink-0">
@@ -676,36 +899,6 @@ async function copyMarkdown() {
               <p class="mt-2 text-[11px] text-slate-400">{{ updatedText }}</p>
             </template>
           </KiwiEditor>
-
-          <!-- 反向链接 -->
-          <div v-if="backlinks.length" class="mx-auto mt-8 max-w-3xl border-t border-slate-200/60 pt-5">
-            <div class="flex items-center gap-1.5 text-[11px] font-medium text-slate-400 mb-2">
-              <KiwiIcon name="link2" :size="12" />
-              反向链接
-              <span class="tabular-nums">{{ backlinks.length }}</span>
-            </div>
-            <div class="grid gap-1.5 sm:grid-cols-2">
-              <button
-                v-for="link in backlinks"
-                :key="link.id"
-                class="group flex items-start gap-2 rounded-lg border border-slate-200/80 bg-white/70 px-2.5 py-1.5 text-left transition-colors hover:border-kiwi-300"
-                @click="openBacklink(link)"
-              >
-                <KiwiIcon name="file" :size="11" class="mt-0.5 shrink-0 text-slate-400" />
-                <span class="min-w-0">
-                  <span class="block truncate text-[11.5px] font-medium text-slate-600 group-hover:text-kiwi-700">
-                    {{ link.title || '无标题' }}
-                  </span>
-                  <span
-                    v-if="link.context"
-                    class="mt-0.5 block text-[10.5px] leading-relaxed text-slate-400 line-clamp-2"
-                  >
-                    {{ link.context }}
-                  </span>
-                </span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 

@@ -117,6 +117,21 @@ function openNote(note: NoteOut | string, kbId?: string, rowId?: string) {
   void router.push({ name: 'notes', params: { id }, query })
 }
 
+/** 反向链接：打开来源笔记，并带上被引用笔记的 id 以定位到引用处。 */
+function openBacklink(noteId: string, mentionId?: string) {
+  if (!mentionId) {
+    openNote(noteId)
+    return
+  }
+  infoOpen.value = false
+  const query = { mention: mentionId, t: String(Date.now()) }
+  if (activeId.value === noteId) {
+    void router.replace({ name: 'notes', params: { id: noteId }, query })
+  } else {
+    void router.push({ name: 'notes', params: { id: noteId }, query })
+  }
+}
+
 function openCollectionRow(databaseId: string, rowId: string) {
   openNote(databaseId, undefined, rowId)
 }
@@ -179,6 +194,8 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
           v-if="notes.currentNote.kind === 'doc' || notes.currentNote.kind === 'import'"
           :key="notes.currentNote.id"
           :note="notes.currentNote"
+          @open-info="infoOpen = true"
+          @open-backlink="openBacklink"
         />
         <NoteLinkPane
           v-else-if="notes.currentNote.kind === 'link'"
@@ -246,7 +263,7 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
       :note="notes.currentNote"
       :open="infoOpen"
       @close="infoOpen = false"
-      @open-note="openNote"
+      @open-note="openBacklink"
       @open-collection-row="openCollectionRow"
     />
     </div>

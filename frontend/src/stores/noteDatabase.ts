@@ -8,6 +8,7 @@ export type FieldType =
   | 'long_text'
   | 'number'
   | 'rating'
+  | 'progress'
   | 'select'
   | 'multi_select'
   | 'date'

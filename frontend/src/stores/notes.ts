@@ -900,8 +900,14 @@ export const useNotesStore = defineStore('notes', () => {
     )
   }
 
-  async function compileAllNotes(limit = 20) {
-    return request<{
+  /**
+   * 把知识库全部活跃笔记编译进 Wiki。
+   *
+   * 服务端一次最多接收 batchSize 篇；循环提交直到没有剩余候选，
+   * 这样笔记数量超过单批上限时也不会静默漏编。
+   */
+  async function compileAllNotes(batchSize = 50) {
+    type CompileAllResult = {
       jobs: Array<{
         job_id: string
         note_id: string
@@ -913,7 +919,33 @@ export const useNotesStore = defineStore('notes', () => {
       skipped_empty: number
       skipped_busy: number
       skipped_limit: number
-    }>(`/notes/compile-all?limit=${limit}`, { method: 'POST', kbId: kbId() })
+    }
+    let count = 0
+    let candidates = 0
+    let skippedEmpty = 0
+    let skippedBusy = 0
+    let skippedLimit = 0
+    for (let round = 0; round < 100; round += 1) {
+      const res = await request<CompileAllResult>(
+        `/notes/compile-all?limit=${batchSize}`,
+        { method: 'POST', kbId: kbId() },
+      )
+      count += res.count
+      candidates = res.candidates
+      skippedEmpty = res.skipped_empty
+      skippedBusy = res.skipped_busy
+      skippedLimit = res.skipped_limit
+      // 没有因批量上限被截断的候选，说明本次已经覆盖全部笔记。
+      if (!res.skipped_limit || !res.count) break
+    }
+    return {
+      jobs: [] as CompileAllResult['jobs'],
+      count,
+      candidates,
+      skipped_empty: skippedEmpty,
+      skipped_busy: skippedBusy,
+      skipped_limit: skippedLimit,
+    }
   }
 
   async function getCompileStatus(id: string) {

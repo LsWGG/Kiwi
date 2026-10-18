@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-label="Kiwi 功能全景">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1324"/><stop offset="0.55" stop-color="#111d33"/><stop offset="1" stop-color="#17233c"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6ee7d0"/><stop offset="1" stop-color="#8ea7ff"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1200" height="560" rx="26" fill="url(#bg)"/>
+  <g fill="#dce8ff" opacity="0.5">
+    <circle cx="90" cy="120" r="1.4"/><circle cx="210" cy="70" r="1"/><circle cx="360" cy="130" r="1.2"/>
+    <circle cx="520" cy="60" r="1"/><circle cx="700" cy="110" r="1.5"/><circle cx="860" cy="70" r="1"/>
+    <circle cx="1010" cy="120" r="1.2"/><circle cx="1120" cy="80" r="1"/><circle cx="120" cy="470" r="1"/>
+    <circle cx="300" cy="520" r="1.3"/><circle cx="520" cy="470" r="1"/><circle cx="760" cy="525" r="1.2"/>
+    <circle cx="980" cy="480" r="1"/><circle cx="1130" cy="520" r="1.3"/>
+  </g>
+  <text x="60" y="76" fill="#f2f7ff" font-size="30" font-weight="700" font-family="'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif">Kiwi 功能全景</text>
+  <text x="60" y="108" fill="#8fa3c8" font-size="15" font-family="'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif">一条内容如何走完「记录 → 连接 → 编译 → 学习 → 检验」的闭环</text>
+  <g font-family="'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif">
+    <g>
+      <rect x="58" y="180" width="190" height="112" rx="16" fill="#16233c" stroke="#2c4266"/>
+      <circle cx="88" cy="211" r="14" fill="#1d3b52" stroke="#5ad1c0"/>
+      <text x="88" y="217" fill="#7ee7d6" font-size="14" text-anchor="middle" font-weight="700">1</text>
+      <text x="114" y="217" fill="#eaf2ff" font-size="17" font-weight="700">记下来</text>
+      <text x="80" y="247" fill="#93a9cc" font-size="12">文档 · 画布 · 数据表</text>
+      <text x="80" y="269" fill="#93a9cc" font-size="12">Notebook · 导入 · 外链</text>
+    </g>
+    <g>
+      <rect x="290" y="180" width="190" height="112" rx="16" fill="#16233c" stroke="#2c4266"/>
+      <circle cx="320" cy="211" r="14" fill="#243a5c" stroke="#7ea6ff"/>
+      <text x="320" y="217" fill="#a9c2ff" font-size="14" text-anchor="middle" font-weight="700">2</text>
+      <text x="346" y="217" fill="#eaf2ff" font-size="17" font-weight="700">连起来</text>
+      <text x="312" y="247" fill="#93a9cc" font-size="12">双向链接 · @ 提及</text>
+      <text x="312" y="269" fill="#93a9cc" font-size="12">标签 · 目录树</text>
+    </g>
+    <g>
+      <rect x="522" y="180" width="190" height="112" rx="16" fill="#16233c" stroke="#2c4266"/>
+      <circle cx="552" cy="211" r="14" fill="#2a3358" stroke="#b39bff"/>
+      <text x="552" y="217" fill="#c9b8ff" font-size="14" text-anchor="middle" font-weight="700">3</text>
+      <text x="578" y="217" fill="#eaf2ff" font-size="17" font-weight="700">编译</text>
+      <text x="544" y="247" fill="#93a9cc" font-size="12">素材 → Wiki 页面</text>
+      <text x="544" y="269" fill="#93a9cc" font-size="12">来源 · 引用 · 人工校对</text>
+    </g>
+    <g>
+      <rect x="754" y="180" width="190" height="112" rx="16" fill="#16233c" stroke="#2c4266"/>
+      <circle cx="784" cy="211" r="14" fill="#3b3350" stroke="#ffc978"/>
+      <text x="784" y="217" fill="#ffd79a" font-size="14" text-anchor="middle" font-weight="700">4</text>
+      <text x="810" y="217" fill="#eaf2ff" font-size="17" font-weight="700">学习</text>
+      <text x="776" y="247" fill="#93a9cc" font-size="12">画像 · 渐进训练</text>
+      <text x="776" y="269" fill="#93a9cc" font-size="12">复习队列 · 批注</text>
+    </g>
+    <g>
+      <rect x="986" y="180" width="156" height="112" rx="16" fill="#16233c" stroke="#2c4266"/>
+      <circle cx="1016" cy="211" r="14" fill="#3d2b34" stroke="#ff9db4"/>
+      <text x="1016" y="217" fill="#ffb3c6" font-size="14" text-anchor="middle" font-weight="700">5</text>
+      <text x="1042" y="217" fill="#eaf2ff" font-size="17" font-weight="700">检验</text>
+      <text x="1004" y="247" fill="#93a9cc" font-size="12">仿真考试</text>
+      <text x="1004" y="269" fill="#93a9cc" font-size="12">评分 · 薄弱点</text>
+    </g>
+  </g>
+  <g stroke="url(#flow)" stroke-width="2.4" fill="none" stroke-linecap="round">
+    <path d="M250 236 H286" marker-end="url(#arrow)"/>
+    <path d="M482 236 H518" marker-end="url(#arrow)"/>
+    <path d="M714 236 H750" marker-end="url(#arrow)"/>
+    <path d="M946 236 H982" marker-end="url(#arrow)"/>
+    <path d="M1064 296 C1064 400 168 400 154 300" stroke-dasharray="7 7" opacity="0.75" marker-end="url(#arrow)"/>
+  </g>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8ea7ff"/>
+    </marker>
+  </defs>
+  <g font-family="'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif">
+    <text x="600" y="430" fill="#7f96bd" font-size="13" text-anchor="middle">闭环：考试暴露薄弱点 → 回到 Wiki 补链接 / 补内容 → 下一轮学习</text>
+    <g transform="translate(168 452)">
+      <rect width="864" height="58" rx="12" fill="#101a2d" stroke="#223353"/>
+      <text x="26" y="24" fill="#8fa3c8" font-size="12">贯穿能力</text>
+      <text x="26" y="44" fill="#dbe7ff" font-size="13">知识图谱（星图 / 精要 / 掌握度） · 全文检索 · AI 问答（带来源） · 学习计划 · 备份与还原</text>
+    </g>
+  </g>
+</svg>

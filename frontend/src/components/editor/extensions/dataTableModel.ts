@@ -29,6 +29,7 @@ const FIELD_TYPES: FieldType[] = [
   'long_text',
   'number',
   'rating',
+  'progress',
   'select',
   'multi_select',
   'date',
@@ -445,6 +446,11 @@ function sanitizeCell(field: DbField, value: unknown): any {
     const num = Number(value)
     if (!Number.isFinite(num)) return null
     return Math.max(0, Math.min(5, Math.round(num)))
+  }
+  if (field.type === 'progress') {
+    const num = Number(value)
+    if (!Number.isFinite(num)) return null
+    return Math.max(0, Math.min(100, Math.round(num)))
   }
   if (field.type === 'multi_select') {
     if (!Array.isArray(value)) return []

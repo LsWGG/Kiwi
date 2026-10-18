@@ -107,6 +107,11 @@ def _kb_filter(kb_id: uuid.UUID | list[uuid.UUID]) -> models.Filter:
     )
 
 
+def kb_filter(kb_id: uuid.UUID | list[uuid.UUID]) -> models.Filter:
+    """公开的租户过滤构造器（供演示库向量统计等只读场景使用）。"""
+    return _kb_filter(kb_id)
+
+
 def upsert_chunks(
     kb_id: uuid.UUID, points: list[dict], model: str | None = None
 ) -> None:

@@ -17,7 +17,7 @@ import {
 } from '@/api/sources'
 import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
-import type { ImportBatch, ImportBatchReport } from '@/stores/notes'
+import type { ImportBatch, ImportBatchReport, NoteSummary } from '@/stores/notes'
 import NoteImportDialog from '@/components/notes/NoteImportDialog.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
@@ -34,8 +34,8 @@ const notesStore = useNotesStore()
 // --------------------------------------------------------------------------- //
 // 数据
 // --------------------------------------------------------------------------- //
-type Tab = 'sources' | 'batches' | 'jobs'
-const tab = ref<Tab>('sources')
+type Tab = 'content' | 'batches' | 'jobs'
+const tab = ref<Tab>('content')
 const sources = ref<SourceItem[]>([])
 const batches = ref<ImportBatch[]>([])
 const jobs = ref<IngestJob[]>([])
@@ -63,6 +63,12 @@ async function load(silent = false) {
     batches.value = b
     jobs.value = j
     error.value = ''
+    // 笔记与素材共用本页：编译状态既能看作业，也能看笔记自身的 Wiki 关联。
+    try {
+      await notesStore.fetchTree()
+    } catch (e: any) {
+      error.value = e.message || '笔记加载失败'
+    }
   } catch (e: any) {
     if (!silent) error.value = e.message || '素材加载失败'
   } finally {
@@ -115,56 +121,49 @@ watch(active, syncPolling)
 watch(
   () => kbs.currentKbId,
   () => {
-    selectedIds.value = []
-    page.value = 1
-    tab.value = 'sources'
+    selectedKeys.value = []
+    contentPage.value = 1
+    tab.value = 'content'
     void load()
   },
 )
 
 onMounted(async () => {
-  if (route.query.tab === 'jobs') tab.value = 'jobs'
+  const initialTab = route.query.tab
+  if (
+    initialTab === 'content' ||
+    initialTab === 'notes' ||
+    initialTab === 'sources' ||
+    initialTab === 'batches' ||
+    initialTab === 'jobs'
+  ) {
+    tab.value = initialTab === 'notes' || initialTab === 'sources' ? 'content' : initialTab
+  }
   await load()
   await openJobFromRoute()
 })
+let clockTimer: number | null = null
+function stopDetailClock() {
+  if (clockTimer !== null) {
+    window.clearInterval(clockTimer)
+    clockTimer = null
+  }
+}
 onBeforeUnmount(() => {
   if (pollTimer !== null) window.clearInterval(pollTimer)
   if (boostTimer !== null) window.clearTimeout(boostTimer)
+  stopDetailClock()
   stopJobPolling()
 })
 
 // --------------------------------------------------------------------------- //
-// 素材筛选 / 分页 / 选择
+// 素材来源：编译笔记生成的 Source 快照不是用户素材，不单独展示
 // --------------------------------------------------------------------------- //
-const query = ref('')
-const statusFilter = ref('all')
-const qualityFilter = ref('all')
-const typeFilter = ref('all')
-const batchFilter = ref('all')
-const page = ref(1)
-const PAGE_SIZE = 20
-const selectedIds = ref<string[]>([])
+function isNoteSnapshot(s: SourceItem) {
+  return s.type === 'note' || (s.external_id || '').startsWith('note:')
+}
 
-const STATUS_FILTERS = [
-  { value: 'all', label: '全部状态' },
-  { value: 'received', label: '待处理' },
-  { value: 'parsing', label: '解析中' },
-  { value: 'parsed', label: '待编译' },
-  { value: 'compiled', label: '已编译' },
-  { value: 'failed', label: '解析失败' },
-]
-
-const QUALITY_FILTERS = [
-  { value: 'all', label: '全部质量' },
-  { value: 'clean', label: '解析干净' },
-  { value: 'ocr_aided', label: 'OCR 辅助' },
-  { value: 'review', label: '待人工复核' },
-]
-
-const typeOptions = computed(() => {
-  const set = new Set(sources.value.map((s) => s.type))
-  return Array.from(set).sort()
-})
+const materialSources = computed(() => sources.value.filter((s) => !isNoteSnapshot(s)))
 
 const batchLabelMap = computed(() => {
   const map = new Map<string, string>()
@@ -174,79 +173,548 @@ const batchLabelMap = computed(() => {
   return map
 })
 
-const filteredSources = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  return sources.value.filter((s) => {
-    if (q && !s.title.toLowerCase().includes(q) && !s.sha256.startsWith(q)) return false
-    if (statusFilter.value !== 'all' && s.status !== statusFilter.value) return false
-    if (qualityFilter.value !== 'all' && s.parse_quality !== qualityFilter.value) return false
-    if (typeFilter.value !== 'all' && s.type !== typeFilter.value) return false
-    if (batchFilter.value === 'none') return !s.import_batch_id
-    if (batchFilter.value !== 'all' && s.import_batch_id !== batchFilter.value) return false
+// --------------------------------------------------------------------------- //
+// 统一内容视图：笔记是主体，导入素材是笔记的来源
+// --------------------------------------------------------------------------- //
+const NOTE_KIND_META: Record<string, { label: string; icon: string }> = {
+  doc: { label: '文档', icon: 'fileText' },
+  database: { label: '数据表', icon: 'database' },
+  link: { label: '链接', icon: 'link2' },
+  import: { label: '导入', icon: 'fileImport' },
+  canvas: { label: '画布', icon: 'pen' },
+  notebook: { label: 'Notebook', icon: 'notebook' },
+}
+
+/** 工作区活跃笔记；数据表行笔记随所属数据表一起编译，不单独列出。 */
+const workspaceNotes = computed(() =>
+  notesStore.notes.filter(
+    (n) => n.status === 'active' && !n.props_json?.collection_row_id,
+  ),
+)
+
+const folderNameMap = computed(() => {
+  const map = new Map<string, string>()
+  for (const folder of notesStore.folders) map.set(folder.id, folder.name)
+  return map
+})
+
+const sourceById = computed(() => {
+  const map = new Map<string, SourceItem>()
+  for (const source of materialSources.value) map.set(source.id, source)
+  return map
+})
+
+/** 导入笔记对应的原始素材；普通笔记没有。 */
+function noteSource(note: NoteSummary) {
+  const raw = note as NoteSummary & { source_id?: string | null }
+  const sourceId = String(note.props_json?.import?.source_id || raw.source_id || '')
+  return sourceId ? sourceById.value.get(sourceId) : undefined
+}
+
+/** 每篇笔记最近一次编译作业。 */
+const noteJobMap = computed(() => {
+  const map = new Map<string, IngestJob>()
+  for (const job of jobs.value) {
+    if (job.kind !== 'compile' || !job.note_id) continue
+    const prev = map.get(job.note_id)
+    if (
+      !prev ||
+      new Date(job.created_at).getTime() >= new Date(prev.created_at).getTime()
+    ) {
+      map.set(job.note_id, job)
+    }
+  }
+  return map
+})
+
+type NoteState = 'compiled' | 'busy' | 'failed' | 'pending'
+
+function noteState(note: NoteSummary): NoteState {
+  const job = noteJobMap.value.get(note.id)
+  if (job?.status === 'pending' || job?.status === 'running') return 'busy'
+  if (job?.status === 'failed') return 'failed'
+  const source = noteSource(note)
+  if (
+    job?.status === 'succeeded' ||
+    note.wiki_page_id ||
+    source?.status === 'compiled'
+  ) {
+    return 'compiled'
+  }
+  if (note.props_json?.import?.status === 'failed' || source?.status === 'failed') {
+    return 'failed'
+  }
+  return 'pending'
+}
+
+const NOTE_STATE_META: Record<
+  NoteState,
+  { label: string; cls: string; icon: string; spin?: boolean }
+> = {
+  compiled: {
+    label: '已编译',
+    cls: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    icon: 'check',
+  },
+  busy: {
+    label: '编译中',
+    cls: 'border-kiwi-200 bg-kiwi-50 text-kiwi-700',
+    icon: 'loader',
+    spin: true,
+  },
+  failed: {
+    label: '编译失败',
+    cls: 'border-rose-200 bg-rose-50 text-rose-600',
+    icon: 'alert',
+  },
+  pending: {
+    label: '未编译',
+    cls: 'border-slate-200 bg-slate-50 text-slate-500',
+    icon: 'bookOpen',
+  },
+}
+
+function noteStateMeta(note: NoteSummary) {
+  const meta = NOTE_STATE_META[noteState(note)]
+  const job = noteJobMap.value.get(note.id)
+  const source = noteSource(note)
+  return {
+    ...meta,
+    label: job?.status === 'pending' ? '排队中' : meta.label,
+    title: job?.error || source?.quality_report?.error || '',
+  }
+}
+
+const noteStats = computed(() => {
+  const result = { total: 0, compiled: 0, busy: 0, failed: 0, pending: 0 }
+  for (const note of workspaceNotes.value) {
+    result.total += 1
+    result[noteState(note)] += 1
+  }
+  return result
+})
+
+/** 已有笔记承载的素材不再作为独立行，避免同一份内容出现两次。 */
+const linkedSourceIds = computed(() => {
+  const ids = new Set<string>()
+  for (const note of workspaceNotes.value) {
+    const source = noteSource(note)
+    if (source) ids.add(source.id)
+  }
+  return ids
+})
+
+const standaloneSources = computed(() =>
+  materialSources.value.filter((source) => !linkedSourceIds.value.has(source.id)),
+)
+
+type ContentItem =
+  | { key: string; type: 'note'; note: NoteSummary; updatedAt: string }
+  | { key: string; type: 'source'; source: SourceItem; updatedAt: string }
+
+function noteKey(id: string) {
+  return `note:${id}`
+}
+
+function sourceKey(id: string) {
+  return `source:${id}`
+}
+
+const contentItems = computed<ContentItem[]>(() => {
+  const items: ContentItem[] = workspaceNotes.value.map((note) => ({
+    key: noteKey(note.id),
+    type: 'note' as const,
+    note,
+    updatedAt: note.updated_at,
+  }))
+  for (const source of standaloneSources.value) {
+    items.push({
+      key: sourceKey(source.id),
+      type: 'source' as const,
+      source,
+      updatedAt: source.parsed_at || source.created_at,
+    })
+  }
+  return items.sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  )
+})
+
+function sourceState(source: SourceItem): NoteState {
+  if (source.status === 'received' || source.status === 'parsing') return 'busy'
+  if (source.status === 'parsed') return 'pending'
+  if (source.status === 'compiled') return 'compiled'
+  if (source.status === 'failed') return 'failed'
+  return 'pending'
+}
+
+function contentState(item: ContentItem): NoteState {
+  return item.type === 'note' ? noteState(item.note) : sourceState(item.source)
+}
+
+function contentStateMeta(item: ContentItem) {
+  if (item.type === 'note') return noteStateMeta(item.note)
+  const meta = statusMeta(item.source.status)
+  return {
+    ...meta,
+    title: item.source.quality_report?.error || '',
+  }
+}
+
+function contentSource(item: ContentItem) {
+  return item.type === 'source' ? item.source : noteSource(item.note)
+}
+
+function contentTitle(item: ContentItem) {
+  return item.type === 'note' ? item.note.title || '无标题' : item.source.title
+}
+
+function contentSubtitle(item: ContentItem) {
+  if (item.type === 'note') {
+    const folder = item.note.folder_id
+      ? folderNameMap.value.get(item.note.folder_id) || '未命名分组'
+      : '根目录'
+    const tags = item.note.tags?.length ? ` · ${item.note.tags.slice(0, 3).join(' / ')}` : ''
+    return `${folder}${tags}`
+  }
+  const chars = Number(item.source.quality_report?.chars || 0)
+  return `${item.source.sha256.slice(0, 10)}${chars ? ` · ${chars.toLocaleString()} 字` : ''}`
+}
+
+function contentKindMeta(item: ContentItem) {
+  return item.type === 'note'
+    ? noteKindMeta(item.note.kind)
+    : { label: '素材', icon: 'fileText' }
+}
+
+function noteKindMeta(kind: string) {
+  return NOTE_KIND_META[kind] || { label: kind, icon: 'fileText' }
+}
+
+function contentQuality(item: ContentItem) {
+  return contentSource(item)?.parse_quality || ''
+}
+
+function contentError(item: ContentItem) {
+  if (item.type === 'source') {
+    return String(item.source.quality_report?.error || '')
+  }
+  return (
+    noteJobMap.value.get(item.note.id)?.error ||
+    String(item.note.props_json?.import?.error || '')
+  )
+}
+
+function contentWikiId(item: ContentItem) {
+  return item.type === 'note' ? item.note.wiki_page_id : null
+}
+
+function contentJob(item: ContentItem) {
+  return item.type === 'note' ? noteJobMap.value.get(item.note.id) : undefined
+}
+
+function contentProcessTime(item: ContentItem) {
+  if (item.type === 'source') return item.source.parsed_at || item.source.created_at
+  return contentJob(item)?.created_at || null
+}
+
+function contentTags(item: ContentItem) {
+  return item.type === 'note' ? item.note.tags || [] : []
+}
+
+const noteQuery = ref('')
+const noteKindFilter = ref('all')
+const noteStateFilter = ref('all')
+const contentQualityFilter = ref('all')
+const contentPage = ref(1)
+const CONTENT_PAGE_SIZE = 20
+
+const noteKindOptions = computed(() => {
+  const kinds = new Set(workspaceNotes.value.map((n) => n.kind))
+  const options = Object.keys(NOTE_KIND_META).filter((kind) => kinds.has(kind as any))
+  if (standaloneSources.value.length) options.push('source')
+  return options
+})
+
+const filteredContent = computed(() => {
+  const q = noteQuery.value.trim().toLowerCase()
+  return contentItems.value.filter((item) => {
+    if (q) {
+      const haystack = [
+        contentTitle(item),
+        contentSubtitle(item),
+        ...contentTags(item),
+        contentSource(item)?.sha256 || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+      if (!haystack.includes(q)) return false
+    }
+    if (noteKindFilter.value !== 'all') {
+      if (noteKindFilter.value === 'source') {
+        if (item.type !== 'source') return false
+      } else if (item.type !== 'note' || item.note.kind !== noteKindFilter.value) {
+        return false
+      }
+    }
+    if (
+      noteStateFilter.value !== 'all' &&
+      contentState(item) !== noteStateFilter.value
+    ) {
+      return false
+    }
+    if (contentQualityFilter.value !== 'all') {
+      if (contentQuality(item) !== contentQualityFilter.value) return false
+    }
     return true
   })
 })
 
-const pageCount = computed(() =>
-  Math.max(1, Math.ceil(filteredSources.value.length / PAGE_SIZE)),
+const contentPageCount = computed(() =>
+  Math.max(1, Math.ceil(filteredContent.value.length / CONTENT_PAGE_SIZE)),
 )
-const pagedSources = computed(() =>
-  filteredSources.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
-)
-const pageAllSelected = computed(
-  () =>
-    pagedSources.value.length > 0 &&
-    pagedSources.value.every((s) => selectedIds.value.includes(s.id)),
+const pagedContent = computed(() =>
+  filteredContent.value.slice(
+    (contentPage.value - 1) * CONTENT_PAGE_SIZE,
+    contentPage.value * CONTENT_PAGE_SIZE,
+  ),
 )
 
-watch([query, statusFilter, qualityFilter, typeFilter, batchFilter], () => {
-  page.value = 1
+watch([noteQuery, noteKindFilter, noteStateFilter, contentQualityFilter], () => {
+  contentPage.value = 1
 })
-watch(pageCount, (count) => {
-  if (page.value > count) page.value = count
+watch(contentPageCount, (count) => {
+  if (contentPage.value > count) contentPage.value = count
 })
 
-const selectedSet = computed(() => new Set(selectedIds.value))
+function noteFolderLabel(note: NoteSummary) {
+  return note.folder_id
+    ? folderNameMap.value.get(note.folder_id) || '未命名分组'
+    : '根目录'
+}
 
-function toggleSelect(id: string) {
-  if (selectedSet.value.has(id)) {
-    selectedIds.value = selectedIds.value.filter((x) => x !== id)
-  } else {
-    selectedIds.value = [...selectedIds.value, id]
+const compilingNoteId = ref('')
+
+async function compileOneNote(note: NoteSummary) {
+  if (!kbs.currentKbId || compilingNoteId.value) return
+  compilingNoteId.value = note.id
+  try {
+    await notesStore.compileNote(note.id)
+    toast.success(`已提交「${note.title}」的编译任务`)
+    boostPolling()
+    await load(true)
+  } catch (e: any) {
+    toast.error(e.message || '笔记编译任务提交失败')
+  } finally {
+    compilingNoteId.value = ''
   }
 }
 
-function togglePage() {
-  const ids = pagedSources.value.map((s) => s.id)
-  if (pageAllSelected.value) {
-    selectedIds.value = selectedIds.value.filter((id) => !ids.includes(id))
-  } else {
-    selectedIds.value = Array.from(new Set([...selectedIds.value, ...ids]))
+function openNote(note: NoteSummary) {
+  void router.push({ name: 'notes', params: { id: note.id } })
+}
+
+function openNoteWiki(note: NoteSummary) {
+  if (!note.wiki_page_id) return
+  void router.push({ name: 'wiki-page', params: { id: note.wiki_page_id } })
+}
+
+function openSource(source: SourceItem) {
+  void router.push({ name: 'source-preview', params: { id: source.id } })
+}
+
+function openContentItem(item: ContentItem) {
+  if (item.type === 'note') openNote(item.note)
+  else openSource(item.source)
+}
+
+function openItemSource(item: ContentItem) {
+  const source = contentSource(item)
+  if (source) openSource(source)
+}
+
+function openItemWiki(item: ContentItem) {
+  const wikiId = contentWikiId(item)
+  if (wikiId) void router.push({ name: 'wiki-page', params: { id: wikiId } })
+}
+
+// 统计：以「内容」为单位，导入素材与笔记不会重复计数
+const contentStats = computed(() => {
+  const result = {
+    total: 0,
+    notes: workspaceNotes.value.length,
+    sources: standaloneSources.value.length,
+    compiled: 0,
+    busy: 0,
+    failed: 0,
+    pending: 0,
   }
-}
+  for (const item of contentItems.value) {
+    result.total += 1
+    result[contentState(item)] += 1
+  }
+  return result
+})
 
-function clearSelection() {
-  selectedIds.value = []
-}
-
-// --------------------------------------------------------------------------- //
-// 统计
-// --------------------------------------------------------------------------- //
-const stats = computed(() => {
-  const list = sources.value
+const sourceStats = computed(() => {
+  const list = materialSources.value
   return {
     total: list.length,
     compiled: list.filter((s) => s.status === 'compiled').length,
     pending: list.filter((s) => s.status === 'parsed').length,
-    processing: list.filter((s) => s.status === 'received' || s.status === 'parsing').length,
+    processing: list.filter(
+      (s) => s.status === 'received' || s.status === 'parsing',
+    ).length,
     review: list.filter((s) => s.parse_quality === 'review').length,
     failed: list.filter((s) => s.status === 'failed').length,
   }
 })
 
-const pendingIds = computed(() =>
-  sources.value.filter((s) => s.status === 'parsed').map((s) => s.id),
+const failedNotes = computed(() =>
+  workspaceNotes.value.filter((note) => noteState(note) === 'failed').length,
 )
+
+// 统一列表的筛选 / 分页 / 多选
+const selectedKeys = ref<string[]>([])
+const selectedKeySet = computed(() => new Set(selectedKeys.value))
+const contentPageAllSelected = computed(
+  () =>
+    pagedContent.value.length > 0 &&
+    pagedContent.value.every((item) => selectedKeySet.value.has(item.key)),
+)
+
+function toggleContentSelect(key: string) {
+  if (selectedKeySet.value.has(key)) {
+    selectedKeys.value = selectedKeys.value.filter((x) => x !== key)
+  } else {
+    selectedKeys.value = [...selectedKeys.value, key]
+  }
+}
+
+function toggleContentPage() {
+  const keys = pagedContent.value.map((item) => item.key)
+  if (contentPageAllSelected.value) {
+    selectedKeys.value = selectedKeys.value.filter((key) => !keys.includes(key))
+  } else {
+    selectedKeys.value = Array.from(new Set([...selectedKeys.value, ...keys]))
+  }
+}
+
+function clearContentSelection() {
+  selectedKeys.value = []
+}
+
+const selectedContentItems = computed(() =>
+  contentItems.value.filter((item) => selectedKeySet.value.has(item.key)),
+)
+
+function showFailedContent() {
+  tab.value = 'content'
+  noteStateFilter.value = 'failed'
+  noteKindFilter.value = 'all'
+  contentQualityFilter.value = 'all'
+}
+
+function showReviewContent() {
+  tab.value = 'content'
+  contentQualityFilter.value = 'review'
+  noteStateFilter.value = 'all'
+  noteKindFilter.value = 'all'
+}
+
+const compilingContent = ref(false)
+
+/** 编译全部待处理内容：导入素材已由其笔记代表，不重复提交。 */
+async function compileAllContent() {
+  const kbId = kbs.currentKbId
+  if (!kbId || compilingContent.value) return
+  compilingContent.value = true
+  try {
+    const pendingSourceIds = standaloneSources.value
+      .filter((source) => source.status === 'parsed')
+      .map((source) => source.id)
+    let sourceCount = 0
+    for (let i = 0; i < pendingSourceIds.length; i += 20) {
+      const res = await compileSources(kbId, pendingSourceIds.slice(i, i + 20))
+      sourceCount += res.count
+    }
+    const res = await notesStore.compileAllNotes()
+    if (!res.count && !sourceCount) {
+      toast.info(
+        res.skipped_busy
+          ? `${res.skipped_busy} 篇笔记正在编译中，请稍后查看任务`
+          : '没有需要编译的内容',
+      )
+      return
+    }
+    toast.success(
+      `已提交 ${res.count} 篇笔记、${sourceCount} 个素材的编译任务`,
+    )
+    boostPolling()
+    await load(true)
+  } catch (e: any) {
+    toast.error(e.message || '编译任务提交失败')
+  } finally {
+    compilingContent.value = false
+  }
+}
+
+const compilingSelection = ref(false)
+
+async function compileSelectedContent() {
+  const kbId = kbs.currentKbId
+  const items = selectedContentItems.value
+  if (!kbId || !items.length || compilingSelection.value) return
+  compilingSelection.value = true
+  let noteCount = 0
+  let sourceCount = 0
+  let skipped = 0
+  try {
+    const noteIds = items
+      .filter((item): item is Extract<ContentItem, { type: 'note' }> => item.type === 'note')
+      .map((item) => item.note.id)
+    const sourceIds = items
+      .filter((item): item is Extract<ContentItem, { type: 'source' }> => item.type === 'source')
+      .map((item) => item.source.id)
+
+    for (const noteId of noteIds) {
+      const note = workspaceNotes.value.find((n) => n.id === noteId)
+      if (!note || noteState(note) === 'busy') {
+        skipped += 1
+        continue
+      }
+      try {
+        await notesStore.compileNote(noteId)
+        noteCount += 1
+      } catch {
+        skipped += 1
+      }
+    }
+    for (let i = 0; i < sourceIds.length; i += 20) {
+      try {
+        const res = await compileSources(kbId, sourceIds.slice(i, i + 20))
+        sourceCount += res.count
+        skipped += res.skipped
+      } catch {
+        skipped += sourceIds.slice(i, i + 20).length
+      }
+    }
+    if (noteCount || sourceCount) {
+      toast.success(
+        `已提交 ${noteCount} 篇笔记、${sourceCount} 个素材的编译任务${
+          skipped ? `，${skipped} 个未提交` : ''
+        }`,
+      )
+      clearContentSelection()
+    } else {
+      toast.info('所选内容暂时无法编译')
+    }
+    boostPolling()
+    await load(true)
+  } finally {
+    compilingSelection.value = false
+  }
+}
 
 // --------------------------------------------------------------------------- //
 // 操作
@@ -272,7 +740,7 @@ async function compileIds(ids: string[]) {
         ? `已提交 ${submitted} 个编译任务，${skipped} 个未提交`
         : `已提交 ${submitted} 个编译任务`,
     )
-    clearSelection()
+    clearContentSelection()
     boostPolling()
     await load(true)
   } catch (e: any) {
@@ -280,18 +748,6 @@ async function compileIds(ids: string[]) {
   } finally {
     compiling.value = false
   }
-}
-
-function compileSelected() {
-  void compileIds(selectedIds.value)
-}
-
-function compileAllPending() {
-  if (!pendingIds.value.length) {
-    toast.info('没有待编译的素材')
-    return
-  }
-  void compileIds(pendingIds.value)
 }
 
 function compileBatch(b: ImportBatch) {
@@ -359,7 +815,9 @@ function askDelete(s: SourceItem) {
     run: async () => {
       if (!kbs.currentKbId) return
       await deleteSource(kbs.currentKbId, s.id)
-      selectedIds.value = selectedIds.value.filter((id) => id !== s.id)
+      selectedKeys.value = selectedKeys.value.filter(
+        (key) => key !== sourceKey(s.id),
+      )
       toast.success('素材已删除')
       await load(true)
     },
@@ -411,7 +869,7 @@ function batchLabel(b: ImportBatch) {
 }
 
 function batchSources(batchId: string) {
-  return sources.value.filter((s) => s.import_batch_id === batchId)
+  return materialSources.value.filter((s) => s.import_batch_id === batchId)
 }
 
 interface BatchStat {
@@ -656,15 +1114,17 @@ function jobPageCount(job: IngestJob) {
 }
 
 function jobDuration(job: IngestJob) {
-  if (!job.updated_at) return '—'
-  const seconds = Math.max(
-    0,
-    Math.round(
-      (new Date(job.updated_at).getTime() - new Date(job.created_at).getTime()) / 1000,
-    ),
-  )
+  const start = new Date(job.created_at).getTime()
+  if (Number.isNaN(start)) return '—'
+  // 进行中的任务用本地时钟实时走字；已结束的任务用最后一次落库时间。
+  const finished = job.status !== 'pending' && job.status !== 'running'
+  const end = finished && job.updated_at ? new Date(job.updated_at).getTime() : nowMs.value
+  const seconds = Math.max(0, Math.round((end - start) / 1000))
   if (seconds < 60) return `${seconds} 秒`
-  return `${(seconds / 60).toFixed(1)} 分钟`
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  if (minutes < 60) return `${minutes} 分 ${rest} 秒`
+  return `${Math.floor(minutes / 60)} 时 ${minutes % 60} 分`
 }
 
 const COMPILE_STEPS = [
@@ -704,14 +1164,21 @@ function stopJobPolling() {
 async function refreshJobDetail(jobId: string) {
   const kbId = kbs.currentKbId
   if (!kbId) return
+  stopJobPolling()
   try {
     const data = await getJob(kbId, jobId)
+    if (jobDetail.value?.id !== jobId) return
     jobDetail.value = data
     if (data.status === 'pending' || data.status === 'running') {
-      stopJobPolling()
       jobPollTimer = window.setTimeout(() => void refreshJobDetail(jobId), 2000)
     }
   } catch (e: any) {
+    jobLoading.value = false
+    // 轮询期间的瞬时失败不应让详情永久停在旧状态：仍在打开展示同一个任务时继续重试。
+    if (jobDetail.value?.id === jobId) {
+      jobPollTimer = window.setTimeout(() => void refreshJobDetail(jobId), 5000)
+      return
+    }
     toast.error(e.message || '任务详情加载失败')
   } finally {
     jobLoading.value = false
@@ -730,6 +1197,23 @@ function closeJob() {
   jobDetail.value = null
   jobLoading.value = false
 }
+
+// 「用时」本地秒表：仅在进行中的详情弹窗打开时运行，避免整页无谓重渲染。
+const nowMs = ref(Date.now())
+function syncDetailClock(job: IngestJob | null) {
+  const running = job?.status === 'pending' || job?.status === 'running'
+  if (!running) {
+    stopDetailClock()
+    return
+  }
+  nowMs.value = Date.now()
+  if (clockTimer === null) {
+    clockTimer = window.setInterval(() => {
+      nowMs.value = Date.now()
+    }, 1000)
+  }
+}
+watch(jobDetail, () => syncDetailClock(jobDetail.value))
 
 async function openJobFromRoute() {
   const jobId = typeof route.query.job === 'string' ? route.query.job : ''
@@ -758,9 +1242,11 @@ async function compileAllNotes() {
   if (!kbs.currentKbId) return
   compilingNotes.value = true
   try {
-    const res = await notesStore.compileAllNotes(20)
+    const res = await notesStore.compileAllNotes()
     if (res.count) {
-      toast.success(`已提交 ${res.count} 个笔记编译任务`)
+      toast.success(
+        `已提交 ${res.count} 篇笔记编译任务（文档 / 导入 / 链接 / 数据表 / 画布 / Notebook）`,
+      )
       tab.value = 'jobs'
       boostPolling()
       await load(true)
@@ -783,9 +1269,9 @@ async function compileAllNotes() {
     <!-- 标题栏 -->
     <header class="mb-3 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 class="text-[19px] font-semibold tracking-tight text-slate-800">素材与任务</h1>
+        <h1 class="text-[19px] font-semibold tracking-tight text-slate-800">编译任务</h1>
         <p class="mt-0.5 text-[11.5px] text-slate-400">
-          原始素材不可变 · 统一管理解析质量、安全扫描、导入批次与编译任务
+          笔记与导入素材统一编译进 Wiki · 追踪解析质量、导入批次与任务进度
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -814,22 +1300,22 @@ async function compileAllNotes() {
     </header>
 
     <div v-if="!kbs.currentKbId" class="flex-1 grid place-items-center">
-      <KiwiEmpty icon="database" title="请先选择知识库" desc="素材与导入批次按知识库隔离" />
+      <KiwiEmpty icon="database" title="请先选择知识库" desc="笔记、素材与编译任务按知识库隔离" />
     </div>
 
     <template v-else>
-      <!-- 统计卡片 -->
-      <div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+      <!-- 统计卡片：笔记与导入素材共用同一套 Wiki 编译流水线 -->
+      <div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <div class="kiwi-card !rounded-xl px-3.5 py-2.5">
           <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
-            <KiwiIcon name="bookOpen" :size="12" class="text-slate-400" />
-            素材总数
+            <KiwiIcon name="note" :size="12" class="text-slate-400" />
+            全部内容
           </div>
           <p class="mt-1 text-[22px] font-bold leading-none tabular-nums text-slate-800">
-            {{ stats.total }}
+            {{ contentStats.total }}
           </p>
           <p class="mt-1 text-[10px] text-slate-400">
-            {{ stats.processing ? `${stats.processing} 个处理中` : '原文不可变' }}
+            笔记 {{ contentStats.notes }} · 独立素材 {{ contentStats.sources }}
           </p>
         </div>
         <div class="kiwi-card !rounded-xl px-3.5 py-2.5">
@@ -838,24 +1324,30 @@ async function compileAllNotes() {
             已编译
           </div>
           <p class="mt-1 text-[22px] font-bold leading-none tabular-nums text-emerald-700">
-            {{ stats.compiled }}
+            {{ contentStats.compiled }}
           </p>
-          <p class="mt-1 text-[10px] text-slate-400">已沉淀为 Wiki 页面</p>
+          <p class="mt-1 text-[10px] text-slate-400">
+            {{
+              contentStats.total
+                ? `${Math.round((contentStats.compiled / contentStats.total) * 100)}% 已进入 Wiki`
+                : '尚未创建内容'
+            }}
+          </p>
         </div>
         <div class="kiwi-card !rounded-xl px-3.5 py-2.5">
           <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
-            <KiwiIcon name="book" :size="12" class="text-kiwi-500" />
+            <KiwiIcon name="sparkle" :size="12" class="text-kiwi-500" />
             待编译
           </div>
           <p class="mt-1 text-[22px] font-bold leading-none tabular-nums text-kiwi-700">
-            {{ stats.pending }}
+            {{ contentStats.pending }}
           </p>
           <button
-            v-if="stats.pending"
+            v-if="contentStats.pending"
             type="button"
             class="mt-1 text-[10px] text-kiwi-600 hover:underline disabled:opacity-40"
-            :disabled="compiling"
-            @click="compileAllPending"
+            :disabled="compilingContent"
+            @click="compileAllContent"
           >
             全部编译 →
           </button>
@@ -863,31 +1355,56 @@ async function compileAllNotes() {
         </div>
         <div class="kiwi-card !rounded-xl px-3.5 py-2.5">
           <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
+            <KiwiIcon name="fileImport" :size="12" class="text-slate-400" />
+            导入素材
+          </div>
+          <p class="mt-1 text-[22px] font-bold leading-none tabular-nums text-slate-800">
+            {{ sourceStats.total }}
+          </p>
+          <p class="mt-1 text-[10px] text-slate-400">
+            {{ sourceStats.compiled }} 已编译
+            <template v-if="sourceStats.processing"> · {{ sourceStats.processing }} 处理中</template>
+            <template v-else-if="sourceStats.pending"> · {{ sourceStats.pending }} 待编译</template>
+            <template v-else> · 原文不可变</template>
+          </p>
+        </div>
+        <div class="kiwi-card !rounded-xl px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
             <KiwiIcon name="alert" :size="12" class="text-amber-500" />
             待人工复核
           </div>
           <p class="mt-1 text-[22px] font-bold leading-none tabular-nums text-amber-700">
-            {{ stats.review }}
+            {{ sourceStats.review }}
           </p>
-          <p class="mt-1 text-[10px] text-slate-400">低置信度 OCR / 表格异常</p>
+          <button
+            v-if="sourceStats.review"
+            type="button"
+            class="mt-1 text-[10px] text-amber-600 hover:underline"
+            @click="showReviewContent"
+          >
+            查看待复核素材 →
+          </button>
+          <p v-else class="mt-1 text-[10px] text-slate-400">解析质量正常</p>
         </div>
         <div class="kiwi-card !rounded-xl px-3.5 py-2.5">
           <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
             <KiwiIcon name="trash" :size="12" class="text-rose-400" />
-            解析失败
+            失败
           </div>
           <p class="mt-1 text-[22px] font-bold leading-none tabular-nums text-rose-600">
-            {{ stats.failed }}
+            {{ contentStats.failed }}
           </p>
           <button
-            v-if="stats.failed"
+            v-if="contentStats.failed"
             type="button"
             class="mt-1 text-[10px] text-rose-500 hover:underline"
-            @click="statusFilter = 'failed'; tab = 'sources'"
+            @click="showFailedContent"
           >
-            查看失败素材 →
+            查看失败内容 →
           </button>
-          <p v-else class="mt-1 text-[10px] text-slate-400">解析链路正常</p>
+          <p v-else class="mt-1 text-[10px] text-slate-400">
+            解析 {{ sourceStats.failed }} · 编译 {{ failedNotes }}
+          </p>
         </div>
       </div>
 
@@ -922,7 +1439,7 @@ async function compileAllNotes() {
       <div class="mb-2.5 flex items-center gap-1 border-b border-slate-200/70">
         <button
           v-for="t in [
-            { key: 'sources', label: '素材库', count: sources.length },
+            { key: 'content', label: '全部内容', count: contentStats.total },
             { key: 'batches', label: '导入批次', count: batches.length },
             { key: 'jobs', label: '编译任务', count: jobs.length },
           ]"
@@ -947,8 +1464,8 @@ async function compileAllNotes() {
         <p v-if="error" class="ml-auto text-[11px] text-rose-500">{{ error }}</p>
       </div>
 
-      <!-- 素材库 -->
-      <template v-if="tab === 'sources'">
+      <!-- 全部内容：笔记是主体，导入素材作为笔记来源，不重复成行 -->
+      <template v-if="tab === 'content'">
         <div class="mb-2 flex flex-wrap items-center gap-1.5">
           <div class="relative min-w-[190px] max-w-[280px] flex-1">
             <KiwiIcon
@@ -957,46 +1474,52 @@ async function compileAllNotes() {
               class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
             />
             <input
-              v-model="query"
+              v-model="noteQuery"
               type="search"
-              placeholder="搜索标题 / 指纹…"
+              placeholder="搜索标题 / 分组 / 标签 / 指纹…"
               class="kiwi-input !py-1.5 !pl-8 !text-[11.5px]"
             />
           </div>
-          <select v-model="statusFilter" class="sources-select">
-            <option v-for="o in STATUS_FILTERS" :key="o.value" :value="o.value">{{ o.label }}</option>
-          </select>
-          <select v-model="qualityFilter" class="sources-select">
-            <option v-for="o in QUALITY_FILTERS" :key="o.value" :value="o.value">{{ o.label }}</option>
-          </select>
-          <select v-model="typeFilter" class="sources-select">
+          <select v-model="noteKindFilter" class="sources-select">
             <option value="all">全部类型</option>
-            <option v-for="t in typeOptions" :key="t" :value="t">{{ typeLabel(t) }}</option>
-          </select>
-          <select v-model="batchFilter" class="sources-select max-w-[190px]">
-            <option value="all">全部批次</option>
-            <option value="none">未归属批次</option>
-            <option v-for="b in batches" :key="b.id" :value="b.id">
-              {{ batchLabelMap.get(b.id) }}
+            <option v-for="kind in noteKindOptions" :key="kind" :value="kind">
+              {{ kind === 'source' ? '独立素材' : noteKindMeta(kind).label }}
             </option>
+          </select>
+          <select v-model="noteStateFilter" class="sources-select">
+            <option value="all">全部编译状态</option>
+            <option value="compiled">已编译</option>
+            <option value="busy">处理中</option>
+            <option value="pending">未编译</option>
+            <option value="failed">失败</option>
+          </select>
+          <select v-model="contentQualityFilter" class="sources-select">
+            <option value="all">全部解析质量</option>
+            <option value="clean">解析干净</option>
+            <option value="ocr_aided">OCR 辅助</option>
+            <option value="review">待人工复核</option>
           </select>
 
           <div class="ml-auto flex items-center gap-1.5">
             <button
-              v-if="selectedIds.length"
+              v-if="selectedKeys.length"
               type="button"
               class="text-[10.5px] text-slate-400 hover:text-slate-600"
-              @click="clearSelection"
+              @click="clearContentSelection"
             >
-              已选 {{ selectedIds.length }} · 清除
+              已选 {{ selectedKeys.length }} · 清除
             </button>
             <button
               type="button"
               class="kiwi-btn-secondary !px-2.5 !py-1.5 !text-[11px]"
-              :disabled="!selectedIds.length || compiling"
-              @click="compileSelected"
+              :disabled="!selectedKeys.length || compilingSelection"
+              @click="compileSelectedContent"
             >
-              <KiwiIcon name="play" :size="12" />
+              <KiwiIcon
+                :name="compilingSelection ? 'loader' : 'play'"
+                :size="12"
+                :spin="compilingSelection"
+              />
               编译所选
             </button>
           </div>
@@ -1004,171 +1527,235 @@ async function compileAllNotes() {
 
         <div class="kiwi-card flex min-h-0 flex-1 flex-col overflow-hidden !rounded-xl">
           <div class="min-h-0 flex-1 overflow-auto">
-            <table class="w-full min-w-[940px] border-collapse text-left text-[11.5px]">
+            <table class="w-full min-w-[1040px] border-collapse text-left text-[11.5px]">
               <thead class="sticky top-0 z-10 bg-slate-50/95 text-[10.5px] text-slate-500 backdrop-blur">
                 <tr>
                   <th class="w-9 px-3 py-2">
                     <input
                       type="checkbox"
-                      :checked="pageAllSelected"
+                      :checked="contentPageAllSelected"
                       class="h-3.5 w-3.5 rounded border-slate-300 accent-kiwi-600"
-                      @change="togglePage"
+                      @change="toggleContentPage"
                     />
                   </th>
-                  <th class="px-2 py-2 font-medium">素材</th>
+                  <th class="px-2 py-2 font-medium">内容</th>
                   <th class="px-2 py-2 font-medium">类型</th>
-                  <th class="px-2 py-2 font-medium">状态</th>
+                  <th class="px-2 py-2 font-medium">编译状态</th>
                   <th class="px-2 py-2 font-medium">解析质量</th>
-                  <th class="px-2 py-2 font-medium">解析引擎</th>
-                  <th class="px-2 py-2 font-medium">批次</th>
-                  <th class="px-2 py-2 font-medium">导入时间</th>
-                  <th class="w-24 px-2 py-2 text-right font-medium">操作</th>
+                  <th class="px-2 py-2 font-medium">最近处理</th>
+                  <th class="px-2 py-2 font-medium">Wiki 页面</th>
+                  <th class="px-2 py-2 font-medium">更新时间</th>
+                  <th class="w-28 px-2 py-2 text-right font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="loading && !sources.length">
+                <tr v-if="loading && !contentItems.length">
                   <td colspan="9" class="px-4 py-12 text-center text-slate-400">
                     <span class="inline-flex items-center gap-2">
                       <KiwiIcon name="loader" :size="14" spin class="text-kiwi-500" />
-                      正在加载素材…
+                      正在加载内容…
                     </span>
                   </td>
                 </tr>
-                <tr v-else-if="!filteredSources.length">
+                <tr v-else-if="!filteredContent.length">
                   <td colspan="9" class="px-4 py-12 text-center">
                     <p class="text-[12px] text-slate-500">
-                      {{ sources.length ? '没有符合筛选条件的素材' : '还没有素材' }}
+                      {{ contentItems.length ? '没有符合筛选条件的内容' : '知识库还没有内容' }}
                     </p>
                     <p class="mt-1 text-[10.5px] text-slate-400">
-                      {{ sources.length ? '试试调整搜索或筛选条件' : '点击右上角「导入素材」上传文件或迁移语雀文档' }}
+                      {{
+                        contentItems.length
+                          ? '试试调整搜索或筛选条件'
+                          : '前往笔记工作区创建文档、数据表、画布，或导入素材'
+                      }}
                     </p>
+                    <RouterLink
+                      v-if="!contentItems.length"
+                      to="/notes"
+                      class="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-kiwi-600 hover:underline"
+                    >
+                      打开笔记工作区
+                      <KiwiIcon name="arrowRight" :size="11" />
+                    </RouterLink>
                   </td>
                 </tr>
                 <tr
-                  v-for="s in pagedSources"
+                  v-for="item in pagedContent"
                   v-else
-                  :key="s.id"
+                  :key="item.key"
                   class="border-t border-slate-100 transition-colors hover:bg-kiwi-50/40"
-                  :class="selectedSet.has(s.id) && 'bg-kiwi-50/50'"
+                  :class="selectedKeySet.has(item.key) && 'bg-kiwi-50/50'"
                 >
                   <td class="px-3 py-2 align-top">
                     <input
                       type="checkbox"
-                      :checked="selectedSet.has(s.id)"
+                      :checked="selectedKeySet.has(item.key)"
                       class="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 accent-kiwi-600"
-                      @change="toggleSelect(s.id)"
+                      @change="toggleContentSelect(item.key)"
                     />
                   </td>
-                  <td class="max-w-[300px] px-2 py-2">
+                  <td class="max-w-[340px] px-2 py-2">
                     <div class="flex items-center gap-1.5">
-                      <KiwiIcon name="fileText" :size="13" class="shrink-0 text-slate-400" />
+                      <KiwiIcon
+                        :name="contentKindMeta(item).icon"
+                        :size="13"
+                        class="shrink-0 text-slate-400"
+                      />
                       <button
                         type="button"
                         class="truncate text-left font-medium text-slate-700 hover:text-kiwi-600"
-                        :title="s.title"
-                        @click="preview(s)"
+                        :title="contentTitle(item)"
+                        @click="openContentItem(item)"
                       >
-                        {{ s.title }}
+                        {{ contentTitle(item) }}
                       </button>
-                      <a
-                        v-if="s.source_url"
-                        :href="s.source_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="shrink-0 text-slate-400 hover:text-kiwi-500"
-                        title="打开原始链接"
+                      <span
+                        v-if="item.type === 'note' && contentSource(item)"
+                        class="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[8.5px] font-semibold text-slate-400"
+                        title="该笔记来源于导入素材"
                       >
-                        <KiwiIcon name="external" :size="11" />
-                      </a>
-                    </div>
-                    <p class="mt-0.5 truncate font-mono text-[9.5px] text-slate-400">
-                      {{ s.sha256.slice(0, 10) }} · {{ charsOf(s) }}
-                      <span v-if="s.scan_status && s.scan_status !== 'clean'">
-                        · {{ SCAN_LABEL[s.scan_status] || s.scan_status }}
+                        有原文
                       </span>
+                    </div>
+                    <p class="mt-0.5 truncate text-[9.5px] text-slate-400">
+                      {{ contentSubtitle(item) }}
                     </p>
                     <p
-                      v-if="s.status === 'failed'"
+                      v-if="contentError(item)"
                       class="mt-0.5 line-clamp-1 text-[10px] text-rose-500"
+                      :title="contentError(item)"
                     >
-                      {{ s.quality_report?.error || '解析失败，可尝试重新解析' }}
+                      {{ contentError(item) }}
                     </p>
                   </td>
                   <td class="px-2 py-2 align-top">
-                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-500">
-                      {{ typeLabel(s.type) }}
+                    <span
+                      class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-500"
+                      :title="item.type === 'source' ? item.source.type.toUpperCase() : undefined"
+                    >
+                      {{ contentKindMeta(item).label }}
                     </span>
                   </td>
                   <td class="px-2 py-2 align-top">
                     <span
                       class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]"
-                      :class="statusMeta(s.status).cls"
+                      :class="contentStateMeta(item).cls"
+                      :title="contentStateMeta(item).title"
                     >
                       <KiwiIcon
-                        :name="statusMeta(s.status).icon"
+                        :name="contentStateMeta(item).icon"
                         :size="10"
-                        :spin="statusMeta(s.status).spin"
+                        :spin="contentStateMeta(item).spin"
                       />
-                      {{ statusMeta(s.status).label }}
+                      {{ contentStateMeta(item).label }}
                     </span>
                   </td>
                   <td class="px-2 py-2 align-top">
                     <span
+                      v-if="contentQuality(item)"
                       class="rounded-full border px-1.5 py-0.5 text-[10px]"
-                      :class="qualityMeta(s.parse_quality).cls"
+                      :class="qualityMeta(contentQuality(item)).cls"
                     >
-                      {{ qualityMeta(s.parse_quality).label }}
+                      {{ qualityMeta(contentQuality(item)).label }}
                     </span>
+                    <span v-else class="text-[10.5px] text-slate-300">—</span>
                   </td>
                   <td class="whitespace-nowrap px-2 py-2 align-top text-[10.5px] text-slate-500">
-                    {{ s.parse_engine || '—' }}
+                    {{ shortTime(contentProcessTime(item)) }}
                   </td>
-                  <td class="max-w-[150px] px-2 py-2 align-top">
-                    <span
-                      class="block truncate text-[10.5px] text-slate-500"
-                      :title="s.import_batch_id ? batchLabelMap.get(s.import_batch_id) : '未归属批次'"
+                  <td class="px-2 py-2 align-top">
+                    <button
+                      v-if="contentWikiId(item)"
+                      type="button"
+                      class="inline-flex items-center gap-1 text-[10.5px] font-medium text-kiwi-600 hover:underline"
+                      @click="openItemWiki(item)"
                     >
-                      {{ (s.import_batch_id && batchLabelMap.get(s.import_batch_id)) || '—' }}
-                    </span>
+                      <KiwiIcon name="wiki" :size="11" />
+                      查看
+                    </button>
+                    <span v-else class="text-[10.5px] text-slate-300">—</span>
                   </td>
                   <td class="whitespace-nowrap px-2 py-2 align-top text-[10.5px] text-slate-500">
-                    {{ shortTime(s.created_at) }}
+                    {{ shortTime(item.updatedAt) }}
                   </td>
                   <td class="px-2 py-2 align-top">
                     <div class="flex items-center justify-end gap-0.5">
-                      <button
-                        type="button"
-                        class="row-action"
-                        title="查看原文"
-                        @click="preview(s)"
-                      >
-                        <KiwiIcon name="arrowUpRight" :size="13" />
-                      </button>
-                      <button
-                        type="button"
-                        class="row-action"
-                        title="编译该素材"
-                        :disabled="compiling || s.status === 'received' || s.status === 'parsing'"
-                        @click="compileIds([s.id])"
-                      >
-                        <KiwiIcon name="play" :size="12" />
-                      </button>
-                      <button
-                        type="button"
-                        class="row-action"
-                        title="重新解析"
-                        @click="askReparse(s)"
-                      >
-                        <KiwiIcon name="refresh" :size="12" />
-                      </button>
-                      <button
-                        type="button"
-                        class="row-action hover:!text-rose-600"
-                        title="删除素材"
-                        @click="askDelete(s)"
-                      >
-                        <KiwiIcon name="trash" :size="12" />
-                      </button>
+                      <template v-if="item.type === 'note'">
+                        <button
+                          type="button"
+                          class="row-action"
+                          title="打开笔记"
+                          @click="openNote(item.note)"
+                        >
+                          <KiwiIcon name="arrowUpRight" :size="13" />
+                        </button>
+                        <button
+                          type="button"
+                          class="row-action"
+                          title="编译该笔记"
+                          :disabled="compilingNoteId === item.note.id || noteState(item.note) === 'busy'"
+                          @click="compileOneNote(item.note)"
+                        >
+                          <KiwiIcon
+                            :name="compilingNoteId === item.note.id ? 'loader' : 'play'"
+                            :size="12"
+                            :spin="compilingNoteId === item.note.id"
+                          />
+                        </button>
+                        <button
+                          v-if="contentSource(item)"
+                          type="button"
+                          class="row-action"
+                          title="查看原始素材"
+                          @click="openItemSource(item)"
+                        >
+                          <KiwiIcon name="external" :size="12" />
+                        </button>
+                        <button
+                          v-if="contentWikiId(item)"
+                          type="button"
+                          class="row-action"
+                          title="查看编译生成的 Wiki 页面"
+                          @click="openItemWiki(item)"
+                        >
+                          <KiwiIcon name="wiki" :size="12" />
+                        </button>
+                      </template>
+                      <template v-else>
+                        <button
+                          type="button"
+                          class="row-action"
+                          title="查看素材原文"
+                          @click="openSource(item.source)"
+                        >
+                          <KiwiIcon name="arrowUpRight" :size="13" />
+                        </button>
+                        <button
+                          type="button"
+                          class="row-action"
+                          title="编译该素材"
+                          :disabled="compiling || item.source.status === 'received' || item.source.status === 'parsing'"
+                          @click="compileIds([item.source.id])"
+                        >
+                          <KiwiIcon name="play" :size="12" />
+                        </button>
+                        <button
+                          type="button"
+                          class="row-action"
+                          title="重新解析"
+                          @click="askReparse(item.source)"
+                        >
+                          <KiwiIcon name="refresh" :size="12" />
+                        </button>
+                        <button
+                          type="button"
+                          class="row-action hover:!text-rose-600"
+                          title="删除素材"
+                          @click="askDelete(item.source)"
+                        >
+                          <KiwiIcon name="trash" :size="12" />
+                        </button>
+                      </template>
                     </div>
                   </td>
                 </tr>
@@ -1176,32 +1763,31 @@ async function compileAllNotes() {
             </table>
           </div>
 
-          <!-- 分页 -->
           <div
-            v-if="filteredSources.length"
+            v-if="filteredContent.length"
             class="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white/60 px-3 py-1.5 text-[10.5px] text-slate-500"
           >
             <span>
-              共 {{ filteredSources.length }} 条
-              <template v-if="filteredSources.length !== sources.length">
-                （全部 {{ sources.length }} 条）
+              共 {{ filteredContent.length }} 项
+              <template v-if="filteredContent.length !== contentItems.length">
+                （全部 {{ contentItems.length }} 项）
               </template>
-              · 第 {{ page }} / {{ pageCount }} 页
+              · 第 {{ contentPage }} / {{ contentPageCount }} 页
             </span>
             <div class="flex items-center gap-1">
               <button
                 type="button"
                 class="rounded-md border border-slate-200 bg-white px-2 py-1 disabled:opacity-40"
-                :disabled="page <= 1"
-                @click="page--"
+                :disabled="contentPage <= 1"
+                @click="contentPage--"
               >
                 上一页
               </button>
               <button
                 type="button"
                 class="rounded-md border border-slate-200 bg-white px-2 py-1 disabled:opacity-40"
-                :disabled="page >= pageCount"
-                @click="page++"
+                :disabled="contentPage >= contentPageCount"
+                @click="contentPage++"
               >
                 下一页
               </button>
@@ -1377,6 +1963,7 @@ async function compileAllNotes() {
               type="button"
               class="kiwi-btn-secondary !px-2.5 !py-1 !text-[11px]"
               :disabled="compilingNotes || !kbs.currentKbId"
+              title="把本库全部笔记（文档 / 导入 / 链接 / 数据表 / 画布 / Notebook）编译进 Wiki"
               @click="compileAllNotes"
             >
               <KiwiIcon :name="compilingNotes ? 'loader' : 'sparkle'" :size="12" :spin="compilingNotes" />
@@ -1489,6 +2076,17 @@ async function compileAllNotes() {
             >
               {{ jobStatusMeta(jobDetail).label }}
             </span>
+            <span
+              v-if="jobDetail.status === 'pending' || jobDetail.status === 'running'"
+              class="inline-flex items-center gap-1 text-[9.5px] text-slate-400"
+              title="每 2 秒自动同步任务进度"
+            >
+              <span class="relative flex h-1.5 w-1.5">
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-kiwi-400 opacity-60" />
+                <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-kiwi-500" />
+              </span>
+              实时同步中
+            </span>
           </div>
           <div class="mt-2 grid gap-x-4 gap-y-1 text-[10.5px] text-slate-500 sm:grid-cols-2">
             <p>任务类型：{{ jobKindLabel(jobDetail) }}</p>
@@ -1511,6 +2109,17 @@ async function compileAllNotes() {
             :value="jobDetail.progress || 0"
             :status="jobStatusMeta(jobDetail).progress"
           />
+          <p
+            v-if="jobDetail.status === 'pending' || jobDetail.status === 'running'"
+            class="mt-1.5 text-[10px] leading-relaxed text-slate-400"
+          >
+            {{
+              jobDetail.progress >= 0.8
+                ? '大模型正在生成并合并 Wiki 页面，长文档可能需要数分钟，请保持页面开启'
+                : '正在解析与向量化内容'
+            }}
+            · 已用时 {{ jobDuration(jobDetail) }}
+          </p>
           <div
             v-if="jobDetail.error"
             class="mt-2 rounded-lg border border-rose-200/70 bg-rose-50/60 px-2.5 py-2 text-[10.5px] leading-relaxed text-rose-600"

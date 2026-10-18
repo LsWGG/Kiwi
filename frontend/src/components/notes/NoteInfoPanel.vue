@@ -13,6 +13,7 @@ import {
   type RelatedNoteItem,
 } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import DatabaseCell from '@/components/notes/database/DatabaseCell.vue'
 import type { DbField } from '@/stores/noteDatabase'
 import { toast } from '@/components/ui/toast'
@@ -20,7 +21,7 @@ import { toast } from '@/components/ui/toast'
 const props = defineProps<{ note: NoteOut; open: boolean }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'open-note', id: string): void
+  (e: 'open-note', id: string, mentionId?: string): void
   (e: 'open-collection-row', databaseId: string, rowId: string): void
 }>()
 
@@ -347,9 +348,12 @@ async function unarchive() {
   }
 }
 
+const trashOpen = ref(false)
+
 async function moveToTrash() {
   try {
     await notes.deleteNote(props.note.id)
+    trashOpen.value = false
     toast.success('已移入回收站，可在 30 天内恢复')
     emit('close')
   } catch (e: any) {
@@ -594,7 +598,7 @@ onBeforeUnmount(stopCompilePolling)
           {{ compileRunning ? '编译中…' : compileStatus?.compiled ? '重新编译为 Wiki' : '以此笔记触发编译' }}
         </button>
         <p class="mt-1 text-[10px] leading-relaxed text-slate-400">
-          支持全部笔记类型；数据表与画布会先序列化为 Markdown 再编译。
+          支持全部笔记类型；数据表、画布与 Notebook 会先序列化为 Markdown 再编译。
         </p>
         <div v-if="compileStatus && compileStatus.status !== 'idle'" class="mt-1.5">
           <div class="flex items-center justify-between text-[10px] text-slate-400">
@@ -629,7 +633,32 @@ onBeforeUnmount(stopCompilePolling)
         </div>
       </section>
 
-      <!-- 相关笔记 / 反向链接 -->
+      <!-- 反向链接：放在信息面板顶部，替代正文末尾的重复区块 -->
+      <section v-if="backlinks.length">
+        <div class="flex items-center justify-between mb-1.5">
+          <h4 class="info-title !mb-0">反向链接 · {{ backlinks.length }}</h4>
+          <span class="text-[10px] text-slate-400">谁引用了本文</span>
+        </div>
+        <div class="space-y-1">
+          <button
+            v-for="link in backlinks"
+            :key="link.id"
+            class="w-full rounded-lg px-2 py-1.5 text-left hover:bg-slate-50"
+            :title="link.context || link.title"
+            @click="emit('open-note', link.id, props.note.id)"
+          >
+            <div class="flex items-center gap-1.5">
+              <KiwiIcon name="link2" :size="10" class="shrink-0 text-kiwi-300" />
+              <span class="truncate text-[11px] text-slate-600">{{ link.title || '无标题' }}</span>
+            </div>
+            <p v-if="link.context" class="mt-0.5 line-clamp-2 text-[9.5px] leading-relaxed text-slate-400">
+              {{ link.context }}
+            </p>
+          </button>
+        </div>
+      </section>
+
+      <!-- 相关笔记 -->
       <section>
         <div class="flex items-center justify-between mb-1.5">
           <h4 class="info-title !mb-0">相关笔记</h4>
@@ -651,21 +680,6 @@ onBeforeUnmount(stopCompilePolling)
           <p v-if="!related.length && !loadingRelated" class="text-[10.5px] text-slate-300">
             暂无通过标签、链接或内容推断出的关联
           </p>
-        </div>
-      </section>
-
-      <section v-if="backlinks.length">
-        <h4 class="info-title">反向链接 · {{ backlinks.length }}</h4>
-        <div class="space-y-1">
-          <button
-            v-for="link in backlinks"
-            :key="link.id"
-            class="w-full text-left rounded-lg px-2 py-1.5 hover:bg-slate-50 flex items-center gap-1.5"
-            @click="emit('open-note', link.id)"
-          >
-            <KiwiIcon name="link2" :size="10" class="text-kiwi-300 shrink-0" />
-            <span class="text-[11px] text-slate-600 truncate">{{ link.title }}</span>
-          </button>
         </div>
       </section>
 
@@ -706,14 +720,25 @@ onBeforeUnmount(stopCompilePolling)
           归档笔记
         </button>
         <button
-          class="w-full rounded-lg border border-rose-200/70 bg-rose-50/50 px-2 py-1.5 text-[11.5px] text-rose-600 hover:bg-rose-50"
-          @click="moveToTrash"
+          type="button"
+          class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11.5px] text-slate-400 transition-colors hover:bg-rose-50/70 hover:text-rose-600"
+          title="移入回收站，可在 30 天内恢复"
+          @click="trashOpen = true"
         >
-          <KiwiIcon name="trash" :size="12" class="mr-1" />
+          <KiwiIcon name="trash" :size="12" />
           移入回收站
         </button>
       </section>
     </div>
+
+    <KiwiConfirm
+      v-model="trashOpen"
+      danger
+      title="移入回收站"
+      :message="`将《${note.title || '无标题'}》移入回收站？可在 30 天内从回收站恢复。`"
+      confirm-text="移入回收站"
+      @confirm="moveToTrash"
+    />
   </aside>
 </template>
 

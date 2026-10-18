@@ -13,6 +13,7 @@ FIELD_TYPES = {
     "long_text",
     "number",
     "rating",
+    "progress",
     "select",
     "multi_select",
     "date",
@@ -29,6 +30,7 @@ MAX_OPTIONS = 50
 MAX_TEXT = 5000
 MAX_LONG_TEXT = 20000
 MAX_RATING = 5
+MAX_PROGRESS = 100
 MAX_ATTACHMENTS = 20
 BAR_COLORS = {"slate", "blue", "green", "amber", "rose", "violet", "cyan", "orange"}
 FILTER_OPS = {
@@ -397,6 +399,12 @@ def _validate_value(field: dict, value: Any) -> Any:
             raise ValueError(f"字段「{field['name']}」需要 0-{MAX_RATING} 的整数评分")
         if int(value) != value or value < 0 or value > MAX_RATING:
             raise ValueError(f"字段「{field['name']}」需要 0-{MAX_RATING} 的整数评分")
+        return int(value)
+    if ftype == "progress":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"字段「{field['name']}」需要 0-{MAX_PROGRESS} 的整数进度")
+        if int(value) != value or value < 0 or value > MAX_PROGRESS:
+            raise ValueError(f"字段「{field['name']}」需要 0-{MAX_PROGRESS} 的整数进度")
         return int(value)
     if ftype == "multi_select":
         if not isinstance(value, list) or any(not isinstance(v, str) for v in value):

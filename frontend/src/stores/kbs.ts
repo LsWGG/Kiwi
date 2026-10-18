@@ -12,6 +12,10 @@ export interface KbOverview {
   pinned: boolean
   /** 是否开启学习模式；关闭后仅用于记录与检索 */
   learning_enabled: boolean
+  /** 系统内置演示库：删除为软删除，可还原 */
+  is_builtin: boolean
+  builtin_key: string | null
+  deleted_at: string | null
   created_at: string
   updated_at: string
   source_count: number
@@ -26,12 +30,21 @@ export interface KbOverview {
   last_activity_at: string | null
 }
 
+export interface BuiltinKbStatus {
+  key: string
+  name: string
+  exists: boolean
+  deleted: boolean
+  kb_id: string | null
+}
+
 export const useKbsStore = defineStore('kbs', () => {
   const kbs = ref<KbOverview[]>([])
   // 编辑模式与学习模式各自记住上次使用的知识库（README 双模隔离）
   const currentKbId = ref<string | null>(localStorage.getItem('kiwi.kb.edit'))
   const learnKbId = ref<string | null>(localStorage.getItem('kiwi.kb.learn'))
   const loading = ref(false)
+  const builtinStatus = ref<BuiltinKbStatus | null>(null)
 
   watch(currentKbId, (id) => {
     if (id) localStorage.setItem('kiwi.kb.edit', id)
@@ -93,7 +106,23 @@ export const useKbsStore = defineStore('kbs', () => {
     await request(`/kbs/${id}`, { method: 'DELETE' })
     if (currentKbId.value === id) currentKbId.value = null
     if (learnKbId.value === id) learnKbId.value = null
-    await fetchKbs()
+    await Promise.all([fetchKbs(), fetchBuiltinStatus()])
+  }
+
+  async function fetchBuiltinStatus() {
+    try {
+      builtinStatus.value = await request<BuiltinKbStatus>('/kbs/builtin')
+    } catch {
+      // 老后端 / 离线时静默：不阻塞知识库主流程
+      builtinStatus.value = null
+    }
+  }
+
+  async function restoreBuiltin() {
+    const kb = await request<KbOverview>('/kbs/builtin/restore', { method: 'POST' })
+    await Promise.all([fetchKbs(), fetchBuiltinStatus()])
+    if (!currentKbId.value) currentKbId.value = kb.id
+    return kb
   }
 
   return {
@@ -104,7 +133,10 @@ export const useKbsStore = defineStore('kbs', () => {
     learnKb,
     activeLearnKbId,
     loading,
+    builtinStatus,
     fetchKbs,
+    fetchBuiltinStatus,
+    restoreBuiltin,
     createKb,
     deleteKb,
   }

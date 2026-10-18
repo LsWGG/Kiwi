@@ -35,8 +35,21 @@ class KBOut(BaseModel):
     llm_config_id: uuid.UUID | None
     pinned: bool = False
     learning_enabled: bool = True
+    is_builtin: bool = False
+    builtin_key: str | None = None
+    deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class BuiltinKbStatus(BaseModel):
+    """内置演示库的可用/隐藏状态，用于知识库页的还原入口。"""
+
+    key: str
+    name: str
+    exists: bool
+    deleted: bool
+    kb_id: uuid.UUID | None = None
 
 
 class KBOverview(KBOut):
