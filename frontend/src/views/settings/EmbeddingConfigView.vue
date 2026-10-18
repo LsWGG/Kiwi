@@ -76,10 +76,38 @@ async function load() {
 onMounted(load)
 
 const isRemote = computed(() => form.value.provider === 'openai')
-const canSave = computed(
+
+const advancedErrors = computed(() => {
+  const timeout = Number(form.value.api_timeout)
+  const batch = Number(form.value.api_batch_size)
+  const concurrency = Number(form.value.api_concurrency)
+  return {
+    timeout:
+      !Number.isFinite(timeout) || timeout < 5 || timeout > 600
+        ? '超时需在 5–600 秒之间'
+        : '',
+    batch:
+      !Number.isInteger(batch) || batch < 1 || batch > 512
+        ? '批大小需为 1–512 的整数'
+        : '',
+    concurrency:
+      !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16
+        ? '并发数需为 1–16 的整数'
+        : '',
+  }
+})
+const advancedValid = computed(() => !Object.values(advancedErrors.value).some(Boolean))
+const remoteReady = computed(
   () =>
-    !isRemote.value ||
-    (form.value.api_base.trim().startsWith('http') && !!form.value.api_model.trim()),
+    form.value.api_base.trim().startsWith('http') && !!form.value.api_model.trim(),
+)
+const canSave = computed(
+  () => !isRemote.value || (remoteReady.value && advancedValid.value),
+)
+const canTest = computed(
+  () =>
+    remoteReady.value &&
+    !advancedErrors.value.timeout,
 )
 const hasSavedKey = computed(() => !!config.value?.has_api_key)
 
@@ -88,7 +116,36 @@ function apiKeyForRequest(): string | undefined {
   return form.value.api_key.trim() || undefined
 }
 
+function friendlyError(message: string): string {
+  if (/api_(timeout|batch_size|concurrency)/.test(message)) {
+    return '高级参数超出允许范围：超时 5–600 秒、批大小 1–512、并发数 1–16'
+  }
+  return message
+}
+
+function clampField(
+  key: 'api_timeout' | 'api_batch_size' | 'api_concurrency',
+  min: number,
+  max: number,
+  fallback: number,
+  integer = false,
+) {
+  const raw = Number(form.value[key])
+  if (!Number.isFinite(raw)) {
+    form.value[key] = fallback
+    return
+  }
+  const value = integer ? Math.round(raw) : raw
+  form.value[key] = Math.min(max, Math.max(min, value))
+}
+
 async function testConnection() {
+  if (!canTest.value) {
+    toast.info(
+      advancedErrors.value.timeout || '请先填写以 http:// 或 https:// 开头的接口地址与模型名',
+    )
+    return
+  }
   testing.value = true
   testResult.value = null
   try {
@@ -106,8 +163,9 @@ async function testConnection() {
     if (res.ok) toast.success(res.message)
     else toast.error(res.message)
   } catch (e: any) {
-    testResult.value = { ok: false, message: e.message, dimensions: null, latency_ms: null }
-    toast.error(e.message)
+    const message = friendlyError(e.message)
+    testResult.value = { ok: false, message, dimensions: null, latency_ms: null }
+    toast.error(message)
   } finally {
     testing.value = false
   }
@@ -115,7 +173,12 @@ async function testConnection() {
 
 async function save() {
   if (!canSave.value) {
-    toast.info('请填写接口地址与模型名')
+    const numeric = Object.values(advancedErrors.value).filter(Boolean)
+    toast.info(
+      numeric.length
+        ? numeric.join('；')
+        : '请填写以 http:// 或 https:// 开头的接口地址与模型名',
+    )
     return
   }
   saving.value = true
@@ -138,7 +201,7 @@ async function save() {
     )
     toast.success('向量模型配置已保存')
   } catch (e: any) {
-    toast.error(e.message)
+    toast.error(friendlyError(e.message))
   } finally {
     saving.value = false
   }
@@ -286,6 +349,7 @@ async function resetToEnv() {
             v-model="form.api_base"
             class="kiwi-input mt-1.5"
             placeholder="https://api.openai.com/v1"
+            maxlength="300"
             spellcheck="false"
           />
           <p class="text-[11px] text-slate-400 mt-1.5">
@@ -306,6 +370,7 @@ async function resetToEnv() {
                 ? '已配置，留空保持不变'
                 : 'sk-…（可选）'
             "
+            maxlength="500"
             autocomplete="new-password"
             spellcheck="false"
             @input="clearKey = false"
@@ -325,6 +390,7 @@ async function resetToEnv() {
             v-model="form.api_model"
             class="kiwi-input mt-1.5"
             placeholder="text-embedding-3-small"
+            maxlength="120"
             spellcheck="false"
           />
           <p class="text-[11px] text-slate-400 mt-1.5">
@@ -333,26 +399,69 @@ async function resetToEnv() {
         </div>
 
         <div>
-          <button
-            type="button"
-            class="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700"
-            @click="showAdvanced = !showAdvanced"
-          >
-            <KiwiIcon :name="showAdvanced ? 'chevron' : 'chevron'" :size="12" :class="showAdvanced ? 'rotate-90' : ''" />
-            高级参数
-          </button>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button
+              type="button"
+              class="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700"
+              @click="showAdvanced = !showAdvanced"
+            >
+              <KiwiIcon :name="showAdvanced ? 'chevron' : 'chevron'" :size="12" :class="showAdvanced ? 'rotate-90' : ''" />
+              高级参数
+            </button>
+            <span v-if="!advancedValid" class="text-[11px] text-red-500">
+              参数超出允许范围，修正后才能保存
+            </span>
+          </div>
           <div v-if="showAdvanced" class="grid sm:grid-cols-3 gap-3 mt-3">
             <div>
-              <label class="text-[11px] text-slate-500">超时（秒）</label>
-              <input v-model.number="form.api_timeout" type="number" min="5" max="600" class="kiwi-input mt-1" />
+              <label class="text-[11px] text-slate-500">超时（秒，5–600）</label>
+              <input
+                v-model.number="form.api_timeout"
+                type="number"
+                min="5"
+                max="600"
+                class="kiwi-input mt-1"
+                :class="advancedErrors.timeout ? 'ring-1 ring-red-300' : ''"
+                :aria-invalid="!!advancedErrors.timeout"
+                @blur="clampField('api_timeout', 5, 600, 60)"
+              />
+              <p v-if="advancedErrors.timeout" class="text-[11px] text-red-500 mt-1">
+                {{ advancedErrors.timeout }}
+              </p>
             </div>
             <div>
-              <label class="text-[11px] text-slate-500">批大小</label>
-              <input v-model.number="form.api_batch_size" type="number" min="1" max="512" class="kiwi-input mt-1" />
+              <label class="text-[11px] text-slate-500">批大小（1–512）</label>
+              <input
+                v-model.number="form.api_batch_size"
+                type="number"
+                min="1"
+                max="512"
+                step="1"
+                class="kiwi-input mt-1"
+                :class="advancedErrors.batch ? 'ring-1 ring-red-300' : ''"
+                :aria-invalid="!!advancedErrors.batch"
+                @blur="clampField('api_batch_size', 1, 512, 64, true)"
+              />
+              <p v-if="advancedErrors.batch" class="text-[11px] text-red-500 mt-1">
+                {{ advancedErrors.batch }}
+              </p>
             </div>
             <div>
-              <label class="text-[11px] text-slate-500">并发数</label>
-              <input v-model.number="form.api_concurrency" type="number" min="1" max="16" class="kiwi-input mt-1" />
+              <label class="text-[11px] text-slate-500">并发数（1–16）</label>
+              <input
+                v-model.number="form.api_concurrency"
+                type="number"
+                min="1"
+                max="16"
+                step="1"
+                class="kiwi-input mt-1"
+                :class="advancedErrors.concurrency ? 'ring-1 ring-red-300' : ''"
+                :aria-invalid="!!advancedErrors.concurrency"
+                @blur="clampField('api_concurrency', 1, 16, 4, true)"
+              />
+              <p v-if="advancedErrors.concurrency" class="text-[11px] text-red-500 mt-1">
+                {{ advancedErrors.concurrency }}
+              </p>
             </div>
           </div>
         </div>
@@ -402,13 +511,13 @@ async function resetToEnv() {
           <button
             v-if="isRemote"
             class="kiwi-btn-secondary"
-            :disabled="testing || !canSave"
+            :disabled="testing"
             @click="testConnection"
           >
             <KiwiIcon name="loader" :size="13" :spin="testing" />
             {{ testing ? '测试中…' : '测试连接' }}
           </button>
-          <button class="kiwi-btn-primary" :disabled="!canSave || saving" @click="save">
+          <button class="kiwi-btn-primary" :disabled="saving" @click="save">
             <KiwiIcon name="loader" :size="13" :spin="saving" />
             {{ saving ? '保存中…' : '保存配置' }}
           </button>

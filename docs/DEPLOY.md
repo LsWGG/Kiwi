@@ -75,18 +75,20 @@ python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).deco
 
 ### 国内网络加速
 
-后端镜像默认使用国内镜像下载依赖，无需额外配置：
+前后端镜像默认使用国内镜像下载依赖，无需额外配置：
 
 - **PyPI**：`https://pypi.tuna.tsinghua.edu.cn/simple`（`uv` 及其管理的全部 Python 包）
 - **Debian**：`https://mirrors.tuna.tsinghua.edu.cn/debian` 与 `debian-security`（编译工具、bubblewrap、中文字体）
+- **npm**：`https://registry.npmmirror.com`（前端构建依赖，含 npm 缓存挂载）
 - **Hugging Face**：`https://hf-mirror.com`（首次摄入时下载嵌入模型）
 
-构建阶段会缓存 apt 与 uv 下载，重复构建不会重新拉取依赖。海外网络或需要使用其他镜像时，在 `.env.prod` 中覆盖：
+构建阶段会缓存 apt、uv 与 npm 下载，重复构建不会重新拉取依赖。海外网络或需要使用其他镜像时，在 `.env.prod` 中覆盖：
 
 ```dotenv
 PYPI_INDEX_URL=https://pypi.org/simple
 DEBIAN_MIRROR=http://deb.debian.org/debian
 DEBIAN_SECURITY_MIRROR=http://security.debian.org/debian-security
+NPM_REGISTRY=https://registry.npmjs.org
 HF_ENDPOINT=https://huggingface.co
 ```
 

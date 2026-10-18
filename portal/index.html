@@ -7,16 +7,21 @@
   <title>Kiwi · 把笔记编译成真正学会的知识</title>
   <meta name="description" content="Kiwi 是一个本地优先的知识编译与学习系统：三种编辑模式写同一份内容，代码块结果可直接运行，再把文档、网页、数据表与画布编译成相互引用的 Wiki，用练习与仿真考试把读过变成掌握。" />
   <meta name="author" content="Kiwi" />
+  <link rel="canonical" href="https://lswgg.github.io/Kiwi/" />
 
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://lswgg.github.io/Kiwi/" />
   <meta property="og:title" content="Kiwi · 把笔记编译成真正学会的知识" />
   <meta property="og:description" content="三种编辑模式、可执行代码块、Notebook、Wiki 与学习闭环。把散落的内容编译成相互引用的知识网络。" />
-  <meta property="og:image" content="assets/screenshots/notebook-hero.webp" />
+  <meta property="og:image" content="https://lswgg.github.io/Kiwi/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Kiwi 知识编译与学习系统：把笔记编译成真正学会的知识" />
   <meta property="og:locale" content="zh_CN" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Kiwi · 把笔记编译成真正学会的知识" />
   <meta name="twitter:description" content="本地优先的知识编译与学习系统。" />
-  <meta name="twitter:image" content="assets/screenshots/notebook-hero.webp" />
+  <meta name="twitter:image" content="https://lswgg.github.io/Kiwi/assets/og-image.png" />
 
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link rel="preload" href="assets/screenshots/notebook-hero.webp" as="image" type="image/webp" />
@@ -66,9 +71,9 @@
         <a href="#how">工作原理</a>
         <a href="#editors">三种编辑模式</a>
         <a href="#code">可执行代码</a>
-        <a href="#features">核心能力</a>
+        <a href="#notebook">Notebook</a>
+        <a href="#learn-loop">学习闭环</a>
         <a href="#showcase">界面</a>
-        <a href="#why">学习闭环</a>
       </div>
 
       <div class="nav-actions">
@@ -89,9 +94,10 @@
       <a href="#how">工作原理</a>
       <a href="#editors">三种编辑模式</a>
       <a href="#code">可执行代码</a>
+      <a href="#notebook">Notebook</a>
       <a href="#features">核心能力</a>
+      <a href="#learn-loop">学习闭环</a>
       <a href="#showcase">界面</a>
-      <a href="#why">学习闭环</a>
       <a href="#start">开始使用</a>
       <a href="#faq">常见问题</a>
     </div>
@@ -301,6 +307,126 @@
       </div>
     </section>
 
+    <section class="section" id="notebook">
+      <div class="container notebook-grid">
+        <figure class="notebook-media" data-reveal>
+          <div class="nb-window">
+            <div class="app-bar">
+              <span class="app-dot"></span><span class="app-dot"></span><span class="app-dot"></span>
+              <span class="app-address">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4" width="11" height="8.5" rx="2" /><path d="M2.5 6.5h11" /></svg>
+                kiwi.local / notebook / retention
+              </span>
+              <span class="app-status"><span class="status-dot"></span>内核就绪</span>
+            </div>
+
+            <div class="nb-body">
+              <div class="nb-cell nb-markdown">
+                <span class="nb-tag">Markdown</span>
+                <p class="nb-heading">第 2 周留存分析</p>
+                <p class="nb-text">按注册周拆分 cohort，观察第 1–4 周留存，并把结论写回知识库。</p>
+              </div>
+
+              <div class="nb-cell nb-code">
+                <div class="nb-cell-head">
+                  <span class="nb-tag">Python</span>
+                  <button class="nb-run" type="button" data-nb-run>
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8 4.5 2.8Z" /></svg>
+                    <span data-nb-label>重新运行</span>
+                  </button>
+                </div>
+                <pre class="nb-pre"><code><span class="tok-k">import</span> pandas <span class="tok-k">as</span> pd
+<span class="tok-k">from</span> kiwi <span class="tok-k">import</span> dataset
+
+df = dataset.<span class="tok-f">load</span>(<span class="tok-s">"signups.csv"</span>)
+cohort = (df.<span class="tok-f">groupby</span>([<span class="tok-s">"week"</span>, <span class="tok-s">"retained"</span>])
+            .<span class="tok-f">size</span>()
+            .<span class="tok-f">unstack</span>())
+cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, marker=<span class="tok-s">"o"</span>)</code></pre>
+              </div>
+
+              <div class="nb-output" id="nb-output">
+                <svg class="nb-chart" viewBox="0 0 360 170" role="img" aria-label="第 1 至 4 周留存曲线：从 68% 降到 41%">
+                  <defs>
+                    <linearGradient id="nb-area" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#5cf2b6" stop-opacity=".28" />
+                      <stop offset="100%" stop-color="#5cf2b6" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <g class="nb-grid">
+                    <line x1="34" y1="30" x2="346" y2="30" />
+                    <line x1="34" y1="70" x2="346" y2="70" />
+                    <line x1="34" y1="110" x2="346" y2="110" />
+                    <line x1="34" y1="150" x2="346" y2="150" />
+                  </g>
+                  <g class="nb-axis">
+                    <text x="4" y="34">100</text>
+                    <text x="10" y="74">75</text>
+                    <text x="10" y="114">50</text>
+                    <text x="16" y="154">0</text>
+                  </g>
+                  <path class="nb-area" d="M50 48 L150 67 L250 79 L330 89 L330 150 L50 150 Z" fill="url(#nb-area)" />
+                  <path class="nb-line nb-line-alt" d="M50 42 L150 60 L250 84 L330 97" />
+                  <path class="nb-line" d="M50 48 L150 67 L250 79 L330 89" />
+                  <g class="nb-dots">
+                    <circle cx="50" cy="48" r="3.4" />
+                    <circle cx="150" cy="67" r="3.4" />
+                    <circle cx="250" cy="79" r="3.4" />
+                    <circle cx="330" cy="89" r="3.4" />
+                  </g>
+                  <g class="nb-axis nb-x">
+                    <text x="50" y="166">W1</text>
+                    <text x="150" y="166">W2</text>
+                    <text x="250" y="166">W3</text>
+                    <text x="330" y="166">W4</text>
+                  </g>
+                  <g class="nb-labels">
+                    <text x="56" y="42">68%</text>
+                    <text x="306" y="83">41%</text>
+                  </g>
+                </svg>
+                <div class="nb-result">
+                  <span><b>68%</b>W1 留存</span>
+                  <span><b>41%</b>W4 留存</span>
+                  <span><b>1,284</b>样本</span>
+                </div>
+                <p class="nb-conclusion">第 2 周起曲线趋稳，说明 onboarding 有效；W4 的二次下滑集中在「未导入素材」用户，已生成待办并引用到 Wiki。</p>
+                <span class="nb-status" data-nb-status role="status" aria-live="polite"></span>
+              </div>
+            </div>
+          </div>
+          <figcaption class="nb-caption"><span class="status-dot"></span>输出、图表与结论随笔记保存，下次打开无需重跑。</figcaption>
+        </figure>
+
+        <div class="notebook-copy" data-reveal>
+          <p class="section-kicker"><span></span>NOTEBOOK · EXECUTABLE ANALYSIS</p>
+          <h2 class="section-title">分析跑在页面里，<br class="br-desktop" />结论留在知识里。</h2>
+          <p class="section-sub">Notebook 把代码、图形和结论放在同一页。每个笔记拥有独立内核与持久工作区，运行结果不会随着刷新消失；值得留下的结论，随知识库一起编译进 Wiki。</p>
+
+          <ul class="notebook-points">
+            <li>
+              <span class="nb-point-icon">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="14" height="13" rx="2.2" /><path d="M6.5 7.5l2 2-2 2M11 12h3" /></svg>
+              </span>
+              <div><strong>持久工作区</strong><p>内核状态、代码单元与输出一起保存，重新打开接着跑。</p></div>
+            </li>
+            <li>
+              <span class="nb-point-icon">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 15.5V9M8.2 15.5V5.5M12.9 15.5v-4M17.6 15.5V7.5" /><path d="M2.5 15.5h16" /></svg>
+              </span>
+              <div><strong>图形化输出</strong><p>图表、富文本与表格直接渲染，而不是一大段纯文本日志。</p></div>
+            </li>
+            <li>
+              <span class="nb-point-icon">
+                <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h5.5v5H4zM10.5 10.5H16v5h-5.5z" /><path d="M9.5 7h3.5v3.5" /></svg>
+              </span>
+              <div><strong>结论可编译</strong><p>分析结论写进笔记，与文档、画布一起成为 Wiki 的原料。</p></div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="features">
       <div class="container">
         <header class="section-head" data-reveal>
@@ -436,6 +562,67 @@
       </div>
     </section>
 
+    <section class="section" id="learn-loop">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <p class="section-kicker"><span></span>LEARNING LOOP · MEASURED MASTERY</p>
+          <h2 class="section-title">学习不是打卡，<br class="br-desktop" />是一条会回写的闭环。</h2>
+          <p class="section-sub">画像决定起点，计划安排节奏，训练与考试产生证据，掌握度再回写到每个知识点。每一次作答，都会改变下一次出题。</p>
+        </header>
+
+        <div class="loop-showcase" data-reveal>
+          <div class="loop-steps" role="tablist" aria-label="学习闭环阶段">
+            <button class="loop-step is-active" type="button" role="tab" id="loop-tab-profile" aria-selected="true" aria-controls="loop-panel" tabindex="0"
+              data-src="assets/screenshots/learn-profile.webp" data-alt="学习画像：目标、水平、时长与薄弱环节" data-title="画像 · 决定起点" data-desc="学习目标、当前水平、每日时长与自述薄弱环节，共同决定出题难度和复习节奏。">
+              <span class="loop-num">01</span>
+              <span class="loop-body"><span class="loop-name">画像</span><span class="loop-sub">目标、水平与偏好</span></span>
+              <span class="loop-arrow" aria-hidden="true"></span>
+            </button>
+            <button class="loop-step" type="button" role="tab" id="loop-tab-plan" aria-selected="false" aria-controls="loop-panel" tabindex="-1"
+              data-src="assets/screenshots/learn-plan.webp" data-alt="学习计划：按覆盖率与遗忘曲线排程" data-title="计划 · 安排节奏" data-desc="按知识覆盖率与遗忘曲线排出未来 14 天，今天该学什么、为什么学，一眼可见。">
+              <span class="loop-num">02</span>
+              <span class="loop-body"><span class="loop-name">计划</span><span class="loop-sub">按掌握度动态排程</span></span>
+              <span class="loop-arrow" aria-hidden="true"></span>
+            </button>
+            <button class="loop-step" type="button" role="tab" id="loop-tab-training" aria-selected="false" aria-controls="loop-panel" tabindex="-1"
+              data-src="assets/screenshots/learn-training.webp" data-alt="渐进式训练：题型偏好与自适应难度" data-title="训练 · 产生证据" data-desc="自适应难度与即时反馈；单选、多选、填空、简答、案例与论文按维度判分并给出改进建议。">
+              <span class="loop-num">03</span>
+              <span class="loop-body"><span class="loop-name">训练</span><span class="loop-sub">自适应难度与反馈</span></span>
+              <span class="loop-arrow" aria-hidden="true"></span>
+            </button>
+            <button class="loop-step" type="button" role="tab" id="loop-tab-exam" aria-selected="false" aria-controls="loop-panel" tabindex="-1"
+              data-src="assets/screenshots/exam-report.webp" data-alt="仿真考试报告：分卷表现与知识点雷达" data-title="考试 · 检验水平" data-desc="整卷计时、交卷批阅、分卷表现与知识点雷达，把「感觉会了」变成可验证的结果。">
+              <span class="loop-num">04</span>
+              <span class="loop-body"><span class="loop-name">考试</span><span class="loop-sub">整卷计时与维度批阅</span></span>
+              <span class="loop-arrow" aria-hidden="true"></span>
+            </button>
+            <button class="loop-step" type="button" role="tab" id="loop-tab-mastery" aria-selected="false" aria-controls="loop-panel" tabindex="-1"
+              data-src="assets/screenshots/learn-graph.webp" data-alt="学习图谱：掌握度分布与薄弱点" data-title="回写 · 校准掌握度" data-desc="掌握度回写到每个知识点，薄弱点直接回到原文，并决定下一次复习与出题。">
+              <span class="loop-num">05</span>
+              <span class="loop-body"><span class="loop-name">回写</span><span class="loop-sub">掌握度回到知识网络</span></span>
+            </button>
+          </div>
+
+          <figure class="loop-stage">
+            <div class="loop-frame" id="loop-panel" role="tabpanel" aria-labelledby="loop-tab-profile">
+              <img id="loop-image" src="assets/screenshots/learn-profile.webp" width="1280" height="800" alt="学习画像：目标、水平、时长与薄弱环节" loading="lazy" />
+            </div>
+            <figcaption class="loop-caption">
+              <span class="loop-caption-text"><strong id="loop-title">画像 · 决定起点</strong><span id="loop-desc">学习目标、当前水平、每日时长与自述薄弱环节，共同决定出题难度和复习节奏。</span></span>
+              <span class="loop-count" id="loop-count">01 / 05</span>
+            </figcaption>
+          </figure>
+        </div>
+
+        <ul class="loop-facts" data-reveal>
+          <li><b>SM-2</b><span>按遗忘曲线安排复习</span></li>
+          <li><b>7 种</b><span>客观与主观题型</span></li>
+          <li><b>29</b><span>演示库知识点</span></li>
+          <li><b>100%</b><span>掌握度可追溯</span></li>
+        </ul>
+      </div>
+    </section>
+
     <section class="section" id="why">
       <div class="container why-grid">
         <div class="why-intro" data-reveal>
@@ -542,6 +729,14 @@
             <p>Simple editor 专注纯文本与 Markdown 快捷格式；Notion-like editor 以块为单位，支持拖拽、斜杠命令与气泡菜单；DOCX editor 提供接近文档软件的纸张视图与排版工具。三者编辑的是同一份 Markdown，随时切换，内容不会丢失。</p>
           </details>
           <details class="faq" name="faq">
+            <summary>Notebook 和可执行代码块有什么区别？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>可执行代码块适合在文档里随手验证一段脚本，输出会以内嵌块留在正文；Notebook 则是一个完整的分析工作区，拥有持久内核、多个代码单元、图形化输出与结论区，适合需要反复运行和调整的数据分析。两者都在隔离沙箱中执行，结论都可以继续编译进 Wiki。</p>
+          </details>
+          <details class="faq" name="faq">
+            <summary>部署环境跑不动本地向量模型怎么办？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>在「设置 → 向量模型」切换到线上接口，填写任意 OpenAI 兼容的 Base URL、密钥与模型名，测试连接后保存即可。密钥加密存储，也可以继续用环境变量作为兜底；切换模型会使用独立的向量空间，已有素材建议重新导入。</p>
+          </details>
+          <details class="faq" name="faq">
             <summary>需要订阅或联网吗？<span class="faq-icon" aria-hidden="true"></span></summary>
             <p>不需要订阅，也没有账户。Kiwi 在你自己的机器上运行，模型使用任意 OpenAI 兼容接口；仅在首次下载嵌入模型和调用模型时需要网络。</p>
           </details>
@@ -598,7 +793,8 @@
           <h4>产品</h4>
           <a href="#editors">三种编辑模式</a>
           <a href="#code">可执行代码</a>
-          <a href="#features">核心能力</a>
+          <a href="#notebook">Notebook</a>
+          <a href="#learn-loop">学习闭环</a>
           <a href="#showcase">界面</a>
           <a href="#faq">常见问题</a>
         </div>

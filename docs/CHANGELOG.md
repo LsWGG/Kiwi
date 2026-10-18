@@ -12,7 +12,8 @@
 - 持久化卷 `kiwi-prod-pgdata`、`kiwi-prod-qdrantdata`、`kiwi-prod-data`：容器重建不影响业务数据、上传文件、Notebook 工作区与嵌入模型缓存。
 - 部署文档 [DEPLOY.md](DEPLOY.md)：端口规划、备份恢复、升级、沙箱权限与常见故障排查。
 - 嵌入模型支持 OpenAI 兼容的线上接口：可在应用内 **设置 → 向量模型** 切换本地 / 线上，填写接口地址、密钥与模型名，支持连接测试与维度回显；密钥加密存储，环境变量 `KIWI_EMBED_*` 作为兜底。远程向量使用独立 Qdrant collection，避免与本地模型混写。
-- 产品门户页 `portal/`：三种编辑模式、可执行代码、Notebook 与学习闭环的交互式展示，适配 GitHub Pages，无需构建。
+- 产品门户页 `portal/`：三种编辑模式、可执行代码、Notebook 与学习闭环的交互式展示；学习闭环支持自动轮播与悬停 / 聚焦暂停，并补充 404 页面、`robots.txt`、`sitemap.xml` 与 1200 × 630 社交分享封面，适配 GitHub Pages，无需构建。
+- 前端开发服务器将仓库根目录的 `portal/` 挂载到 `/portal/`：访问 `http://localhost:5173` 默认进入门户首页，应用仍可通过 `/kbs`、`/notes` 等路径直接访问。
 - 编辑 / 学习双模式品牌标识：知识网络与掌握度雷达两套 LOGO，同步应用到页头、favicon 与文档截图。
 
 ### 变更
@@ -20,8 +21,12 @@
 - 后端容器入口在启动 API 前自动执行 `alembic upgrade head`，升级无需手工迁移。
 - nginx 对 `/api/` 关闭代理缓冲并将超时放宽到 600 秒，保证问答与编译进度流式输出不被截断。
 - 为 Notebook 沙箱配置 `SYS_ADMIN` 与放宽的 seccomp / AppArmor 策略；沙箱内部仍丢弃全部 capabilities 并隔离命名空间。
-- 后端镜像默认使用清华 PyPI / Debian 镜像，并改为从 PyPI 安装固定版本 `uv`，不再拉取 ghcr 镜像；apt 与 uv 下载启用 BuildKit 缓存，国内网络下重复构建显著加快。
+- 前后端镜像默认使用国内依赖源：后端使用清华 PyPI / Debian 镜像并改为从 PyPI 安装固定版本 `uv`，前端使用 `registry.npmmirror.com`；apt、uv 与 npm 下载均启用 BuildKit 缓存，国内网络下重复构建显著加快。
 - 嵌入模型下载默认使用 `https://hf-mirror.com`，首次摄入不再依赖 Hugging Face 官方网络。
+
+### 修复
+
+- 线上向量模型保存失败时不再显示 `[object Object]`：前端会把 FastAPI 校验错误转换为可读文案；超时、批大小与并发数在失焦时自动收敛到允许范围，并显示取值范围提示。
 
 ## 0.1.1 — 2026-10-18
 

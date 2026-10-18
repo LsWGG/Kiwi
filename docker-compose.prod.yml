@@ -115,6 +115,9 @@ services:
     build:
       context: .
       dockerfile: deploy/frontend.Dockerfile
+      args:
+        # npm 国内镜像；海外网络可在 .env.prod 覆盖为 https://registry.npmjs.org
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
     image: kiwi-frontend:0.1.2
     container_name: kiwi-prod-frontend
     restart: unless-stopped

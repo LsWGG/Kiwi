@@ -4,11 +4,16 @@
 
 FROM node:22-alpine AS build
 
+# 国内网络默认使用 npmmirror；海外或私有镜像可在 .env.prod / build-arg 中覆盖。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
 WORKDIR /app
 ENV NODE_OPTIONS=--max-old-space-size=4096
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+    npm config set registry "$NPM_REGISTRY" \
+    && npm ci --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000
 
 COPY frontend/ ./
 RUN npm run build

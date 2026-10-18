@@ -102,10 +102,11 @@
   }
 
   /* ---------- tabbed showcases (gallery + editor modes) ---------- */
-  const setupShowcase = ({ showcaseTabs, image, panel, title, desc, count, start = 0 }) => {
+  const setupShowcase = ({ showcaseTabs, image, panel, title, desc, count, start = 0, auto = 0 }) => {
     if (!showcaseTabs.length || !image || !panel) return;
     let active = start;
     let token = 0;
+    let restartAuto = () => {};
     showcaseTabs.forEach((tab, index) => {
       tab.classList.toggle('is-active', index === active);
       tab.setAttribute('aria-selected', String(index === active));
@@ -152,6 +153,7 @@
       }
 
       active = next;
+      restartAuto();
     };
 
     showcaseTabs.forEach((tab, index) => {
@@ -172,6 +174,68 @@
         }
       });
     });
+
+    let autoPaused = false;
+    let autoVisible = true;
+    let autoTimer = 0;
+
+    const stopAuto = () => {
+      if (!autoTimer) return;
+      window.clearTimeout(autoTimer);
+      autoTimer = 0;
+    };
+
+    restartAuto = () => {
+      stopAuto();
+      if (!auto || reduceMotion || autoPaused || !autoVisible || document.hidden) return;
+      if (showcaseTabs.length < 2) return;
+      autoTimer = window.setTimeout(() => {
+        selectTab((active + 1) % showcaseTabs.length);
+      }, auto);
+    };
+
+    if (auto > 0 && !reduceMotion && showcaseTabs.length > 1) {
+      const root = showcaseTabs[0].closest('.loop-showcase') || showcaseTabs[0].parentElement;
+
+      if (root) {
+        root.addEventListener('pointerenter', () => {
+          autoPaused = true;
+          stopAuto();
+        });
+        root.addEventListener('pointerleave', () => {
+          autoPaused = false;
+          restartAuto();
+        });
+        root.addEventListener('focusin', () => {
+          autoPaused = true;
+          stopAuto();
+        });
+        root.addEventListener('focusout', () => {
+          window.setTimeout(() => {
+            if (!root.contains(document.activeElement)) {
+              autoPaused = false;
+              restartAuto();
+            }
+          }, 0);
+        });
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stopAuto();
+        else restartAuto();
+      });
+
+      if ('IntersectionObserver' in window) {
+        const autoObserver = new IntersectionObserver(([entry]) => {
+          autoVisible = entry.isIntersecting;
+          if (autoVisible) restartAuto();
+          else stopAuto();
+        }, { threshold: 0.2 });
+        autoObserver.observe(root || showcaseTabs[0]);
+      }
+
+      restartAuto();
+    }
 
     const warm = () => showcaseTabs.forEach((tab) => { const preload = new Image(); preload.src = tab.dataset.src; });
     if ('requestIdleCallback' in window) {
@@ -203,6 +267,59 @@
     desc: document.getElementById('editor-desc'),
     count: null,
   });
+
+  const loopTabs = [...document.querySelectorAll('.loop-step')];
+  const loopCount = document.getElementById('loop-count');
+  if (loopCount && loopTabs.length) {
+    loopCount.textContent = `01 / ${String(loopTabs.length).padStart(2, '0')}`;
+  }
+  setupShowcase({
+    showcaseTabs: loopTabs,
+    image: document.getElementById('loop-image'),
+    panel: document.getElementById('loop-panel'),
+    title: document.getElementById('loop-title'),
+    desc: document.getElementById('loop-desc'),
+    count: loopCount,
+    auto: 6500,
+  });
+
+  /* ---------- notebook run demo ---------- */
+  const nbRun = document.querySelector('[data-nb-run]');
+  const nbOutput = document.getElementById('nb-output');
+  const nbLabel = nbRun?.querySelector('[data-nb-label]');
+  const nbStatus = document.querySelector('[data-nb-status]');
+
+  if (nbRun && nbOutput && nbLabel) {
+    let nbTimer = 0;
+
+    nbRun.addEventListener('click', () => {
+      if (nbRun.classList.contains('is-running')) return;
+      window.clearTimeout(nbTimer);
+
+      nbRun.classList.add('is-running');
+      nbRun.setAttribute('aria-busy', 'true');
+      nbLabel.textContent = '运行中…';
+      nbOutput.classList.remove('is-plotting');
+      nbOutput.classList.add('is-running');
+      nbOutput.setAttribute('aria-busy', 'true');
+      if (nbStatus) nbStatus.textContent = '';
+
+      const settle = () => {
+        nbOutput.classList.remove('is-running');
+        nbOutput.removeAttribute('aria-busy');
+        void nbOutput.offsetWidth;
+        nbOutput.classList.add('is-plotting');
+        nbRun.classList.remove('is-running');
+        nbRun.removeAttribute('aria-busy');
+        nbLabel.textContent = '重新运行';
+        if (nbStatus) nbStatus.textContent = '运行完成：W1 留存 68%，W4 留存 41%，样本 1,284。';
+        nbTimer = window.setTimeout(() => nbOutput.classList.remove('is-plotting'), 1600);
+      };
+
+      if (reduceMotion) settle();
+      else nbTimer = window.setTimeout(settle, 900);
+    });
+  }
 
   /* ---------- terminal tabs ---------- */
   const terminalTabs = [...document.querySelectorAll('.terminal-tab')];
