@@ -94,6 +94,23 @@ HF_ENDPOINT=https://huggingface.co
 
 修改后重新执行 `./deploy.sh` 即可生效。基础镜像（Python / Node / nginx / PostgreSQL / Qdrant）仍从 Docker Hub 拉取；若拉取缓慢，可为本机 Docker 配置 registry mirror，或提前 `docker pull` 对应镜像。
 
+### 低内存主机构建
+
+前端构建会执行 TypeScript 检查与 Vite 打包。镜像默认把 Node 堆上限设为 2048 MB：实测完整构建的峰值常驻内存约 2.0–2.2 GB，低于 1.5 GB 会直接堆溢出。旧版本使用 4 GB 上限，容易在内存较小的主机上触发 OOM（常见表现是构建到 `vite build` 时 SSH 连接被远端关闭，或构建容器被系统杀死）。
+
+若构建仍然中断：
+
+- 先暂停其他容器，再单独构建前端，完成后恢复：
+
+  ```bash
+  docker compose -f docker-compose.prod.yml stop backend postgres qdrant
+  docker compose -f docker-compose.prod.yml build frontend
+  docker compose -f docker-compose.prod.yml up -d
+  ```
+
+- 或在宿主机增加 swap；
+- 内存充裕时可在 `.env.prod` 中提高上限，例如 `NODE_MAX_OLD_SPACE_MB=3072`；不建议低于 1536。
+
 ### 线上嵌入模型（无法本地向量化时）
 
 默认使用本地 `fastembed` 模型，首次摄入时下载数百 MB 的 ONNX 模型。若部署环境内存不足、无法下载模型，或希望统一使用线上向量服务，推荐在应用内 **设置 → 向量模型** 切换到「线上接口」，填写地址、Key 与模型名并测试连接。应用内配置会加密保存到数据库，并优先于环境变量。
@@ -150,6 +167,8 @@ QDRANT_GRPC_PORT=16334
 | `KIWI_FERNET_KEY` | 自动生成 | 模型 Key 加密密钥，必须长期保持 |
 | `PYPI_INDEX_URL` | 清华 PyPI 镜像 | 后端构建时的 Python 包源 |
 | `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` | 清华 Debian 镜像 | 后端构建时的系统包源 |
+| `NPM_REGISTRY` | `https://registry.npmmirror.com` | 前端构建时的 npm 源 |
+| `NODE_MAX_OLD_SPACE_MB` | `2048` | 前端构建 Node 堆上限；不建议低于 1536 |
 | `HF_ENDPOINT` | `https://hf-mirror.com` | 本地嵌入模型下载地址，海外可设为官方地址 |
 | `KIWI_EMBED_PROVIDER` | `local` | `local` 本地 fastembed；`openai` 使用线上接口 |
 | `KIWI_EMBED_API_BASE` | 空 | 线上 embedding 接口地址，如 `https://api.openai.com/v1` |

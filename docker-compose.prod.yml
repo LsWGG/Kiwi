@@ -118,6 +118,8 @@ services:
       args:
         # npm 国内镜像；海外网络可在 .env.prod 覆盖为 https://registry.npmjs.org
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        # Node 堆上限（MB）；Vite 打包约需 2 GB，内存充裕可调高
+        NODE_MAX_OLD_SPACE_MB: ${NODE_MAX_OLD_SPACE_MB:-2048}
     image: kiwi-frontend:0.1.2
     container_name: kiwi-prod-frontend
     restart: unless-stopped

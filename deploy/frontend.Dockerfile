@@ -7,8 +7,11 @@ FROM node:22-alpine AS build
 # 国内网络默认使用 npmmirror；海外或私有镜像可在 .env.prod / build-arg 中覆盖。
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 
+# 默认 2 GB 堆：Vite 打包需要约 1.8–2.1 GB 常驻内存，低于此值可能堆溢出。
+ARG NODE_MAX_OLD_SPACE_MB=2048
+
 WORKDIR /app
-ENV NODE_OPTIONS=--max-old-space-size=4096
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_MB}
 
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \

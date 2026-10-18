@@ -114,6 +114,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [portalDevPlugin(), vue()],
+    build: {
+      // 压缩体积统计对产物无影响，关闭后可降低 CI / 低内存主机上的构建内存。
+      reportCompressedSize: false,
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
