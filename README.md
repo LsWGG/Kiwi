@@ -49,16 +49,16 @@ Kiwi 不是另一个「把东西存起来」的笔记软件。
     <th width="50%" align="left">学习模式 · 练习与检验</th>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/wiki-graph.png" alt="知识星图" /><br /><sub>知识星图：概念关系与被引次数</sub></td>
-    <td><img src="docs/assets/screenshots/learn-graph.png" alt="学习图谱" /><br /><sub>学习图谱：掌握度分布与薄弱点</sub></td>
-  </tr>
-  <tr>
     <td><img src="docs/assets/screenshots/compile-jobs.png" alt="编译任务" /><br /><sub>编译任务：从笔记到 Wiki 的流水线</sub></td>
     <td><img src="docs/assets/screenshots/exam-report.png" alt="仿真考试报告" /><br /><sub>仿真考试：分卷表现与知识点雷达</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/screenshots/wiki-page.png" alt="结构化 Wiki" /><br /><sub>结构化 Wiki：来源、引用与反向链接</sub></td>
+    <td><img src="docs/assets/screenshots/wiki-page-basic.png" alt="结构化 Wiki" /><br /><sub>结构化 Wiki：目录、大纲与反向链接</sub></td>
     <td><img src="docs/assets/screenshots/learn-plan.png" alt="学习计划" /><br /><sub>学习计划：按掌握度动态排程</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/wiki-graph.png" alt="知识星图" /><br /><sub>知识星图：概念关系与被引次数</sub></td>
+    <td><img src="docs/assets/screenshots/learn-graph.png" alt="学习图谱" /><br /><sub>学习图谱：掌握度分布与薄弱点</sub></td>
   </tr>
 </table>
 
