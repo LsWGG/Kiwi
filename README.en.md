@@ -103,4 +103,4 @@ See [docs/DEPLOY.md](docs/DEPLOY.md) for port changes, backups, upgrades, sandbo
 
 Copyright © 2026 LsWGG. All rights reserved.
 
-No part of this project may be copied, modified, distributed, or used commercially without permission.
+No part of this project may be copied, modified, distributed, or used commercially without permission. See [LICENSE](LICENSE) for the full terms.
