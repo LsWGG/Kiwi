@@ -12,7 +12,7 @@ export interface KbOverview {
   pinned: boolean
   /** 是否开启学习模式；关闭后仅用于记录与检索 */
   learning_enabled: boolean
-  /** 系统内置演示库：删除为软删除，可还原 */
+  /** 系统内置演示库：删除后可按随包内容重新创建 */
   is_builtin: boolean
   builtin_key: string | null
   deleted_at: string | null

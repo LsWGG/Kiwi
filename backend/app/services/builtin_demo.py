@@ -7,7 +7,8 @@
 设计要点：
 - 固定 UUID + ``builtin_key='demo'``；检测到旧版业务演示库时先清理再重建；
 - 全部写入在同一事务内完成，失败回滚，避免留下半成品；
-- 内置库删除为软删除（``deleted_at``），不清理向量与素材，随时可还原；
+- 内置库删除为硬删除（清理向量 / 内核并级联删除数据），还原时按当前
+  随包内容重新创建；旧版软删除记录会在还原时先彻底清理再重建；
 - 向量索引在后台补齐，失败只记日志，不影响应用启动。
 """
 
@@ -17,11 +18,11 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, Uuid, select
+from sqlalchemy import Date, DateTime, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -95,6 +96,10 @@ def _coerce_value(column: Any, value: Any) -> Any:
         return uuid.UUID(value)
     if isinstance(column.type, DateTime) and isinstance(value, str):
         return datetime.fromisoformat(value)
+    # 纯日期列（如学习画像的 target_date）在 JSON 中仍是字符串，
+    # asyncpg 不接受字符串直接写入 DATE，新环境首次建库会因此回滚。
+    if isinstance(column.type, Date) and isinstance(value, str):
+        return date.fromisoformat(value)
     return value
 
 
@@ -196,33 +201,45 @@ async def _insert_seed(session: AsyncSession, kb: KnowledgeBase) -> None:
     kb.llm_config_id = None
 
 
-async def _purge_legacy_builtin(session: AsyncSession, kb: KnowledgeBase) -> datetime | None:
-    """清理旧版演示库：先清向量与内核，再让数据库级联删除。"""
-    hidden_at = kb.deleted_at
+async def purge_builtin_kb(session: AsyncSession, kb: KnowledgeBase) -> None:
+    """硬删除内置演示库：先清向量与 Notebook 内核，再让数据库级联删除。"""
     kb_id = kb.id
     try:
         from app.services import qdrant_store
 
         qdrant_store.purge_kb(kb_id)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("旧版演示库向量清理失败（不影响重建）：%s", exc)
+        logger.warning("内置演示库向量清理失败（继续删除）：%s", exc)
     try:
         from app.services.notebook_kernel import kernel_manager
 
         kernel_manager.purge_kb(str(kb_id))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("旧版演示库内核清理失败（不影响重建）：%s", exc)
+        logger.warning("内置演示库内核清理失败（继续删除）：%s", exc)
+
+    # 内置库使用固定 ID 与固定笔记 ID：重建前必须丢弃索引版本缓存，
+    # 否则后台核对会误判“内容未变化”而跳过重新嵌入。
+    from app.services.note_indexer import forget_kb
+
+    forget_kb(kb_id)
     await session.delete(kb)
     await session.flush()
-    logger.info("已清理旧版演示库：%s", kb_id)
+    # 内置库复用固定主键：清空身份映射，避免重建时与已删除实例冲突。
+    session.expunge_all()
+    logger.info("已删除内置演示库：%s", kb_id)
+
+
+async def _purge_legacy_builtin(session: AsyncSession, kb: KnowledgeBase) -> datetime | None:
+    hidden_at = kb.deleted_at
+    await purge_builtin_kb(session, kb)
     return hidden_at
 
 
 async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | None, bool]:
     """确保内置演示库存在并标记为 builtin。
 
-    返回 ``(kb, just_seeded)``。已隐藏（deleted_at 非空）时不会自动还原。
-    检测到旧版业务演示库时，会先清理并按当前随包内容重建。
+    返回 ``(kb, just_seeded)``。旧版本软删除（deleted_at 非空）的记录不会在
+    启动时自动还原；检测到旧版业务演示库时，会先清理并按当前随包内容重建。
     """
     if not SEED_FILE.exists():
         logger.warning("内置演示数据缺失：%s", SEED_FILE)
@@ -278,7 +295,7 @@ async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | No
         description=(
             "系统内置的 Kiwi 上手指南：以「三周搭建团队知识库」为示例主线，"
             "演示笔记、画布、数据表、Notebook、导入、外链、Wiki、知识图谱、"
-            "学习模式与仿真考试。内容即操作说明，可自由修改；删除后可在知识库页还原。"
+            "学习模式与仿真考试。内容即操作说明，可自由修改；删除后可在知识库页重新创建。"
         ),
         pinned=True,
         learning_enabled=True,
@@ -289,6 +306,9 @@ async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | No
     try:
         await _insert_seed(session, kb)
         await session.commit()
+        # _insert_seed 末尾会更新 llm_config_id，触发 onupdate=now() 的
+        # updated_at 过期；这里显式刷新，调用方可以安全读取全部字段。
+        await session.refresh(kb)
     except Exception:
         await session.rollback()
         logger.exception("内置演示库写入失败，已回滚")
@@ -321,22 +341,48 @@ async def get_builtin_status(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def _reindex_builtin_notes(kb_id: uuid.UUID) -> None:
+    """重建内置库后补齐笔记向量；失败由后台巡检重试。"""
+    from app.services.note_indexer import ensure_notes_indexed
+
+    try:
+        await ensure_notes_indexed([kb_id])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("内置演示库笔记索引失败（后台巡检将重试）：%s", exc)
+
+
 async def restore_builtin(session: AsyncSession) -> KnowledgeBase | None:
+    """还原内置演示库：不存在时按当前随包内容真正创建。
+
+    旧版本把删除实现为 ``deleted_at`` 软删除；这里会先彻底清理旧记录，
+    再重新写入演示数据，保证还原结果与当前版本的演示内容一致。
+    """
     kb = (
         await session.execute(
             select(KnowledgeBase).where(KnowledgeBase.builtin_key == BUILTIN_KEY)
         )
     ).scalars().first()
+
+    if kb is not None and kb.deleted_at is not None:
+        await purge_builtin_kb(session, kb)
+        kb = None
+
+    created = False
     if kb is None:
-        kb, _ = await ensure_builtin_demo(session)
+        kb, created = await ensure_builtin_demo(session)
         if kb is None:
             return None
-    if kb.deleted_at is not None:
-        kb.deleted_at = None
-    kb.is_builtin = True
-    kb.pinned = True
-    await session.commit()
-    await session.refresh(kb)
+    else:
+        kb.is_builtin = True
+        kb.pinned = True
+        await session.commit()
+        await session.refresh(kb)
+
+    if created:
+        # 向量不是数据库内容，重建后需要重新生成；后台执行避免阻塞请求。
+        start_vector_seed_task()
+        asyncio.create_task(_reindex_builtin_notes(kb.id))
+
     return kb
 
 

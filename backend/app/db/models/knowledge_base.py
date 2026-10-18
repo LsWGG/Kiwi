@@ -24,14 +24,14 @@ class KnowledgeBase(UUIDPkMixin, Base):
     learning_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=true(), nullable=False
     )
-    # 系统内置演示库：允许用户隐藏，但保留数据与「还原」入口
+    # 系统内置演示库：删除为硬删除，并可按随包内容重新创建
     is_builtin: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false(), nullable=False
     )
     builtin_key: Mapped[str | None] = mapped_column(
         String(64), unique=True, index=True, nullable=True
     )
-    # 内置库软删除时间；非内置库仍为硬删除
+    # 旧版本内置库的软删除标记；新删除均为硬删除，仅用于兼容历史数据。
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

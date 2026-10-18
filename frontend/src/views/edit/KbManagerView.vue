@@ -318,7 +318,7 @@ interface KbDelete {
   sourceCount: number
   wikiCount: number
   noteCount: number
-  /** 内置演示库：仅隐藏，可还原 */
+  /** 内置演示库：硬删除后可按随包内容重新创建 */
   isBuiltin: boolean
 }
 const removing = ref(false)
@@ -341,7 +341,7 @@ async function doDelete() {
   try {
     const wasBuiltin = deleting.value.isBuiltin
     await kbs.deleteKb(deleting.value.id)
-    toast.success(wasBuiltin ? '已隐藏内置知识库，可随时还原' : '已删除知识库')
+    toast.success(wasBuiltin ? '已删除内置知识库，可在页面顶部重新创建' : '已删除知识库')
     deleting.value = null
   } catch (e: any) {
     toast.error(e.message)
@@ -350,12 +350,12 @@ async function doDelete() {
   }
 }
 
-/** 还原内置演示库（数据与素材在隐藏期间完整保留）。 */
+/** 重新创建内置演示库（按当前随包内容生成）。 */
 async function restoreBuiltin() {
   restoring.value = true
   try {
     await kbs.restoreBuiltin()
-    toast.success('内置知识库已还原')
+    toast.success('内置知识库已重新创建')
   } catch (e: any) {
     toast.error(e.message || '还原失败')
   } finally {
@@ -387,9 +387,9 @@ async function restoreBuiltin() {
       </button>
     </div>
 
-    <!-- 内置演示库被隐藏时的还原入口 -->
+    <!-- 内置演示库不存在（首次初始化失败或已被删除）时的创建入口 -->
     <div
-      v-if="kbs.builtinStatus?.deleted"
+      v-if="kbs.builtinStatus && (!kbs.builtinStatus.exists || kbs.builtinStatus.deleted)"
       class="mb-6 flex flex-col gap-3 rounded-2xl border border-kiwi-200/80 bg-gradient-to-r from-kiwi-50/90 via-white to-emerald-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
     >
       <div class="flex items-start gap-3">
@@ -398,10 +398,15 @@ async function restoreBuiltin() {
         </span>
         <div>
           <p class="text-sm font-medium text-slate-700">
-            内置知识库「{{ kbs.builtinStatus.name }}」已隐藏
+            <template v-if="kbs.builtinStatus.deleted">
+              内置知识库「{{ kbs.builtinStatus.name }}」已删除
+            </template>
+            <template v-else>
+              内置知识库「{{ kbs.builtinStatus.name }}」尚未创建
+            </template>
           </p>
           <p class="mt-0.5 text-xs leading-relaxed text-slate-500">
-            演示数据、素材与学习记录均已保留，还原后可继续浏览系统全部功能。
+            创建后会按当前版本的随包内容生成完整演示数据；此前对演示库的修改不会保留。
           </p>
         </div>
       </div>
@@ -411,7 +416,7 @@ async function restoreBuiltin() {
         @click="restoreBuiltin"
       >
         <KiwiIcon name="refresh" :size="14" />
-        {{ restoring ? '还原中…' : '还原内置知识库' }}
+        {{ restoring ? '创建中…' : '创建内置知识库' }}
       </button>
     </div>
 
@@ -490,7 +495,7 @@ async function restoreBuiltin() {
               <span
                 v-if="k.is_builtin"
                 class="inline-flex shrink-0 items-center gap-0.5 text-[10px] px-1.5 py-[1px] rounded-full bg-emerald-100 text-emerald-700 font-medium"
-                title="系统内置演示库：可随时隐藏，并在上方还原"
+                title="系统内置演示库：删除后可按随包内容重新创建"
               >
                 <KiwiIcon name="learn" :size="9" />
                 内置演示
@@ -528,7 +533,7 @@ async function restoreBuiltin() {
             </button>
             <button
               class="text-slate-300 hover:text-red-400 transition-colors p-1 hover:bg-red-50 hover:rounded-lg"
-              :title="k.is_builtin ? '隐藏（可还原）' : '删除'"
+              :title="k.is_builtin ? '删除（可重新创建）' : '删除'"
               @click.stop="confirmDelete(k)"
             >
               <KiwiIcon name="trash" :size="16" />
@@ -776,30 +781,44 @@ async function restoreBuiltin() {
       </div>
     </KiwiModal>
 
-    <!-- 删除确认模态：内置演示库为「隐藏」，普通库为不可撤销删除 -->
+    <!-- 删除确认模态：内置库与普通库均为不可撤销的硬删除 -->
     <KiwiModal
       :open="!!deleting"
-      :title="deleting?.isBuiltin ? '隐藏内置知识库' : '删除知识库'"
+      :title="deleting?.isBuiltin ? '删除内置知识库' : '删除知识库'"
       @close="deleting = null"
     >
       <div v-if="deleting" class="space-y-4">
         <template v-if="deleting.isBuiltin">
           <p class="text-sm leading-relaxed text-slate-600">
-            确定隐藏 <b class="text-slate-800">{{ deleting.name }}</b> 吗？
+            确定删除 <b class="text-slate-800">{{ deleting.name }}</b> 吗？将同时删除：
           </p>
+          <ul class="text-sm text-slate-500 space-y-1.5 bg-rose-50/60 border border-rose-100 rounded-xl p-4">
+            <li class="flex items-center gap-2">
+              <KiwiIcon name="file" :size="14" class="text-rose-400" />
+              {{ deleting.sourceCount }} 个素材与分块
+            </li>
+            <li class="flex items-center gap-2">
+              <KiwiIcon name="wiki" :size="14" class="text-rose-400" />
+              {{ deleting.wikiCount }} 个 Wiki 页面
+            </li>
+            <li class="flex items-center gap-2">
+              <KiwiIcon name="note" :size="14" class="text-rose-400" />
+              {{ deleting.noteCount }} 篇笔记（含向量索引）
+            </li>
+          </ul>
           <div class="rounded-xl border border-kiwi-100 bg-kiwi-50/60 p-4 text-sm leading-relaxed text-slate-600">
             <p class="flex items-center gap-2 font-medium text-kiwi-700">
               <KiwiIcon name="learn" :size="14" />
-              内置演示库不会被真正删除
+              删除后可按当前随包内容重新创建
             </p>
             <p class="mt-1.5 text-xs text-slate-500">
-              素材、Wiki、笔记、学习记录与向量索引都会完整保留。隐藏后可在知识库列表顶部随时还原。
+              重建的演示数据不包含你对当前演示库所做的修改。
             </p>
           </div>
           <div class="flex justify-end gap-2 pt-1">
             <button class="kiwi-btn-ghost" @click="deleting = null">取消</button>
             <button class="kiwi-btn-danger" :loading="removing" @click="doDelete">
-              {{ removing ? '隐藏中…' : '隐藏知识库' }}
+              {{ removing ? '删除中…' : '确认删除' }}
             </button>
           </div>
         </template>

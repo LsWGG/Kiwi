@@ -14,9 +14,11 @@ from app.db.session import get_session
 from app.schemas.kb import BuiltinKbStatus, KBCreate, KBOut, KBOverview, KBUpdate
 from app.services import qdrant_store
 from app.services.builtin_demo import (
-    restore_builtin,
     get_builtin_status,
+    purge_builtin_kb,
+    restore_builtin,
 )
+from app.services.note_indexer import forget_kb
 from app.services.notebook_kernel import kernel_manager
 
 router = APIRouter(prefix="/api/kbs", tags=["kbs"])
@@ -199,9 +201,9 @@ async def update_kb(kb_id: uuid.UUID, data: KBUpdate, session: AsyncSession = De
 async def delete_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     kb = await _get_kb(session, kb_id)
     if kb.is_builtin:
-        # 内置演示库只隐藏，保留数据 / 素材 / 向量，支持随时还原。
-        kb.deleted_at = datetime.now(timezone.utc)
-        kb.pinned = False
+        # 内置演示库同样硬删除：数据 / 素材 / 向量全部清理，
+        # 之后可在知识库页按当前随包内容重新创建。
+        await purge_builtin_kb(session, kb)
         await session.commit()
         return
     # 级联删除库内数据，向量兜底清理
@@ -210,5 +212,6 @@ async def delete_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_sessio
     except Exception:  # noqa: BLE001
         pass
     kernel_manager.purge_kb(str(kb_id))
+    forget_kb(kb_id)
     await session.delete(kb)
     await session.commit()

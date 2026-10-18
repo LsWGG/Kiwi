@@ -43,7 +43,7 @@ class KBOut(BaseModel):
 
 
 class BuiltinKbStatus(BaseModel):
-    """内置演示库的可用/隐藏状态，用于知识库页的还原入口。"""
+    """内置演示库状态：不存在时前端提供重新创建入口。"""
 
     key: str
     name: str
