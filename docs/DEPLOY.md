@@ -27,7 +27,7 @@ frontend (nginx)
 
 ## 前置条件
 
-- Docker Engine 24+，Docker Compose v2
+- Docker Engine 24+，Docker Compose V2（`docker compose` 插件或独立的 `docker-compose` 命令均可）
 - 启用 BuildKit（后端 Dockerfile 使用缓存挂载；建议安装 `docker-buildx-plugin`）
 - 建议 4 核 / 8 GB 内存 / 10 GB 可用磁盘
 - 构建前端需要 Node.js 20+ 与 npm（仅宿主机使用）
@@ -277,6 +277,24 @@ sysctl kernel.unprivileged_userns_clone user.max_user_namespaces
 ```
 
 部分发行版需要开启 `kernel.unprivileged_userns_clone=1`。沙箱内部依然会丢弃全部 capabilities、限制进程与内存，并只挂载当前笔记本的工作目录。
+
+### 命令是 `docker-compose` 而不是 `docker compose`
+
+`deploy.sh` 会优先使用 `docker compose` 插件；找不到时自动回退到独立的 `docker-compose` 命令。回退要求其为 **Compose V2**（`docker-compose version --short` 输出 `2.x`）：
+
+```bash
+docker-compose version --short   # 应输出 2.x
+```
+
+若输出 `1.x`，说明仍是已停止维护的 Compose V1，本项目的健康检查依赖与卷命名配置无法运行。请升级：
+
+```bash
+# Debian / Ubuntu（Compose V2 插件，安装后 docker compose 可用）
+sudo apt-get install docker-compose-plugin
+
+# 或安装独立的 V2 二进制（安装后 docker-compose 可用）
+sudo apt-get install docker-compose-v2
+```
 
 ### 构建报 `the --mount option requires BuildKit`
 

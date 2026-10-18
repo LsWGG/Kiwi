@@ -60,7 +60,7 @@ ensure_env() {
 }
 
 compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 ensure_buildkit() {
@@ -97,7 +97,28 @@ usage() {
 }
 
 command -v docker >/dev/null 2>&1 || die "未找到 docker，请先安装 Docker Engine"
-docker compose version >/dev/null 2>&1 || die "未找到 docker compose 插件"
+
+# Compose 命令探测：优先 `docker compose` 插件，其次独立的 `docker-compose`。
+# 独立命令必须为 V2（Compose V1 已停止维护，不支持本项目的 healthcheck 依赖、
+# 卷命名等配置）。
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_VERSION="$(docker-compose version --short 2>/dev/null || true)"
+  if [ -z "$COMPOSE_VERSION" ]; then
+    COMPOSE_VERSION="$(docker-compose version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  fi
+  case "$COMPOSE_VERSION" in
+    2.*)
+      COMPOSE_CMD=(docker-compose)
+      ;;
+    *)
+      die "检测到 Docker Compose ${COMPOSE_VERSION:-V1}，本项目需要 Compose V2。请安装 docker-compose-plugin（或 docker-compose-v2）后重试。"
+      ;;
+  esac
+else
+  die "未找到 Docker Compose V2。请安装 docker-compose-plugin 或独立的 docker-compose（V2）后重试。"
+fi
 
 CMD="${1:-up}"
 case "$CMD" in
