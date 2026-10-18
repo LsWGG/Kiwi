@@ -90,17 +90,6 @@
     });
   }
 
-  /* ---------- card spotlight ---------- */
-  if (finePointer && !reduceMotion) {
-    document.querySelectorAll('.bento-card').forEach((card) => {
-      card.addEventListener('pointermove', (event) => {
-        const rect = card.getBoundingClientRect();
-        card.style.setProperty('--mx', `${event.clientX - rect.left}px`);
-        card.style.setProperty('--my', `${event.clientY - rect.top}px`);
-      });
-    });
-  }
-
   /* ---------- tabbed showcases (gallery + editor modes) ---------- */
   const setupShowcase = ({ showcaseTabs, image, panel, title, desc, count, start = 0, auto = 0 }) => {
     if (!showcaseTabs.length || !image || !panel) return;
