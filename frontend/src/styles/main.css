@@ -135,6 +135,17 @@ body {
     focus:outline-none focus:ring-2 focus:ring-kiwi-300/60 focus:border-kiwi-300;
 }
 
+/* 数字输入隐藏原生步进按钮：它会盖住自定义的「小时」等单位后缀。 */
+.kiwi-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.kiwi-input[type='number']::-webkit-outer-spin-button,
+.kiwi-input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* ---------- 图谱星空画布 ---------- */
 /* 深空底色 + 星云光晕：两种图谱模式共用，形成统一「星图」观感。 */
 .graph-nebula {

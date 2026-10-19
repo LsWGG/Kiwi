@@ -36,7 +36,7 @@ const embeddingHint = computed(() => {
       ? `${config.api_model}（所有知识库共享）`
       : '线上向量模型（所有知识库共享）'
   }
-  return config.api_model ? `本地默认：${config.api_model}` : '本地 fastembed'
+  return config.active_space ? `本地默认：${config.active_space}` : '本地 fastembed'
 })
 
 onMounted(() => {
@@ -355,6 +355,17 @@ const EMBEDDING_MODELS = [
   },
 ]
 const DEFAULT_EMBED_MODEL = EMBEDDING_MODELS[0].id
+/**
+ * 系统「向量设置」中配置的默认模型。
+ * 本地模式以实际向量空间（active_space）为准；api_model 仅在线上模式有意义。
+ */
+const systemEmbedModel = computed(() => {
+  const config = embeddingConfig.value
+  if (!config) return ''
+  return (
+    (embeddingIsRemote.value ? config.api_model : config.active_space)?.trim() || ''
+  )
+})
 const editing = ref(false)
 const saving = ref(false)
 const editErr = ref('')
@@ -368,13 +379,37 @@ const form = ref<EditForm>({
   wikiCompileInterval: 0,
   todoSyncInterval: 0,
 })
+/**
+ * 下拉选项 = 系统向量设置中的默认模型 + 内置 fastembed 模型。
+ * 不再允许自由输入，避免填错模型名导致首次导入时才失败。
+ */
 const embeddingOptions = computed(() => {
-  const list = [...EMBEDDING_MODELS]
-  const current = form.value.embeddingModel
-  if (current && !list.some((m) => m.id === current)) {
-    list.push({ id: current, label: `${current}（当前配置）` })
+  const list: { id: string; label: string }[] = []
+  const seen = new Set<string>()
+  const add = (id: string, label: string) => {
+    if (!id || seen.has(id)) return
+    seen.add(id)
+    list.push({ id, label })
   }
+  const configured = systemEmbedModel.value
+  if (configured) add(configured, `${configured}（系统默认）`)
+  for (const model of EMBEDDING_MODELS) add(model.id, model.label)
+  // 编辑旧知识库时保留其已有模型，避免下拉框显示为空。
+  const current = form.value.embeddingModel.trim()
+  if (current) add(current, `${current}（当前配置）`)
   return list
+})
+
+// 配置可能在弹窗打开后才返回：未手动改过模型时，跟随系统默认。
+watch(systemEmbedModel, (model) => {
+  if (!model) return
+  if (
+    editing.value &&
+    !form.value.id &&
+    form.value.embeddingModel === DEFAULT_EMBED_MODEL
+  ) {
+    form.value.embeddingModel = model
+  }
 })
 
 function openEdit(k: (typeof kbs.kbs)[number] | null) {
@@ -395,7 +430,7 @@ function openEdit(k: (typeof kbs.kbs)[number] | null) {
         name: '',
         description: '',
         llmConfig: 'inherit',
-        embeddingModel: DEFAULT_EMBED_MODEL,
+        embeddingModel: systemEmbedModel.value || DEFAULT_EMBED_MODEL,
         learningEnabled: true,
         wikiCompileInterval: 0,
         todoSyncInterval: 0,
@@ -410,7 +445,7 @@ async function saveEdit() {
     return
   }
   if (!embeddingIsRemote.value && !form.value.embeddingModel.trim()) {
-    editErr.value = '请选择或填写 Embedding 模型'
+    editErr.value = '请选择 Embedding 模型'
     return
   }
   saving.value = true
@@ -443,7 +478,10 @@ async function saveEdit() {
           description: form.value.description.trim(),
           llm_config_id:
             form.value.llmConfig === 'inherit' ? null : form.value.llmConfig,
-          embedding_model: form.value.embeddingModel.trim() || DEFAULT_EMBED_MODEL,
+          embedding_model:
+            form.value.embeddingModel.trim() ||
+            systemEmbedModel.value ||
+            DEFAULT_EMBED_MODEL,
           learning_enabled: form.value.learningEnabled,
           wiki_compile_interval_hours: form.value.wikiCompileInterval,
           todo_sync_interval_hours: form.value.todoSyncInterval,
@@ -1119,18 +1157,21 @@ async function onImportKbFile(event: Event) {
 
           <!-- 本地 fastembed：每个知识库独立选择与编码 -->
           <template v-else>
-            <input
-              v-model="form.embeddingModel"
-              class="kiwi-input mt-1 font-mono text-[13px]"
-              list="kb-embedding-models"
-              placeholder="BAAI/bge-small-zh-v1.5"
-              spellcheck="false"
-            />
-            <datalist id="kb-embedding-models">
-              <option v-for="m in embeddingOptions" :key="m.id" :value="m.id">
-                {{ m.label }}
-              </option>
-            </datalist>
+            <div class="relative mt-1">
+              <select
+                v-model="form.embeddingModel"
+                class="kiwi-input cursor-pointer appearance-none pr-9 font-mono text-[13px]"
+              >
+                <option v-for="m in embeddingOptions" :key="m.id" :value="m.id">
+                  {{ m.label }}
+                </option>
+              </select>
+              <KiwiIcon
+                name="chevron"
+                :size="14"
+                class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+            </div>
             <p class="mt-1 text-[11px] text-slate-400">
               {{ embeddingHint }}
             </p>
@@ -1149,7 +1190,7 @@ async function onImportKbFile(event: Event) {
                 class="kiwi-input pr-12"
               />
               <span
-                class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"
+                class="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 text-[11px] text-slate-400"
               >小时</span>
             </div>
             <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
@@ -1167,7 +1208,7 @@ async function onImportKbFile(event: Event) {
                 class="kiwi-input pr-12"
               />
               <span
-                class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"
+                class="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 text-[11px] text-slate-400"
               >小时</span>
             </div>
             <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
