@@ -1811,7 +1811,15 @@ const editor = useEditor({
           }),
         ]
       : []),
-    Markdown.configure({ html: false, tightLists: true, linkify: false, breaks: false }),
+    Markdown.configure({
+      html: false,
+      tightLists: true,
+      linkify: false,
+      breaks: false,
+      // 从「复制 Markdown」或其他笔记复制来的正文按 Markdown 解析成富文本；
+      // 需要原样粘贴源码时按住 Shift 再粘贴（ProseMirror 会走纯文本分支）。
+      transformPastedText: true,
+    }),
   ],
   editable: !props.readonly,
   editorProps: {
