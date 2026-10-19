@@ -55,6 +55,8 @@ class Settings(BaseSettings):
 
     # --- 后端 ---
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # 本地实例直连远端数据库时关闭，避免向共享库 / 向量库写入巡检与调度数据。
+    background_jobs: bool = True
 
 
 @lru_cache

@@ -65,19 +65,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("Qdrant 初始化失败（服务仍启动，摄入时重试）：%s", e)
 
-    # 内置演示库：幂等确保存在（不自动还原用户主动隐藏的库）。
     builtin_task: asyncio.Task[None] | None = None
-    try:
-        async with async_session_factory() as db:
-            await ensure_builtin_demo(db)
-        builtin_task = start_vector_seed_task()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("内置演示库初始化失败（不影响启动）：%s", e)
+    note_index_task: asyncio.Task[None] | None = None
+    scheduler_task: asyncio.Task[None] | None = None
+    if settings.background_jobs:
+        # 内置演示库：幂等确保存在（不自动还原用户主动隐藏的库）。
+        try:
+            async with async_session_factory() as db:
+                await ensure_builtin_demo(db)
+            builtin_task = start_vector_seed_task()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("内置演示库初始化失败（不影响启动）：%s", e)
 
-    # 后台核对笔记索引：只对变更过的笔记重新嵌入。
-    note_index_task = start_note_index_task()
-    # 知识库定时任务：Wiki 周期编译 + 待办聚合。
-    scheduler_task = start_scheduler_task()
+        # 后台核对笔记索引：只对变更过的笔记重新嵌入。
+        note_index_task = start_note_index_task()
+        # 知识库定时任务：Wiki 周期编译 + 待办聚合。
+        scheduler_task = start_scheduler_task()
+    else:
+        logger.info("KIWI_BACKGROUND_JOBS=false：跳过演示库种子、笔记索引巡检与定时任务")
 
     yield
 
