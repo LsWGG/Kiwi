@@ -388,12 +388,20 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 temperature=cfg.extra_params.get("temperature", 0.3),
             )
             async for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield sse("chunk", {"text": delta})
+                # 部分 OpenAI 兼容服务（如 DeepSeek）会在末尾追加仅含 usage、
+                # choices 为空的分片；直接取 choices[0] 会抛 IndexError，
+                # 导致流在最后一段被中断且客户端收不到 done 事件。
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield sse("chunk", {"text": delta.content})
             yield sse("done", {"ok": True})
         except (APIError, APIConnectionError) as e:
             yield sse("error", {"message": f"LLM 调用失败：{e}"})
+        except Exception:  # noqa: BLE001 —— 流已开始，只能通过 SSE 通知客户端
+            logger.exception("问答流式生成异常")
+            yield sse("error", {"message": "生成过程中出现异常，请稍后重试。"})
 
     return StreamingResponse(
         gen(),
