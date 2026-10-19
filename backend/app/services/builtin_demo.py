@@ -51,6 +51,7 @@ from app.db.models import (
     WikiPage,
 )
 from app.db.session import async_session_factory
+from app.services import todo_sync
 
 logger = logging.getLogger("kiwi.builtin_demo")
 
@@ -308,6 +309,15 @@ async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | No
         await session.commit()
         # _insert_seed 末尾会更新 llm_config_id，触发 onupdate=now() 的
         # updated_at 过期；这里显式刷新，调用方可以安全读取全部字段。
+        await session.refresh(kb)
+
+        # 演示数据里散落着笔记任务与数据表行，首次创建后同步一次，
+        # 让「待办汇总」在全新部署中也能直接展示正向/逆向追溯。
+        try:
+            await todo_sync.sync_kb_todos(session, kb.id)
+        except Exception as exc:  # noqa: BLE001
+            await session.rollback()
+            logger.warning("内置演示库待办汇总失败（不影响演示库创建）：%s", exc)
         await session.refresh(kb)
     except Exception:
         await session.rollback()
