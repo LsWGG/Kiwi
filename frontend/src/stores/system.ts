@@ -252,6 +252,18 @@ export const useSystemStore = defineStore('system', () => {
     return result.url
   }
 
+  /**
+   * 一键恢复默认 Logo：只清空 logo_url 并同步全局顶栏，
+   * 不覆盖设置页里其它尚未保存的品牌预览。
+   */
+  async function resetLogo(): Promise<void> {
+    const updated = await request<SystemSettings>('/settings/system', {
+      method: 'PUT',
+      body: JSON.stringify({ logo_url: '' }),
+    })
+    settings.value = { ...settings.value, logo_url: updated.logo_url }
+  }
+
   async function testOcr(payload: OcrTestPayload): Promise<OcrTestResult> {
     return request<OcrTestResult>('/settings/system/ocr/test', {
       method: 'POST',
@@ -269,6 +281,7 @@ export const useSystemStore = defineStore('system', () => {
     fetchSettings,
     saveSettings,
     uploadLogo,
+    resetLogo,
     testOcr,
   }
 })

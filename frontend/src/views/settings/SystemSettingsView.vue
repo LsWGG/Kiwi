@@ -5,6 +5,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import { useModeStore } from '@/stores/mode'
@@ -52,6 +53,7 @@ const loading = ref(true)
 const saving = ref(false)
 const testing = ref(false)
 const uploadingLogo = ref(false)
+const resettingLogo = ref(false)
 const logoInput = ref<HTMLInputElement | null>(null)
 const keyTouched = ref(false)
 const testResult = ref<{ ok: boolean; message: string; sample_text: string } | null>(null)
@@ -185,9 +187,19 @@ async function onLogoFile(event: Event) {
   }
 }
 
-function removeLogo() {
-  form.value.logo_url = ''
-  toast.info('Logo 已移除，保存后生效')
+/** 一键恢复默认 Logo：立即清空自定义 Logo 并同步顶栏。 */
+async function restoreDefaultLogo() {
+  if (!form.value.logo_url || resettingLogo.value) return
+  resettingLogo.value = true
+  try {
+    await system.resetLogo()
+    form.value.logo_url = ''
+    toast.success('已恢复默认 Logo')
+  } catch (e: any) {
+    toast.error(e.message || '恢复默认 Logo 失败')
+  } finally {
+    resettingLogo.value = false
+  }
 }
 
 function clearKey() {
@@ -314,9 +326,13 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
                 alt="系统 Logo"
                 class="mx-auto h-20 w-20 rounded-2xl object-cover shadow-soft"
               />
-              <div v-else class="mx-auto grid h-20 w-20 place-items-center rounded-2xl bg-kiwi-50 text-kiwi-500">
-                <KiwiIcon name="image" :size="28" />
-              </div>
+              <!-- 未上传时直接回显顶栏实际使用的默认品牌标记 -->
+              <KiwiLogo
+                v-else
+                :mode="mode.mode === 'learn' ? 'learn' : 'edit'"
+                :size="80"
+                class="mx-auto h-20 w-20 rounded-2xl shadow-soft"
+              />
               <div class="mt-3 flex items-center justify-center gap-1.5">
                 <button class="kiwi-btn-secondary !px-2.5 !py-1 !text-[11px]" :disabled="uploadingLogo" @click="pickLogo">
                   <KiwiIcon :name="uploadingLogo ? 'loader' : 'upload'" :size="12" :spin="uploadingLogo" />
@@ -324,13 +340,18 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
                 </button>
                 <button
                   v-if="form.logo_url"
-                  class="rounded-lg px-2 py-1 text-[11px] text-rose-500 transition-colors hover:bg-rose-50"
-                  @click="removeLogo"
+                  class="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                  :disabled="resettingLogo"
+                  title="立即恢复系统默认 Logo"
+                  @click="restoreDefaultLogo"
                 >
-                  移除
+                  <KiwiIcon :name="resettingLogo ? 'loader' : 'refresh'" :size="12" :spin="resettingLogo" />
+                  {{ resettingLogo ? '恢复中' : '恢复默认' }}
                 </button>
               </div>
-              <p class="mt-2 text-[10px] leading-relaxed text-slate-400">PNG / JPG / WebP，2MB 以内</p>
+              <p class="mt-2 text-[10px] leading-relaxed text-slate-400">
+                {{ form.logo_url ? '当前为自定义 Logo，PNG / JPG / WebP，2MB 以内' : '当前为系统默认 Logo，可上传图片替换' }}
+              </p>
             </div>
             <input
               ref="logoInput"
