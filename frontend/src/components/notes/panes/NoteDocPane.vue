@@ -8,6 +8,11 @@ import KiwiEditor from '@/components/editor/KiwiEditor.vue'
 import type { ParagraphFormatRecord } from '@/components/editor/extensions/paragraphFormat'
 import type { TextFormatRecord } from '@/components/editor/extensions/textFormat'
 import EditorModeMenu from '@/components/editor/EditorModeMenu.vue'
+import OrderedListStyleMenu from '@/components/editor/OrderedListStyleMenu.vue'
+import {
+  resolveOrderedListStyle,
+  type OrderedListStyleKey,
+} from '@/components/editor/orderedListStyles'
 import EditorPageSettings from '@/components/editor/EditorPageSettings.vue'
 import NoteAgentPanel from '@/components/editor/NoteAgentPanel.vue'
 import NoteReadingTools from '@/components/notes/reading/NoteReadingTools.vue'
@@ -231,6 +236,10 @@ watch(editorMode, () => {
 const exporting = ref(false)
 const docxPrefs = computed(() => resolveDocxPrefs(props.note.props_json?.docx_prefs))
 const pagePrefs = computed(() => resolvePagePrefs(props.note.props_json?.page_prefs))
+/** 多级有序列表编号样式按笔记持久化，编辑 / 阅读 / 分屏共用。 */
+const orderedListStyle = computed(() =>
+  resolveOrderedListStyle(props.note.props_json?.ordered_list_style),
+)
 
 /** DOCX 段落级排版：编辑器回传、随自动保存写入 props_json.paragraph_formats。 */
 const paragraphFormats = ref<ParagraphFormatRecord[]>(
@@ -334,6 +343,19 @@ const autosave = useAutosave(async () => {
 })
 
 useSaveShortcut(() => autosave.flushNow())
+
+/** 切换编号样式：先落盘未保存的正文，避免 props 回写覆盖正在输入的内容。 */
+async function setOrderedListStyle(key: OrderedListStyleKey) {
+  if (key === orderedListStyle.value) return
+  try {
+    await autosave.flush()
+    await notes.updateNote(props.note.id, {
+      props_json: { ordered_list_style: key },
+    })
+  } catch (e: any) {
+    toast.error(e.message || '保存编号样式失败')
+  }
+}
 
 const liveStatus = computed(() =>
   notes.importNoteId === props.note.id ? notes.importStatus : null,
@@ -833,6 +855,11 @@ async function copyMarkdown() {
         反向链接
         <span class="tabular-nums text-slate-400">{{ backlinks.length }}</span>
       </button>
+      <OrderedListStyleMenu
+        v-if="!readonlyImport"
+        :value="orderedListStyle"
+        @change="setOrderedListStyle"
+      />
       <!-- 四种视图：编辑 / 大纲 / 分屏 / 阅读，按笔记持久化 -->
       <div
         v-if="!readonlyImport"
@@ -1070,6 +1097,7 @@ async function copyMarkdown() {
             :page-prefs="pagePrefs"
             :paragraph-formats="note.props_json?.paragraph_formats"
             :text-formats="note.props_json?.text_formats"
+            :ordered-list-style="orderedListStyle"
             :doc-title="title"
             :show-outline="showOutline"
             :agent-open="agentMode"
@@ -1145,7 +1173,7 @@ async function copyMarkdown() {
           <h1 class="mb-3 text-[24px] leading-tight font-semibold text-slate-800">
             {{ title || '无标题文档' }}
           </h1>
-          <MarkdownView :content="previewBody" />
+          <MarkdownView :content="previewBody" :ordered-list-style="orderedListStyle" />
         </div>
       </div>
 

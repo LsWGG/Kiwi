@@ -17,11 +17,21 @@ import {
 } from './extensions/calendar'
 import { normalizeDataTable, type DataTableModel } from './extensions/dataTableModel'
 import type { DbField, DbView } from '@/stores/noteDatabase'
+import { orderedListStyleClass } from './orderedListStyles'
 
-const props = defineProps<{ content: string; citationCount?: number }>()
+const props = withDefaults(
+  defineProps<{
+    content: string
+    citationCount?: number
+    /** 多级有序列表编号预设，与编辑态保持一致 */
+    orderedListStyle?: string | null
+  }>(),
+  { citationCount: undefined, orderedListStyle: null },
+)
 const emit = defineEmits<{ (e: 'citation-click', n: number): void }>()
 const router = useRouter()
 const root = ref<HTMLElement | null>(null)
+const orderedListClass = computed(() => orderedListStyleClass(props.orderedListStyle))
 
 const md = new MarkdownIt({
   html: false,
@@ -1083,7 +1093,13 @@ function onClick(event: MouseEvent) {
 </script>
 
 <template>
-  <div ref="root" class="prose-wiki markdown-view" @click="onClick" v-html="html" />
+  <div
+    ref="root"
+    class="prose-wiki markdown-view"
+    :class="orderedListClass"
+    @click="onClick"
+    v-html="html"
+  />
 
   <Teleport to="body">
     <div

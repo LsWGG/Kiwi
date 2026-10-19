@@ -77,6 +77,7 @@ import {
 } from './extensions/paragraphFormat'
 import { KiwiTextStyle, normalizeTextStyleAttrs } from './extensions/textStyle'
 import { applyTextFormats, collectTextFormats } from './extensions/textFormat'
+import { orderedListStyleClass } from './orderedListStyles'
 import DocxParagraphDialog from './DocxParagraphDialog.vue'
 import type { LinkMeta } from '@/api/links'
 import {
@@ -118,6 +119,8 @@ const props = withDefaults(
     paragraphFormats?: unknown
     /** 字符级字体 / 字号（随 props_json.text_formats 持久化） */
     textFormats?: unknown
+    /** 多级有序列表编号预设（随 props_json.ordered_list_style 持久化） */
+    orderedListStyle?: string | null
     docTitle?: string
     showOutline?: boolean
     /** Simple 模式下底部 AI 指令栏是否展开 */
@@ -131,6 +134,7 @@ const props = withDefaults(
     mode: 'notion',
     docxPrefs: null,
     pagePrefs: null,
+    orderedListStyle: null,
     docTitle: '',
     showOutline: false,
     agentOpen: false,
@@ -152,6 +156,9 @@ const kbs = useKbsStore()
 const notesStore = useNotesStore()
 const router = useRouter()
 const lowlight = createLowlight(common)
+
+/** 编号预设只在非默认值时生成 class，默认样式保持原样。 */
+const orderedListClass = computed(() => orderedListStyleClass(props.orderedListStyle))
 
 /**
  * 待办收件箱的来源链接：优先用链接里的 ?note= 直接跳转；
@@ -2067,6 +2074,7 @@ defineExpose({
   <div
     class="kiwi-editor flex min-h-0 flex-col"
     :class="{
+      [orderedListClass]: orderedListClass,
       'kiwi-editor-docx': isDocx,
       'is-readonly': readonly,
       'code-theme-dark': codePrefs.theme === 'dark',
