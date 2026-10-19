@@ -34,6 +34,8 @@ class NoteCreate(BaseModel):
     body_md: str = ""
     kind: Literal["doc", "database", "canvas", "notebook"] = "doc"
     folder_id: uuid.UUID | None = None
+    # 非空时作为该笔记的子笔记，实际分组跟随父笔记
+    parent_note_id: uuid.UUID | None = None
     source_id: uuid.UUID | None = None
     view_mode: str = "edit"
     sort_order: int | None = None
@@ -45,6 +47,7 @@ class NoteUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     body_md: str | None = None
     folder_id: uuid.UUID | None = None
+    parent_note_id: uuid.UUID | None = None
     status: str | None = None
     view_mode: str | None = None
     sort_order: int | None = None
@@ -57,6 +60,7 @@ class NoteCopyIn(BaseModel):
 
     title: str | None = Field(default=None, max_length=300)
     folder_id: uuid.UUID | None = None
+    parent_note_id: uuid.UUID | None = None
 
 
 class NoteTransferIn(BaseModel):
@@ -75,6 +79,7 @@ class NoteOut(BaseModel):
     body_md: str
     kind: str
     folder_id: uuid.UUID | None
+    parent_note_id: uuid.UUID | None = None
     source_id: uuid.UUID | None
     status: str
     view_mode: str
@@ -102,6 +107,7 @@ class NoteSummary(BaseModel):
     title: str
     kind: str
     folder_id: uuid.UUID | None
+    parent_note_id: uuid.UUID | None = None
     status: str
     sort_order: int
     props_json: dict
@@ -126,6 +132,8 @@ class ReorderIn(BaseModel):
     """同级排序：parent_id 为空表示根级。"""
 
     parent_id: uuid.UUID | None = None
+    # target=note 时可选：按父笔记排序其子笔记；为空表示分组根级笔记
+    parent_note_id: uuid.UUID | None = None
     target: Literal["folder", "note"] = "note"
     ordered_ids: list[uuid.UUID]
 
@@ -147,6 +155,7 @@ class TreeReorderIn(BaseModel):
 class LinkCreate(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
     folder_id: uuid.UUID | None = None
+    parent_note_id: uuid.UUID | None = None
     title: str | None = Field(default=None, max_length=300)
     # 只读：只保留链接卡片，不抓取 / 不生成可编辑正文
     readonly: bool = False
@@ -172,6 +181,7 @@ class RemoteFileImportIn(BaseModel):
 
     url: str = Field(min_length=1, max_length=2000)
     folder_id: uuid.UUID | None = None
+    parent_note_id: uuid.UUID | None = None
     title: str | None = Field(default=None, max_length=300)
     compile_now: bool = False
     batch_id: uuid.UUID | None = None
@@ -334,6 +344,7 @@ class NoteTemplateOut(BaseModel):
 class NoteTemplateUseIn(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     folder_id: uuid.UUID | None = None
+    parent_note_id: uuid.UUID | None = None
 
 
 # ---------- 搜索 / 相关笔记 ----------

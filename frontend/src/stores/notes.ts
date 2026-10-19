@@ -12,6 +12,8 @@ export interface NoteOut {
   body_md: string
   kind: NoteKind
   folder_id: string | null
+  /** 非空表示是该笔记的子笔记，位置跟随父笔记 */
+  parent_note_id: string | null
   source_id: string | null
   status: string
   view_mode: string
@@ -29,6 +31,7 @@ export interface NoteSummary {
   title: string
   kind: NoteKind
   folder_id: string | null
+  parent_note_id: string | null
   status: string
   sort_order: number
   props_json: Record<string, any>
@@ -294,6 +297,7 @@ export const useNotesStore = defineStore('notes', () => {
       title: note.title,
       kind: note.kind,
       folder_id: note.folder_id,
+      parent_note_id: note.parent_note_id,
       status: note.status,
       sort_order: note.sort_order,
       props_json: note.props_json,
@@ -340,6 +344,7 @@ export const useNotesStore = defineStore('notes', () => {
     title: string
     kind?: 'doc' | 'database' | 'canvas' | 'notebook'
     folder_id?: string | null
+    parent_note_id?: string | null
     body_md?: string
     tags?: string[]
   }) {
@@ -350,6 +355,7 @@ export const useNotesStore = defineStore('notes', () => {
         title: data.title,
         kind: data.kind ?? 'doc',
         folder_id: data.folder_id ?? null,
+        parent_note_id: data.parent_note_id ?? null,
         body_md: data.body_md ?? '',
         tags: data.tags ?? [],
       }),
@@ -374,6 +380,17 @@ export const useNotesStore = defineStore('notes', () => {
     return updateNote(id, { folder_id: folderId })
   }
 
+  /** 移动笔记到指定分组 / 父笔记；父笔记非空时分组由后端跟随父笔记。 */
+  async function moveNoteTo(
+    id: string,
+    target: { folder_id?: string | null; parent_note_id: string | null },
+  ) {
+    return updateNote(id, {
+      folder_id: target.folder_id ?? null,
+      parent_note_id: target.parent_note_id,
+    })
+  }
+
   async function deleteNote(id: string) {
     await request(`/notes/${id}`, { method: 'DELETE', kbId: kbId() })
     if (currentNote.value?.id === id) currentNote.value = null
@@ -382,10 +399,14 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   /** 复制笔记（数据表连同字段/视图/记录一起复制）。 */
-  async function copyNote(id: string, opts: { title?: string; folder_id?: string | null } = {}) {
+  async function copyNote(
+    id: string,
+    opts: { title?: string; folder_id?: string | null; parent_note_id?: string | null } = {},
+  ) {
     const body: Record<string, any> = {}
     if (opts.title !== undefined) body.title = opts.title
     if (opts.folder_id !== undefined) body.folder_id = opts.folder_id
+    if (opts.parent_note_id !== undefined) body.parent_note_id = opts.parent_note_id
     const note = await request<NoteOut>(`/notes/${id}/copy`, {
       method: 'POST',
       kbId: kbId(),
@@ -449,11 +470,17 @@ export const useNotesStore = defineStore('notes', () => {
     parentId: string | null,
     target: 'note' | 'folder',
     orderedIds: string[],
+    parentNoteId: string | null = null,
   ) {
     await request('/notes/reorder', {
       method: 'POST',
       kbId: kbId(),
-      body: JSON.stringify({ parent_id: parentId, target, ordered_ids: orderedIds }),
+      body: JSON.stringify({
+        parent_id: parentId,
+        parent_note_id: parentNoteId,
+        target,
+        ordered_ids: orderedIds,
+      }),
     })
     const list = target === 'note' ? notes.value : folders.value
     orderedIds.forEach((id, index) => {
@@ -484,6 +511,7 @@ export const useNotesStore = defineStore('notes', () => {
     file: File | null,
     opts: {
       folder_id?: string | null
+      parent_note_id?: string | null
       title?: string
       batch_id?: string
       upload_id?: string
@@ -499,6 +527,7 @@ export const useNotesStore = defineStore('notes', () => {
     if (opts.upload_id) fd.append('upload_id', opts.upload_id)
     if (opts.batch_id) fd.append('batch_id', opts.batch_id)
     if (opts.folder_id) fd.append('folder_id', opts.folder_id)
+    if (opts.parent_note_id) fd.append('parent_note_id', opts.parent_note_id)
     if (opts.title?.trim()) fd.append('title', opts.title.trim())
     if (opts.compile_now) fd.append('compile_now', 'true')
     if (opts.readonly) fd.append('readonly', 'true')
@@ -518,11 +547,17 @@ export const useNotesStore = defineStore('notes', () => {
   /** 导入 `.ipynb`：生成 Notebook 笔记（单元格与输出一并保留）。 */
   async function importNotebook(
     file: File,
-    opts: { folder_id?: string | null; title?: string; open?: boolean } = {},
+    opts: {
+      folder_id?: string | null
+      parent_note_id?: string | null
+      title?: string
+      open?: boolean
+    } = {},
   ) {
     const fd = new FormData()
     fd.append('file', file)
     if (opts.folder_id) fd.append('folder_id', opts.folder_id)
+    if (opts.parent_note_id) fd.append('parent_note_id', opts.parent_note_id)
     if (opts.title?.trim()) fd.append('title', opts.title.trim())
     const note = await upload<NoteOut>('/notebooks/import', fd, kbId())
     await fetchTree()
@@ -533,6 +568,7 @@ export const useNotesStore = defineStore('notes', () => {
   async function importRemoteFile(data: {
     url: string
     folder_id?: string | null
+    parent_note_id?: string | null
     title?: string
     batch_id?: string
     compile_now?: boolean
@@ -544,6 +580,7 @@ export const useNotesStore = defineStore('notes', () => {
       body: JSON.stringify({
         url: data.url,
         folder_id: data.folder_id || null,
+        parent_note_id: data.parent_note_id || null,
         title: data.title?.trim() || null,
         batch_id: data.batch_id || null,
         compile_now: !!data.compile_now,
@@ -569,6 +606,7 @@ export const useNotesStore = defineStore('notes', () => {
     file: File,
     opts: {
       folder_id?: string | null
+      parent_note_id?: string | null
       title?: string
       sheet?: string
       has_header?: boolean
@@ -577,6 +615,7 @@ export const useNotesStore = defineStore('notes', () => {
     const fd = new FormData()
     fd.append('file', file)
     if (opts.folder_id) fd.append('folder_id', opts.folder_id)
+    if (opts.parent_note_id) fd.append('parent_note_id', opts.parent_note_id)
     if (opts.title?.trim()) fd.append('title', opts.title.trim())
     if (opts.sheet) fd.append('sheet', opts.sheet)
     fd.append('has_header', opts.has_header === false ? 'false' : 'true')
@@ -697,6 +736,7 @@ export const useNotesStore = defineStore('notes', () => {
     url: string
     title?: string
     folder_id?: string | null
+    parent_note_id?: string | null
     /** 只读书签：只抓取标题与摘要，不生成可编辑正文 */
     readonly?: boolean
   }) {
@@ -854,12 +894,20 @@ export const useNotesStore = defineStore('notes', () => {
 
   async function useTemplate(
     id: string,
-    opts: { title?: string; folder_id?: string | null } = {},
+    opts: {
+      title?: string
+      folder_id?: string | null
+      parent_note_id?: string | null
+    } = {},
   ) {
     const note = await request<NoteOut>(`/notes/templates/${id}/use`, {
       method: 'POST',
       kbId: kbId(),
-      body: JSON.stringify({ title: opts.title, folder_id: opts.folder_id ?? null }),
+      body: JSON.stringify({
+        title: opts.title,
+        folder_id: opts.folder_id ?? null,
+        parent_note_id: opts.parent_note_id ?? null,
+      }),
     })
     await fetchTree()
     currentNote.value = note
@@ -1087,6 +1135,7 @@ export const useNotesStore = defineStore('notes', () => {
     createNote,
     updateNote,
     moveNote,
+    moveNoteTo,
     deleteNote,
     copyNote,
     transferNote,

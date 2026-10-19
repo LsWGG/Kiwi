@@ -13,6 +13,8 @@ export interface TreeRow {
   hoisted?: boolean
   /** 在此行上方渲染一条分割线（用于隔开置顶收件箱与普通目录）。 */
   separatorBefore?: boolean
+  /** 笔记下存在子笔记：显示展开箭头。 */
+  hasChildren?: boolean
 }
 
 export type DropPos = 'before' | 'after' | 'into'

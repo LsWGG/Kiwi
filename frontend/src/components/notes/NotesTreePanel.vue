@@ -359,6 +359,11 @@ const sortedNotes = computed(() =>
   ),
 )
 
+/** 某个父笔记的直接子笔记，沿用同级排序规则。 */
+function noteChildren(parentNoteId: string): NoteSummary[] {
+  return sortedNotes.value.filter((note) => note.parent_note_id === parentNoteId)
+}
+
 /** 顶层「收件箱」分组始终置顶，并使用独立配色。 */
 const inboxRoots = computed(() =>
   sortedFolders.value.filter((f) => !f.parent_id && f.name.trim() === '收件箱'),
@@ -405,7 +410,8 @@ function mixedChildren(parentId: string | null): MixedNode[] {
         folder,
       })),
     ...sortedNotes.value
-      .filter((note) => note.folder_id === parentId)
+      // 子笔记只挂在父笔记下，不重复出现在分组层级
+      .filter((note) => note.folder_id === parentId && !note.parent_note_id)
       .map((note) => ({
         type: 'note' as const,
         id: note.id,
@@ -431,6 +437,24 @@ const rows = computed<TreeRow[]>(() => {
       .map((n) => ({ type: 'note', id: n.id, depth: 0, note: n }))
   }
   const out: TreeRow[] = []
+  // 防御异常数据造成的父子环，保证任何情况下目录都能渲染完成。
+  const seenNotes = new Set<string>()
+  const walkNote = (note: NoteSummary, depth: number, hoisted: boolean) => {
+    if (seenNotes.has(note.id)) return
+    seenNotes.add(note.id)
+    const children = noteChildren(note.id)
+    out.push({
+      type: 'note',
+      id: note.id,
+      depth,
+      note,
+      hoisted,
+      hasChildren: children.length > 0,
+    })
+    if (children.length && expanded.value.has(note.id)) {
+      for (const child of children) walkNote(child, depth + 1, hoisted)
+    }
+  }
   const walk = (parentId: string | null, depth: number, hoisted = false) => {
     // 分组与笔记共用 sort_order：按混合顺序逐行输出，笔记可以排在分组上方。
     for (const node of mixedChildren(parentId)) {
@@ -440,7 +464,7 @@ const rows = computed<TreeRow[]>(() => {
         out.push({ type: 'folder', id: folder.id, depth, folder, hoisted })
         if (expanded.value.has(folder.id)) walk(folder.id, depth + 1, hoisted)
       } else {
-        out.push({ type: 'note', id: node.note!.id, depth, note: node.note!, hoisted })
+        walkNote(node.note!, depth, hoisted)
       }
     }
   }
@@ -491,13 +515,20 @@ async function revealActiveNote(id: string | null, force = false) {
   if (!id || (!force && revealedActive === id)) return
   const note = notes.notes.find((n) => n.id === id)
   if (!note) return
-  // 展开所有上级分组，保证原目录中的那一行可见。
+  // 展开所有上级分组与父笔记，保证原目录中的那一行可见。
   const next = new Set(expanded.value)
   let parentId = note.folder_id
   let guard = 0
   while (parentId && guard++ < 100) {
     next.add(parentId)
     parentId = notes.folders.find((f) => f.id === parentId)?.parent_id ?? null
+  }
+  const byId = new Map(notes.notes.map((n) => [n.id, n]))
+  let parentNoteId = note.parent_note_id
+  guard = 0
+  while (parentNoteId && guard++ < 100) {
+    next.add(parentNoteId)
+    parentNoteId = byId.get(parentNoteId)?.parent_note_id ?? null
   }
   if (next.size !== expanded.value.size) expanded.value = next
   await nextTick()
@@ -588,9 +619,46 @@ const dragRow = ref<TreeRow | null>(null)
 const dropState = ref<{ id: string; pos: DropPos } | null>(null)
 const rootOver = ref(false)
 
+/** 子笔记是否为某篇笔记的后代（用于阻止把笔记拖进自己的子树）。 */
+function isNoteDescendant(candidateId: string, ancestorId: string): boolean {
+  const byId = new Map(notes.notes.map((n) => [n.id, n]))
+  let current = byId.get(candidateId)
+  let guard = 0
+  while (current?.parent_note_id && guard++ < 200) {
+    if (current.parent_note_id === ancestorId) return true
+    current = byId.get(current.parent_note_id)
+  }
+  return false
+}
+
+/** 拖拽悬停时自动展开折叠的分组 / 父笔记，避免必须先手动展开。 */
+let autoExpand: { id: string; timer: number } | null = null
+
+function cancelAutoExpand() {
+  if (!autoExpand) return
+  window.clearTimeout(autoExpand.timer)
+  autoExpand = null
+}
+
+function scheduleAutoExpand(id: string, pos: DropPos) {
+  if (pos !== 'into' || expanded.value.has(id)) {
+    cancelAutoExpand()
+    return
+  }
+  if (autoExpand?.id === id) return
+  cancelAutoExpand()
+  const timer = window.setTimeout(() => {
+    autoExpand = null
+    expand(id)
+  }, 550)
+  autoExpand = { id, timer }
+}
+
 function onDragStart(event: DragEvent, row: TreeRow) {
   dragRow.value = row
   dropState.value = null
+  rootOver.value = false
+  cancelAutoExpand()
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData('text/plain', JSON.stringify({ type: row.type, id: row.id }))
@@ -599,45 +667,82 @@ function onDragStart(event: DragEvent, row: TreeRow) {
 
 function onDragOver(event: DragEvent, row: TreeRow) {
   const drag = dragRow.value
-  if (!drag || drag.id === row.id) return
-  event.preventDefault()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  if (!drag || drag.id === row.id) {
+    dropState.value = null
+    return
+  }
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const rel = (event.clientY - rect.top) / Math.max(rect.height, 1)
-  let pos: DropPos
+  let pos: DropPos | null = null
   if (row.type === 'folder') {
     if (drag.type === 'folder' && isDescendant(row.folder!.id, drag.id)) {
       dropState.value = null
+      cancelAutoExpand()
       return
     }
     // 上下边缘 = 与分组同级排序（可把笔记拖到分组上方），中间 = 放入分组。
     pos = rel < 0.26 ? 'before' : rel > 0.74 ? 'after' : 'into'
+  } else if (drag.type === 'note') {
+    if (isNoteDescendant(row.id, drag.id)) {
+      dropState.value = null
+      cancelAutoExpand()
+      return
+    }
+    // 中间 = 变成目标笔记的子笔记，上下边缘 = 与目标笔记同级排序。
+    pos = rel < 0.3 ? 'before' : rel > 0.7 ? 'after' : 'into'
   } else {
+    // 分组不能放进笔记；只允许在根级笔记旁参与同一分组层级的排序。
+    if (row.note!.parent_note_id) {
+      dropState.value = null
+      cancelAutoExpand()
+      return
+    }
     pos = rel < 0.5 ? 'before' : 'after'
   }
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
   dropState.value = { id: row.id, pos }
+  scheduleAutoExpand(row.id, pos)
 }
 
-function onDragLeave(row: TreeRow) {
+function onDragLeave(event: DragEvent, row: TreeRow) {
+  const related = event.relatedTarget as Node | null
+  if (related && (event.currentTarget as HTMLElement).contains(related)) return
   if (dropState.value?.id === row.id) dropState.value = null
+  cancelAutoExpand()
+}
+
+/** 离开整个目录容器时清理高亮，避免拖拽状态残留。 */
+function onTreeDragLeave(event: DragEvent) {
+  const related = event.relatedTarget as Node | null
+  if (related && treeScrollEl.value?.contains(related)) return
+  dropState.value = null
+  rootOver.value = false
+  cancelAutoExpand()
 }
 
 function resetDrag() {
   dragRow.value = null
   dropState.value = null
   rootOver.value = false
+  cancelAutoExpand()
 }
 
 async function onDrop(event: DragEvent, row: TreeRow) {
   event.preventDefault()
   const drag = dragRow.value
-  const pos = dropState.value?.id === row.id ? dropState.value.pos : null
+  // 拖拽过程中若状态被清理，落在笔记上仍按「放入」处理，避免无响应。
+  const pos =
+    dropState.value?.id === row.id
+      ? dropState.value.pos
+      : drag?.type === 'note'
+        ? 'into'
+        : null
   resetDrag()
-  if (!drag || drag.id === row.id) return
+  if (!drag || drag.id === row.id || !pos) return
   try {
     if (drag.type === 'note' && drag.note) await dropNote(drag.note, row, pos)
     else if (drag.type === 'folder' && drag.folder) await dropFolder(drag.folder, row, pos)
-    if (row.type === 'folder' && pos === 'into') expand(row.id)
   } catch (e: any) {
     toast.error(e.message || '移动失败')
     await notes.fetchTree()
@@ -665,19 +770,104 @@ function mixedReorderItems(
   return items
 }
 
-async function dropNote(note: NoteSummary, target: TreeRow, pos: DropPos | null) {
-  // 落在分组中部 = 放入分组内部；落在上下边缘 = 与分组同级排序。
-  if (target.type === 'folder' && (pos === 'into' || !pos)) {
-    await notes.moveNote(note.id, target.folder!.id)
+/** 构造某个父笔记下全部直接子笔记的顺序，用于子笔记排序。 */
+function childNoteReorderIds(
+  parentNoteId: string,
+  movingId: string,
+  targetId: string,
+  after: boolean,
+): string[] | null {
+  const ids = noteChildren(parentNoteId)
+    .filter((note) => note.id !== movingId)
+    .map((note) => note.id)
+  const index = ids.indexOf(targetId)
+  if (index < 0) return null
+  ids.splice(index + (after ? 1 : 0), 0, movingId)
+  return ids
+}
+
+async function dropNote(note: NoteSummary, target: TreeRow, pos: DropPos) {
+  // 落在分组中部 = 放入分组内部；落在笔记中部 = 成为该笔记的子笔记。
+  if (target.type === 'folder' && pos === 'into') {
+    await notes.moveNoteTo(note.id, {
+      folder_id: target.folder!.id,
+      parent_note_id: null,
+    })
+    expand(target.id)
     return
   }
-  const parentId =
-    target.type === 'folder' ? target.folder!.parent_id : target.note!.folder_id
-  if (note.folder_id !== parentId) await notes.moveNote(note.id, parentId)
-  const moving = { type: 'note' as const, id: note.id }
-  const targetNode = { type: target.type, id: target.id }
-  const items = mixedReorderItems(parentId, moving, targetNode, pos === 'after')
-  if (items) await notes.reorderTree(parentId, items)
+  if (target.type === 'note' && pos === 'into') {
+    const parent = target.note!
+    if (parent.id === note.id || isNoteDescendant(parent.id, note.id)) {
+      toast.error('不能把笔记移到自己的子笔记下')
+      return
+    }
+    await notes.moveNoteTo(note.id, {
+      folder_id: parent.folder_id,
+      parent_note_id: parent.id,
+    })
+    expand(parent.id)
+    return
+  }
+
+  if (target.type === 'folder') {
+    // 与分组同级排序（笔记可以排到分组上方）。
+    const folderId = target.folder!.parent_id
+    if (note.parent_note_id !== null || note.folder_id !== folderId) {
+      await notes.moveNoteTo(note.id, { folder_id: folderId, parent_note_id: null })
+    }
+    const items = mixedReorderItems(
+      folderId,
+      { type: 'note', id: note.id },
+      { type: 'folder', id: target.id },
+      pos === 'after',
+    )
+    if (items) await notes.reorderTree(folderId, items)
+    return
+  }
+
+  const targetNote = target.note!
+  const parentNoteId = targetNote.parent_note_id
+  if (
+    parentNoteId === note.id ||
+    (parentNoteId !== null && isNoteDescendant(parentNoteId, note.id))
+  ) {
+    toast.error('不能把笔记移到自己的子笔记下')
+    return
+  }
+
+  if (parentNoteId === null) {
+    // 根级笔记：与同分组内的分组 / 笔记混合排序。
+    if (note.parent_note_id !== null || note.folder_id !== targetNote.folder_id) {
+      await notes.moveNoteTo(note.id, {
+        folder_id: targetNote.folder_id,
+        parent_note_id: null,
+      })
+    }
+    const items = mixedReorderItems(
+      targetNote.folder_id,
+      { type: 'note', id: note.id },
+      { type: 'note', id: targetNote.id },
+      pos === 'after',
+    )
+    if (items) await notes.reorderTree(targetNote.folder_id, items)
+    return
+  }
+
+  // 子笔记之间排序：分组随父笔记，排序按父笔记下的完整子集提交。
+  if (note.parent_note_id !== parentNoteId || note.folder_id !== targetNote.folder_id) {
+    await notes.moveNoteTo(note.id, {
+      folder_id: targetNote.folder_id,
+      parent_note_id: parentNoteId,
+    })
+  }
+  const ids = childNoteReorderIds(
+    parentNoteId,
+    note.id,
+    targetNote.id,
+    pos === 'after',
+  )
+  if (ids) await notes.reorder(null, 'note', ids, parentNoteId)
 }
 
 async function dropFolder(folder: NoteFolder, target: TreeRow, pos: DropPos | null) {
@@ -688,17 +878,51 @@ async function dropFolder(folder: NoteFolder, target: TreeRow, pos: DropPos | nu
       return
     }
     await notes.updateFolder(folder.id, { parent_id: targetFolder.id })
+    expand(targetFolder.id)
     return
   }
-  const parentId =
-    target.type === 'folder' ? target.folder!.parent_id : target.note!.folder_id
-  if (parentId === folder.id) return
+
+  if (target.type === 'note') {
+    // 分组只能与根级笔记 / 分组共用层级；子笔记的内层没有分组。
+    const targetNote = target.note!
+    if (targetNote.parent_note_id) {
+      toast.error('分组不能放到子笔记层级')
+      return
+    }
+    if (!pos) return
+    const parentId = targetNote.folder_id
+    if (parentId === folder.id || (parentId && isDescendant(parentId, folder.id))) {
+      toast.error('不能把分组移到自己的子分组中')
+      return
+    }
+    if (folder.parent_id !== parentId) {
+      await notes.updateFolder(folder.id, { parent_id: parentId })
+    }
+    const items = mixedReorderItems(
+      parentId,
+      { type: 'folder', id: folder.id },
+      { type: 'note', id: targetNote.id },
+      pos === 'after',
+    )
+    if (items) await notes.reorderTree(parentId, items)
+    return
+  }
+
+  if (!pos) return
+  const parentId = target.folder!.parent_id
+  if (parentId === folder.id || (parentId && isDescendant(parentId, folder.id))) {
+    toast.error('不能把分组移到自己的子分组中')
+    return
+  }
   if (folder.parent_id !== parentId) {
     await notes.updateFolder(folder.id, { parent_id: parentId })
   }
-  const moving = { type: 'folder' as const, id: folder.id }
-  const targetNode = { type: target.type, id: target.id }
-  const items = mixedReorderItems(parentId, moving, targetNode, pos === 'after')
+  const items = mixedReorderItems(
+    parentId,
+    { type: 'folder', id: folder.id },
+    { type: 'folder', id: target.id },
+    pos === 'after',
+  )
   if (items) await notes.reorderTree(parentId, items)
 }
 
@@ -708,8 +932,9 @@ async function onRootDrop(event: DragEvent) {
   resetDrag()
   if (!drag) return
   try {
-    if (drag.type === 'note' && drag.note) await notes.moveNote(drag.note.id, null)
-    else if (drag.type === 'folder' && drag.folder) {
+    if (drag.type === 'note' && drag.note) {
+      await notes.moveNoteTo(drag.note.id, { folder_id: null, parent_note_id: null })
+    } else if (drag.type === 'folder' && drag.folder) {
       await notes.updateFolder(drag.folder.id, { parent_id: null })
     }
   } catch (e: any) {
@@ -877,6 +1102,18 @@ function onQuickCaptureKey(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onQuickCaptureKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onQuickCaptureKey))
 
+// 拖到窗口外 / 按 Esc 取消时浏览器不保证触发节点上的 drop，统一兜底清理，
+// 避免 dragRow 残留导致之后的操作像「卡住」。
+onMounted(() => {
+  window.addEventListener('dragend', resetDrag)
+  window.addEventListener('blur', resetDrag)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('dragend', resetDrag)
+  window.removeEventListener('blur', resetDrag)
+  cancelAutoExpand()
+})
+
 function onTemplateCreated(note: NoteOut) {
   emit('open-note', note)
 }
@@ -1032,6 +1269,7 @@ const createFolderId = ref<string | null>(null)
 async function createNoteAt(
   kind: 'doc' | 'canvas' | 'database' | 'notebook',
   folderId: string | null = null,
+  parentNoteId: string | null = null,
 ) {
   const titles = {
     doc: '无标题文档',
@@ -1050,13 +1288,20 @@ async function createNoteAt(
       title: titles[kind],
       kind,
       folder_id: folderId,
+      parent_note_id: parentNoteId,
     })
-    if (folderId) expand(folderId)
+    expandCreateTarget(folderId, parentNoteId)
     emit('open-note', note)
     renamingId.value = note.id
   } catch (e: any) {
     toast.error(e.message || `${names[kind]}失败`)
   }
+}
+
+/** 展开新建目标，保证新条目在目录树中立即可见。 */
+function expandCreateTarget(folderId: string | null, parentNoteId: string | null) {
+  if (parentNoteId) expand(parentNoteId)
+  else if (folderId) expand(folderId)
 }
 
 const createDoc = (folderId: string | null = null) => createNoteAt('doc', folderId)
@@ -1066,24 +1311,31 @@ const createNotebook = (folderId: string | null = null) => createNoteAt('noteboo
 
 const importOpen = ref(false)
 const importFolderId = ref<string | null>(null)
+const importParentNoteId = ref<string | null>(null)
 const linkOpen = ref(false)
 const linkFolderId = ref<string | null>(null)
+const linkParentNoteId = ref<string | null>(null)
 const templateFolderId = ref<string | null>(null)
+const templateParentNoteId = ref<string | null>(null)
 
-function openImport(folderId: string | null = null) {
+function openImport(folderId: string | null = null, parentNoteId: string | null = null) {
   importFolderId.value = folderId
-  if (folderId) expand(folderId)
+  importParentNoteId.value = parentNoteId
+  expandCreateTarget(folderId, parentNoteId)
   importOpen.value = true
 }
 
-function openLink(folderId: string | null = null) {
+function openLink(folderId: string | null = null, parentNoteId: string | null = null) {
   linkFolderId.value = folderId
-  if (folderId) expand(folderId)
+  linkParentNoteId.value = parentNoteId
+  expandCreateTarget(folderId, parentNoteId)
   linkOpen.value = true
 }
 
-function openTemplates(folderId: string | null = null) {
+function openTemplates(folderId: string | null = null, parentNoteId: string | null = null) {
   templateFolderId.value = folderId
+  templateParentNoteId.value = parentNoteId
+  expandCreateTarget(folderId, parentNoteId)
   templateOpen.value = true
 }
 
@@ -1091,40 +1343,42 @@ function onCreated(note: NoteOut) {
   emit('open-note', note)
 }
 
-/** 右键菜单「在此层级新建」的当前目标分组。 */
-function menuCreateFolderId(): string | null {
+/** 右键菜单的新建目标：分组内新建；笔记下新建子笔记。 */
+function menuCreateTarget(): { folderId: string | null; parentNoteId: string | null } {
   const row = menu.value.row
-  if (!row) return null
-  return row.type === 'folder' ? row.id : (row.note?.folder_id ?? null)
+  if (!row) return { folderId: null, parentNoteId: null }
+  if (row.type === 'folder') return { folderId: row.id, parentNoteId: null }
+  return { folderId: row.note?.folder_id ?? null, parentNoteId: row.id }
 }
 
 function createFromMenu(kind: string) {
-  const folderId = menuCreateFolderId()
+  const { folderId, parentNoteId } = menuCreateTarget()
   menu.value.open = false
   switch (kind) {
     case 'doc':
-      void createDoc(folderId)
+      void createNoteAt('doc', folderId, parentNoteId)
       break
     case 'canvas':
-      void createCanvas(folderId)
+      void createNoteAt('canvas', folderId, parentNoteId)
       break
     case 'database':
-      void createDatabase(folderId)
+      void createNoteAt('database', folderId, parentNoteId)
       break
     case 'notebook':
-      void createNotebook(folderId)
+      void createNoteAt('notebook', folderId, parentNoteId)
       break
     case 'import':
-      openImport(folderId)
+      openImport(folderId, parentNoteId)
       break
     case 'link':
-      openLink(folderId)
+      openLink(folderId, parentNoteId)
       break
     case 'template':
-      openTemplates(folderId)
+      openTemplates(folderId, parentNoteId)
       break
     case 'folder':
-      void openFolderDialog(folderId)
+      // 分组只能存在于工作区分组层级，笔记内层不提供子分组。
+      if (!parentNoteId) void openFolderDialog(folderId)
       break
   }
 }
@@ -1294,7 +1548,11 @@ const createFolderMenu = () => openFolderDialog(null)
       </div>
     </div>
 
-    <div ref="treeScrollEl" class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2">
+    <div
+      ref="treeScrollEl"
+      class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2"
+      @dragleave="onTreeDragLeave"
+    >
       <template
         v-for="row in rows"
         :key="`${row.type}:${row.id}:${row.hoisted ? 'pin' : 'origin'}`"
@@ -1307,7 +1565,7 @@ const createFolderMenu = () => openFolderDialog(null)
         <NotesTreeNode
           :row="row"
           :active-id="activeId"
-          :open="row.type === 'folder' ? expanded.has(row.id) : false"
+          :open="expanded.has(row.id)"
           :renaming="renamingId === row.id && !row.hoisted"
           :dragging="dragRow?.id === row.id && !row.hoisted"
           :selected="row.type === 'note' && !row.hoisted && selectedIds.has(row.id)"
@@ -1708,18 +1966,21 @@ const createFolderMenu = () => openFolderDialog(null)
     <NoteImportDialog
       :open="importOpen"
       :folder-id="importFolderId"
+      :parent-note-id="importParentNoteId"
       @close="importOpen = false"
       @created="onCreated"
     />
     <LinkCreateDialog
       :open="linkOpen"
       :folder-id="linkFolderId"
+      :parent-note-id="linkParentNoteId"
       @close="linkOpen = false"
       @created="onCreated"
     />
     <NoteTemplatePicker
       :open="templateOpen"
       :folder-id="templateFolderId"
+      :parent-note-id="templateParentNoteId"
       @close="templateOpen = false"
       @created="onTemplateCreated"
     />

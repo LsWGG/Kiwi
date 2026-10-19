@@ -697,10 +697,105 @@ async def _validate_folder(
         raise HTTPException(400, "分组不存在")
 
 
+async def _get_parent_note(
+    session: AsyncSession, kb_id: uuid.UUID, parent_note_id: uuid.UUID
+) -> Note:
+    parent = await session.get(Note, parent_note_id)
+    if parent is None or parent.kb_id != kb_id:
+        raise HTTPException(400, "父笔记不存在")
+    if parent.status != "active":
+        raise HTTPException(400, "父笔记不在工作区")
+    return parent
+
+
+async def _validate_note_parent(
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    note_id: uuid.UUID | None,
+    parent_note_id: uuid.UUID | None,
+) -> Note | None:
+    """校验父笔记可访问，并拒绝把笔记挂到自身或自己的后代下。"""
+    if parent_note_id is None:
+        return None
+    if note_id is not None and parent_note_id == note_id:
+        raise HTTPException(400, "不能把笔记移到自身下级")
+    parent = await _get_parent_note(session, kb_id, parent_note_id)
+    seen = {parent.id}
+    cursor = parent
+    guard = 0
+    while cursor.parent_note_id is not None and guard < 1000:
+        guard += 1
+        if note_id is not None and cursor.parent_note_id == note_id:
+            raise HTTPException(400, "不能把笔记移到自己的子笔记下")
+        if cursor.parent_note_id in seen:
+            raise HTTPException(400, "笔记层级存在循环引用")
+        seen.add(cursor.parent_note_id)
+        cursor = await session.get(Note, cursor.parent_note_id)
+        if cursor is None:
+            break
+    return parent
+
+
+async def _note_descendant_ids(
+    session: AsyncSession, kb_id: uuid.UUID, note_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """BFS 返回全部子笔记 id（不含自身），用于级联分组与状态。"""
+    seen: set[uuid.UUID] = set()
+    frontier = [note_id]
+    while frontier and len(seen) < 5000:
+        rows = (
+            (
+                await session.execute(
+                    select(Note.id).where(
+                        Note.kb_id == kb_id, Note.parent_note_id.in_(frontier)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        frontier = [row for row in rows if row not in seen]
+        seen.update(frontier)
+    return list(seen)
+
+
+async def _move_subtree_folder(
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    note_id: uuid.UUID,
+    folder_id: uuid.UUID | None,
+) -> None:
+    """父笔记换分组时，所有子笔记跟随，保证同一子树不跨分组。"""
+    descendants = await _note_descendant_ids(session, kb_id, note_id)
+    if descendants:
+        await session.execute(
+            update(Note).where(Note.id.in_(descendants)).values(folder_id=folder_id)
+        )
+
+
 async def _next_note_sort(
-    session: AsyncSession, kb_id: uuid.UUID, folder_id: uuid.UUID | None
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    folder_id: uuid.UUID | None,
+    parent_note_id: uuid.UUID | None = None,
 ) -> int:
-    stmt = select(Note.sort_order).where(Note.kb_id == kb_id)
+    if parent_note_id is not None:
+        # 子笔记只与同一父笔记下的兄弟排序，分组不是它们的同级节点。
+        values = list(
+            (
+                await session.execute(
+                    select(Note.sort_order).where(
+                        Note.kb_id == kb_id, Note.parent_note_id == parent_note_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return (max(values) + 1) if values else 0
+    stmt = select(Note.sort_order).where(
+        Note.kb_id == kb_id, Note.parent_note_id.is_(None)
+    )
     stmt = stmt.where(Note.folder_id == folder_id) if folder_id else stmt.where(
         Note.folder_id.is_(None)
     )
@@ -1006,9 +1101,19 @@ async def reorder(
             )
     else:
         stmt = select(Note.id).where(Note.kb_id == kb_id, Note.status == "active")
-        stmt = stmt.where(Note.folder_id == data.parent_id) if data.parent_id else stmt.where(
-            Note.folder_id.is_(None)
-        )
+        if data.parent_note_id is not None:
+            parent = await _get_parent_note(session, kb_id, data.parent_note_id)
+            stmt = stmt.where(
+                Note.folder_id == parent.folder_id,
+                Note.parent_note_id == data.parent_note_id,
+            )
+        else:
+            stmt = stmt.where(Note.parent_note_id.is_(None))
+            stmt = (
+                stmt.where(Note.folder_id == data.parent_id)
+                if data.parent_id
+                else stmt.where(Note.folder_id.is_(None))
+            )
         existing = set((await session.execute(stmt)).scalars().all())
         incoming = set(data.ordered_ids)
         if existing != incoming:
@@ -1028,7 +1133,11 @@ async def tree_reorder(
     包含该层级全部分组与活跃笔记，避免并发编辑时漏掉节点。
     """
     folder_stmt = select(NoteFolder.id).where(NoteFolder.kb_id == kb_id)
-    note_stmt = select(Note.id).where(Note.kb_id == kb_id, Note.status == "active")
+    note_stmt = select(Note.id).where(
+        Note.kb_id == kb_id,
+        Note.status == "active",
+        Note.parent_note_id.is_(None),
+    )
     if data.parent_id is None:
         folder_stmt = folder_stmt.where(NoteFolder.parent_id.is_(None))
         note_stmt = note_stmt.where(Note.folder_id.is_(None))
@@ -1104,6 +1213,7 @@ async def import_file(
     upload_id: str | None = Form(None),
     batch_id: uuid.UUID | None = Form(None),
     folder_id: uuid.UUID | None = Form(None),
+    parent_note_id: uuid.UUID | None = Form(None),
     title: str | None = Form(None),
     compile_now: bool = Form(False),
     readonly: bool = Form(False),
@@ -1160,6 +1270,7 @@ async def import_file(
             filename=filename,
             content=content,
             folder_id=folder_id,
+            parent_note_id=parent_note_id,
             title=title,
             compile_now=compile_now,
             batch_id=batch_id,
@@ -1178,6 +1289,7 @@ async def _create_readonly_file_note(
     filename: str,
     content: bytes,
     folder_id: uuid.UUID | None,
+    parent_note_id: uuid.UUID | None,
     title: str | None,
     inspection: FileInspection,
     import_meta: dict | None,
@@ -1195,9 +1307,12 @@ async def _create_readonly_file_note(
         kind="import",
         body_md="",
         folder_id=folder_id,
+        parent_note_id=parent_note_id,
         status="active",
         view_mode="read",
-        sort_order=await _next_note_sort(session, kb_id, folder_id),
+        sort_order=await _next_note_sort(
+            session, kb_id, folder_id, parent_note_id
+        ),
         props_json={"readonly": True},
     )
     session.add(note)
@@ -1271,6 +1386,7 @@ async def _start_import(
     filename: str,
     content: bytes,
     folder_id: uuid.UUID | None,
+    parent_note_id: uuid.UUID | None,
     title: str | None,
     compile_now: bool,
     batch_id: uuid.UUID | None,
@@ -1286,6 +1402,11 @@ async def _start_import(
     """
     kb_id = kb.id
     user_title = (title or "").strip()
+    parent = await _validate_note_parent(
+        session, kb_id, None, parent_note_id
+    )
+    if parent is not None:
+        folder_id = parent.folder_id
     if readonly:
         return await _create_readonly_file_note(
             session,
@@ -1293,6 +1414,7 @@ async def _start_import(
             filename=filename,
             content=content,
             folder_id=folder_id,
+            parent_note_id=parent_note_id,
             title=title,
             inspection=inspection,
             import_meta=import_meta,
@@ -1305,9 +1427,12 @@ async def _start_import(
         kind="import",
         body_md="",
         folder_id=folder_id,
+        parent_note_id=parent_note_id,
         status="active",
         view_mode="edit",
-        sort_order=await _next_note_sort(session, kb_id, folder_id),
+        sort_order=await _next_note_sort(
+            session, kb_id, folder_id, parent_note_id
+        ),
         props_json={
             "import": {
                 "status": "parsing",
@@ -1415,6 +1540,7 @@ async def import_remote_file(
         filename=remote.filename,
         content=remote.content,
         folder_id=payload.folder_id,
+        parent_note_id=payload.parent_note_id,
         title=payload.title,
         compile_now=payload.compile_now,
         batch_id=payload.batch_id,
@@ -1470,6 +1596,7 @@ async def import_table_file(
     kb_id: uuid.UUID,
     file: UploadFile = File(...),
     folder_id: uuid.UUID | None = Form(None),
+    parent_note_id: uuid.UUID | None = Form(None),
     title: str | None = Form(None),
     sheet: str | None = Form(None),
     has_header: bool = Form(True),
@@ -1484,6 +1611,11 @@ async def import_table_file(
     if kb is None:
         raise HTTPException(404, "知识库不存在")
     await _validate_folder(session, kb_id, folder_id)
+    parent = await _validate_note_parent(
+        session, kb_id, None, parent_note_id
+    )
+    if parent is not None:
+        folder_id = parent.folder_id
 
     filename, table = await _load_table_upload(file, sheet, has_header)
     if not table.rows:
@@ -1500,9 +1632,12 @@ async def import_table_file(
         kind="database",
         body_md="",
         folder_id=folder_id,
+        parent_note_id=parent_note_id,
         status="active",
         view_mode="edit",
-        sort_order=await _next_note_sort(session, kb_id, folder_id),
+        sort_order=await _next_note_sort(
+            session, kb_id, folder_id, parent_note_id
+        ),
         props_json={
             "table_import": {
                 "filename": filename,
@@ -1637,6 +1772,10 @@ async def create_link(
     也不参与编译与可编辑文档。
     """
     await _validate_folder(session, kb_id, data.folder_id)
+    parent = await _validate_note_parent(
+        session, kb_id, None, data.parent_note_id
+    )
+    folder_id = parent.folder_id if parent is not None else data.folder_id
     if data.readonly:
         try:
             meta = await fetch_meta(data.url)
@@ -1647,10 +1786,13 @@ async def create_link(
             title=(data.title or meta.title or meta.site or meta.url)[:300],
             body_md="",
             kind="link",
-            folder_id=data.folder_id,
+            folder_id=folder_id,
+            parent_note_id=data.parent_note_id,
             status="active",
             view_mode="read",
-            sort_order=await _next_note_sort(session, kb_id, data.folder_id),
+            sort_order=await _next_note_sort(
+                session, kb_id, folder_id, data.parent_note_id
+            ),
             props_json={
                 "readonly": True,
                 "link": _link_props(meta, meta.url),
@@ -1671,10 +1813,13 @@ async def create_link(
         title=(data.title or result.title or result.site or result.url)[:300],
         body_md=result.markdown,
         kind="link",
-        folder_id=data.folder_id,
+        folder_id=folder_id,
+        parent_note_id=data.parent_note_id,
         status="active",
         view_mode="edit",
-        sort_order=await _next_note_sort(session, kb_id, data.folder_id),
+        sort_order=await _next_note_sort(
+            session, kb_id, folder_id, data.parent_note_id
+        ),
         props_json={"link": _link_props(result, result.url)},
     )
     session.add(note)
@@ -1971,6 +2116,10 @@ async def use_template(
 ):
     template = await _get_template(session, kb_id, template_id)
     await _validate_folder(session, kb_id, data.folder_id)
+    parent = await _validate_note_parent(
+        session, kb_id, None, data.parent_note_id
+    )
+    folder_id = parent.folder_id if parent is not None else data.folder_id
     title = _template_title(template, data.title)
     body = (template.body_md or "").replace("{{date}}", datetime.now().strftime("%Y-%m-%d"))
     template_props = dict(template.props_json or {})
@@ -2043,10 +2192,13 @@ async def use_template(
         title=title,
         body_md=body,
         kind="doc",
-        folder_id=data.folder_id,
+        folder_id=folder_id,
+        parent_note_id=data.parent_note_id,
         status="active",
         view_mode="edit",
-        sort_order=await _next_note_sort(session, kb_id, data.folder_id),
+        sort_order=await _next_note_sort(
+            session, kb_id, folder_id, data.parent_note_id
+        ),
         props_json={**(template.props_json or {}), "template_id": str(template.id)},
     )
     session.add(note)
@@ -2667,15 +2819,23 @@ async def create_note(
     data: NoteCreate, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ):
     await _validate_folder(session, kb_id, data.folder_id)
+    parent = await _validate_note_parent(
+        session, kb_id, None, data.parent_note_id
+    )
+    # 子笔记与父笔记处于同一分组，客户端传入的分组不参与定位。
+    folder_id = parent.folder_id if parent is not None else data.folder_id
     sort_order = data.sort_order
     if sort_order is None:
-        sort_order = await _next_note_sort(session, kb_id, data.folder_id)
+        sort_order = await _next_note_sort(
+            session, kb_id, folder_id, data.parent_note_id
+        )
     note = Note(
         kb_id=kb_id,
         title=data.title.strip(),
         body_md=data.body_md,
         kind=data.kind,
-        folder_id=data.folder_id,
+        folder_id=folder_id,
+        parent_note_id=data.parent_note_id,
         source_id=data.source_id,
         status="active",
         view_mode=data.view_mode,
@@ -2719,9 +2879,43 @@ async def update_note(
     )
     if incoming_title != note.title or incoming_body != note.body_md:
         await _snapshot_revision(session, note, source="auto")
-    if "folder_id" in data.model_fields_set:
+    location_changed = False
+    if "parent_note_id" in data.model_fields_set:
+        parent = await _validate_note_parent(
+            session, kb_id, note.id, data.parent_note_id
+        )
+        new_folder_id = (
+            parent.folder_id
+            if parent is not None
+            else (
+                data.folder_id
+                if "folder_id" in data.model_fields_set
+                else note.folder_id
+            )
+        )
+        if parent is None and "folder_id" in data.model_fields_set:
+            await _validate_folder(session, kb_id, new_folder_id)
+        if (
+            data.parent_note_id != note.parent_note_id
+            or new_folder_id != note.folder_id
+        ):
+            note.parent_note_id = data.parent_note_id
+            note.folder_id = new_folder_id
+            location_changed = True
+    elif "folder_id" in data.model_fields_set:
         await _validate_folder(session, kb_id, data.folder_id)
-        note.folder_id = data.folder_id
+        if note.folder_id != data.folder_id:
+            note.folder_id = data.folder_id
+            # 子笔记不能跨分组挂在父笔记下；换组即提升为该组根级笔记。
+            if note.parent_note_id is not None:
+                note.parent_note_id = None
+            location_changed = True
+    if location_changed:
+        if "sort_order" not in data.model_fields_set or data.sort_order is None:
+            note.sort_order = await _next_note_sort(
+                session, kb_id, note.folder_id, note.parent_note_id
+            )
+        await _move_subtree_folder(session, kb_id, note.id, note.folder_id)
     for field in ("title", "body_md", "status", "view_mode", "sort_order"):
         if field in data.model_fields_set:
             val = getattr(data, field)
@@ -2950,6 +3144,18 @@ async def delete_note(
     previous = note.status if note.status in ("active", "archived") else "active"
     _set_lifecycle(note, trashed_at=_now_iso(), status_before_trash=previous)
     note.status = "trash"
+    # 子笔记随父笔记一起进入回收站，避免留下无法在目录树中定位的孤立笔记。
+    for child_id in await _note_descendant_ids(session, kb_id, note_id):
+        child = await session.get(Note, child_id)
+        if child is None or child.status not in ("active", "archived"):
+            continue
+        _set_lifecycle(
+            child,
+            trashed_at=_now_iso(),
+            status_before_trash=child.status,
+            trashed_with_parent=True,
+        )
+        child.status = "trash"
     # 数据表行笔记删除时同步删除对应行，避免留下无法打开的空行
     row_id = (note.props_json or {}).get("collection_row_id")
     if row_id:
@@ -3028,6 +3234,36 @@ async def restore_note(
         folder = await session.get(NoteFolder, note.folder_id)
         if folder is None or folder.kb_id != kb_id:
             note.folder_id = None
+    # 父笔记仍在回收站 / 已删除时，恢复的笔记提升为当前分组根级。
+    if note.parent_note_id is not None:
+        parent = await session.get(Note, note.parent_note_id)
+        if (
+            parent is None
+            or parent.kb_id != kb_id
+            or parent.status != "active"
+        ):
+            note.parent_note_id = None
+    # 随父笔记一起移入回收站的子笔记同步恢复。
+    for child_id in await _note_descendant_ids(session, kb_id, note_id):
+        child = await session.get(Note, child_id)
+        if child is None or child.status != "trash":
+            continue
+        child_lifecycle = _lifecycle(child)
+        if not child_lifecycle.get("trashed_with_parent"):
+            continue
+        child_previous = child_lifecycle.get("status_before_trash")
+        child.status = (
+            child_previous
+            if child_previous in ("active", "archived")
+            else "active"
+        )
+        _set_lifecycle(
+            child,
+            trashed_at=None,
+            status_before_trash=None,
+            trashed_with_parent=None,
+            restored_at=_now_iso(),
+        )
     # 行已被删除的行笔记，恢复后降级为普通文档
     row_id = (note.props_json or {}).get("collection_row_id")
     if row_id:
@@ -3072,6 +3308,15 @@ async def archive_note(
     note = await _get_note(session, kb_id, note_id)
     note.status = "archived"
     _set_lifecycle(note, archived_at=_now_iso())
+    # 子笔记随父笔记一起归档，避免目录树中父级消失后子笔记不可达。
+    for child_id in await _note_descendant_ids(session, kb_id, note_id):
+        child = await session.get(Note, child_id)
+        if child is None or child.status != "active":
+            continue
+        child.status = "archived"
+        _set_lifecycle(
+            child, archived_at=_now_iso(), archived_with_parent=True
+        )
     # 行笔记随数据表一起归档（仅标记被本次操作改变的行，避免误改独立归档）
     for child in await _collection_child_notes(session, note):
         if child.status == "active":
@@ -3093,6 +3338,21 @@ async def unarchive_note(
         raise HTTPException(400, "笔记不在归档中")
     note.status = "active"
     _set_lifecycle(note, archived_at=None)
+    # 父笔记仍在归档时，取消归档的子笔记提升为分组根级。
+    if note.parent_note_id is not None:
+        parent = await session.get(Note, note.parent_note_id)
+        if parent is None or parent.kb_id != kb_id or parent.status != "active":
+            note.parent_note_id = None
+    for child_id in await _note_descendant_ids(session, kb_id, note_id):
+        child = await session.get(Note, child_id)
+        if child is None or child.status != "archived":
+            continue
+        if not _lifecycle(child).get("archived_with_parent"):
+            continue
+        child.status = "active"
+        _set_lifecycle(
+            child, archived_at=None, archived_with_parent=None
+        )
     for child in await _collection_child_notes(session, note):
         if child.status == "archived" and _lifecycle(child).get(
             "archived_with_collection"
@@ -3597,9 +3857,31 @@ async def copy_note(
 ):
     """复制笔记到当前知识库；数据表会连同字段、视图和记录一起复制。"""
     src = await _get_note(session, kb_id, note_id)
-    folder_id = data.folder_id if "folder_id" in data.model_fields_set else src.folder_id
+    parent_note_id = src.parent_note_id
+    if "parent_note_id" in data.model_fields_set:
+        parent_note_id = data.parent_note_id
+    elif (
+        "folder_id" in data.model_fields_set
+        and data.folder_id != src.folder_id
+    ):
+        # 显式换组时副本不再挂在原父笔记下，避免跨组层级。
+        parent_note_id = None
+    parent = await _validate_note_parent(
+        session, kb_id, None, parent_note_id
+    )
+    folder_id = (
+        parent.folder_id
+        if parent is not None
+        else (
+            data.folder_id
+            if "folder_id" in data.model_fields_set
+            else src.folder_id
+        )
+    )
     await _validate_folder(session, kb_id, folder_id)
-    sort_order = await _next_note_sort(session, kb_id, folder_id)
+    sort_order = await _next_note_sort(
+        session, kb_id, folder_id, parent_note_id
+    )
     title = (data.title or f"{src.title} 副本").strip()[:300] or "无标题文档"
     props = deepcopy(src.props_json or {})
     # 置顶状态属于原条目，副本默认不继承
@@ -3613,6 +3895,7 @@ async def copy_note(
         body_md=src.body_md,
         kind=src.kind,
         folder_id=folder_id,
+        parent_note_id=parent_note_id,
         source_id=None,
         status="active",
         view_mode=src.view_mode,
@@ -3693,6 +3976,13 @@ async def transfer_note(
     note.kb_id = target.id
     note.folder_id = data.folder_id
     note.sort_order = sort_order
+    # 子笔记留在原知识库：跨库笔记不能继续挂在已迁走的父级下。
+    note.parent_note_id = None
+    await session.execute(
+        update(Note)
+        .where(Note.parent_note_id == note.id)
+        .values(parent_note_id=None)
+    )
     # 旧库 Source 不再关联，正文已物化在笔记中
     note.source_id = None
     # 关联的 Wiki 页面属于原库，跨库后失效

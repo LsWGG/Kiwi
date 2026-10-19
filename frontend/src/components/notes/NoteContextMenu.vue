@@ -134,6 +134,15 @@ const pinned = computed(() =>
 )
 /** 多选时只保留批量删除，避免对整组选择展示单项操作。 */
 const batch = computed(() => !isFolder.value && props.selectionCount > 1)
+/** 笔记下的新建目标是「子笔记」，分组层级才允许继续建子分组。 */
+const createItems = computed(() =>
+  isFolder.value ? CREATE_ITEMS : CREATE_ITEMS.filter((item) => item.key !== 'folder'),
+)
+const createTitle = computed(() =>
+  isFolder.value
+    ? '新建到当前分组'
+    : `新建到「${props.row?.note?.title || '无标题'}」下级`,
+)
 </script>
 
 <template>
@@ -192,7 +201,7 @@ const batch = computed(() => !isFolder.value && props.selectionCount > 1)
             @click.stop="openCreate"
           >
             <KiwiIcon name="plus" :size="14" />
-            在此层级新建
+            {{ isFolder ? '在此层级新建' : '新建子笔记' }}
             <KiwiIcon
               name="chevronRight"
               :size="11"
@@ -288,11 +297,11 @@ const batch = computed(() => !isFolder.value && props.selectionCount > 1)
           class="w-44 rounded-xl border border-slate-200/70 bg-white/95 p-1 shadow-lifted backdrop-blur-xl animate-scale-in"
           :style="{ zoom: 'var(--ui-scale)' }"
         >
-          <div class="px-2.5 pb-1 pt-1.5 text-[10px] font-medium tracking-wide text-slate-400">
-            新建到当前层级
+          <div class="truncate px-2.5 pb-1 pt-1.5 text-[10px] font-medium tracking-wide text-slate-400">
+            {{ createTitle }}
           </div>
           <button
-            v-for="item in CREATE_ITEMS"
+            v-for="item in createItems"
             :key="item.key"
             type="button"
             class="menu-row"

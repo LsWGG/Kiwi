@@ -77,6 +77,7 @@ class Note(UUIDPkMixin, Base):
         Index("ix_notes_kb_folder", "kb_id", "folder_id"),
         Index("ix_notes_kb_kind", "kb_id", "kind"),
         Index("ix_notes_kb_folder_sort", "kb_id", "folder_id", "sort_order"),
+        Index("ix_notes_kb_parent_sort", "kb_id", "parent_note_id", "sort_order"),
     )
 
     kb_id: Mapped[uuid.UUID] = mapped_column(
@@ -87,6 +88,10 @@ class Note(UUIDPkMixin, Base):
     kind: Mapped[str] = mapped_column(String(20), default="doc", nullable=False)
     folder_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("note_folders.id", ondelete="SET NULL"), nullable=True
+    )
+    # 笔记树：子笔记挂在父笔记下。父笔记永久删除时子笔记提升到所属分组。
+    parent_note_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("notes.id", ondelete="SET NULL"), nullable=True
     )
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True

@@ -7,8 +7,13 @@ import { useNotesStore, type NoteOut } from '@/stores/notes'
 import { toast } from '@/components/ui/toast'
 
 const props = withDefaults(
-  defineProps<{ open: boolean; folderId?: string | null }>(),
-  { folderId: null },
+  defineProps<{
+    open: boolean
+    folderId?: string | null
+    /** 非空时创建为该笔记的子笔记 */
+    parentNoteId?: string | null
+  }>(),
+  { folderId: null, parentNoteId: null },
 )
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', note: NoteOut): void }>()
@@ -57,6 +62,7 @@ async function submit() {
       url: parsed.toString(),
       title: title.value.trim() || undefined,
       folder_id: props.folderId,
+      parent_note_id: props.parentNoteId,
       readonly: readonly.value,
     })
     const ok = note.props_json?.link?.fetch_status === 'ok'

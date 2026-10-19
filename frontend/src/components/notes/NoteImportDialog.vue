@@ -15,8 +15,13 @@ import {
 import { toast } from '@/components/ui/toast'
 
 const props = withDefaults(
-  defineProps<{ open: boolean; folderId?: string | null }>(),
-  { folderId: null },
+  defineProps<{
+    open: boolean
+    folderId?: string | null
+    /** 非空时导入结果成为该笔记的子笔记（语雀批量迁移仍按分组导入） */
+    parentNoteId?: string | null
+  }>(),
+  { folderId: null, parentNoteId: null },
 )
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', note: NoteOut): void }>()
@@ -349,6 +354,7 @@ async function submitFiles() {
         if (isNotebookFile(row.file.name)) {
           const note = await notes.importNotebook(row.file, {
             folder_id: props.folderId,
+            parent_note_id: props.parentNoteId,
             open: false,
           })
           row.status = 'submitted'
@@ -368,6 +374,7 @@ async function submitFiles() {
         }
         const res = await notes.importFile(uploadId ? null : row.file, {
           folder_id: props.folderId,
+          parent_note_id: props.parentNoteId,
           batch_id: batchId ?? undefined,
           upload_id: uploadId,
           compile_now: readonlyImport.value ? false : compileNow.value,
@@ -457,6 +464,7 @@ async function submitUrls() {
         const res = await notes.importRemoteFile({
           url,
           folder_id: props.folderId,
+          parent_note_id: props.parentNoteId,
           batch_id: batchId,
           title: targets.length === 1 ? urlTitle.value.trim() : '',
           compile_now: readonlyImport.value ? false : compileNow.value,
@@ -576,6 +584,7 @@ async function submitTable() {
   try {
     const res = await notes.importTable(tableFile.value, {
       folder_id: props.folderId,
+      parent_note_id: props.parentNoteId,
       title: tableTitle.value,
       sheet: tableSheet.value,
       has_header: tableHasHeader.value,

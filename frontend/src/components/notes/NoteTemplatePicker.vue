@@ -9,8 +9,13 @@ import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import { toast } from '@/components/ui/toast'
 
 const props = withDefaults(
-  defineProps<{ open: boolean; folderId?: string | null }>(),
-  { folderId: null },
+  defineProps<{
+    open: boolean
+    folderId?: string | null
+    /** 非空时创建为该笔记的子笔记；分组跟随父笔记 */
+    parentNoteId?: string | null
+  }>(),
+  { folderId: null, parentNoteId: null },
 )
 const emit = defineEmits<{
   (e: 'close'): void
@@ -113,6 +118,7 @@ async function use(template: NoteTemplate) {
   try {
     const note = await notes.useTemplate(template.id, {
       folder_id: folderId.value || null,
+      parent_note_id: props.parentNoteId,
     })
     toast.success(`已从「${template.name}」创建笔记`)
     emit('created', note)
@@ -268,13 +274,21 @@ function iconOf(template: NoteTemplate): string {
       <div class="flex items-center gap-2 mb-3">
         <div class="flex items-center gap-1.5 text-[11px] text-slate-500">
           <KiwiIcon name="folder" :size="13" class="text-slate-400" />
-          创建到
-          <select v-model="folderId" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-kiwi-300">
-            <option value="">根目录</option>
-            <option v-for="folder in folders" :key="folder.id" :value="folder.id">
-              {{ folder.name }}
-            </option>
-          </select>
+          <template v-if="parentNoteId">
+            创建到
+            <span class="max-w-[12rem] truncate rounded-md bg-kiwi-50 px-1.5 py-0.5 text-kiwi-700">
+              {{ notes.notes.find((n) => n.id === parentNoteId)?.title || '父笔记' }} 下级
+            </span>
+          </template>
+          <template v-else>
+            创建到
+            <select v-model="folderId" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-kiwi-300">
+              <option value="">根目录</option>
+              <option v-for="folder in folders" :key="folder.id" :value="folder.id">
+                {{ folder.name }}
+              </option>
+            </select>
+          </template>
         </div>
         <div class="flex-1" />
         <button class="kiwi-btn-secondary !text-[11.5px] !py-1.5" @click="startCreate">

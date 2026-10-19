@@ -162,6 +162,7 @@ async def import_ipynb(
     kb_id: uuid.UUID,
     file: UploadFile = File(...),
     folder_id: uuid.UUID | None = Form(None),
+    parent_note_id: uuid.UUID | None = Form(None),
     title: str | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ):
@@ -169,6 +170,11 @@ async def import_ipynb(
     if kb is None:
         raise HTTPException(404, "知识库不存在")
     await _validate_folder(session, kb_id, folder_id)
+    if parent_note_id is not None:
+        parent = await session.get(Note, parent_note_id)
+        if parent is None or parent.kb_id != kb_id or parent.status != "active":
+            raise HTTPException(400, "父笔记不存在或不在工作区")
+        folder_id = parent.folder_id
 
     filename = file.filename or "notebook.ipynb"
     if not filename.lower().endswith(".ipynb"):
@@ -190,7 +196,11 @@ async def import_ipynb(
     sort_order = (
         await session.execute(
             select(func.coalesce(func.max(Note.sort_order), -1) + 1).where(
-                Note.kb_id == kb_id, Note.folder_id == folder_id
+                Note.kb_id == kb_id,
+                Note.folder_id == folder_id,
+                Note.parent_note_id == parent_note_id
+                if parent_note_id is not None
+                else Note.parent_note_id.is_(None),
             )
         )
     ).scalar_one()
@@ -198,8 +208,9 @@ async def import_ipynb(
         kb_id=kb_id,
         title=name[:300],
         body_md="",
-        kind="notebook",
         folder_id=folder_id,
+        parent_note_id=parent_note_id,
+        kind="notebook",
         status="active",
         view_mode="edit",
         sort_order=int(sort_order),

@@ -286,7 +286,20 @@ body {
 .kiwi-editor .ProseMirror ul,
 .kiwi-editor .ProseMirror ol { padding-left: 1.4rem; }
 .kiwi-editor .ProseMirror ul { list-style: disc; }
-.kiwi-editor .ProseMirror ol { list-style: decimal; }
+/* 有序列表：按层级显示 1 / 1.1 / 1.1.1，阅读态与编辑态保持一致 */
+.kiwi-editor .ProseMirror ol {
+  list-style: decimal;
+  counter-reset: kiwi-ol;
+  padding-left: 2.2rem;
+}
+.kiwi-editor .ProseMirror ol > li { counter-increment: kiwi-ol; }
+.kiwi-editor .ProseMirror ol ol { counter-reset: kiwi-ol; }
+.kiwi-editor .ProseMirror ol > li::marker {
+  content: counters(kiwi-ol, ".") ". ";
+  color: #94a3b8;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
 .kiwi-editor .ProseMirror blockquote {
   border-left: 3px solid #c7d2fe;
   padding-left: 1rem;
@@ -1470,6 +1483,21 @@ body {
 }
 .drag-handle:active {
   cursor: grabbing;
+}
+
+/* ---------- Markdown 阅读态有序列表：多级编号 ---------- */
+.prose-wiki ol {
+  list-style: decimal;
+  counter-reset: kiwi-ol;
+  padding-left: 2.2rem;
+}
+.prose-wiki ol > li { counter-increment: kiwi-ol; }
+.prose-wiki ol ol { counter-reset: kiwi-ol; }
+.prose-wiki ol > li::marker {
+  content: counters(kiwi-ol, ".") ". ";
+  color: #94a3b8;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Markdown 阅读态任务列表 ---------- */

@@ -35,6 +35,10 @@ const draft = ref('')
 
 const isFolder = computed(() => props.row.type === 'folder')
 const isInbox = computed(() => isFolder.value && !!props.row.inbox)
+/** 笔记下的子笔记也使用展开箭头；叶子笔记保留占位对齐。 */
+const hasChildren = computed(
+  () => isFolder.value || !!props.row.hasChildren,
+)
 const pinned = computed(() =>
   isFolder.value ? !!props.row.folder?.pinned : !!props.row.note?.props_json?.pinned,
 )
@@ -148,6 +152,7 @@ function onClick(event: MouseEvent) {
     :style="{ paddingLeft: `${6 + row.depth * 14}px` }"
     :data-origin-note="!row.hoisted && !isFolder ? row.id : undefined"
     :title="isInbox ? '收件箱 · 始终置顶' : undefined"
+    :aria-expanded="hasChildren ? open : undefined"
     :draggable="!renaming"
     @click="onClick"
     @contextmenu.prevent.stop="emit('menu', $event, row)"
@@ -166,12 +171,14 @@ function onClick(event: MouseEvent) {
     />
 
     <button
-      v-if="isFolder"
+      v-if="hasChildren"
       type="button"
       class="w-4 h-4 grid place-items-center rounded text-slate-400 hover:text-kiwi-600 shrink-0"
       :class="isInbox ? '!text-orange-400 hover:!text-orange-600' : ''"
       :aria-label="open ? '折叠' : '展开'"
       @click.stop="emit('toggle', row)"
+      @mousedown.stop
+      @dblclick.stop
     >
       <KiwiIcon
         name="chevronRight"
