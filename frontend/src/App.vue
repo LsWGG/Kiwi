@@ -144,6 +144,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         title="键盘快捷键（?）"
+        aria-label="键盘快捷键"
         class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
         :class="shortcutsOpen ? 'bg-white/80 text-kiwi-600' : ''"
         @click="shortcutsOpen = true"
