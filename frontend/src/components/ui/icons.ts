@@ -488,6 +488,11 @@ const PATHS: Record<string, string[]> = {
     '<line x1="3" y1="12" x2="3.01" y2="12"/>',
     '<line x1="3" y1="18" x2="3.01" y2="18"/>',
   ],
+  keyboard: [
+    '<rect x="2" y="5" width="20" height="14" rx="2"/>',
+    '<path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12.5h.01M10 12.5h.01M14 12.5h.01M18 12.5h.01"/>',
+    '<path d="M8 16h8"/>',
+  ],
 }
 
 export function iconSVG(name: string): string {

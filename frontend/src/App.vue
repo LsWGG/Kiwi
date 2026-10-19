@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
@@ -12,11 +12,34 @@ import KbSwitcher from '@/components/layout/KbSwitcher.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import KiwiToastHost from '@/components/ui/KiwiToastHost.vue'
+import ShortcutHelpDialog from '@/components/ui/ShortcutHelpDialog.vue'
 
 const kbs = useKbsStore()
 const mode = useModeStore()
 const system = useSystemStore()
 const route = useRoute()
+
+const shortcutsOpen = ref(false)
+
+/** 输入框 / 编辑器内不抢占 `?`，保证正常输入问号。 */
+function isTypingTarget(target: EventTarget | null) {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  return (
+    el.isContentEditable ||
+    el.tagName === 'INPUT' ||
+    el.tagName === 'TEXTAREA' ||
+    el.tagName === 'SELECT'
+  )
+}
+
+function onShortcutKey(event: KeyboardEvent) {
+  if (event.key !== '?') return
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+  if (isTypingTarget(event.target)) return
+  event.preventDefault()
+  shortcutsOpen.value = !shortcutsOpen.value
+}
 
 /**
  * 学习模式使用青绿主题色，编辑模式保持冷紫；
@@ -71,10 +94,12 @@ onMounted(() => {
   void system.fetchSettings().catch(() => undefined)
   applyUiScale()
   window.addEventListener('resize', applyUiScale)
+  window.addEventListener('keydown', onShortcutKey)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', applyUiScale)
+  window.removeEventListener('keydown', onShortcutKey)
 })
 </script>
 
@@ -116,6 +141,15 @@ onBeforeUnmount(() => {
       <!-- 右侧：模式切换 + 知识库切换 + 设置入口（两种模式共用） -->
       <ModeSwitcher />
       <KbSwitcher :learn="isLearn" />
+      <button
+        type="button"
+        title="键盘快捷键（?）"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
+        :class="shortcutsOpen ? 'bg-white/80 text-kiwi-600' : ''"
+        @click="shortcutsOpen = true"
+      >
+        <KiwiIcon name="keyboard" :size="17" />
+      </button>
       <RouterLink
         to="/settings"
         title="设置"
@@ -141,6 +175,7 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
+    <ShortcutHelpDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
     <KiwiToastHost />
   </div>
 </template>

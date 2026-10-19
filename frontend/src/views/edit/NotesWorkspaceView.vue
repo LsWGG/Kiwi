@@ -32,6 +32,8 @@ const searchOpen = ref(false)
 let seq = 0
 
 function onGlobalKey(event: KeyboardEvent) {
+  // 正文编辑器已处理的组合键（如 Ctrl+I 斜体）不再触发工作区面板切换。
+  if (event.defaultPrevented) return
   const mod = event.ctrlKey || event.metaKey
   if (!mod) return
   const key = event.key.toLowerCase()
