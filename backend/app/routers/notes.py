@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import mimetypes
 import re
 import uuid
 from copy import deepcopy
@@ -10,6 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import Text, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,6 +27,7 @@ from app.db.models import (
     NoteCollection,
     NoteFolder,
     NoteLink,
+    NoteRevision,
     NoteTag,
     NoteTagLink,
     NoteTemplate,
@@ -49,6 +52,8 @@ from app.schemas.note import (
     NoteImportStartOut,
     NoteImportStatusOut,
     NoteOut,
+    NoteRevisionOut,
+    NoteRevisionSummary,
     NoteSearchItem,
     NoteSearchOut,
     NoteStudyPointOut,
@@ -74,8 +79,16 @@ from app.schemas.note import (
     ReorderIn,
     TableImportOut,
     TablePreviewOut,
+    TreeReorderIn,
+    TreeReorderItem,
 )
-from app.services import import_service, ingest_service, note_compiler, upload_session
+from app.services import (
+    import_service,
+    ingest_service,
+    note_compiler,
+    todo_sync,
+    upload_session,
+)
 from app.services.file_security import (
     MAX_DIRECT_UPLOAD_BYTES,
     FileInspection,
@@ -109,58 +122,251 @@ LINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
 NOTE_MENTION_RE = re.compile(r"\]\(kiwi://note/([0-9a-fA-F-]{36})(?:\?[^)]*)?\)")
 WIKI_MENTION_RE = re.compile(r"\]\(kiwi://wiki/([0-9a-fA-F-]{36})(?:\?[^)]*)?\)")
 TRASH_RETENTION_DAYS = 30
+# 自动历史版本：2 分钟内的连续编辑合并为一个检查点，单篇最多保留 100 个版本。
+REVISION_COALESCE_SECONDS = 120
+REVISION_MAX_PER_NOTE = 100
 
+BUILTIN_TEMPLATE_VERSION = 2
 BUILTIN_TEMPLATES: list[dict] = [
     {
         "name": "文献笔记",
-        "description": "记录论文、书籍或报告的来源、摘要、关键论点与个人评注。",
+        "description": "论文 / 书籍 / 报告的精读记录：来源、研究问题、方法与证据、个人评注。",
         "icon": "bookOpen",
         "title_pattern": "文献笔记：",
         "body_md": (
-            "## 来源\n\n- 作者：\n- 出处：\n- 年份：\n\n"
-            "## 摘要\n\n\n\n## 关键论点\n\n1. \n2. \n3. \n\n"
-            "## 个人评注\n\n\n\n## 关联概念\n\n- [[相关笔记]]\n"
+            "> 一句话结论：\n\n"
+            "## 来源信息\n\n"
+            "| 项目 | 内容 |\n| --- | --- |\n"
+            "| 作者 |  |\n| 出处 |  |\n| 年份 |  |\n| 链接 |  |\n\n"
+            "## 研究问题\n\n作者试图回答什么？为什么重要？\n\n"
+            "## 方法与证据\n\n"
+            "- 研究设计：\n- 样本 / 数据：\n- 关键指标：\n\n"
+            "## 核心结论\n\n1. \n2. \n3. \n\n"
+            "## 我的评注\n\n"
+            "- 可信之处：\n- 存疑之处：\n- 可迁移到我的工作：\n\n"
+            "## 可引用原文\n\n> \n\n"
+            "## 关联\n\n- 相关概念：[[相关笔记]]\n- 后续行动：\n"
         ),
         "tags_json": ["文献"],
         "sort_order": 0,
     },
     {
         "name": "会议记录",
-        "description": "记录会议日期、参与人、议题、决议与待办事项。",
+        "description": "会前议程、会中讨论、明确决议与责任到人的待办清单。",
         "icon": "calendar",
         "title_pattern": "{{date}} 会议记录",
         "body_md": (
-            "## 会议信息\n\n- 日期：{{date}}\n- 参与人：\n- 议题：\n\n"
-            "## 讨论要点\n\n- \n\n## 决议\n\n- \n\n"
-            "## 待办\n\n- [ ] 事项（负责人 / 截止日期）\n"
+            "## 会议信息\n\n"
+            "| 项目 | 内容 |\n| --- | --- |\n"
+            "| 时间 | {{date}} |\n| 主持人 |  |\n| 参与人 |  |\n| 目标 |  |\n\n"
+            "## 会前议程\n\n1. \n2. \n\n"
+            "## 讨论要点\n\n"
+            "### 议题一\n\n- 背景：\n- 观点：\n- 结论：\n\n"
+            "## 决议\n\n"
+            "| 决议 | 负责人 | 截止日期 |\n| --- | --- | --- |\n|  |  |  |\n\n"
+            "## 待办\n\n"
+            "- [ ] 事项（负责人 / 截止日期）\n"
+            "- [ ] 会后同步纪要\n\n"
+            "## 未决问题\n\n- \n"
         ),
         "tags_json": ["会议"],
         "sort_order": 1,
     },
     {
         "name": "概念卡片",
-        "description": "用定义、示例与关联概念快速建立可链接的知识卡片。",
+        "description": "面向理解与复用的原子知识卡：定义、直觉、示例、边界与关联。",
         "icon": "sparkle",
         "title_pattern": "概念：",
         "body_md": (
-            "## 定义\n\n\n\n## 示例\n\n\n\n## 易混概念\n\n- \n\n"
-            "## 关联概念\n\n- [[相关笔记]]\n"
+            "## 一句话定义\n\n\n\n"
+            "## 直觉理解\n\n用生活中的类比解释它：\n\n"
+            "## 关键特征\n\n- \n- \n\n"
+            "## 示例\n\n"
+            "**正例**：\n\n\n**反例**：\n\n\n"
+            "## 易混概念\n\n"
+            "| 概念 | 区别 |\n| --- | --- |\n|  |  |\n\n"
+            "## 使用场景\n\n- \n\n"
+            "## 关联\n\n- [[相关笔记]]\n"
         ),
         "tags_json": ["概念"],
         "sort_order": 2,
     },
     {
         "name": "学习笔记",
-        "description": "按知识点、易错点、真题摘录与个人总结组织学习过程。",
+        "description": "知识点拆解 + 易错点 + 真题演练 + 间隔复习提示。",
         "icon": "target",
         "title_pattern": "学习笔记：",
         "body_md": (
-            "## 知识点\n\n\n\n## 易错点\n\n- \n\n"
-            "## 真题摘录\n\n> 题目：\n>\n> 解析：\n\n## 个人总结\n\n\n\n"
+            "## 本节目标\n\n学完后我能：\n\n- [ ] \n\n"
+            "## 知识框架\n\n1. \n2. \n3. \n\n"
+            "## 核心知识点\n\n"
+            "### 知识点一\n\n- 定义：\n- 要点：\n- 记忆锚点：\n\n"
+            "## 易错点\n\n"
+            "| 易错点 | 正确做法 | 原因 |\n| --- | --- | --- |\n|  |  |  |\n\n"
+            "## 真题演练\n\n> 题目：\n>\n> 解析：\n\n"
+            "## 自我检测\n\n- [ ] 能用自己的话复述\n- [ ] 能举出一个反例\n\n"
             "## 关联知识页\n\n- [[相关知识点]]\n"
         ),
         "tags_json": ["学习"],
         "sort_order": 3,
+    },
+    {
+        "name": "项目计划",
+        "description": "从目标、范围到里程碑、风险与协作分工的一页式项目启动文档。",
+        "icon": "layoutTemplate",
+        "title_pattern": "项目计划：",
+        "body_md": (
+            "## 项目概述\n\n"
+            "- 背景：\n- 目标：\n- 成功标准：\n\n"
+            "## 范围\n\n"
+            "**包含**\n\n- \n\n**不包含**\n\n- \n\n"
+            "## 关键干系人\n\n"
+            "| 角色 | 姓名 | 职责 |\n| --- | --- | --- |\n|  |  |  |\n\n"
+            "## 里程碑\n\n"
+            "| 阶段 | 交付物 | 负责人 | 计划日期 | 状态 |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| 启动 |  |  |  | 待开始 |\n| 开发 |  |  |  | 待开始 |\n| 验收 |  |  |  | 待开始 |\n\n"
+            "## 风险与应对\n\n"
+            "| 风险 | 影响 | 概率 | 应对 |\n| --- | --- | --- | --- |\n|  |  |  |  |\n\n"
+            "## 待办\n\n- [ ] 明确需求与验收标准\n- [ ] 排期与资源确认\n"
+        ),
+        "tags_json": ["项目"],
+        "sort_order": 4,
+    },
+    {
+        "name": "周报 / 周复盘",
+        "description": "用结果、阻碍、经验与下周计划完成一周闭环。",
+        "icon": "listOrdered",
+        "title_pattern": "{{date}} 周复盘",
+        "body_md": (
+            "## 本周结果\n\n"
+            "| 目标 | 结果 | 完成度 |\n| --- | --- | --- |\n|  |  |  |\n\n"
+            "## 关键进展\n\n1. \n2. \n\n"
+            "## 阻碍与风险\n\n- 问题：\n- 影响：\n- 需要的支持：\n\n"
+            "## 经验沉淀\n\n"
+            "- 做得好的：\n- 可改进的：\n- 下次复用：\n\n"
+            "## 下周计划\n\n"
+            "- [ ] \n- [ ] \n\n"
+            "## 数据与观察\n\n"
+        ),
+        "tags_json": ["复盘", "周报"],
+        "sort_order": 5,
+    },
+    {
+        "name": "决策记录（ADR）",
+        "description": "记录重要决策的背景、备选方案、权衡与后续影响，方便日后追溯。",
+        "icon": "shield",
+        "title_pattern": "决策：",
+        "body_md": (
+            "## 决策摘要\n\n> 我们决定 ……，因为 ……。\n\n"
+            "## 状态\n\n提议 / 已采纳 / 已废弃（日期：）\n\n"
+            "## 背景\n\n当前面临的问题、约束与目标：\n\n"
+            "## 备选方案\n\n"
+            "| 方案 | 优点 | 缺点 | 风险 |\n| --- | --- | --- | --- |\n| A |  |  |  |\n| B |  |  |  |\n\n"
+            "## 决策理由\n\n- \n\n"
+            "## 影响与代价\n\n- 需要改变：\n- 放弃的机会：\n- 回滚方案：\n\n"
+            "## 关联\n\n- 相关项目：\n- 后续跟进：\n"
+        ),
+        "tags_json": ["决策"],
+        "sort_order": 6,
+    },
+    {
+        "name": "故障复盘",
+        "description": "面向系统与业务故障：时间线、根因、影响面与防复发行动项。",
+        "icon": "alert",
+        "title_pattern": "故障复盘：",
+        "body_md": (
+            "## 事件概要\n\n"
+            "- 发生时间：\n- 恢复时间：\n- 影响范围：\n- 严重级别：\n\n"
+            "## 时间线\n\n"
+            "| 时间 | 事件 | 处理人 |\n| --- | --- | --- |\n|  |  |  |\n\n"
+            "## 影响\n\n- 用户影响：\n- 数据影响：\n- 业务损失：\n\n"
+            "## 根因分析\n\n"
+            "**直接原因**：\n\n\n**根本原因**：\n\n\n"
+            "## 做得好的 / 不足的\n\n- 好：\n- 不足：\n\n"
+            "## 行动项\n\n"
+            "- [ ] 修复项（负责人 / 截止日期）\n"
+            "- [ ] 监控告警补充\n"
+            "- [ ] 流程或文档更新\n"
+        ),
+        "tags_json": ["复盘", "故障"],
+        "sort_order": 7,
+    },
+    {
+        "name": "每日笔记",
+        "description": "以时间块组织当天的要事、灵感、沟通记录与收尾反思。",
+        "icon": "note",
+        "title_pattern": "{{date}} 每日笔记",
+        "body_md": (
+            "## 今日三件要事\n\n"
+            "- [ ] \n- [ ] \n- [ ] \n\n"
+            "## 日程\n\n"
+            "| 时间 | 事项 | 备注 |\n| --- | --- | --- |\n|  |  |  |\n\n"
+            "## 随手记\n\n\n\n"
+            "## 沟通与跟进\n\n- [ ] \n\n"
+            "## 今日收获\n\n- \n\n"
+            "## 明日准备\n\n- \n"
+        ),
+        "tags_json": ["日记"],
+        "sort_order": 8,
+    },
+    {
+        "name": "读书笔记",
+        "description": "按章节提炼观点、摘录金句，并转化为可执行的行动。",
+        "icon": "book",
+        "title_pattern": "读书笔记：",
+        "body_md": (
+            "## 书籍信息\n\n"
+            "| 书名 | 作者 | 阅读区间 | 评分 |\n| --- | --- | --- | --- |\n|  |  |  |  |\n\n"
+            "## 为什么读这本书\n\n\n\n"
+            "## 章节笔记\n\n"
+            "### 第一章\n\n- 核心观点：\n- 我的思考：\n\n"
+            "## 金句摘录\n\n> \n\n"
+            "## 行动清单\n\n- [ ] \n\n"
+            "## 推荐给谁\n\n"
+        ),
+        "tags_json": ["读书"],
+        "sort_order": 9,
+    },
+    {
+        "name": "需求文档（PRD）",
+        "description": "从用户问题出发，梳理目标、范围、流程、验收标准与埋点。",
+        "icon": "fileText",
+        "title_pattern": "PRD：",
+        "body_md": (
+            "## 背景与问题\n\n谁在什么场景下遇到了什么问题？现有方案为何不够？\n\n"
+            "## 目标与衡量\n\n"
+            "| 目标 | 指标 | 当前值 | 目标值 |\n| --- | --- | --- | --- |\n|  |  |  |  |\n\n"
+            "## 用户故事\n\n"
+            "- 作为【角色】，我希望【能力】，以便【价值】。\n\n"
+            "## 功能范围\n\n"
+            "**本期**\n\n- \n\n**后续**\n\n- \n\n"
+            "## 流程与交互\n\n1. \n2. \n3. \n\n"
+            "## 异常与边界\n\n- 空状态：\n- 权限：\n- 失败重试：\n\n"
+            "## 验收标准\n\n"
+            "- [ ] \n- [ ] \n\n"
+            "## 数据与埋点\n\n"
+        ),
+        "tags_json": ["产品", "需求"],
+        "sort_order": 10,
+    },
+    {
+        "name": "SWOT 分析",
+        "description": "用四象限快速梳理优势、劣势、机会与威胁，并落到策略。",
+        "icon": "columns",
+        "title_pattern": "SWOT：",
+        "body_md": (
+            "## 分析对象\n\n\n\n"
+            "## 四象限\n\n"
+            "| 优势 Strengths | 劣势 Weaknesses |\n| --- | --- |\n|  |  |\n\n"
+            "| 机会 Opportunities | 威胁 Threats |\n| --- | --- |\n|  |  |\n\n"
+            "## 交叉策略\n\n"
+            "- SO（优势 × 机会）：\n- WO（劣势 × 机会）：\n"
+            "- ST（优势 × 威胁）：\n- WT（劣势 × 威胁）：\n\n"
+            "## 下一步\n\n- [ ] \n"
+        ),
+        "tags_json": ["分析"],
+        "sort_order": 11,
     },
 ]
 
@@ -196,6 +402,62 @@ async def _reload_tags(session: AsyncSession, note: Note) -> None:
         .all()
     )
     note.__dict__["_tag_names_override"] = list(names)
+
+
+async def _snapshot_revision(
+    session: AsyncSession, note: Note, *, source: str = "auto", coalesce: bool = True
+) -> NoteRevision | None:
+    """把笔记当前内容写入历史版本。
+
+    自动快照在两分钟内合并：同一个检查点内连续编辑只保留进入编辑前的状态，
+    避免自动保存产生大量碎片版本。手动 / 还原快照不合并。
+    """
+    if coalesce:
+        last = (
+            await session.execute(
+                select(NoteRevision)
+                .where(
+                    NoteRevision.note_id == note.id,
+                    NoteRevision.source.in_(("auto", "manual")),
+                )
+                .order_by(NoteRevision.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if last is not None:
+            created = last.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - created).total_seconds()
+            if age < REVISION_COALESCE_SECONDS:
+                return None
+
+    revision = NoteRevision(
+        kb_id=note.kb_id,
+        note_id=note.id,
+        title=note.title,
+        body_md=note.body_md,
+        props_json=deepcopy(note.props_json or {}),
+        source=source,
+    )
+    session.add(revision)
+    await session.flush()
+
+    stale_ids = (
+        (
+            await session.execute(
+                select(NoteRevision.id)
+                .where(NoteRevision.note_id == note.id)
+                .order_by(NoteRevision.created_at.desc())
+                .offset(REVISION_MAX_PER_NOTE)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if stale_ids:
+        await session.execute(delete(NoteRevision).where(NoteRevision.id.in_(stale_ids)))
+    return revision
 
 
 def _now_iso() -> str:
@@ -323,37 +585,57 @@ async def _sync_note_tags(
 async def _ensure_builtin_templates(
     session: AsyncSession, kb_id: uuid.UUID
 ) -> None:
-    existing = set(
-        (
-            await session.execute(
-                select(NoteTemplate.name).where(
-                    NoteTemplate.kb_id == kb_id, NoteTemplate.is_builtin.is_(True)
+    """幂等创建 / 升级内置模板。
+
+    内置模板不可由用户编辑，因此按 ``builtin_version`` 安全地整体刷新；
+    新版本新增的模板会补齐，已有模板保持原有 id，不影响引用。
+    """
+    existing = {
+        row.name: row
+        for row in (
+            (
+                await session.execute(
+                    select(NoteTemplate).where(
+                        NoteTemplate.kb_id == kb_id, NoteTemplate.is_builtin.is_(True)
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    added = False
+    }
+    changed = False
     for item in BUILTIN_TEMPLATES:
-        if item["name"] in existing:
-            continue
-        session.add(
-            NoteTemplate(
-                kb_id=kb_id,
-                name=item["name"],
-                description=item["description"],
-                icon=item["icon"],
-                title_pattern=item["title_pattern"],
-                body_md=item["body_md"],
-                tags_json=list(item["tags_json"]),
-                props_json={},
-                is_builtin=True,
-                sort_order=item["sort_order"],
+        row = existing.get(item["name"])
+        if row is None:
+            session.add(
+                NoteTemplate(
+                    kb_id=kb_id,
+                    name=item["name"],
+                    description=item["description"],
+                    icon=item["icon"],
+                    title_pattern=item["title_pattern"],
+                    body_md=item["body_md"],
+                    tags_json=list(item["tags_json"]),
+                    props_json={"builtin_version": BUILTIN_TEMPLATE_VERSION},
+                    is_builtin=True,
+                    sort_order=item["sort_order"],
+                )
             )
-        )
-        added = True
-    if added:
+            changed = True
+            continue
+        version = int((row.props_json or {}).get("builtin_version") or 0)
+        if version >= BUILTIN_TEMPLATE_VERSION:
+            continue
+        row.description = item["description"]
+        row.icon = item["icon"]
+        row.title_pattern = item["title_pattern"]
+        row.body_md = item["body_md"]
+        row.tags_json = list(item["tags_json"])
+        row.sort_order = item["sort_order"]
+        row.props_json = {**(row.props_json or {}), "builtin_version": BUILTIN_TEMPLATE_VERSION}
+        changed = True
+    if changed:
         await session.commit()
 
 
@@ -422,7 +704,14 @@ async def _next_note_sort(
     stmt = stmt.where(Note.folder_id == folder_id) if folder_id else stmt.where(
         Note.folder_id.is_(None)
     )
-    values = (await session.execute(stmt)).scalars().all()
+    values = list((await session.execute(stmt)).scalars().all())
+    folder_stmt = select(NoteFolder.sort_order).where(NoteFolder.kb_id == kb_id)
+    folder_stmt = folder_stmt.where(
+        NoteFolder.parent_id == folder_id
+        if folder_id
+        else NoteFolder.parent_id.is_(None)
+    )
+    values.extend((await session.execute(folder_stmt)).scalars().all())
     return (max(values) + 1) if values else 0
 
 
@@ -433,7 +722,14 @@ async def _next_folder_sort(
     stmt = stmt.where(NoteFolder.parent_id == parent_id) if parent_id else stmt.where(
         NoteFolder.parent_id.is_(None)
     )
-    values = (await session.execute(stmt)).scalars().all()
+    values = list((await session.execute(stmt)).scalars().all())
+    note_stmt = select(Note.sort_order).where(
+        Note.kb_id == kb_id, Note.status == "active"
+    )
+    note_stmt = note_stmt.where(
+        Note.folder_id == parent_id if parent_id else Note.folder_id.is_(None)
+    )
+    values.extend((await session.execute(note_stmt)).scalars().all())
     return (max(values) + 1) if values else 0
 
 
@@ -722,9 +1018,62 @@ async def reorder(
     await session.commit()
 
 
+@router.post("/tree-reorder", status_code=204)
+async def tree_reorder(
+    data: TreeReorderIn, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """混合排序：同一层级内分组与笔记共享一个顺序。
+
+    目录树按「分组 + 笔记」混合展示，允许把笔记拖到分组上方。请求必须
+    包含该层级全部分组与活跃笔记，避免并发编辑时漏掉节点。
+    """
+    folder_stmt = select(NoteFolder.id).where(NoteFolder.kb_id == kb_id)
+    note_stmt = select(Note.id).where(Note.kb_id == kb_id, Note.status == "active")
+    if data.parent_id is None:
+        folder_stmt = folder_stmt.where(NoteFolder.parent_id.is_(None))
+        note_stmt = note_stmt.where(Note.folder_id.is_(None))
+    else:
+        folder_stmt = folder_stmt.where(NoteFolder.parent_id == data.parent_id)
+        note_stmt = note_stmt.where(Note.folder_id == data.parent_id)
+
+    existing_folders = set((await session.execute(folder_stmt)).scalars().all())
+    existing_notes = set((await session.execute(note_stmt)).scalars().all())
+    existing = {("folder", fid) for fid in existing_folders} | {
+        ("note", nid) for nid in existing_notes
+    }
+    incoming = [(item.type, item.id) for item in data.items]
+    if len(incoming) != len(set(incoming)):
+        raise HTTPException(400, "排序列表包含重复节点")
+    if set(incoming) != existing:
+        raise HTTPException(400, "排序列表必须包含该层级全部分组与笔记")
+
+    for index, (kind, node_id) in enumerate(incoming):
+        model = NoteFolder if kind == "folder" else Note
+        await session.execute(
+            update(model).where(model.id == node_id).values(sort_order=index)
+        )
+    await session.commit()
+
+
 # ---- 导入 / 链接（必须先于 /{note_id} 声明）----
 
-ALLOWED_IMPORT_EXT = {".md", ".markdown", ".txt", ".text", ".pdf", ".docx", ".doc"}
+ALLOWED_IMPORT_EXT = {
+    ".md",
+    ".markdown",
+    ".txt",
+    ".text",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+}
 
 
 def _import_props(note: Note) -> dict:
@@ -757,6 +1106,7 @@ async def import_file(
     folder_id: uuid.UUID | None = Form(None),
     title: str | None = Form(None),
     compile_now: bool = Form(False),
+    readonly: bool = Form(False),
     session: AsyncSession = Depends(get_session),
 ):
     """导入文件 → 创建导入笔记 + 后台解析。
@@ -813,11 +1163,105 @@ async def import_file(
             title=title,
             compile_now=compile_now,
             batch_id=batch_id,
+            readonly=readonly,
             inspection=inspection,
         )
     finally:
         if session_upload is not None:
             upload_session.abort_session(session_upload)
+
+
+async def _create_readonly_file_note(
+    session: AsyncSession,
+    kb: KnowledgeBase,
+    *,
+    filename: str,
+    content: bytes,
+    folder_id: uuid.UUID | None,
+    title: str | None,
+    inspection: FileInspection,
+    import_meta: dict | None,
+    batch_id: uuid.UUID | None,
+    provider: str,
+) -> NoteImportStartOut:
+    """只读导入：保留原始文件，不解析、不编译、不索引。"""
+    kb_id = kb.id
+    user_title = (title or "").strip()
+    safe_ext = re.sub(r"[^a-z0-9.]", "", Path(filename).suffix.lower())[:16]
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    note = Note(
+        kb_id=kb_id,
+        title=(user_title or Path(filename).stem.strip() or "只读文档")[:300],
+        kind="import",
+        body_md="",
+        folder_id=folder_id,
+        status="active",
+        view_mode="read",
+        sort_order=await _next_note_sort(session, kb_id, folder_id),
+        props_json={"readonly": True},
+    )
+    session.add(note)
+    await session.flush()
+
+    storage_dir = settings.upload_dir / "media" / str(kb_id)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{safe_ext}"
+    (storage_dir / stored_name).write_bytes(content)
+    attachment = NoteAttachment(
+        kb_id=kb_id,
+        note_id=note.id,
+        filename=filename[:300],
+        content_type=content_type[:120],
+        size=len(content),
+        storage_path=f"{kb_id}/{stored_name}",
+    )
+    session.add(attachment)
+    await session.flush()
+
+    note.props_json = {
+        "readonly": True,
+        "import": {
+            "status": "ready",
+            "progress": 1.0,
+            "readonly": True,
+            "filename": filename,
+            "content_type": content_type,
+            "size": len(content),
+            "media_url": f"/media/{kb_id}/{stored_name}",
+            "attachment_id": str(attachment.id),
+            "scan_status": inspection.scan_status,
+            "scan_detail": inspection.scan_detail,
+            "warnings": inspection.warnings,
+            **(import_meta or {}),
+        },
+    }
+    await session.flush()
+
+    created_batch = False
+    if batch_id is not None:
+        batch = await session.get(ImportBatch, batch_id)
+        if batch is None or batch.kb_id != kb_id:
+            await session.rollback()
+            raise HTTPException(404, "导入批次不存在")
+    else:
+        batch = await import_service.create_batch(
+            kb_id, provider=provider, label=filename, expected_count=1
+        )
+        created_batch = True
+    await import_service.record_item(
+        batch.id,
+        title=note.title,
+        status="ready",
+        warnings=inspection.warnings,
+    )
+    if created_batch:
+        await import_service.mark_closed(batch.id)
+
+    await session.commit()
+    await session.refresh(note)
+    return NoteImportStartOut(
+        note=NoteOut.model_validate(note, from_attributes=True), job_id=None
+    )
 
 
 async def _start_import(
@@ -833,10 +1277,28 @@ async def _start_import(
     inspection: FileInspection,
     import_meta: dict | None = None,
     provider: str = "upload",
+    readonly: bool = False,
 ) -> NoteImportStartOut:
-    """创建导入笔记并启动后台解析（文件上传与线上文件共用）。"""
+    """创建导入笔记并启动后台解析（文件上传与线上文件共用）。
+
+    ``readonly=True`` 时跳过解析与向量化：原始文件作为附件保留，笔记只提供
+    阅读与下载，不转成可编辑文档。
+    """
     kb_id = kb.id
     user_title = (title or "").strip()
+    if readonly:
+        return await _create_readonly_file_note(
+            session,
+            kb,
+            filename=filename,
+            content=content,
+            folder_id=folder_id,
+            title=title,
+            inspection=inspection,
+            import_meta=import_meta,
+            batch_id=batch_id,
+            provider=provider,
+        )
     note = Note(
         kb_id=kb_id,
         title=(user_title or Path(filename).stem.strip() or "未命名文档")[:300],
@@ -956,6 +1418,7 @@ async def import_remote_file(
         title=payload.title,
         compile_now=payload.compile_now,
         batch_id=payload.batch_id,
+        readonly=payload.readonly,
         inspection=inspection,
         import_meta={
             "remote_url": remote.url,
@@ -1168,8 +1631,36 @@ async def link_meta(data: LinkMetaIn):
 async def create_link(
     data: LinkCreate, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ):
-    """服务端抓取网页正文生成链接笔记；抓取失败降级为书签卡片。"""
+    """服务端抓取网页正文生成链接笔记；抓取失败降级为书签卡片。
+
+    ``readonly=True`` 时只抓取标题 / 摘要，保留为只读书签，不生成正文，
+    也不参与编译与可编辑文档。
+    """
     await _validate_folder(session, kb_id, data.folder_id)
+    if data.readonly:
+        try:
+            meta = await fetch_meta(data.url)
+        except LinkFetchError as e:
+            raise HTTPException(400, str(e)) from e
+        note = Note(
+            kb_id=kb_id,
+            title=(data.title or meta.title or meta.site or meta.url)[:300],
+            body_md="",
+            kind="link",
+            folder_id=data.folder_id,
+            status="active",
+            view_mode="read",
+            sort_order=await _next_note_sort(session, kb_id, data.folder_id),
+            props_json={
+                "readonly": True,
+                "link": _link_props(meta, meta.url),
+            },
+        )
+        session.add(note)
+        await session.commit()
+        await session.refresh(note)
+        return NoteOut.model_validate(note, from_attributes=True)
+
     try:
         result = await fetch_and_extract(data.url)
     except LinkFetchError as e:
@@ -2215,6 +2706,19 @@ async def update_note(
     session: AsyncSession = Depends(get_session),
 ):
     note = await _get_note(session, kb_id, note_id)
+    # 内容发生变化时先记录变更前的快照，供历史记录查看与还原。
+    incoming_title = (
+        data.title
+        if "title" in data.model_fields_set and data.title is not None
+        else note.title
+    )
+    incoming_body = (
+        data.body_md
+        if "body_md" in data.model_fields_set and data.body_md is not None
+        else note.body_md
+    )
+    if incoming_title != note.title or incoming_body != note.body_md:
+        await _snapshot_revision(session, note, source="auto")
     if "folder_id" in data.model_fields_set:
         await _validate_folder(session, kb_id, data.folder_id)
         note.folder_id = data.folder_id
@@ -2265,9 +2769,176 @@ async def update_note(
                 )
                 if title_field:
                     row.data = {**(row.data or {}), title_field: note.title}
+    is_todo_hub = bool((note.props_json or {}).get("todo_hub"))
+    if data.body_md is not None:
+        if is_todo_hub:
+            # 收件箱勾选 → 写回来源笔记 / 数据表
+            await todo_sync.apply_hub_checks(session, note)
+        else:
+            # 来源笔记变化 → 稍后刷新收件箱（合并自动保存的连续写入）
+            todo_sync.schedule_kb_sync(kb_id)
+    await session.commit()
+    if is_todo_hub:
+        todo_sync.schedule_kb_sync(kb_id, delay=2.5)
+    await _reload_tags(session, note)
+    return NoteOut.model_validate(note, from_attributes=True)
+
+
+# ---- 历史版本 ----
+
+@router.get("/{note_id}/revisions", response_model=list[NoteRevisionSummary])
+async def list_note_revisions(
+    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """按时间倒序返回版本列表（不含正文）。"""
+    await _get_note(session, kb_id, note_id, include_trash=True)
+    rows = (
+        (
+            await session.execute(
+                select(NoteRevision)
+                .where(NoteRevision.note_id == note_id, NoteRevision.kb_id == kb_id)
+                .order_by(NoteRevision.created_at.desc())
+                .limit(REVISION_MAX_PER_NOTE)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [NoteRevisionSummary.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.post("/{note_id}/revisions", response_model=NoteRevisionSummary, status_code=201)
+async def create_note_revision(
+    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """手动保存一个检查点。"""
+    note = await _get_note(session, kb_id, note_id)
+    revision = await _snapshot_revision(session, note, source="manual", coalesce=False)
+    await session.commit()
+    await session.refresh(revision)
+    return NoteRevisionSummary.model_validate(revision, from_attributes=True)
+
+
+@router.get("/{note_id}/revisions/{revision_id}", response_model=NoteRevisionOut)
+async def get_note_revision(
+    note_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    await _get_note(session, kb_id, note_id, include_trash=True)
+    revision = await session.get(NoteRevision, revision_id)
+    if revision is None or revision.note_id != note_id or revision.kb_id != kb_id:
+        raise HTTPException(404, "历史版本不存在")
+    return NoteRevisionOut.model_validate(revision, from_attributes=True)
+
+
+@router.post(
+    "/{note_id}/revisions/{revision_id}/restore", response_model=NoteOut
+)
+async def restore_note_revision(
+    note_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """还原到指定版本；当前内容会先保存为「还原前」快照。"""
+    note = await _get_note(session, kb_id, note_id, include_trash=True)
+    revision = await session.get(NoteRevision, revision_id)
+    if revision is None or revision.note_id != note_id or revision.kb_id != kb_id:
+        raise HTTPException(404, "历史版本不存在")
+    if revision.title == note.title and revision.body_md == note.body_md:
+        return NoteOut.model_validate(note, from_attributes=True)
+
+    await _snapshot_revision(session, note, source="restore", coalesce=False)
+    note.title = revision.title or note.title
+    note.body_md = revision.body_md
+    # 合并属性：保留版本内容，同时不丢失收藏 / 导入态等当前标记。
+    note.props_json = {**(note.props_json or {}), **(revision.props_json or {})}
+    await _rebuild_links(session, kb_id, note)
+    if note.kind == "database":
+        coll = (
+            await session.execute(
+                select(NoteCollection).where(NoteCollection.note_id == note.id)
+            )
+        ).scalar_one_or_none()
+        if coll is not None:
+            coll.name = note.title
     await session.commit()
     await _reload_tags(session, note)
     return NoteOut.model_validate(note, from_attributes=True)
+
+
+@router.get("/{note_id}/source-file")
+async def note_source_file(
+    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """导入笔记的原始文件：内联预览 / 下载（PDF 不再依赖解析结果）。"""
+    note = await _get_note(session, kb_id, note_id, include_trash=True)
+    import_meta = _import_props(note)
+    filename = str(import_meta.get("filename") or f"{note.title}")
+
+    if note.source_id is not None:
+        source = await session.get(Source, note.source_id)
+        if source is not None and source.kb_id == kb_id:
+            path = Path(source.raw_path)
+            if path.exists() and path.is_file():
+                content_type = (
+                    mimetypes.guess_type(filename)[0]
+                    or mimetypes.guess_type(path.name)[0]
+                    or "application/octet-stream"
+                )
+                return FileResponse(
+                    path,
+                    media_type=content_type,
+                    filename=filename,
+                    content_disposition_type="inline",
+                )
+
+    # 只读导入没有 Source：回退到附件 / media_url。
+    media_url = str(import_meta.get("media_url") or "")
+    attachment_id = import_meta.get("attachment_id")
+    attachment: NoteAttachment | None = None
+    if attachment_id:
+        try:
+            attachment = await session.get(NoteAttachment, uuid.UUID(str(attachment_id)))
+        except (ValueError, TypeError):
+            attachment = None
+    if attachment is not None and attachment.note_id == note.id:
+        path = settings.upload_dir / "media" / attachment.storage_path
+        if path.exists() and path.is_file():
+            return FileResponse(
+                path,
+                media_type=attachment.content_type or "application/octet-stream",
+                filename=attachment.filename,
+                content_disposition_type="inline",
+            )
+    if media_url.startswith("/media/"):
+        rel = media_url[len("/media/") :].lstrip("/")
+        path = settings.upload_dir / "media" / rel
+        if path.exists() and path.is_file():
+            return FileResponse(
+                path,
+                media_type=str(import_meta.get("content_type") or "application/octet-stream"),
+                filename=filename,
+                content_disposition_type="inline",
+            )
+    raise HTTPException(404, "原始文件不存在")
+
+
+@router.delete("/{note_id}/revisions/{revision_id}", status_code=204)
+async def delete_note_revision(
+    note_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    await _get_note(session, kb_id, note_id, include_trash=True)
+    revision = await session.get(NoteRevision, revision_id)
+    if revision is None or revision.note_id != note_id or revision.kb_id != kb_id:
+        raise HTTPException(404, "历史版本不存在")
+    await session.delete(revision)
+    await session.commit()
 
 
 @router.delete("/{note_id}", status_code=204)
@@ -2696,9 +3367,12 @@ async def compile_all_notes(
         .scalars()
         .all()
     )
-    # 数据表行笔记的内容会随所属数据表一起编译，避免重复送入。
+    # 数据表行笔记随所属数据表一起编译；自动维护的待办收件箱不属于知识正文。
     candidates = [
-        note for note in notes if not (note.props_json or {}).get("collection_row_id")
+        note
+        for note in notes
+        if not (note.props_json or {}).get("collection_row_id")
+        and not (note.props_json or {}).get("todo_hub")
     ]
     jobs: list[dict] = []
     empty = 0
@@ -2728,6 +3402,20 @@ async def compile_all_notes(
             }
         )
 
+    # 手动全量编译同样计入「最近编译」，避免卡片一直显示“尚未运行”，
+    # 也让定时任务从本次编译之后继续增量处理。
+    now = datetime.now(timezone.utc)
+    kb.wiki_compile_last_at = now
+    kb.wiki_compile_last_status = {
+        "at": now.isoformat(),
+        "trigger": "manual",
+        "status": "scheduled",
+        "scheduled": len(jobs),
+        "candidates": len(candidates),
+        "busy": busy,
+        "empty": empty,
+        "failed": 0,
+    }
     await session.commit()
     return {
         "jobs": jobs,

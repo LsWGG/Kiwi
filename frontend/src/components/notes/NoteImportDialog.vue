@@ -21,7 +21,10 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', note: NoteOut): void }>()
 
-const ACCEPT = ['.md', '.markdown', '.txt', '.text', '.pdf', '.docx', '.doc', '.ipynb']
+const ACCEPT = [
+  '.md', '.markdown', '.txt', '.text', '.pdf', '.docx', '.doc', '.ipynb',
+  '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff',
+]
 const TABLE_ACCEPT = ['.csv', '.xlsx', '.xls']
 const MAX_BYTES = 200 * 1024 * 1024
 const MAX_TABLE_BYTES = 20 * 1024 * 1024
@@ -55,6 +58,7 @@ const rows = ref<FileRow[]>([])
 const dragOver = ref(false)
 const input = ref<HTMLInputElement | null>(null)
 const compileNow = ref(false)
+const readonlyImport = ref(false)
 const tableInput = ref<HTMLInputElement | null>(null)
 const tableFile = ref<File | null>(null)
 const tableDrag = ref(false)
@@ -76,7 +80,8 @@ const firstNote = ref<NoteOut | null>(null)
 const reportOpen = ref(true)
 let pollTimer: number | null = null
 
-const yuqueMode = ref<'token' | 'zip'>('token')
+// 默认推荐「导出包」：无需申请令牌，也不受语雀接口限流影响。
+const yuqueMode = ref<'token' | 'zip'>('zip')
 const token = ref('')
 const repo = ref('')
 const zipFile = ref<File | null>(null)
@@ -151,6 +156,7 @@ function reset() {
   rows.value = []
   dragOver.value = false
   compileNow.value = false
+  readonlyImport.value = false
   tableInput.value = null
   tableFile.value = null
   tableDrag.value = false
@@ -178,6 +184,7 @@ function tokReset() {
   repos.value = []
   reposLoading.value = false
   zipFile.value = null
+  yuqueMode.value = 'zip'
   yuqueCompile.value = false
   createNotes.value = true
   yuqueSubmitting.value = false
@@ -363,7 +370,8 @@ async function submitFiles() {
           folder_id: props.folderId,
           batch_id: batchId ?? undefined,
           upload_id: uploadId,
-          compile_now: compileNow.value,
+          compile_now: readonlyImport.value ? false : compileNow.value,
+          readonly: readonlyImport.value,
           open: false,
         })
         row.status = 'submitted'
@@ -371,7 +379,7 @@ async function submitFiles() {
         row.noteId = res.note.id
         row.note = res.note
         if (!firstNote.value) firstNote.value = res.note
-        row.message = '已提交解析'
+        row.message = readonlyImport.value ? '已创建只读笔记' : '已提交解析'
       } catch (e: any) {
         row.status = 'failed'
         row.message = e?.message || '导入失败'
@@ -451,7 +459,8 @@ async function submitUrls() {
           folder_id: props.folderId,
           batch_id: batchId,
           title: targets.length === 1 ? urlTitle.value.trim() : '',
-          compile_now: compileNow.value,
+          compile_now: readonlyImport.value ? false : compileNow.value,
+          readonly: readonlyImport.value,
         })
         if (!firstNote.value) firstNote.value = res.note
       } catch (e: any) {
@@ -595,6 +604,24 @@ function pickZip(list: FileList | null) {
   }
   zipFile.value = file
   error.value = ''
+}
+
+const zipDragging = ref(false)
+function onZipDrop(event: DragEvent) {
+  zipDragging.value = false
+  if (busy.value) return
+  pickZip(event.dataTransfer?.files ?? null)
+}
+
+/** 粘贴令牌后自动尝试获取一次知识库列表，减少手动点击。 */
+function maybeFetchRepos() {
+  if (reposLoading.value || busy.value) return
+  if (token.value.trim().length < 10 || repos.value.length) return
+  void fetchYuqueRepos()
+}
+
+function scheduleRepoFetch() {
+  window.setTimeout(maybeFetchRepos, 180)
 }
 
 async function submitYuqueToken() {
@@ -755,11 +782,11 @@ function formatTime(value?: string | null) {
           </div>
           <p class="text-[12.5px] font-medium text-slate-600">拖拽文件到这里，或点击选择（支持多选）</p>
           <p class="text-[11px] text-slate-400 mt-0.5">
-            Markdown / 文本 / PDF / Word / Jupyter Notebook；≤20MB 直传，更大文件自动分片续传，单文件上限 200MB；Notebook 上限 20MB
+            Markdown / 文本 / PDF / Word / Jupyter Notebook / 图片（OCR）；≤20MB 直传，更大文件自动分片续传，单文件上限 200MB；Notebook 上限 20MB
           </p>
         </div>
 
-        <div v-if="rows.length" class="rounded-lg border border-slate-100 divide-y divide-slate-100">
+        <div v-if="rows.length" class="max-h-52 overflow-y-auto rounded-lg border border-slate-100 divide-y divide-slate-100">
           <div
             v-for="(row, index) in rows"
             :key="row.file.name + row.file.size"
@@ -792,10 +819,24 @@ function formatTime(value?: string | null) {
           </div>
         </div>
 
-        <label class="flex items-center gap-2 text-[11.5px] text-slate-500">
-          <input v-model="compileNow" type="checkbox" class="rounded border-slate-300" />
-          入库后立即编译为 Wiki（默认仅入库，稍后按需编译）
-        </label>
+        <div class="space-y-1.5">
+          <label class="flex items-center gap-2 text-[11.5px] text-slate-500">
+            <input v-model="readonlyImport" type="checkbox" class="rounded border-slate-300" />
+            只读导入：保留原始文件，仅阅读，不解析为可编辑文档
+          </label>
+          <label
+            class="flex items-center gap-2 text-[11.5px]"
+            :class="readonlyImport ? 'text-slate-300' : 'text-slate-500'"
+          >
+            <input
+              v-model="compileNow"
+              type="checkbox"
+              class="rounded border-slate-300"
+              :disabled="readonlyImport"
+            />
+            入库后立即编译为 Wiki（默认仅入库，稍后按需编译）
+          </label>
+        </div>
       </div>
 
       <!-- 表格导入 -->
@@ -925,34 +966,116 @@ function formatTime(value?: string | null) {
             @keydown.enter.prevent="submitUrls"
           />
         </div>
-        <label class="flex items-center gap-2 text-[11.5px] text-slate-500">
-          <input v-model="compileNow" type="checkbox" class="rounded border-slate-300" />
-          入库后立即编译为 Wiki（默认仅入库，稍后按需编译）
-        </label>
+        <div class="space-y-1.5">
+          <label class="flex items-center gap-2 text-[11.5px] text-slate-500">
+            <input v-model="readonlyImport" type="checkbox" class="rounded border-slate-300" />
+            只读导入：保留下载的原始文件，仅阅读，不解析为可编辑文档
+          </label>
+          <label
+            class="flex items-center gap-2 text-[11.5px]"
+            :class="readonlyImport ? 'text-slate-300' : 'text-slate-500'"
+          >
+            <input
+              v-model="compileNow"
+              type="checkbox"
+              class="rounded border-slate-300"
+              :disabled="readonlyImport"
+            />
+            入库后立即编译为 Wiki（默认仅入库，稍后按需编译）
+          </label>
+        </div>
       </div>
 
-      <!-- 语雀 -->
+      <!-- 语雀：面向非技术用户的迁移向导，默认推荐「导出包」 -->
       <div v-else-if="tab === 'yuque'" class="space-y-3">
+        <div class="flex items-start gap-2.5 rounded-xl border border-kiwi-100 bg-kiwi-50/50 px-3.5 py-3">
+          <span class="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white text-kiwi-600 shadow-sm">
+            <KiwiIcon name="fileImport" :size="15" />
+          </span>
+          <div class="min-w-0">
+            <p class="text-[12.5px] font-medium text-slate-700">把语雀知识库搬进 Kiwi</p>
+            <p class="mt-0.5 text-[11.5px] leading-relaxed text-slate-500">
+              推荐从语雀导出 Markdown 压缩包再上传：不用申请令牌，也不受接口限流影响。
+              导入后会按原目录结构生成可编辑笔记。
+            </p>
+          </div>
+        </div>
+
         <div class="flex items-center gap-1 rounded-lg bg-slate-100/70 p-1 w-fit">
           <button
-            class="px-3 py-1 rounded-md text-[11.5px] font-medium"
-            :class="yuqueMode === 'token' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'"
-            @click="yuqueMode = 'token'"
-          >
-            令牌直连
-          </button>
-          <button
-            class="px-3 py-1 rounded-md text-[11.5px] font-medium"
+            class="px-3 py-1.5 rounded-md text-[11.5px] font-medium transition-colors"
             :class="yuqueMode === 'zip' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'"
             @click="yuqueMode = 'zip'"
           >
-            导出包
+            上传导出包 · 推荐
+          </button>
+          <button
+            class="px-3 py-1.5 rounded-md text-[11.5px] font-medium transition-colors"
+            :class="yuqueMode === 'token' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'"
+            @click="yuqueMode = 'token'"
+          >
+            令牌直连 · 进阶
           </button>
         </div>
 
-        <template v-if="yuqueMode === 'token'">
+        <template v-if="yuqueMode === 'zip'">
+          <ol class="space-y-1 rounded-xl bg-slate-50/70 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-slate-500">
+            <li><span class="font-medium text-slate-600">1.</span> 打开语雀知识库，点右上角「…」→「导出」→ 选择 Markdown，下载压缩包。</li>
+            <li><span class="font-medium text-slate-600">2.</span> 把 .zip 文件拖到下方，或点击选择文件。</li>
+            <li><span class="font-medium text-slate-600">3.</span> 点击「开始迁移」，完成后在左侧的笔记目录里查看。</li>
+          </ol>
+          <input
+            ref="zipInput"
+            type="file"
+            accept=".zip"
+            class="hidden"
+            @change="pickZip(($event.target as HTMLInputElement).files)"
+          />
+          <div
+            class="cursor-pointer rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors"
+            :class="
+              zipDragging
+                ? 'border-kiwi-400 bg-kiwi-50/70'
+                : 'border-slate-200 bg-white/50 hover:border-kiwi-300 hover:bg-kiwi-50/40'
+            "
+            @click="!busy && zipInput?.click()"
+            @dragover.prevent="zipDragging = true"
+            @dragleave.prevent="zipDragging = false"
+            @drop.prevent="onZipDrop($event)"
+          >
+            <KiwiIcon name="fileImport" :size="22" class="text-kiwi-500 mx-auto mb-1.5" />
+            <p v-if="zipFile" class="truncate px-4 text-[12.5px] font-medium text-slate-700">
+              {{ zipFile.name }}
+            </p>
+            <p v-else class="text-[12.5px] font-medium text-slate-600">
+              {{ zipDragging ? '松手即可导入' : '把语雀导出的 .zip 拖到这里' }}
+            </p>
+            <p class="mt-0.5 text-[11px] text-slate-400">或点击选择文件 · 最大 200MB</p>
+            <p v-if="zipFile" class="mt-1 text-[10.5px] text-kiwi-600">点击可重新选择文件</p>
+          </div>
+        </template>
+
+        <template v-else>
+          <ol class="space-y-1 rounded-xl bg-slate-50/70 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-slate-500">
+            <li>
+              <span class="font-medium text-slate-600">1.</span>
+              登录语雀，在
+              <a
+                href="https://www.yuque.com/settings/tokens"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="font-medium text-kiwi-600 underline decoration-kiwi-300 underline-offset-2 hover:text-kiwi-700"
+              >账户设置 → 令牌</a>
+              页面新建一个令牌（只读即可）。
+            </li>
+            <li><span class="font-medium text-slate-600">2.</span> 把令牌粘贴到下面，会自动列出你有权限的知识库。</li>
+            <li><span class="font-medium text-slate-600">3.</span> 选择知识库，点击「开始迁移」。</li>
+          </ol>
           <div>
-            <label class="block text-[11px] font-medium text-slate-500 mb-1.5">语雀访问令牌</label>
+            <label class="block text-[11px] font-medium text-slate-500 mb-1.5">
+              语雀访问令牌
+              <span class="font-normal text-slate-400">· 仅本次导入使用，不会保存</span>
+            </label>
             <input
               v-model="token"
               type="password"
@@ -960,12 +1083,14 @@ function formatTime(value?: string | null) {
               autocomplete="new-password"
               spellcheck="false"
               class="kiwi-input"
-              placeholder="X-Auth-Token，仅本次请求使用，不落库"
+              placeholder="粘贴语雀令牌"
+              @blur="maybeFetchRepos"
+              @paste="scheduleRepoFetch"
             />
           </div>
           <div>
             <div class="mb-1.5 flex items-center justify-between">
-              <label class="block text-[11px] font-medium text-slate-500">知识库</label>
+              <label class="block text-[11px] font-medium text-slate-500">要迁移的知识库</label>
               <button
                 type="button"
                 class="flex items-center gap-1 text-[11px] text-kiwi-600 hover:text-kiwi-700 disabled:text-slate-300"
@@ -973,7 +1098,7 @@ function formatTime(value?: string | null) {
                 @click="fetchYuqueRepos"
               >
                 <KiwiIcon name="refresh" :size="11" :spin="reposLoading" />
-                {{ reposLoading ? '正在拉取…' : '拉取可访问的知识库' }}
+                {{ reposLoading ? '正在获取…' : '获取知识库列表' }}
               </button>
             </div>
             <select
@@ -992,42 +1117,30 @@ function formatTime(value?: string | null) {
               autocomplete="off"
               spellcheck="false"
               class="kiwi-input"
-              placeholder="user/repo，或粘贴知识库链接"
+              placeholder="也可以直接粘贴知识库链接或 user/repo"
             />
           </div>
           <p class="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-400">
             <KiwiIcon name="alert" :size="12" class="mt-0.5 shrink-0" />
-            串行拉取目录与正文以遵守语雀限流；Lake 格式会转换为 Markdown。接口不提供附件导出，附件保留原始链接。
+            为遵守语雀接口限流，文档会逐篇拉取，篇数多时需要一些时间；附件会保留原始链接。
           </p>
         </template>
 
-        <template v-else>
-          <input
-            ref="zipInput"
-            type="file"
-            accept=".zip"
-            class="hidden"
-            @change="pickZip(($event.target as HTMLInputElement).files)"
-          />
-          <div
-            class="rounded-xl border-2 border-dashed border-slate-200 bg-white/50 px-4 py-6 text-center cursor-pointer hover:border-kiwi-300 hover:bg-kiwi-50/40"
-            @click="!busy && zipInput?.click()"
-          >
-            <KiwiIcon name="fileImport" :size="20" class="text-kiwi-500 mx-auto mb-1.5" />
-            <p v-if="zipFile" class="text-[12.5px] font-medium text-slate-700 truncate">{{ zipFile.name }}</p>
-            <p v-else class="text-[12.5px] font-medium text-slate-600">选择语雀 Markdown 导出包（.zip）</p>
-            <p class="text-[11px] text-slate-400 mt-0.5">解压后按目录结构逐篇入库，不消耗接口配额</p>
-          </div>
-        </template>
-
-        <div class="flex flex-wrap items-center gap-4 text-[11.5px] text-slate-500">
-          <label class="flex items-center gap-1.5">
-            <input v-model="createNotes" type="checkbox" class="rounded border-slate-300" />
-            生成可编辑文档
+        <div class="space-y-1.5 rounded-xl border border-slate-100 bg-slate-50/50 px-3.5 py-2.5">
+          <p class="text-[11px] font-medium text-slate-500">导入后</p>
+          <label class="flex items-start gap-2 text-[11.5px] text-slate-600">
+            <input v-model="createNotes" type="checkbox" class="mt-0.5 rounded border-slate-300" />
+            <span>
+              生成可编辑笔记
+              <span class="block text-[10.5px] text-slate-400">在左侧目录中按语雀原结构创建文档，可继续编辑。</span>
+            </span>
           </label>
-          <label class="flex items-center gap-1.5">
-            <input v-model="yuqueCompile" type="checkbox" class="rounded border-slate-300" />
-            入库后立即编译
+          <label class="flex items-start gap-2 text-[11.5px] text-slate-600">
+            <input v-model="yuqueCompile" type="checkbox" class="mt-0.5 rounded border-slate-300" />
+            <span>
+              导入后立即编译 Wiki
+              <span class="block text-[10.5px] text-slate-400">耗时更长；不勾选也可以稍后在知识库卡片上手动编译。</span>
+            </span>
           </label>
         </div>
       </div>
@@ -1194,6 +1307,7 @@ function formatTime(value?: string | null) {
     <div class="flex items-center justify-between gap-2 mt-5">
       <p class="text-[10.5px] text-slate-400">
         <template v-if="busy">正在处理，请勿关闭…</template>
+        <template v-else-if="tab === 'yuque'">迁移会保留语雀的目录结构与正文顺序；附件保留原始链接。</template>
         <template v-else-if="tab === 'sheet'">表格会转换为数据表，每行生成一条记录；导入后可在表格中勾选记录按需生成笔记。</template>
         <template v-else>导入默认仅入库；编译可在素材或 Wiki 中按需触发。</template>
       </p>

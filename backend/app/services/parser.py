@@ -1,8 +1,10 @@
-"""文档解析路由：md/txt 透传，PDF / DOCX / DOC 抽文本。
+"""文档解析路由：md/txt 透传，PDF / 图片 / DOCX / DOC 抽文本。
 
 策略：
 - 电子原生 PDF 先用 PyMuPDF 快速路径；文本覆盖率过低时尝试 OCR；
-- OCR 依赖本机 tesseract + pytesseract，缺失时标记「待人工复核」而非静默成功；
+- OCR 优先使用「系统设置 → 线上 OCR」（OpenAI 兼容视觉模型），
+  未配置或失败时回退本机 tesseract + pytesseract；
+- 图片导入直接走 OCR；
 - 旧版 .doc 通过 LibreOffice 转为 .docx 后复用 DOCX 解析；
 - 所有解析器输出统一 ParsedDocument（含 parse_engine / quality_report）。
 """
@@ -14,6 +16,10 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from app.services import ocr_service
+
+IMAGE_TYPES = {"png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"}
 
 
 @dataclass
@@ -38,6 +44,8 @@ def parse_file(path: Path, file_type: str | None = None) -> ParsedDocument:
         return _parse_text(path)
     if ft == "pdf":
         return _parse_pdf(path)
+    if ft in IMAGE_TYPES:
+        return _parse_image(path, ft)
     if ft == "docx":
         return _parse_docx(path)
     if ft == "doc":
@@ -68,19 +76,13 @@ def _parse_text(path: Path) -> ParsedDocument:
     )
 
 
-def _ocr_pdf(path: Path) -> tuple[str, str, list[str]]:
-    """尝试 OCR。返回 (text, engine, warnings)。"""
+def _local_tesseract_image(image) -> tuple[str, list[str]]:
     try:
         import pytesseract
-        from PIL import Image
     except ImportError:
-        return "", "", ["未安装 pytesseract / Pillow，无法对扫描件执行 OCR"]
-    tesseract = shutil.which("tesseract")
-    if not tesseract:
-        return "", "", ["未安装 tesseract，无法对扫描件执行 OCR"]
-
-    import fitz
-
+        return "", ["未安装 pytesseract / Pillow，无法执行本地 OCR"]
+    if not shutil.which("tesseract"):
+        return "", ["未安装 tesseract，无法执行本地 OCR"]
     try:
         langs = pytesseract.get_languages(config="")
     except Exception:  # noqa: BLE001
@@ -89,6 +91,41 @@ def _ocr_pdf(path: Path) -> tuple[str, str, list[str]]:
     warnings = []
     if "chi_sim" not in langs:
         warnings.append("未安装中文 OCR 语言包（chi_sim），中文识别质量可能较低")
+    try:
+        return pytesseract.image_to_string(image, lang=lang), warnings
+    except Exception as exc:  # noqa: BLE001
+        return "", [f"本地 OCR 失败：{exc}"]
+
+
+def _ocr_pdf(path: Path) -> tuple[str, str, list[str], list[str]]:
+    """尝试 OCR。返回 (text, engine, warnings, errors)。"""
+    warnings: list[str] = []
+    errors: list[str] = []
+
+    # 1) 线上 OCR（用户配置的视觉模型）
+    if ocr_service.is_available():
+        try:
+            text, ocr_warnings = ocr_service.ocr_pdf_pages(path)
+            warnings.extend(ocr_warnings)
+            if text.strip():
+                cfg = ocr_service.current_config()
+                return text.strip(), f"online-ocr:{cfg.api_model}", warnings, errors
+            errors.append("线上 OCR 未返回文本")
+        except ocr_service.OcrError as exc:
+            errors.append(str(exc))
+
+    # 2) 本地 tesseract
+    try:
+        import pytesseract  # noqa: F401
+        from PIL import Image
+    except ImportError:
+        warnings.append("未安装 pytesseract / Pillow，无法对扫描件执行本地 OCR")
+        return "", "", warnings, errors
+    if not shutil.which("tesseract"):
+        warnings.append("未安装 tesseract，无法对扫描件执行本地 OCR")
+        return "", "", warnings, errors
+
+    import fitz
 
     doc = fitz.open(path)
     chunks: list[str] = []
@@ -96,10 +133,64 @@ def _ocr_pdf(path: Path) -> tuple[str, str, list[str]]:
         for page in doc:
             pix = page.get_pixmap(dpi=200)
             image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            chunks.append(pytesseract.image_to_string(image, lang=lang))
+            text, image_warnings = _local_tesseract_image(image)
+            chunks.extend(image_warnings)
+            chunks.append(text)
     finally:
         doc.close()
-    return "\n\n".join(chunks).strip(), "tesseract-ocr", warnings
+    return "\n\n".join(chunks).strip(), "tesseract-ocr", warnings, errors
+
+
+def _parse_image(path: Path, file_type: str) -> ParsedDocument:
+    """图片导入：优先线上 OCR，失败回退本地 tesseract。"""
+    warnings: list[str] = []
+    errors: list[str] = []
+    text = ""
+    engine = ""
+
+    if ocr_service.is_available():
+        try:
+            text = ocr_service.ocr_image_file(path)
+            if text.strip():
+                engine = f"online-ocr:{ocr_service.current_config().api_model}"
+            else:
+                errors.append("线上 OCR 未返回文本")
+        except ocr_service.OcrError as exc:
+            errors.append(str(exc))
+
+    if not text.strip():
+        try:
+            from PIL import Image
+
+            with Image.open(path) as image:
+                text, local_warnings = _local_tesseract_image(image)
+            warnings.extend(local_warnings)
+            if text.strip():
+                engine = "tesseract-ocr"
+        except ImportError:
+            warnings.append("未安装 Pillow，无法执行本地 OCR")
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"本地 OCR 失败：{exc}")
+
+    quality = "ocr_aided" if text.strip() else "review"
+    if not text.strip():
+        text = f"[图片未能识别文字：{path.name}]"
+        warnings.append("未能识别图片文字，请检查 OCR 配置或稍后人工复核")
+    if errors:
+        warnings.extend(f"线上 OCR：{error}" for error in errors)
+    return ParsedDocument(
+        title=path.stem,
+        text=text,
+        parse_engine=engine or "ocr-unavailable",
+        parse_quality=quality,
+        warnings=warnings,
+        quality_report={
+            "source_type": file_type,
+            "chars": len(text),
+            "ocr": bool(engine),
+            "engine": engine,
+        },
+    )
 
 
 def _parse_pdf(path: Path) -> ParsedDocument:
@@ -121,8 +212,9 @@ def _parse_pdf(path: Path) -> ParsedDocument:
     quality = "clean"
 
     # 少于 ~30 字/页视为没有可用的文本层，尝试 OCR。
+    ocr_errors: list[str] = []
     if coverage < 30:
-        ocr_text, ocr_engine, ocr_warnings = _ocr_pdf(path)
+        ocr_text, ocr_engine, ocr_warnings, ocr_errors = _ocr_pdf(path)
         warnings.extend(ocr_warnings)
         if ocr_text:
             text = ocr_text
@@ -156,7 +248,9 @@ def _parse_pdf(path: Path) -> ParsedDocument:
             "chars": chars,
             "chars_per_page": round(coverage, 1),
             "text_coverage": "low" if coverage < 30 else "normal",
-            "ocr": engine == "tesseract-ocr",
+            "ocr": engine.startswith(("tesseract-ocr", "online-ocr")),
+            "ocr_engine": engine if engine.startswith(("tesseract-ocr", "online-ocr")) else None,
+            "ocr_errors": ocr_errors,
         },
     )
 

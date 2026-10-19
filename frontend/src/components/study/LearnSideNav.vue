@@ -104,14 +104,15 @@ function onNav(key: NavKey) {
     class="shrink-0 sidebar-glass h-full flex flex-col py-3 gap-0.5 overflow-visible transition-[width] duration-300 ease-out"
     :class="navCollapsed ? 'w-14' : 'w-44'"
   >
-    <nav class="flex-1 space-y-1 overflow-y-auto overflow-x-hidden">
+    <nav class="flex-1 min-h-0 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
       <button
         v-for="n in navItems"
         :key="n.key"
+        type="button"
         :title="navLocked(n.key) ? lockedHint(n.key) : navCollapsed ? n.label : undefined"
         :disabled="navLocked(n.key)"
         :aria-disabled="navLocked(n.key) || undefined"
-        class="group relative w-full rounded-xl flex items-center gap-2.5 text-sm transition-all duration-200"
+        class="group relative rounded-xl flex items-center gap-2.5 text-sm transition-all duration-200"
         :class="[
           navCollapsed ? 'mx-2 justify-center px-0 py-2.5' : 'mx-2 px-3 py-2',
           navLocked(n.key)
@@ -122,8 +123,9 @@ function onNav(key: NavKey) {
         ]"
         @click="onNav(n.key)"
       >
+        <!-- 与编辑模式 SideNav 完全一致的选中胶囊：位置、渐变、描边、阴影。 -->
         <span
-          class="absolute inset-0 rounded-xl bg-gradient-to-r from-kiwi-100/90 to-kiwi-50/60 border border-kiwi-200/50 shadow-soft transition-all duration-300"
+          class="absolute inset-0 -z-0 rounded-xl bg-gradient-to-r from-kiwi-100/90 to-kiwi-50/60 border border-kiwi-200/50 shadow-soft transition-all duration-300"
           :class="activeKey === n.key ? 'opacity-100 scale-100' : 'opacity-0 scale-95'"
         />
         <span
@@ -143,13 +145,13 @@ function onNav(key: NavKey) {
         </span>
         <span
           v-if="!navCollapsed && n.key === 'review' && study.dueReviews.length"
-          class="relative z-[1] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[10px] font-semibold tabular-nums"
+          class="relative z-[1] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[10px] font-semibold leading-none tabular-nums"
         >
           {{ study.dueReviews.length }}
         </span>
         <span
           v-else-if="!navCollapsed && n.key === 'resume' && study.activeSession"
-          class="relative z-[1] px-1.5 py-0.5 rounded-md bg-kiwi-100 text-kiwi-700 text-[10px] font-semibold tabular-nums"
+          class="relative z-[1] px-1.5 py-0.5 rounded-md bg-kiwi-100 text-kiwi-700 text-[10px] font-semibold leading-none tabular-nums"
         >
           {{ study.activeSession.answered_count }}
         </span>

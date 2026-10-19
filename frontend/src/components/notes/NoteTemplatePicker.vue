@@ -4,10 +4,14 @@ import { computed, ref, watch } from 'vue'
 import { useNotesStore, type NoteOut, type NoteTemplate } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import { toast } from '@/components/ui/toast'
 
-const props = defineProps<{ open: boolean }>()
+const props = withDefaults(
+  defineProps<{ open: boolean; folderId?: string | null }>(),
+  { folderId: null },
+)
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'created', note: NoteOut): void
@@ -42,6 +46,8 @@ const editing = ref(false)
 const form = ref<TemplateForm>({ ...EMPTY_FORM })
 const saving = ref(false)
 const deleting = ref<NoteTemplate | null>(null)
+/** 内置模板预览：在同一个弹窗内切换，避免嵌套弹窗互相抢 Esc。 */
+const previewing = ref<NoteTemplate | null>(null)
 
 const ICONS = ['note', 'fileText', 'bookOpen', 'layoutTemplate', 'sparkle', 'target']
 const ICON_LABEL: Record<string, string> = {
@@ -85,10 +91,20 @@ watch(
     if (!open) {
       editing.value = false
       deleting.value = null
+      previewing.value = null
       return
     }
     editing.value = false
+    previewing.value = null
+    folderId.value = props.folderId ?? ''
     void load()
+  },
+)
+
+watch(
+  () => props.folderId,
+  (value) => {
+    if (props.open) folderId.value = value ?? ''
   },
 )
 
@@ -174,7 +190,15 @@ function iconOf(template: NoteTemplate): string {
 <template>
   <KiwiModal
     :open="open"
-    :title="editing ? (form.id ? '编辑模板' : '新建模板') : '从模板新建'"
+    :title="
+      editing
+        ? form.id
+          ? '编辑模板'
+          : '新建模板'
+        : previewing
+          ? `预览：${previewing.name}`
+          : '从模板新建'
+    "
     max-w="max-w-3xl"
     @close="emit('close')"
   >
@@ -240,7 +264,7 @@ function iconOf(template: NoteTemplate): string {
     </div>
 
     <!-- 模板列表 -->
-    <div v-else>
+    <div v-else-if="!previewing">
       <div class="flex items-center gap-2 mb-3">
         <div class="flex items-center gap-1.5 text-[11px] text-slate-500">
           <KiwiIcon name="folder" :size="13" class="text-slate-400" />
@@ -311,6 +335,13 @@ function iconOf(template: NoteTemplate): string {
                 >
                   <KiwiIcon name="plus" :size="11" />
                   {{ usingId === template.id ? '创建中…' : '使用模板' }}
+                </button>
+                <button
+                  class="kiwi-btn-ghost !p-1"
+                  title="预览模板内容"
+                  @click="previewing = template"
+                >
+                  <KiwiIcon name="eye" :size="12" />
                 </button>
                 <button
                   class="kiwi-btn-ghost !p-1"
@@ -387,6 +418,60 @@ function iconOf(template: NoteTemplate): string {
             还没有自定义模板。可以把常用结构保存下来，或从任意笔记「存为模板」。
           </p>
         </section>
+      </div>
+    </div>
+
+    <!-- 内置模板预览：同一弹窗内切换，保留模板列表的滚动位置 -->
+    <div v-else>
+      <div v-if="previewing" class="space-y-3">
+        <div class="flex items-center gap-2.5">
+          <button
+            class="kiwi-btn-ghost shrink-0 !p-1.5"
+            title="返回模板列表"
+            @click="previewing = null"
+          >
+            <KiwiIcon name="arrowLeft" :size="14" />
+          </button>
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-kiwi-50 text-kiwi-600">
+            <KiwiIcon :name="iconOf(previewing)" :size="17" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              <h3 class="truncate text-[14px] font-semibold text-slate-700">
+                {{ previewing.name }}
+              </h3>
+              <span class="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] text-slate-400">
+                内置
+              </span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-slate-400">
+              {{ previewing.description || '预置结构与标签' }}
+            </p>
+          </div>
+          <button
+            class="kiwi-btn-primary shrink-0 !py-1.5 !text-[11.5px]"
+            :disabled="usingId === previewing.id"
+            @click="use(previewing)"
+          >
+            <KiwiIcon name="plus" :size="11" />
+            {{ usingId === previewing.id ? '创建中…' : '使用模板' }}
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span
+            v-for="tag in previewing.tags_json"
+            :key="tag"
+            class="rounded-full bg-kiwi-50 px-2 py-0.5 text-[10px] text-kiwi-600"
+          >
+            #{{ tag }}
+          </span>
+          <span v-if="previewing.title_pattern" class="text-[10px] text-slate-400">
+            默认标题：{{ previewing.title_pattern }}
+          </span>
+        </div>
+        <div class="max-h-[52vh] overflow-y-auto rounded-xl border border-slate-200/80 bg-white/80 px-5 py-4">
+          <MarkdownView :content="previewing.body_md || '*该模板没有正文结构*'" />
+        </div>
       </div>
     </div>
 

@@ -130,10 +130,26 @@ class ReorderIn(BaseModel):
     ordered_ids: list[uuid.UUID]
 
 
+class TreeReorderItem(BaseModel):
+    """混合层级中的一个节点：分组或笔记。"""
+
+    type: Literal["folder", "note"]
+    id: uuid.UUID
+
+
+class TreeReorderIn(BaseModel):
+    """混合排序：分组与笔记共享同一顺序（parent_id 为空表示根级）。"""
+
+    parent_id: uuid.UUID | None = None
+    items: list[TreeReorderItem]
+
+
 class LinkCreate(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
     folder_id: uuid.UUID | None = None
     title: str | None = Field(default=None, max_length=300)
+    # 只读：只保留链接卡片，不抓取 / 不生成可编辑正文
+    readonly: bool = False
 
 
 class LinkMetaIn(BaseModel):
@@ -159,11 +175,13 @@ class RemoteFileImportIn(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     compile_now: bool = False
     batch_id: uuid.UUID | None = None
+    readonly: bool = False
 
 
 class NoteImportStartOut(BaseModel):
     note: NoteOut
-    job_id: uuid.UUID
+    # 只读导入不进入解析流水线，因此没有任务
+    job_id: uuid.UUID | None = None
 
 
 class TablePreviewOut(BaseModel):
@@ -181,6 +199,21 @@ class TableImportOut(BaseModel):
     fields: list[dict]
     row_count: int
     truncated: bool
+
+
+class NoteRevisionSummary(BaseModel):
+    """历史版本列表项（不含正文，节省带宽）。"""
+
+    id: uuid.UUID
+    note_id: uuid.UUID
+    title: str
+    source: str
+    created_at: datetime
+
+
+class NoteRevisionOut(NoteRevisionSummary):
+    body_md: str
+    props_json: dict = Field(default_factory=dict)
 
 
 class NoteImportStatusOut(BaseModel):

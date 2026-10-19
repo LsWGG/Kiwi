@@ -18,6 +18,8 @@ const url = ref('')
 const title = ref('')
 const loading = ref(false)
 const error = ref('')
+/** 只读书签：不抓取正文，仅保留标题 / 摘要与跳转链接。 */
+const readonly = ref(false)
 
 watch(
   () => props.open,
@@ -27,6 +29,7 @@ watch(
     title.value = ''
     error.value = ''
     loading.value = false
+    readonly.value = false
   },
 )
 
@@ -54,10 +57,15 @@ async function submit() {
       url: parsed.toString(),
       title: title.value.trim() || undefined,
       folder_id: props.folderId,
+      readonly: readonly.value,
     })
     const ok = note.props_json?.link?.fetch_status === 'ok'
     toast[ok ? 'success' : 'info'](
-      ok ? '已抓取网页正文' : '暂时无法抓取正文，已保存为书签',
+      readonly.value
+        ? '已创建只读链接'
+        : ok
+          ? '已抓取网页正文'
+          : '暂时无法抓取正文，已保存为书签',
     )
     emit('created', note)
     emit('close')
@@ -91,9 +99,18 @@ async function submit() {
         <label class="block text-[11px] font-medium text-slate-500 mb-1.5">标题（可选）</label>
         <input v-model="title" class="kiwi-input" placeholder="留空则使用网页标题" @keyup.enter="submit" />
       </div>
+      <label class="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[11.5px] text-slate-600">
+        <input v-model="readonly" type="checkbox" class="mt-0.5 rounded border-slate-300" />
+        <span>
+          只读链接
+          <span class="block text-[10.5px] leading-relaxed text-slate-400">
+            不抓取网页正文，仅保存标题与摘要，作为纯阅读书签。
+          </span>
+        </span>
+      </label>
       <p class="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-400">
         <KiwiIcon name="sparkle" :size="12" class="mt-0.5 shrink-0" />
-        服务器会抓取网页正文并转为 Markdown；抓取失败时仍会保存书签卡片。
+        默认由服务器抓取网页正文并转为 Markdown；抓取失败时仍会保存书签卡片。
       </p>
       <p v-if="error" class="text-[11.5px] text-rose-500">{{ error }}</p>
     </div>

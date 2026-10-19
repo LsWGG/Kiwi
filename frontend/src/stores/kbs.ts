@@ -16,6 +16,17 @@ export interface KbOverview {
   is_builtin: boolean
   builtin_key: string | null
   deleted_at: string | null
+  /** 卡片手动排序：越小越靠前（置顶分组优先于该值） */
+  sort_order: number
+  /** 定时编译 Wiki：0 表示关闭 */
+  wiki_compile_interval_hours: number
+  wiki_compile_last_at: string | null
+  wiki_compile_last_status: Record<string, unknown>
+  /** 待办汇总周期：0 表示关闭 */
+  todo_sync_interval_hours: number
+  todo_sync_last_at: string | null
+  todo_open_count: number
+  todo_done_count: number
   created_at: string
   updated_at: string
   source_count: number
@@ -109,6 +120,18 @@ export const useKbsStore = defineStore('kbs', () => {
     await Promise.all([fetchKbs(), fetchBuiltinStatus()])
   }
 
+  /** 卡片排序：后端要求提交全部可见知识库，置顶分组仍由 pinned 决定。 */
+  async function reorderKbs(orderedIds: string[]) {
+    await request('/kbs/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ ordered_ids: orderedIds }),
+    })
+    orderedIds.forEach((id, index) => {
+      const kb = kbs.value.find((item) => item.id === id)
+      if (kb) kb.sort_order = index
+    })
+  }
+
   async function fetchBuiltinStatus() {
     try {
       builtinStatus.value = await request<BuiltinKbStatus>('/kbs/builtin')
@@ -137,6 +160,7 @@ export const useKbsStore = defineStore('kbs', () => {
     fetchKbs,
     fetchBuiltinStatus,
     restoreBuiltin,
+    reorderKbs,
     createKb,
     deleteKb,
   }

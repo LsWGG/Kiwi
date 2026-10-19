@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 左侧工作区目录：多级分组、拖拽排序/移动、搜索、右键菜单。 */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   useNotesStore,
@@ -373,6 +373,56 @@ const pinnedFolders = computed(() =>
 )
 const pinnedNotes = computed(() => sortedNotes.value.filter(notePinned))
 
+type MixedNode =
+  | {
+      type: 'folder'
+      id: string
+      pinned: boolean
+      sort_order: number
+      label: string
+      folder: NoteFolder
+    }
+  | {
+      type: 'note'
+      id: string
+      pinned: boolean
+      sort_order: number
+      label: string
+      note: NoteSummary
+    }
+
+/** 同一层级的分组 + 活跃笔记，按共享 sort_order 混合排序。 */
+function mixedChildren(parentId: string | null): MixedNode[] {
+  const list: MixedNode[] = [
+    ...sortedFolders.value
+      .filter((folder) => folder.parent_id === parentId)
+      .map((folder) => ({
+        type: 'folder' as const,
+        id: folder.id,
+        pinned: !!folder.pinned,
+        sort_order: folder.sort_order,
+        label: folder.name,
+        folder,
+      })),
+    ...sortedNotes.value
+      .filter((note) => note.folder_id === parentId)
+      .map((note) => ({
+        type: 'note' as const,
+        id: note.id,
+        pinned: notePinned(note),
+        sort_order: note.sort_order,
+        label: note.title || '无标题',
+        note,
+      })),
+  ]
+  return list.sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) ||
+      a.sort_order - b.sort_order ||
+      a.label.localeCompare(b.label, 'zh-CN'),
+  )
+}
+
 const rows = computed<TreeRow[]>(() => {
   const q = search.value.trim().toLowerCase()
   if (q) {
@@ -382,20 +432,17 @@ const rows = computed<TreeRow[]>(() => {
   }
   const out: TreeRow[] = []
   const walk = (parentId: string | null, depth: number, hoisted = false) => {
-    const childFolders = sortedFolders.value.filter(
-      (folder) => folder.parent_id === parentId,
-    )
-    const childNotes = sortedNotes.value.filter((note) => note.folder_id === parentId)
-    const emitFolder = (folder: NoteFolder) => {
-      if (!parentId && inboxIds.value.has(folder.id)) return
-      out.push({ type: 'folder', id: folder.id, depth, folder, hoisted })
-      if (expanded.value.has(folder.id)) walk(folder.id, depth + 1, hoisted)
+    // 分组与笔记共用 sort_order：按混合顺序逐行输出，笔记可以排在分组上方。
+    for (const node of mixedChildren(parentId)) {
+      if (node.type === 'folder') {
+        const folder = node.folder!
+        if (!parentId && inboxIds.value.has(folder.id)) continue
+        out.push({ type: 'folder', id: folder.id, depth, folder, hoisted })
+        if (expanded.value.has(folder.id)) walk(folder.id, depth + 1, hoisted)
+      } else {
+        out.push({ type: 'note', id: node.note!.id, depth, note: node.note!, hoisted })
+      }
     }
-    const emitNote = (note: NoteSummary) =>
-      out.push({ type: 'note', id: note.id, depth, note, hoisted })
-
-    childFolders.forEach(emitFolder)
-    childNotes.forEach(emitNote)
   }
   const pushFolder = (
     folder: NoteFolder,
@@ -559,15 +606,12 @@ function onDragOver(event: DragEvent, row: TreeRow) {
   const rel = (event.clientY - rect.top) / Math.max(rect.height, 1)
   let pos: DropPos
   if (row.type === 'folder') {
-    if (drag.type === 'note') {
-      pos = 'into'
-    } else {
-      if (isDescendant(row.folder!.id, drag.id)) {
-        dropState.value = null
-        return
-      }
-      pos = rel < 0.28 ? 'before' : rel > 0.72 ? 'after' : 'into'
+    if (drag.type === 'folder' && isDescendant(row.folder!.id, drag.id)) {
+      dropState.value = null
+      return
     }
+    // 上下边缘 = 与分组同级排序（可把笔记拖到分组上方），中间 = 放入分组。
+    pos = rel < 0.26 ? 'before' : rel > 0.74 ? 'after' : 'into'
   } else {
     pos = rel < 0.5 ? 'before' : 'after'
   }
@@ -600,30 +644,45 @@ async function onDrop(event: DragEvent, row: TreeRow) {
   }
 }
 
+/**
+ * 构造目标层级的完整混合排序列表（分组 + 笔记），把拖拽项插到目标位置。
+ * 后端 tree-reorder 要求提交该层级的全部节点。
+ */
+function mixedReorderItems(
+  parentId: string | null,
+  moving: { type: 'folder' | 'note'; id: string },
+  target: { type: 'folder' | 'note'; id: string },
+  after: boolean,
+) {
+  const items = mixedChildren(parentId)
+    .filter((node) => !(node.type === moving.type && node.id === moving.id))
+    .map((node) => ({ type: node.type, id: node.id }))
+  const index = items.findIndex(
+    (node) => node.type === target.type && node.id === target.id,
+  )
+  if (index < 0) return null
+  items.splice(index + (after ? 1 : 0), 0, moving)
+  return items
+}
+
 async function dropNote(note: NoteSummary, target: TreeRow, pos: DropPos | null) {
-  if (target.type === 'folder') {
+  // 落在分组中部 = 放入分组内部；落在上下边缘 = 与分组同级排序。
+  if (target.type === 'folder' && (pos === 'into' || !pos)) {
     await notes.moveNote(note.id, target.folder!.id)
     return
   }
-  const targetNote = target.note!
-  const folderId = targetNote.folder_id
-  if (note.folder_id !== folderId) await notes.moveNote(note.id, folderId)
-  const siblings = sortedNotes.value
-    .filter((n) => n.folder_id === folderId && n.id !== note.id)
-    .map((n) => n.id)
-  const index = siblings.indexOf(targetNote.id)
-  if (index < 0) return
-  siblings.splice(index + (pos === 'after' ? 1 : 0), 0, note.id)
-  await notes.reorder(folderId, 'note', siblings)
+  const parentId =
+    target.type === 'folder' ? target.folder!.parent_id : target.note!.folder_id
+  if (note.folder_id !== parentId) await notes.moveNote(note.id, parentId)
+  const moving = { type: 'note' as const, id: note.id }
+  const targetNode = { type: target.type, id: target.id }
+  const items = mixedReorderItems(parentId, moving, targetNode, pos === 'after')
+  if (items) await notes.reorderTree(parentId, items)
 }
 
 async function dropFolder(folder: NoteFolder, target: TreeRow, pos: DropPos | null) {
-  if (target.type === 'note') {
-    await notes.updateFolder(folder.id, { parent_id: target.note!.folder_id })
-    return
-  }
-  const targetFolder = target.folder!
-  if (pos === 'into') {
+  if (target.type === 'folder' && (pos === 'into' || !pos)) {
+    const targetFolder = target.folder!
     if (targetFolder.id === folder.id || isDescendant(targetFolder.id, folder.id)) {
       toast.error('不能把分组移到自己的子分组中')
       return
@@ -631,17 +690,16 @@ async function dropFolder(folder: NoteFolder, target: TreeRow, pos: DropPos | nu
     await notes.updateFolder(folder.id, { parent_id: targetFolder.id })
     return
   }
-  const parentId = targetFolder.parent_id
+  const parentId =
+    target.type === 'folder' ? target.folder!.parent_id : target.note!.folder_id
   if (parentId === folder.id) return
-  await notes.updateFolder(folder.id, { parent_id: parentId })
-  const siblings = notes.folders
-    .filter((f) => f.parent_id === parentId && f.id !== folder.id)
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((f) => f.id)
-  const index = siblings.indexOf(targetFolder.id)
-  if (index < 0) return
-  siblings.splice(index + (pos === 'after' ? 1 : 0), 0, folder.id)
-  await notes.reorder(parentId, 'folder', siblings)
+  if (folder.parent_id !== parentId) {
+    await notes.updateFolder(folder.id, { parent_id: parentId })
+  }
+  const moving = { type: 'folder' as const, id: folder.id }
+  const targetNode = { type: target.type, id: target.id }
+  const items = mixedReorderItems(parentId, moving, targetNode, pos === 'after')
+  if (items) await notes.reorderTree(parentId, items)
 }
 
 async function onRootDrop(event: DragEvent) {
@@ -803,7 +861,21 @@ async function archiveFromMenu() {
 }
 
 const templateOpen = ref(false)
+/** 快速捕获不再占用新建菜单，统一由全局快捷键唤起。 */
 const captureOpen = ref(false)
+
+/** Ctrl/Cmd + Shift + Space：随时呼出快速捕获。 */
+function onQuickCaptureKey(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || !event.shiftKey) return
+  if (event.code !== 'Space') return
+  const target = event.target as HTMLElement | null
+  if (target?.isContentEditable) return
+  event.preventDefault()
+  captureOpen.value = true
+}
+
+onMounted(() => window.addEventListener('keydown', onQuickCaptureKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onQuickCaptureKey))
 
 function onTemplateCreated(note: NoteOut) {
   emit('open-note', note)
@@ -954,51 +1026,107 @@ async function confirmFolder() {
   }
 }
 
-async function createDoc() {
+/** 新建时的目标分组：顶部新建菜单为根级，右键菜单为当前条目所在层级。 */
+const createFolderId = ref<string | null>(null)
+
+async function createNoteAt(
+  kind: 'doc' | 'canvas' | 'database' | 'notebook',
+  folderId: string | null = null,
+) {
+  const titles = {
+    doc: '无标题文档',
+    canvas: '无标题画布',
+    database: '无标题数据表',
+    notebook: '无标题 Notebook',
+  } as const
+  const names = {
+    doc: '创建文档',
+    canvas: '创建画布',
+    database: '创建数据表',
+    notebook: '创建 Notebook',
+  } as const
   try {
-    const note = await notes.createNote({ title: '无标题文档', kind: 'doc' })
+    const note = await notes.createNote({
+      title: titles[kind],
+      kind,
+      folder_id: folderId,
+    })
+    if (folderId) expand(folderId)
     emit('open-note', note)
     renamingId.value = note.id
   } catch (e: any) {
-    toast.error(e.message || '创建文档失败')
+    toast.error(e.message || `${names[kind]}失败`)
   }
 }
 
-async function createCanvas() {
-  try {
-    const note = await notes.createNote({ title: '无标题画布', kind: 'canvas' })
-    emit('open-note', note)
-    renamingId.value = note.id
-  } catch (e: any) {
-    toast.error(e.message || '创建画布失败')
-  }
-}
-
-async function createDatabase() {
-  try {
-    const note = await notes.createNote({ title: '无标题数据表', kind: 'database' })
-    emit('open-note', note)
-    renamingId.value = note.id
-  } catch (e: any) {
-    toast.error(e.message || '创建数据表失败')
-  }
-}
-
-async function createNotebook() {
-  try {
-    const note = await notes.createNote({ title: '无标题 Notebook', kind: 'notebook' })
-    emit('open-note', note)
-    renamingId.value = note.id
-  } catch (e: any) {
-    toast.error(e.message || '创建 Notebook 失败')
-  }
-}
+const createDoc = (folderId: string | null = null) => createNoteAt('doc', folderId)
+const createCanvas = (folderId: string | null = null) => createNoteAt('canvas', folderId)
+const createDatabase = (folderId: string | null = null) => createNoteAt('database', folderId)
+const createNotebook = (folderId: string | null = null) => createNoteAt('notebook', folderId)
 
 const importOpen = ref(false)
+const importFolderId = ref<string | null>(null)
 const linkOpen = ref(false)
+const linkFolderId = ref<string | null>(null)
+const templateFolderId = ref<string | null>(null)
+
+function openImport(folderId: string | null = null) {
+  importFolderId.value = folderId
+  if (folderId) expand(folderId)
+  importOpen.value = true
+}
+
+function openLink(folderId: string | null = null) {
+  linkFolderId.value = folderId
+  if (folderId) expand(folderId)
+  linkOpen.value = true
+}
+
+function openTemplates(folderId: string | null = null) {
+  templateFolderId.value = folderId
+  templateOpen.value = true
+}
 
 function onCreated(note: NoteOut) {
   emit('open-note', note)
+}
+
+/** 右键菜单「在此层级新建」的当前目标分组。 */
+function menuCreateFolderId(): string | null {
+  const row = menu.value.row
+  if (!row) return null
+  return row.type === 'folder' ? row.id : (row.note?.folder_id ?? null)
+}
+
+function createFromMenu(kind: string) {
+  const folderId = menuCreateFolderId()
+  menu.value.open = false
+  switch (kind) {
+    case 'doc':
+      void createDoc(folderId)
+      break
+    case 'canvas':
+      void createCanvas(folderId)
+      break
+    case 'database':
+      void createDatabase(folderId)
+      break
+    case 'notebook':
+      void createNotebook(folderId)
+      break
+    case 'import':
+      openImport(folderId)
+      break
+    case 'link':
+      openLink(folderId)
+      break
+    case 'template':
+      openTemplates(folderId)
+      break
+    case 'folder':
+      void openFolderDialog(folderId)
+      break
+  }
 }
 
 function onSelect(row: TreeRow, event?: MouseEvent) {
@@ -1061,15 +1189,14 @@ const createFolderMenu = () => openFolderDialog(null)
         </button>
         <div class="my-1 h-px w-6 bg-slate-200/70" />
         <NoteCreateMenu
-          @template="templateOpen = true"
-          @capture="captureOpen = true"
-          @doc="createDoc"
-          @canvas="createCanvas"
-          @database="createDatabase"
-          @notebook="createNotebook"
-          @import="importOpen = true"
+          @template="openTemplates()"
+          @doc="createDoc()"
+          @canvas="createCanvas()"
+          @database="createDatabase()"
+          @notebook="createNotebook()"
+          @import="openImport()"
           @folder="createFolderMenu"
-          @link="linkOpen = true"
+          @link="openLink()"
         />
         <button
           type="button"
@@ -1091,15 +1218,14 @@ const createFolderMenu = () => openFolderDialog(null)
       <span class="text-[10px] text-slate-400 tabular-nums">{{ total }}</span>
       <div class="flex-1" />
       <NoteCreateMenu
-        @template="templateOpen = true"
-        @capture="captureOpen = true"
-        @doc="createDoc"
-        @canvas="createCanvas"
-        @database="createDatabase"
-        @notebook="createNotebook"
-        @import="importOpen = true"
+        @template="openTemplates()"
+        @doc="createDoc()"
+        @canvas="createCanvas()"
+        @database="createDatabase()"
+        @notebook="createNotebook()"
+        @import="openImport()"
         @folder="createFolderMenu"
-        @link="linkOpen = true"
+        @link="openLink()"
       />
       <button
         type="button"
@@ -1212,7 +1338,7 @@ const createFolderMenu = () => openFolderDialog(null)
           title="工作区还是空的"
           desc="新建文档、导入文件，或把网页收藏为链接"
         >
-          <button class="kiwi-btn-primary !py-1.5 !px-3 text-xs" @click="createDoc">
+          <button class="kiwi-btn-primary !py-1.5 !px-3 text-xs" @click="createDoc()">
             <KiwiIcon name="plus" :size="13" /> 新建文档
           </button>
         </KiwiEmpty>
@@ -1469,7 +1595,6 @@ const createFolderMenu = () => openFolderDialog(null)
       @close="menu.open = false"
       @rename="beginRenameFromMenu"
       @pin="togglePinFromMenu"
-      @new-folder="menu.row?.folder && openFolderDialog(menu.row.folder.id)"
       @copy="copyFromMenu"
       @move-kb="openMoveFromMenu"
       @emoji="openEmojiFromMenu"
@@ -1477,6 +1602,7 @@ const createFolderMenu = () => openFolderDialog(null)
       @archive="archiveFromMenu"
       @export="exportFromMenu"
       @delete="deleteFromMenu"
+      @create="createFromMenu"
     />
 
     <NoteEmojiPicker
@@ -1581,16 +1707,19 @@ const createFolderMenu = () => openFolderDialog(null)
 
     <NoteImportDialog
       :open="importOpen"
+      :folder-id="importFolderId"
       @close="importOpen = false"
       @created="onCreated"
     />
     <LinkCreateDialog
       :open="linkOpen"
+      :folder-id="linkFolderId"
       @close="linkOpen = false"
       @created="onCreated"
     />
     <NoteTemplatePicker
       :open="templateOpen"
+      :folder-id="templateFolderId"
       @close="templateOpen = false"
       @created="onTemplateCreated"
     />

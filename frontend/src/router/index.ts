@@ -42,6 +42,20 @@ const router = createRouter({
           name: 'settings-embedding',
           component: () => import('@/views/settings/EmbeddingConfigView.vue'),
         },
+        {
+          path: 'settings/brand',
+          name: 'settings-brand',
+          component: () => import('@/views/settings/SystemSettingsView.vue'),
+          props: { section: 'brand' },
+        },
+        {
+          path: 'settings/ocr',
+          name: 'settings-ocr',
+          component: () => import('@/views/settings/SystemSettingsView.vue'),
+          props: { section: 'ocr' },
+        },
+        // 旧地址保留跳转
+        { path: 'settings/system', redirect: '/settings/brand' },
         // 学习模式（阶段一核心闭环：画像→训练→掌握度→错题）
         { path: 'learn', name: 'learn', component: () => import('@/views/learn/StudyView.vue') },
       ],

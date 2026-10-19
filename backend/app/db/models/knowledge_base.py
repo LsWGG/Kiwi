@@ -3,7 +3,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid, false, true
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    false,
+    true,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import settings
@@ -33,6 +44,29 @@ class KnowledgeBase(UUIDPkMixin, Base):
     )
     # 旧版本内置库的软删除标记；新删除均为硬删除，仅用于兼容历史数据。
     deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 知识库卡片手动排序（越小越靠前）
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+
+    # 定时编译 Wiki：间隔为 0 表示关闭。last_status 记录最近一次结果。
+    wiki_compile_interval_hours: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    wiki_compile_last_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    wiki_compile_last_status: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
+    # 待办聚合到收件箱：间隔为 0 表示仅手动同步。
+    todo_sync_interval_hours: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    todo_sync_last_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

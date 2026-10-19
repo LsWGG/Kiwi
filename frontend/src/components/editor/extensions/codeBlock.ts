@@ -344,6 +344,16 @@ class CodeBlockView implements NodeView {
 
 export function createCodeBlock(lowlight: ReturnType<typeof createLowlight>) {
   return CodeBlockLowlight.extend({
+    addKeyboardShortcuts() {
+      // TipTap 默认用 Mod-Alt-c 切换代码块，与格式刷的「复制格式」
+      // （Ctrl/Cmd+Alt+C）冲突，会导致复制格式时把段落变成代码块。
+      // 代码块仍可通过工具栏和斜杠菜单插入，这里移除该快捷键。
+      const shortcuts: Record<string, unknown> = {
+        ...(this.parent?.() ?? {}),
+      }
+      delete shortcuts['Mod-Alt-c']
+      return shortcuts as Record<string, () => boolean>
+    },
     addProseMirrorPlugins() {
       return [...(this.parent?.() ?? []), lineNumberPlugin()]
     },

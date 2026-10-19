@@ -41,16 +41,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         />
         <!-- 面板 -->
         <div
-          class="relative w-full rounded-2xl glass-strong p-6 shadow-lifted animate-scale-in"
+          class="relative flex max-h-[calc(100dvh-1.5rem)] w-full flex-col rounded-2xl glass-strong p-6 shadow-lifted animate-scale-in"
           :class="maxW"
         >
-          <div v-if="title" class="flex items-center justify-between mb-5">
+          <div v-if="title" class="mb-4 flex shrink-0 items-center justify-between gap-3">
             <h2 class="text-lg font-semibold text-slate-800">{{ title }}</h2>
             <button class="kiwi-btn-ghost !p-1.5" @click="emit('close')">
               <KiwiIcon name="close" :size="16" />
             </button>
           </div>
-          <slot />
+          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5">
+            <slot />
+          </div>
         </div>
       </div>
     </Transition>

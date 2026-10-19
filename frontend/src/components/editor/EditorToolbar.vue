@@ -41,6 +41,8 @@ const props = withDefaults(
     revision?: number
     /** 代码块显示偏好（主题 / 行号 / 自动换行） */
     codePrefs?: CodePrefs | null
+    /** 格式刷已复制格式，等待应用到目标内容 */
+    painterActive?: boolean
   }>(),
   {
     mode: 'notion',
@@ -49,6 +51,7 @@ const props = withDefaults(
     agentOpen: false,
     revision: 0,
     codePrefs: null,
+    painterActive: false,
   },
 )
 const emit = defineEmits<{
@@ -69,6 +72,8 @@ const emit = defineEmits<{
   (e: 'run-code', payload: { language: string; code: string }): void
   (e: 'zoom', value: number): void
   (e: 'agent'): void
+  /** 格式刷：复制当前格式，或把已复制的格式应用到当前选区 */
+  (e: 'painter'): void
 }>()
 
 // 「插入组件」下拉：Simple / Agent 模式下也能发现斜杠菜单里的扩展块。
@@ -539,6 +544,24 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
       </button>
       <button type="button" :class="[btn, editor.isActive('link') ? activeBtn : '']" title="链接" @click="toggleLink">
         <KiwiIcon name="link2" :size="14" />
+      </button>
+      <button
+        type="button"
+        :class="[
+          btn,
+          painterActive
+            ? 'bg-amber-100/90 text-amber-700 ring-1 ring-inset ring-amber-300/70'
+            : '',
+        ]"
+        :title="
+          painterActive
+            ? '格式刷已就绪：选择目标内容自动应用，Esc 取消'
+            : '格式刷：复制当前格式（Ctrl+Shift+C / Ctrl+Alt+C）'
+        "
+        @mousedown.prevent
+        @click="emit('painter')"
+      >
+        <KiwiIcon name="copy" :size="14" />
       </button>
     </div>
 

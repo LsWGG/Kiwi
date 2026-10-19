@@ -628,6 +628,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
             :get-selection-range="() => editorRef?.getSelectionRange() ?? null"
             :get-document-text="() => editorRef?.getDocumentText() ?? ''"
             @apply="onAgentApply"
+            @close="agentOpen = false"
           />
         </div>
       </div>

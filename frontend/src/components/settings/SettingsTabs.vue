@@ -7,6 +7,8 @@ const route = useRoute()
 const tabs = [
   { path: '/settings', label: '大模型配置', icon: 'sparkle' },
   { path: '/settings/embedding', label: '向量模型', icon: 'layers' },
+  { path: '/settings/brand', label: '品牌', icon: 'palette' },
+  { path: '/settings/ocr', label: 'OCR', icon: 'scanText' },
 ]
 </script>
 

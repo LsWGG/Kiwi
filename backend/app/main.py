@@ -24,13 +24,15 @@ from app.routers import (
     notes,
     search,
     settings_embedding,
+    settings_system,
     sources,
     study,
     wiki,
 )
 from app.db.session import async_session_factory
-from app.services import embedding_settings, qdrant_store
+from app.services import embedding_settings, qdrant_store, system_settings
 from app.services.builtin_demo import ensure_builtin_demo, start_vector_seed_task
+from app.services.kb_scheduler import start_scheduler_task
 from app.services.note_indexer import start_note_index_task
 from app.services.notebook_kernel import kernel_manager
 
@@ -50,6 +52,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("向量模型配置加载失败，回退环境变量：%s", e)
 
+    # 系统设置：品牌信息与线上 OCR 运行时配置
+    try:
+        async with async_session_factory() as db:
+            await system_settings.load_runtime(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("系统设置加载失败，OCR 回退本地 tesseract：%s", e)
+
     try:
         await asyncio.to_thread(qdrant_store.ensure_collections)
         logger.info("Qdrant collections ready (raw_chunks / wiki_pages, kb_id tenant index)")
@@ -67,10 +76,12 @@ async def lifespan(app: FastAPI):
 
     # 后台核对笔记索引：只对变更过的笔记重新嵌入。
     note_index_task = start_note_index_task()
+    # 知识库定时任务：Wiki 周期编译 + 待办聚合。
+    scheduler_task = start_scheduler_task()
 
     yield
 
-    for task in (builtin_task, note_index_task):
+    for task in (builtin_task, note_index_task, scheduler_task):
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -99,6 +110,7 @@ app.include_router(health.router)
 app.include_router(kb.router)
 app.include_router(llm.router)
 app.include_router(settings_embedding.router)
+app.include_router(settings_system.router)
 app.include_router(notes.router)
 app.include_router(note_databases.router)
 app.include_router(note_editor.router)

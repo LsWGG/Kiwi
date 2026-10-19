@@ -6,6 +6,7 @@ import MarkdownIt from 'markdown-it'
 import taskLists from 'markdown-it-task-lists'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import {
   buildCalendarMonth,
   eventRangeLabel,
@@ -162,6 +163,23 @@ function galleryHtml(content: string): string {
   } catch {
     return ''
   }
+}
+
+function imageFigureHtml(data: Record<string, unknown>): string {
+  const src = String(data.src || '')
+  if (!src) return ''
+  const alt = escapeHtml(String(data.alt || ''))
+  const title = escapeHtml(String(data.title || ''))
+  const width = Number(data.width) || 0
+  const style = width > 0 ? ` style="width:min(${Math.round(width)}px,100%)"` : ''
+  return (
+    `<figure class="md-image"${style}>` +
+    `<img src="${escapeAttr(src)}" alt="${alt}" loading="lazy" data-zoom="1"` +
+    (title ? ` title="${title}"` : '') +
+    ` />` +
+    (title ? `<figcaption>${title}</figcaption>` : '') +
+    `</figure>`
+  )
 }
 
 function noteCardHtml(content: string): string {
@@ -634,6 +652,19 @@ function taskProgressCardHtml(content: string): string {
   )
 }
 
+/** 普通 Markdown 图片：统一输出为可点击放大的 figure，图注取 title。 */
+md.renderer.rules.image = (tokens, idx, options, _env, self) => {
+  const token = tokens[idx]
+  const src = token.attrGet('src') || ''
+  if (!src) return ''
+  return imageFigureHtml({
+    src,
+    alt: token.content || '',
+    title: token.attrGet('title') || '',
+    width: Number(token.attrGet('width')) || 0,
+  })
+}
+
 const defaultFence =
   md.renderer.rules.fence ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
@@ -658,6 +689,13 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   if (lang === 'kiwi-gallery') {
     return `${galleryHtml(body)}\n`
   }
+  if (lang === 'kiwi-image') {
+    try {
+      return `${imageFigureHtml(JSON.parse(body))}\n`
+    } catch {
+      return `<pre>${escapeHtml(body)}</pre>\n`
+    }
+  }
   if (lang === 'kiwi-note') {
     return `${noteCardHtml(body)}\n`
   }
@@ -676,6 +714,15 @@ const defaultLinkOpen =
 
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const href = tokens[idx].attrGet('href') || ''
+  // 待办收件箱的来源链接：带 ?note= 时直接还原为来源笔记的站内地址。
+  if (href.startsWith('kiwi://todo/')) {
+    const noteId = /[?&]note=([0-9a-fA-F-]{36})/.exec(href)?.[1]
+    if (noteId) {
+      tokens[idx].attrSet('href', `/notes/${noteId}`)
+      tokens[idx].attrSet('class', 'md-todo-source')
+    }
+    return defaultLinkOpen(tokens, idx, options, env, self)
+  }
   // @ 提及在 Markdown 里是 kiwi:// 自定义协议，阅读态要还原成站内 SPA 链接。
   if (href.startsWith('kiwi://note/') || href.startsWith('kiwi://wiki/')) {
     const target = href.startsWith('kiwi://wiki/') ? 'wiki' : 'note'
@@ -955,9 +1002,68 @@ watch(
 
 onBeforeUnmount(() => window.clearTimeout(decorateTimer))
 
+// ---------- 图片灯箱：点击任意正文图片放大，可下载 ----------
+const zoomSrc = ref('')
+const zoomCaption = ref('')
+
+function openImageZoom(img: HTMLImageElement) {
+  const src = img.getAttribute('src') || ''
+  if (!src) return
+  zoomSrc.value = src
+  zoomCaption.value =
+    img.closest('figure')?.querySelector('figcaption')?.textContent?.trim() ||
+    img.getAttribute('title') ||
+    img.getAttribute('alt') ||
+    ''
+}
+
+function closeImageZoom() {
+  zoomSrc.value = ''
+  zoomCaption.value = ''
+}
+
+async function downloadZoomImage() {
+  if (!zoomSrc.value) return
+  try {
+    const res = await fetch(zoomSrc.value)
+    if (!res.ok) throw new Error()
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const path = zoomSrc.value.split('?')[0]
+    a.href = objectUrl
+    a.download = path.slice(path.lastIndexOf('/') + 1) || 'image.png'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  } catch {
+    window.open(zoomSrc.value, '_blank', 'noopener')
+  }
+}
+
+function onZoomKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeImageZoom()
+}
+
+watch(zoomSrc, (value) => {
+  if (value) window.addEventListener('keydown', onZoomKey)
+  else window.removeEventListener('keydown', onZoomKey)
+})
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onZoomKey))
+
 /** 站内链接（来源引用、Wiki、笔记卡片）走 SPA 路由，避免整页刷新。 */
 function onClick(event: MouseEvent) {
-  const anchor = (event.target as HTMLElement | null)?.closest('a')
+  const target = event.target as HTMLElement | null
+  const image = target?.closest<HTMLImageElement>('figure.md-image img, .md-gallery-item img')
+  if (image) {
+    event.preventDefault()
+    event.stopPropagation()
+    openImageZoom(image)
+    return
+  }
+  const anchor = target?.closest('a')
   const href = anchor?.getAttribute('href') || ''
   const cite = anchor?.getAttribute('data-cite')
   if (cite) {
@@ -978,6 +1084,43 @@ function onClick(event: MouseEvent) {
 
 <template>
   <div ref="root" class="prose-wiki markdown-view" @click="onClick" v-html="html" />
+
+  <Teleport to="body">
+    <div
+      v-if="zoomSrc"
+      class="fixed inset-0 z-[130] flex flex-col bg-slate-950/85 p-5 backdrop-blur-sm"
+      @click.self="closeImageZoom"
+    >
+      <div class="flex shrink-0 items-center justify-end gap-2">
+        <button
+          type="button"
+          class="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+          title="下载原图"
+          @click="downloadZoomImage"
+        >
+          <KiwiIcon name="download" :size="15" />
+        </button>
+        <button
+          type="button"
+          class="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+          title="关闭"
+          @click="closeImageZoom"
+        >
+          <KiwiIcon name="close" :size="15" />
+        </button>
+      </div>
+      <div class="flex min-h-0 flex-1 items-center justify-center">
+        <img
+          :src="zoomSrc"
+          :alt="zoomCaption"
+          class="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+        />
+      </div>
+      <p v-if="zoomCaption" class="mt-3 shrink-0 text-center text-[12px] text-white/60">
+        {{ zoomCaption }}
+      </p>
+    </div>
+  </Teleport>
 </template>
 
 <style>
@@ -1054,6 +1197,27 @@ function onClick(event: MouseEvent) {
   border-color: rgb(254 202 202);
   background: rgb(254 242 242 / 0.6);
 }
+/* 正文图片：可点击放大，图注居中弱化 */
+.markdown-view .md-image {
+  margin: 1.1rem auto;
+  max-width: 100%;
+  text-align: center;
+}
+.markdown-view .md-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 0.6rem;
+  cursor: zoom-in;
+}
+.markdown-view .md-image figcaption {
+  margin-top: 0.4rem;
+  color: rgb(148 163 184);
+  font-size: 0.78em;
+  line-height: 1.55;
+}
+
 .markdown-view .md-gallery {
   display: grid;
   gap: 8px;

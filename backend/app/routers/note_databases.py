@@ -19,6 +19,7 @@ from app.schemas.note_database import (
     RowOut,
     RowUpdate,
 )
+from app.services import todo_sync
 from app.services.note_database import (
     default_views_for,
     ensure_collection,
@@ -188,6 +189,7 @@ async def create_row(
     )
     session.add(row)
     await session.commit()
+    todo_sync.schedule_kb_sync(kb_id)
     await session.refresh(row)
     return RowOut.model_validate(row, from_attributes=True)
 
@@ -225,6 +227,7 @@ async def update_row(
     # 已生成笔记的记录保持标题与集合上下文同步；未生成时不擅自创建
     await sync_row_note_if_exists(session, db_note, coll, row)
     await session.commit()
+    todo_sync.schedule_kb_sync(kb_id)
     await session.refresh(row)
     return RowOut.model_validate(row, from_attributes=True)
 
@@ -309,6 +312,7 @@ async def delete_rows(
             await session.delete(row)
         deleted += 1
     await session.commit()
+    todo_sync.schedule_kb_sync(kb_id)
     return {"deleted": deleted}
 
 
@@ -327,3 +331,4 @@ async def delete_row(
     else:
         await session.delete(row)
     await session.commit()
+    todo_sync.schedule_kb_sync(kb_id)

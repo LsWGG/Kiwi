@@ -14,7 +14,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
-import Image from '@tiptap/extension-image'
+import { KiwiImage } from './extensions/kiwiImage'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import TableRow from '@tiptap/extension-table-row'
@@ -70,11 +70,12 @@ import {
   applyParagraphFormats,
   clearParagraphFormat,
   collectParagraphFormats,
+  currentParagraphFormat,
   KiwiHeading,
   KiwiParagraph,
   type ParagraphFormatPatch,
 } from './extensions/paragraphFormat'
-import { KiwiTextStyle } from './extensions/textStyle'
+import { KiwiTextStyle, normalizeTextStyleAttrs } from './extensions/textStyle'
 import { applyTextFormats, collectTextFormats } from './extensions/textFormat'
 import DocxParagraphDialog from './DocxParagraphDialog.vue'
 import type { LinkMeta } from '@/api/links'
@@ -92,6 +93,7 @@ import {
   resolveDocxPrefs,
   resolvePagePrefs,
   type CodePrefs,
+  type DocxFont,
   type DocxPrefs,
   type EditorMode,
   type PagePrefs,
@@ -150,6 +152,30 @@ const kbs = useKbsStore()
 const notesStore = useNotesStore()
 const router = useRouter()
 const lowlight = createLowlight(common)
+
+/**
+ * 待办收件箱的来源链接：优先用链接里的 ?note= 直接跳转；
+ * 旧版收件箱没有该参数，再用待办镜像 API 解析来源笔记。
+ */
+async function openTodoSource(href: string) {
+  const mirrorId = /^kiwi:\/\/todo\/([0-9a-fA-F-]{36})/.exec(href)?.[1]
+  if (!mirrorId) return
+  const noteId = /[?&]note=([0-9a-fA-F-]{36})/.exec(href)?.[1]
+  if (noteId) {
+    void router.push(`/notes/${noteId}`)
+    return
+  }
+  const kbId = kbs.currentKbId
+  if (!kbId) return
+  try {
+    const data = await request<{ source_note_id: string }>(
+      `/kbs/${kbId}/todos/${mirrorId}`,
+    )
+    if (data?.source_note_id) void router.push(`/notes/${data.source_note_id}`)
+  } catch (e: any) {
+    toast.error(e.message || '找不到来源笔记')
+  }
+}
 
 /** @ 提及候选：当前知识库的笔记（排除正在编辑的这一篇）。 */
 function mentionNotes() {
@@ -428,6 +454,7 @@ onMounted(() => {
   window.addEventListener('kiwi-run-code', onRunCodeEvent)
   window.addEventListener('keydown', onCodeRunKeydown)
   window.addEventListener('keydown', onParagraphMenuKeydown)
+  window.addEventListener('keydown', onFormatPainterKeydown)
   window.addEventListener('message', onCodeRunMessage)
   window.addEventListener('kiwi:word-preview-rendered', onPreviewRendered)
   // scroll 不冒泡，捕获阶段才能覆盖正文与 Word 预览两个滚动容器。
@@ -438,7 +465,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('kiwi-run-code', onRunCodeEvent)
   window.removeEventListener('keydown', onCodeRunKeydown)
   window.removeEventListener('keydown', onParagraphMenuKeydown)
+  window.removeEventListener('keydown', onFormatPainterKeydown)
   window.removeEventListener('message', onCodeRunMessage)
+  window.clearTimeout(painterTimer)
   window.removeEventListener('kiwi:word-preview-rendered', onPreviewRendered)
   document.removeEventListener('scroll', onAnyScroll, true)
   cancelAnimationFrame(headingFrame)
@@ -1482,6 +1511,186 @@ function applySavedParagraphFormats(target?: Editor | null) {
   }
 }
 
+// ---------- 格式刷：复制当前字符 / 段落格式，应用到下一个选区 ----------
+interface FormatPainterState {
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  strike: boolean
+  code: boolean
+  /** null 表示来源没有高亮；空字符串表示默认高亮色 */
+  highlight: string | null
+  textStyle: { font?: DocxFont; size?: number }
+  /** 段落排版的完整快照（未显式设置的字段为 null） */
+  block: ParagraphFormatPatch
+  /** 来源选区；用于避免把格式重复套回来源位置 */
+  sourceRange: { from: number; to: number } | null
+}
+
+const PARAGRAPH_FORMAT_KEYS: Array<keyof ParagraphFormatPatch> = [
+  'font',
+  'size',
+  'lineHeight',
+  'lineHeightMode',
+  'lineHeightFixed',
+  'spaceBefore',
+  'spaceAfter',
+  'indentLeft',
+  'indentRight',
+  'firstLineIndent',
+  'hangingIndent',
+  'align',
+]
+
+const formatPainter = ref<FormatPainterState | null>(null)
+let painterApplying = false
+let painterTimer: number | undefined
+
+function cancelFormatPainter(notify = false) {
+  window.clearTimeout(painterTimer)
+  painterTimer = undefined
+  const had = !!formatPainter.value
+  formatPainter.value = null
+  if (notify && had) toast.info('已取消格式刷')
+}
+
+/** 读取来源位置的格式；未设置的段落属性也记成 null，应用时才能完整覆盖目标。 */
+function captureFormatPainterState(ed: Editor): FormatPainterState {
+  const { from, to, empty } = ed.state.selection
+  const block: ParagraphFormatPatch = {}
+  const current = currentParagraphFormat(ed)
+  for (const key of PARAGRAPH_FORMAT_KEYS) {
+    ;(block as Record<string, unknown>)[key] = current[key] ?? null
+  }
+  const highlight = ed.getAttributes('highlight')
+  return {
+    bold: ed.isActive('bold'),
+    italic: ed.isActive('italic'),
+    underline: ed.isActive('underline'),
+    strike: ed.isActive('strike'),
+    code: ed.isActive('code'),
+    highlight: ed.isActive('highlight') ? String(highlight.color ?? '') : null,
+    textStyle: normalizeTextStyleAttrs(ed.getAttributes('textStyle')),
+    block,
+    sourceRange: empty ? null : { from, to },
+  }
+}
+
+function armFormatPainter() {
+  const ed = editor.value
+  if (!ed || props.readonly) return
+  formatPainter.value = captureFormatPainterState(ed)
+  toast.info('格式已复制：选择目标内容应用，Esc 取消')
+}
+
+function applyFormatPainter(ed: Editor): boolean {
+  const formats = formatPainter.value
+  if (!formats || painterApplying) return false
+  painterApplying = true
+  try {
+    const chain = ed.chain().focus()
+    // 代码块内没有行内 mark，只同步段落排版。
+    if (!ed.isActive('codeBlock')) {
+      if (formats.bold) chain.setBold()
+      else chain.unsetBold()
+      if (formats.italic) chain.setItalic()
+      else chain.unsetItalic()
+      if (formats.underline) chain.setUnderline()
+      else chain.unsetUnderline()
+      if (formats.strike) chain.setStrike()
+      else chain.unsetStrike()
+      if (formats.code) chain.setCode()
+      else chain.unsetCode()
+      if (formats.highlight !== null) {
+        chain.setHighlight({ color: formats.highlight })
+      } else {
+        chain.unsetHighlight()
+      }
+      if (formats.textStyle.font || formats.textStyle.size) {
+        chain.setMark('textStyle', formats.textStyle)
+      } else {
+        chain.unsetMark('textStyle')
+      }
+    }
+    chain.run()
+    applyParagraphFormat(ed, formats.block)
+    return true
+  } finally {
+    painterApplying = false
+    window.clearTimeout(painterTimer)
+    painterTimer = undefined
+    formatPainter.value = null
+  }
+}
+
+/**
+ * 复制格式后，用户下一次在正文中完成选区（或单击定位）时自动套用。
+ * 180ms 防抖可避开拖选过程中的连续 selectionUpdate。
+ */
+function scheduleFormatPainterApply() {
+  const ed = editor.value
+  if (!ed || !formatPainter.value || painterApplying || props.readonly) return
+  const { selection } = ed.state
+  const source = formatPainter.value.sourceRange
+  if (!selection.empty && source && selection.from === source.from && selection.to === source.to) {
+    return
+  }
+  window.clearTimeout(painterTimer)
+  painterTimer = window.setTimeout(() => {
+    painterTimer = undefined
+    const current = editor.value
+    if (!current || !formatPainter.value || props.readonly) return
+    if (!current.isFocused) return
+    // 图注输入框等 NodeView 内部控件获得焦点时不自动套用。
+    const active = document.activeElement as HTMLElement | null
+    if (active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return
+    applyFormatPainter(current)
+  }, 180)
+}
+
+/** 工具栏按钮：未就绪时复制格式；就绪后再次点击可立即应用或取消。 */
+function toggleFormatPainter() {
+  const ed = editor.value
+  if (!ed) return
+  if (!formatPainter.value) {
+    armFormatPainter()
+    return
+  }
+  const { selection } = ed.state
+  const source = formatPainter.value.sourceRange
+  const sameSource =
+    !!source && !selection.empty && selection.from === source.from && selection.to === source.to
+  if (sameSource) cancelFormatPainter(true)
+  else applyFormatPainter(ed)
+}
+
+/** Ctrl/Cmd+Shift+C 复制格式，Ctrl/Cmd+Shift+V 应用；同时兼容 Ctrl/Cmd+Alt+C/V。 */
+function onFormatPainterKeydown(event: KeyboardEvent) {
+  if (props.readonly) return
+  const ed = editor.value
+  if (!ed) return
+  if (event.key === 'Escape' && formatPainter.value) {
+    event.preventDefault()
+    cancelFormatPainter(true)
+    return
+  }
+  if (!(event.ctrlKey || event.metaKey)) return
+  // 只接受 Shift 或 Alt 修饰，避免占用普通复制 / 粘贴
+  if (!(event.shiftKey || event.altKey) || (event.shiftKey && event.altKey)) return
+  const key = event.key.toLowerCase()
+  if (key !== 'c' && key !== 'v') return
+  if (!ed.isFocused) return
+  if (key === 'c') {
+    event.preventDefault()
+    armFormatPainter()
+    return
+  }
+  // 没有复制格式时保留浏览器默认的「无格式粘贴」。
+  if (!formatPainter.value) return
+  event.preventDefault()
+  applyFormatPainter(ed)
+}
+
 const editor = useEditor({
   // 初始内容直接交给编辑器创建，避免 setContent 产生可撤销事务
   content: props.content,
@@ -1496,9 +1705,19 @@ const editor = useEditor({
       openOnClick: false,
       autolink: true,
       linkOnPaste: true,
+      // 收件箱的来源链接使用 kiwi://todo/<镜像 id>；默认协议白名单会把它
+      // 当成不安全链接丢弃，导致勾选后无法回写来源。
+      protocols: ['kiwi'],
       HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
     }),
-    Image.configure({ inline: false, allowBase64: false }),
+    KiwiImage.configure({
+      inline: false,
+      allowBase64: false,
+      upload: async (file: File) => {
+        const att = await uploadFile(file)
+        return { url: att.url, filename: att.filename }
+      },
+    }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Highlight.configure({ multicolor: true }),
     KiwiTable.configure({ resizable: true, lastColumnResizable: false }),
@@ -1600,6 +1819,20 @@ const editor = useEditor({
     // 不需要原生拼写检查，统一关闭。
     attributes: { spellcheck: 'false' },
     handleDOMEvents: {
+      /**
+       * 收件箱来源链接是文本上的 link mark，ProseMirror 的 handleClickOn
+       * 只会拿到所在段落（mark 信息不在 node 上），因此直接在 DOM 层拦截。
+       */
+      click: (_view, event) => {
+        const anchor = (event.target as HTMLElement | null)?.closest?.(
+          'a[href^="kiwi://todo/"]',
+        ) as HTMLAnchorElement | null
+        if (!anchor) return false
+        event.preventDefault()
+        event.stopPropagation()
+        void openTodoSource(anchor.getAttribute('href') || '')
+        return true
+      },
       /** Word 模式：正文右击打开段落菜单（段落工具不放在工具栏）。 */
       contextmenu: (view, event) => {
         if (props.readonly) return false
@@ -1647,8 +1880,15 @@ const editor = useEditor({
         return false
       },
     },
-    /** 点击 @ 提及直接打开对应笔记 */
+    /** 待办收件箱里的来源链接：跳回来源笔记（旧链接通过镜像 API 兜底解析）。 */
     handleClickOn: (_view, _pos, node) => {
+      const todoHref = node.marks
+        .map((mark) => String(mark.attrs?.href || ''))
+        .find((href) => href.startsWith('kiwi://todo/'))
+      if (todoHref) {
+        void openTodoSource(todoHref)
+        return true
+      }
       if (node.type.name !== 'mention') return false
       // 卡片 / 嵌入在节点视图内部自行处理点击，避免误跳转正文里的链接
       if (node.attrs.display === 'card' || node.attrs.display === 'embed') return false
@@ -1691,6 +1931,7 @@ const editor = useEditor({
   },
   onSelectionUpdate: () => {
     editorRevision.value += 1
+    scheduleFormatPainterApply()
   },
   onCreate: ({ editor: ed }) => {
     chars.value = ed.storage.characterCount.characters()
@@ -1703,6 +1944,7 @@ const editor = useEditor({
   onDestroy: () => {
     contextMenuDom?.removeEventListener('contextmenu', onEditorContextMenu)
     contextMenuDom = null
+    cancelFormatPainter()
   },
 })
 
@@ -1726,6 +1968,7 @@ watch(
     const ed = editor.value
     if (!ed) return
     if (val !== currentMarkdown()) {
+      cancelFormatPainter()
       ed.commands.setContent(val, false)
       resetHistory()
       // 外部 setContent 不触发 onUpdate，手动同步字数与目录
@@ -1738,7 +1981,16 @@ watch(
 
 watch(
   () => props.readonly,
-  (r) => editor.value?.setEditable(!r),
+  (r) => {
+    editor.value?.setEditable(!r)
+    if (r) cancelFormatPainter()
+  },
+)
+
+// 切换笔记时丢弃尚未应用的格式，避免把上一篇的格式刷到新笔记里。
+watch(
+  () => props.noteId,
+  () => cancelFormatPainter(),
 )
 
 // 纸张 / 页边距 / 页间距变化后重新分页
@@ -1846,6 +2098,8 @@ defineExpose({
       :agent-open="agentOpen"
       :revision="editorRevision"
       :code-prefs="codePrefs"
+      :painter-active="!!formatPainter"
+      @painter="toggleFormatPainter"
       @code-prefs="onCodePrefs"
       @run-code="onToolbarRunCode"
       @image="pickImage"
@@ -1936,6 +2190,20 @@ defineExpose({
       </button>
       <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive('link') }" @click="openLinkDialog(editor)">
         <KiwiIcon name="link2" :size="13" />
+      </button>
+      <button
+        type="button"
+        class="ed-bubble"
+        :class="{ 'is-active': !!formatPainter }"
+        :title="
+          formatPainter
+            ? '格式刷已就绪：选择目标内容自动应用，Esc 取消'
+            : '格式刷：复制当前格式（Ctrl+Shift+C / Ctrl+Alt+C）'
+        "
+        @mousedown.prevent
+        @click="toggleFormatPainter"
+      >
+        <KiwiIcon name="copy" :size="13" />
       </button>
     </BubbleMenu>
 

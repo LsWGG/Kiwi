@@ -11,6 +11,8 @@ import EditorModeMenu from '@/components/editor/EditorModeMenu.vue'
 import EditorPageSettings from '@/components/editor/EditorPageSettings.vue'
 import NoteAgentPanel from '@/components/editor/NoteAgentPanel.vue'
 import NoteReadingTools from '@/components/notes/reading/NoteReadingTools.vue'
+import OriginalFileViewer from '@/components/notes/OriginalFileViewer.vue'
+import NoteHistoryDialog from '@/components/notes/NoteHistoryDialog.vue'
 import WordPreview from '@/components/editor/WordPreview.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
@@ -31,6 +33,7 @@ import {
   type PagePrefs,
 } from '@/components/editor/modes'
 import { downloadNoteDocx } from '@/components/editor/docx'
+import { request } from '@/api/client'
 import { toast } from '@/components/ui/toast'
 
 const props = defineProps<{ note: NoteOut }>()
@@ -67,6 +70,8 @@ function initialView(): DocView {
   } catch {
     /* 隐私模式下忽略 */
   }
+  // 待办收件箱的核心操作是勾选任务；阅读态会禁用复选框，因此默认进入可编辑态。
+  if (props.note.props_json?.todo_hub) return 'edit'
   return props.note.view_mode === 'read' ? 'read' : 'edit'
 }
 
@@ -98,6 +103,29 @@ function setView(mode: DocView) {
 
 const backlinks = ref<NoteSummary[]>([])
 const editorRef = ref<InstanceType<typeof KiwiEditor> | null>(null)
+
+// ---------- 历史版本 ----------
+const historyOpen = ref(false)
+
+async function openHistory() {
+  // 先把待保存内容落库，手动检查点才能包含最新编辑。
+  await autosave.flushNow()
+  historyOpen.value = true
+}
+
+function onHistoryRestored(note: NoteOut) {
+  title.value = note.title
+  body.value = note.body_md || ''
+  paragraphFormats.value = Array.isArray(note.props_json?.paragraph_formats)
+    ? (note.props_json?.paragraph_formats as ParagraphFormatRecord[])
+    : []
+  textFormats.value = Array.isArray(note.props_json?.text_formats)
+    ? (note.props_json?.text_formats as TextFormatRecord[])
+    : []
+  lastSentTitle = note.title
+  lastSentBody = note.body_md || ''
+  void loadBacklinks()
+}
 
 // ---------- 反向链接浮层：直接展示列表，不再打开右侧信息面板 ----------
 const backlinkOpen = ref(false)
@@ -170,6 +198,7 @@ watch(backlinkOpen, (value) => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onBacklinkKey)
+  window.clearTimeout(hubRefreshTimer)
 })
 
 // ---------- 阅读演示层 ----------
@@ -301,6 +330,7 @@ const autosave = useAutosave(async () => {
   lastSentBody = patch.body_md
   await notes.updateNote(props.note.id, patch)
   void loadBacklinks()
+  scheduleHubRefresh()
 })
 
 useSaveShortcut(() => autosave.flushNow())
@@ -312,12 +342,106 @@ interface ImportMeta {
   status?: string
   progress?: number
   error?: string | null
+  readonly?: boolean
+  filename?: string
+  content_type?: string
+  size?: number
+  media_url?: string
 }
 const importInfo = computed<ImportMeta | null>(() => {
   const fromNote = (props.note.props_json?.import as ImportMeta | undefined) ?? null
   return liveStatus.value ?? fromNote
 })
 const isImport = computed(() => props.note.kind === 'import')
+/** 只读导入：不渲染编辑器，直接展示原始文件。 */
+const readonlyImport = computed(
+  () => isImport.value && (!!props.note.props_json?.readonly || !!importInfo.value?.readonly),
+)
+const importFilename = computed(() => importInfo.value?.filename || props.note.title || '原始文件')
+const importContentType = computed(() => importInfo.value?.content_type || '')
+const importSize = computed(() => Number(importInfo.value?.size) || 0)
+
+// ---------- 待办收件箱：正向汇总 / 逆向追溯 ----------
+const isTodoHub = computed(() => !!props.note.props_json?.todo_hub)
+const todoHubNoteId = computed(() => String(props.note.props_json?.todo_hub_note_id || ''))
+const todoHubTitle = computed(() => String(props.note.props_json?.todo_hub_title || '收件箱'))
+const todoOpenCount = computed(() => Number(props.note.props_json?.todo_open_count) || 0)
+const todoDoneCount = computed(() => Number(props.note.props_json?.todo_done_count) || 0)
+const todoLastSync = computed(() => String(props.note.props_json?.todo_last_sync_at || ''))
+const todoSyncLabel = computed(() => {
+  const raw = todoLastSync.value
+  if (!raw) return '尚未同步'
+  const time = new Date(raw).getTime()
+  if (Number.isNaN(time)) return '尚未同步'
+  const diff = Date.now() - time
+  if (diff < 60_000) return '刚刚同步'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前同步`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前同步`
+  return `${Math.floor(diff / 86_400_000)} 天前同步`
+})
+const syncingTodos = ref(false)
+
+async function syncTodosNow() {
+  const kbId = kbs.currentKbId
+  if (!kbId || syncingTodos.value) return
+  syncingTodos.value = true
+  try {
+    const result = await request<{
+      ok: boolean
+      open?: number
+      done?: number
+      created?: number
+      updated?: number
+      error?: string
+    }>(`/kbs/${kbId}/todos/sync`, { method: 'POST' })
+    if (!result.ok) throw new Error(result.error || '同步失败')
+    await notes.getNote(props.note.id)
+    if (todoHubNoteId.value && todoHubNoteId.value !== props.note.id) {
+      // 来源笔记：刷新树以更新收件箱入口状态。
+      await notes.fetchTree()
+    }
+    toast.success(
+      `待办已同步：${result.open ?? 0} 项待办，${result.done ?? 0} 项已完成`,
+    )
+  } catch (e: any) {
+    toast.error(e.message || '同步待办失败')
+  } finally {
+    syncingTodos.value = false
+  }
+}
+
+function openTodoHub() {
+  if (!todoHubNoteId.value) return
+  void router.push(`/notes/${todoHubNoteId.value}`)
+}
+
+/**
+ * 勾选收件箱后，后端会在约 2.5s 后重新汇总并回写来源。
+ * 这里延迟刷新一次，让完成数 / 排序和来源同步结果自动落到界面上。
+ * 用序号防止连续勾选时旧请求覆盖新内容。
+ */
+let hubRefreshTimer: number | undefined
+let hubRefreshSeq = 0
+function scheduleHubRefresh() {
+  if (!isTodoHub.value) return
+  hubRefreshSeq += 1
+  const seq = hubRefreshSeq
+  window.clearTimeout(hubRefreshTimer)
+  hubRefreshTimer = window.setTimeout(async () => {
+    if (seq !== hubRefreshSeq) return
+    try {
+      const fresh = await notes.getNote(props.note.id)
+      if (seq !== hubRefreshSeq) return
+      title.value = fresh.title
+      body.value = fresh.body_md || ''
+      lastSentTitle = fresh.title
+      lastSentBody = fresh.body_md || ''
+    } catch {
+      /* 后台同步可能稍晚；用户仍可点「立即同步」 */
+    }
+  }, 3200)
+}
+const sourceOpen = ref(false)
 const importing = computed(() => {
   if (!isImport.value) return false
   const status = importInfo.value?.status
@@ -327,6 +451,11 @@ const importFailed = computed(() => isImport.value && importInfo.value?.status =
 const progressPct = computed(() =>
   Math.round((importInfo.value?.progress ?? 0) * 100),
 )
+
+// 阅读模式使用演示层，原始文件分栏在阅读态下收起。
+watch(readMode, (on) => {
+  if (on) sourceOpen.value = false
+})
 
 const updatedText = computed(() => {
   const raw = props.note.updated_at
@@ -643,6 +772,7 @@ async function copyMarkdown() {
         导入
       </span>
       <button
+        v-if="!readonlyImport"
         type="button"
         class="inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700"
         title="复制整篇笔记的 Markdown"
@@ -650,6 +780,16 @@ async function copyMarkdown() {
         @click="copyMarkdown"
       >
         <KiwiIcon name="copy" :size="13" />
+      </button>
+      <button
+        v-if="!readonlyImport"
+        type="button"
+        class="inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700"
+        title="查看历史版本并还原"
+        aria-label="历史版本"
+        @click="openHistory"
+      >
+        <KiwiIcon name="layers" :size="13" />
       </button>
       <div class="flex-1" />
       <span class="shrink-0 whitespace-nowrap text-[10px] text-slate-400 tabular-nums">
@@ -659,6 +799,22 @@ async function copyMarkdown() {
         <template v-else-if="autosave.savedAt.value">已保存 {{ autosave.savedAt.value }}</template>
       </span>
       <NoteTagButton :note="note" />
+      <button
+        v-if="isImport && !readonlyImport"
+        type="button"
+        class="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] transition-colors"
+        :class="
+          sourceOpen
+            ? 'bg-kiwi-50 text-kiwi-700'
+            : 'text-slate-500 hover:bg-kiwi-50 hover:text-kiwi-700'
+        "
+        title="查看导入前的原始文件"
+        :aria-expanded="sourceOpen"
+        @click="sourceOpen = !sourceOpen"
+      >
+        <KiwiIcon name="fileImport" :size="12" />
+        原文
+      </button>
       <button
         v-if="backlinks.length"
         ref="backlinkTrigger"
@@ -678,7 +834,10 @@ async function copyMarkdown() {
         <span class="tabular-nums text-slate-400">{{ backlinks.length }}</span>
       </button>
       <!-- 四种视图：编辑 / 大纲 / 分屏 / 阅读，按笔记持久化 -->
-      <div class="flex shrink-0 items-center rounded-lg border border-slate-200/80 bg-white/70 p-0.5">
+      <div
+        v-if="!readonlyImport"
+        class="flex shrink-0 items-center rounded-lg border border-slate-200/80 bg-white/70 p-0.5"
+      >
         <button
           v-for="view in DOC_VIEWS"
           :key="view.id"
@@ -696,7 +855,7 @@ async function copyMarkdown() {
           {{ view.label }}
         </button>
       </div>
-      <template v-if="!readMode">
+      <template v-if="!readMode && !readonlyImport">
         <button
           v-if="editorMode === 'docx'"
           class="kiwi-btn-ghost !py-1 !px-2 !text-[11px]"
@@ -805,11 +964,58 @@ async function copyMarkdown() {
         :class="readMode ? 'cursor-none' : ''"
         @scroll.passive="onEditorScroll"
       >
+        <div v-if="readonlyImport" class="h-full min-h-[420px]">
+          <OriginalFileViewer
+            :note-id="note.id"
+            :kb-id="kbs.currentKbId"
+            :filename="importFilename"
+            :content-type="importContentType"
+            :size="importSize"
+          />
+        </div>
         <div
+          v-else
           class="mx-auto flex min-h-full w-full max-w-[1480px] flex-col px-6"
           :class="readMode ? 'pt-6 pb-28' : docxToolbarExternal ? 'pt-0 pb-6' : 'py-6'"
           :style="readMode ? { zoom: readZoom } : undefined"
         >
+          <!-- 待办收件箱：自动汇总结果与来源追溯 -->
+          <div
+            v-if="isTodoHub || todoHubNoteId"
+            class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-kiwi-200/70 bg-kiwi-50/60 px-3.5 py-2 text-[11.5px] text-slate-600"
+          >
+            <span class="flex items-center gap-1.5 font-medium text-kiwi-700">
+              <KiwiIcon name="checkSquare" :size="13" />
+              {{ isTodoHub ? '待办收件箱' : '待办已汇总' }}
+            </span>
+            <template v-if="isTodoHub">
+              <span class="tabular-nums">{{ todoOpenCount }} 项待办</span>
+              <span class="text-slate-300">·</span>
+              <span class="tabular-nums text-slate-400">{{ todoDoneCount }} 项已完成</span>
+              <span class="text-slate-300">·</span>
+              <span class="text-slate-400">{{ todoSyncLabel }}</span>
+            </template>
+            <template v-else>
+              <span class="text-slate-400">来源笔记的待办已收入</span>
+              <button
+                type="button"
+                class="rounded px-1 font-medium text-kiwi-700 underline-offset-2 hover:underline"
+                @click="openTodoHub"
+              >
+                {{ todoHubTitle }}
+              </button>
+            </template>
+            <button
+              type="button"
+              class="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] text-kiwi-600 transition-colors hover:bg-white/80 disabled:opacity-50"
+              :disabled="syncingTodos"
+              @click="syncTodosNow"
+            >
+              <KiwiIcon :name="syncingTodos ? 'loader' : 'refresh'" :size="11" :spin="syncingTodos" />
+              {{ syncingTodos ? '同步中…' : '立即同步' }}
+            </button>
+          </div>
+
           <!-- 导入进度 -->
           <div
             v-if="importing || importFailed"
@@ -907,6 +1113,20 @@ async function copyMarkdown() {
         </div>
       </div>
 
+      <!-- 导入笔记：右侧原始文件对照（PDF / 图片 / 文本） -->
+      <div
+        v-if="sourceOpen && !readonlyImport && !readMode && viewMode !== 'split'"
+        class="flex min-h-0 w-[48%] min-w-[320px] shrink-0 flex-col border-l border-slate-200/70"
+      >
+        <OriginalFileViewer
+          :note-id="note.id"
+          :kb-id="kbs.currentKbId"
+          :filename="importFilename"
+          :content-type="importContentType"
+          :size="importSize"
+        />
+      </div>
+
       <!-- 分屏视图：左侧编辑 / 右侧实时渲染预览 -->
       <div
         v-if="viewMode === 'split'"
@@ -984,10 +1204,20 @@ async function copyMarkdown() {
             :get-selection-range="() => editorRef?.getSelectionRange() ?? null"
             :get-document-text="() => editorRef?.getDocumentText() ?? ''"
             @apply="onAgentApply"
+            @close="agentOpen = false"
           />
         </div>
       </div>
     </div>
+
+    <NoteHistoryDialog
+      :open="historyOpen"
+      :note-id="note.id"
+      :current-body="editorRef?.getMarkdown() ?? note.body_md"
+      :current-title="note.title"
+      @close="historyOpen = false"
+      @restored="onHistoryRestored"
+    />
   </div>
 </template>
 

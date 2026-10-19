@@ -467,6 +467,19 @@ const PATHS: Record<string, string[]> = {
     '<rect x="2" y="5" width="14" height="14" rx="2"/>',
     '<polygon points="22 7 16 11 16 13 22 17 22 7"/>',
   ],
+  scanText: [
+    '<path d="M3 7V5a2 2 0 0 1 2-2h2"/>',
+    '<path d="M17 3h2a2 2 0 0 1 2 2v2"/>',
+    '<path d="M21 17v2a2 2 0 0 1-2 2h-2"/>',
+    '<path d="M7 21H5a2 2 0 0 1-2-2v-2"/>',
+    '<line x1="7" y1="9" x2="17" y2="9"/>',
+    '<line x1="7" y1="13" x2="17" y2="13"/>',
+    '<line x1="7" y1="17" x2="13" y2="17"/>',
+  ],
+  eye: [
+    '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/>',
+    '<circle cx="12" cy="12" r="3"/>',
+  ],
   listTree: [
     '<line x1="8" y1="6" x2="21" y2="6"/>',
     '<line x1="8" y1="12" x2="21" y2="12"/>',

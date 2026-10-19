@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
+import { useSystemStore } from '@/stores/system'
 import { useRoute } from 'vue-router'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
 import SideNav from '@/components/layout/SideNav.vue'
@@ -14,6 +15,7 @@ import KiwiToastHost from '@/components/ui/KiwiToastHost.vue'
 
 const kbs = useKbsStore()
 const mode = useModeStore()
+const system = useSystemStore()
 const route = useRoute()
 
 /**
@@ -65,6 +67,8 @@ function applyUiScale() {
 
 onMounted(() => {
   kbs.fetchKbs()
+  // 品牌信息与主题色来自后端系统设置；失败时保留内置默认值。
+  void system.fetchSettings().catch(() => undefined)
   applyUiScale()
   window.addEventListener('resize', applyUiScale)
 })
@@ -84,19 +88,28 @@ onBeforeUnmount(() => {
       <div
         class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-kiwi-400/50 to-transparent"
       />
-      <div class="flex items-center gap-2.5 select-none">
+      <RouterLink to="/kbs" class="flex min-w-0 items-center gap-2.5 select-none">
+        <img
+          v-if="system.logoUrl"
+          :src="system.logoUrl"
+          :alt="system.appName"
+          class="relative h-8 w-8 shrink-0 rounded-xl object-cover shadow-glow"
+        />
         <KiwiLogo
+          v-else
           :mode="isLearn ? 'learn' : 'edit'"
           :size="32"
           class="relative shrink-0 rounded-xl shadow-glow"
         />
-        <div class="leading-tight">
-          <span class="font-bold text-slate-800 tracking-wide text-[15px]">Kiwi</span>
-          <p class="text-[10px] text-slate-400 leading-none mt-0.5">
-            {{ isLearn ? '学习训练 · 复习' : '知识编译 · 检索' }}
+        <div class="min-w-0 leading-tight">
+          <span class="block truncate text-[15px] font-bold tracking-wide text-slate-800">
+            {{ system.appName }}
+          </span>
+          <p class="mt-0.5 max-w-[260px] truncate text-[10px] leading-none text-slate-400">
+            {{ isLearn ? '学习训练 · 复习' : system.appDescription }}
           </p>
         </div>
-      </div>
+      </RouterLink>
 
       <div class="flex-1" />
 

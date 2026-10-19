@@ -120,8 +120,27 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'ArrowRight') stepLightbox(1)
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+/** 画册被选中时，直接把剪贴板里的图片粘贴进图册。 */
+function onPaste(event: ClipboardEvent) {
+  if (!editable.value || !props.selected) return
+  const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+    file.type.startsWith('image/'),
+  )
+  if (!files.length) return
+  event.preventDefault()
+  event.stopPropagation()
+  void addFiles(files)
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  // 捕获阶段优先于 ProseMirror 的粘贴处理，避免图片被插到图册外面。
+  document.addEventListener('paste', onPaste, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('paste', onPaste, true)
+})
 </script>
 
 <template>

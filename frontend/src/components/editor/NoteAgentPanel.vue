@@ -40,6 +40,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'apply', payload: { text: string; range: SelectionRange | null }): void
+  (e: 'close'): void
 }>()
 
 const kbs = useKbsStore()
@@ -159,11 +160,22 @@ async function copyResult() {
 
 <template>
   <div
-    class="agent-command rounded-2xl border border-slate-200/80 bg-white/95 shadow-lifted backdrop-blur-xl"
+    class="agent-command relative rounded-2xl border border-slate-200/80 bg-white/95 shadow-lifted backdrop-blur-xl"
   >
+    <!-- 关闭指令栏：始终可退出，不写入正文 -->
+    <button
+      type="button"
+      class="absolute right-1.5 top-1.5 z-10 grid h-6 w-6 place-items-center rounded-md text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
+      title="关闭指令栏（Esc）"
+      aria-label="关闭 Agent 指令栏"
+      @click="emit('close')"
+    >
+      <KiwiIcon name="close" :size="12" />
+    </button>
+
     <!-- 生成结果 -->
     <div v-if="busy || result" class="border-b border-slate-100">
-      <div class="flex items-center gap-1.5 px-3.5 py-2">
+      <div class="flex items-center gap-1.5 px-3.5 py-2 pr-9">
         <span
           class="w-5 h-5 grid place-items-center rounded-md bg-gradient-to-br from-kiwi-500 to-emerald-500 text-white"
         >
@@ -272,7 +284,7 @@ async function copyResult() {
     </div>
 
     <!-- 快捷动作 -->
-    <div class="flex items-center gap-1 px-2.5 pt-2">
+    <div class="flex items-center gap-1 px-2.5 pr-9 pt-2">
       <button
         v-for="action in ACTIONS"
         :key="action.id"
@@ -306,6 +318,7 @@ async function copyResult() {
         @focus="refreshSelectionHint"
         @keydown.enter.exact.prevent="run('custom')"
         @keydown.shift.enter.stop
+        @keydown.esc.prevent="emit('close')"
       />
       <button
         type="button"

@@ -1,0 +1,127 @@
+/**
+ * 图片节点：支持拖动缩放、裁剪、点击放大、下载与图注。
+ *
+ * 普通图片仍序列化为标准 Markdown（`![alt](src "图注")`）；设置宽度后
+ * 序列化为 ```kiwi-image 围栏 + JSON，保证尺寸在保存 / 重新打开后不丢失。
+ */
+import Image, { type ImageOptions } from '@tiptap/extension-image'
+import { VueNodeViewRenderer } from '@tiptap/vue-3'
+import ImageNodeView from './ImageNodeView.vue'
+
+const IMAGE_LANGUAGE = 'kiwi-image'
+
+export interface KiwiImageOptions extends ImageOptions {
+  /** 上传裁剪后的图片，由编辑器注入附件上传逻辑。 */
+  upload?: (file: File) => Promise<{ url: string; filename?: string }>
+}
+
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, ' ')
+}
+
+function fenceFor(value: string): string {
+  const runs = value.match(/`+/g) ?? []
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0)
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
+function escapeAlt(value: string): string {
+  return value.replace(/[[\]]/g, '\\$&')
+}
+
+function imageAttrsHtml(data: Record<string, unknown>): string {
+  const src = String(data.src || '')
+  if (!src) return ''
+  const alt = String(data.alt || '')
+  const title = String(data.title || '')
+  const width = Number(data.width) || 0
+  return (
+    `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}"` +
+    (title ? ` title="${escapeAttr(title)}"` : '') +
+    (width > 0 ? ` width="${Math.round(width)}"` : '') +
+    ` />`
+  )
+}
+
+export const KiwiImage = Image.extend<KiwiImageOptions>({
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      upload: undefined,
+    }
+  },
+
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (element) => {
+          const raw = element.getAttribute('width') || element.style.width || ''
+          const value = Number.parseInt(raw, 10)
+          return Number.isFinite(value) && value > 0 ? value : null
+        },
+        renderHTML: (attributes) => {
+          if (!attributes.width) return {}
+          return { width: attributes.width }
+        },
+      },
+    }
+  },
+
+  addNodeView() {
+    return VueNodeViewRenderer(ImageNodeView)
+  },
+
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any) {
+          const src = String(node.attrs.src || '')
+          if (!src) return
+          const alt = String(node.attrs.alt || '')
+          const title = String(node.attrs.title || '')
+          const width = Number(node.attrs.width) || 0
+          if (width > 0) {
+            const json = JSON.stringify({ src, alt, title, width: Math.round(width) })
+            const fence = fenceFor(json)
+            state.write(`${fence}${IMAGE_LANGUAGE}\n${json}\n${fence}`)
+            state.closeBlock(node)
+            return
+          }
+          const titlePart = title ? ` "${title.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : ''
+          state.write(`![${escapeAlt(alt)}](${src}${titlePart})`)
+          state.closeBlock(node)
+        },
+        parse: {
+          setup(markdownit: any) {
+            const rules = markdownit.renderer.rules
+            if (rules.fence?.__kiwiImage) return
+            const originalFence = rules.fence
+            const fence = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+              const token = tokens[idx]
+              if (String(token.info ?? '').trim() === IMAGE_LANGUAGE) {
+                try {
+                  const data = JSON.parse(token.content.trim() || '{}')
+                  const html = imageAttrsHtml(data)
+                  return html ? `${html}\n` : ''
+                } catch {
+                  return ''
+                }
+              }
+              if (originalFence) return originalFence(tokens, idx, options, env, self)
+              return self.renderToken(tokens, idx, options)
+            }
+            ;(fence as any).__kiwiImage = true
+            rules.fence = fence
+          },
+        },
+      },
+    }
+  },
+})

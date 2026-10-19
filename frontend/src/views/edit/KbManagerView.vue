@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useKbsStore } from '@/stores/kbs'
+import { useKbsStore, type KbOverview } from '@/stores/kbs'
 import { useLlmStore } from '@/stores/llm'
-import { request } from '@/api/client'
+import { request, upload } from '@/api/client'
 import type { NoteFolder, NoteKind, NoteSummary } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
@@ -16,29 +16,159 @@ const llm = useLlmStore()
 const router = useRouter()
 
 /** 系统级向量模型：线上模式下各库的本地模型选择会被忽略 */
-const embeddingProvider = ref<'local' | 'openai'>('local')
+interface EmbeddingConfigInfo {
+  provider: string
+  api_base: string
+  api_model: string
+  active_space: string
+  source: string
+}
+const embeddingConfig = ref<EmbeddingConfigInfo | null>(null)
+const embeddingProvider = computed(() =>
+  embeddingConfig.value?.provider === 'openai' ? 'openai' : 'local',
+)
+const embeddingIsRemote = computed(() => embeddingProvider.value === 'openai')
+const embeddingHint = computed(() => {
+  const config = embeddingConfig.value
+  if (!config) return ''
+  if (embeddingIsRemote.value) {
+    return config.api_model
+      ? `${config.api_model}（所有知识库共享）`
+      : '线上向量模型（所有知识库共享）'
+  }
+  return config.api_model ? `本地默认：${config.api_model}` : '本地 fastembed'
+})
 
 onMounted(() => {
   // 拉 LLM 配置，用于映射「默认模型」绑定显示
   llm.fetchConfigs().catch(() => { /* 配置拉取失败不阻塞知识库管理 */ })
   // 内置演示库状态：决定是否展示「还原」入口
   void kbs.fetchBuiltinStatus()
-  request<{ provider: string }>('/settings/embedding')
+  request<EmbeddingConfigInfo>('/settings/embedding')
     .then((c) => {
-      embeddingProvider.value = c.provider === 'openai' ? 'openai' : 'local'
+      embeddingConfig.value = c
     })
     .catch(() => { /* 旧后端或读取失败时按本地模式展示 */ })
 })
 
-// 置顶的知识库排在前面；同等状态按创建时间倒序。
+// 置顶的知识库排在前面；同组按手动排序，再按创建时间倒序。
 const sortedKbs = computed(() =>
   [...kbs.kbs].sort(
     (a, b) =>
       Number(!!b.pinned) - Number(!!a.pinned) ||
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
       (b.created_at || '').localeCompare(a.created_at || ''),
   ),
 )
 const pinningKbId = ref<string | null>(null)
+
+// ---- 视图模式：正常卡片 / 列表 / 紧凑 ----
+type KbViewMode = 'grid' | 'list' | 'compact'
+const VIEW_MODE_KEY = 'kiwi.kbs.view-mode'
+const viewMode = ref<KbViewMode>((() => {
+  try {
+    const value = localStorage.getItem(VIEW_MODE_KEY)
+    return value === 'list' || value === 'compact' ? value : 'grid'
+  } catch {
+    return 'grid'
+  }
+})())
+watch(viewMode, (value) => {
+  try {
+    localStorage.setItem(VIEW_MODE_KEY, value)
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+})
+const VIEW_MODES: Array<{ value: KbViewMode; icon: string; label: string }> = [
+  { value: 'grid', icon: 'layoutTemplate', label: '正常视图' },
+  { value: 'list', icon: 'list', label: '列表视图' },
+  { value: 'compact', icon: 'columns', label: '紧凑视图' },
+]
+function setViewMode(mode: KbViewMode) {
+  viewMode.value = mode
+}
+const gridClass = computed(() => {
+  if (viewMode.value === 'list') return 'grid grid-cols-1 gap-2.5'
+  if (viewMode.value === 'compact') {
+    return 'grid sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2.5'
+  }
+  return 'grid md:grid-cols-2 2xl:grid-cols-3 gap-4'
+})
+
+// ---- 卡片拖拽排序 ----
+const dragKbId = ref<string | null>(null)
+const dragOver = ref<{ id: string; pos: 'before' | 'after' } | null>(null)
+const reordering = ref(false)
+
+function onKbDragStart(event: DragEvent, kb: KbOverview) {
+  dragKbId.value = kb.id
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', kb.id)
+    const card = (event.currentTarget as HTMLElement).closest('.kiwi-card') as HTMLElement | null
+    if (card) {
+      // 拖影必须按真实抓取点定位，否则会被默认偏移到卡片左上角，
+      // 导致光标和卡片「错位」。
+      const rect = card.getBoundingClientRect()
+      const offsetX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width)
+      const offsetY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height)
+      event.dataTransfer.setDragImage(card, offsetX, offsetY)
+    }
+  }
+}
+
+function onKbDragOver(event: DragEvent, kb: KbOverview) {
+  if (!dragKbId.value || dragKbId.value === kb.id) return
+  const source = kbs.kbs.find((item) => item.id === dragKbId.value)
+  // 置顶区与普通区不交叉排序；置顶优先级由 pinned 决定。
+  if (!source || !!source.pinned !== !!kb.pinned) {
+    dragOver.value = null
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  // 排序是行优先的阅读顺序；用垂直中线判断插入到卡片前 / 后，
+  // 比按水平半区判断更贴合光标位置（网格与列表视图一致）。
+  const pos = event.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
+  dragOver.value = { id: kb.id, pos }
+}
+
+async function onKbDrop(event: DragEvent, kb: KbOverview) {
+  event.preventDefault()
+  const sourceId = dragKbId.value
+  const position = dragOver.value
+  resetKbDrag()
+  if (!sourceId || !position || sourceId === kb.id || reordering.value) return
+  const ids = sortedKbs.value.map((item) => item.id)
+  const from = ids.indexOf(sourceId)
+  if (from < 0) return
+  ids.splice(from, 1)
+  const overIndex = ids.indexOf(kb.id)
+  if (overIndex < 0) return
+  ids.splice(position.pos === 'after' ? overIndex + 1 : overIndex, 0, sourceId)
+  reordering.value = true
+  try {
+    await kbs.reorderKbs(ids)
+  } catch (e: any) {
+    toast.error(e.message || '保存排序失败')
+    await kbs.fetchKbs()
+  } finally {
+    reordering.value = false
+  }
+}
+
+function resetKbDrag() {
+  dragKbId.value = null
+  dragOver.value = null
+}
+
+function dragClassOf(kb: KbOverview): string {
+  if (dragKbId.value === kb.id) return 'opacity-45'
+  if (dragOver.value?.id !== kb.id) return ''
+  return dragOver.value.pos === 'before' ? 'kb-drop-before' : 'kb-drop-after'
+}
 
 async function toggleKbPin(kb: (typeof kbs.kbs)[number]) {
   pinningKbId.value = kb.id
@@ -209,6 +339,10 @@ interface EditForm {
   embeddingModel: string
   /** 是否开启学习模式；关闭后该库仅用于记录与检索 */
   learningEnabled: boolean
+  /** Wiki 定时编译：0 表示关闭 */
+  wikiCompileInterval: number
+  /** 待办汇总周期：0 表示关闭 */
+  todoSyncInterval: number
 }
 /** fastembed 常用模型；维度可不同，各库使用独立向量 collection。 */
 const EMBEDDING_MODELS = [
@@ -231,6 +365,8 @@ const form = ref<EditForm>({
   llmConfig: 'inherit',
   embeddingModel: DEFAULT_EMBED_MODEL,
   learningEnabled: true,
+  wikiCompileInterval: 0,
+  todoSyncInterval: 0,
 })
 const embeddingOptions = computed(() => {
   const list = [...EMBEDDING_MODELS]
@@ -251,6 +387,8 @@ function openEdit(k: (typeof kbs.kbs)[number] | null) {
         llmConfig: k.llm_config_id ?? 'inherit',
         embeddingModel: k.embedding_model || DEFAULT_EMBED_MODEL,
         learningEnabled: k.learning_enabled !== false,
+        wikiCompileInterval: k.wiki_compile_interval_hours ?? 0,
+        todoSyncInterval: k.todo_sync_interval_hours ?? 0,
       }
     : {
         id: null,
@@ -259,6 +397,8 @@ function openEdit(k: (typeof kbs.kbs)[number] | null) {
         llmConfig: 'inherit',
         embeddingModel: DEFAULT_EMBED_MODEL,
         learningEnabled: true,
+        wikiCompileInterval: 0,
+        todoSyncInterval: 0,
       }
   editing.value = true
 }
@@ -267,6 +407,10 @@ async function saveEdit() {
   editErr.value = ''
   if (!form.value.name.trim()) {
     editErr.value = '请填写知识库名称'
+    return
+  }
+  if (!embeddingIsRemote.value && !form.value.embeddingModel.trim()) {
+    editErr.value = '请选择或填写 Embedding 模型'
     return
   }
   saving.value = true
@@ -280,8 +424,13 @@ async function saveEdit() {
           description: form.value.description.trim(),
           llm_config_id:
             form.value.llmConfig === 'inherit' ? null : form.value.llmConfig,
-          embedding_model: form.value.embeddingModel,
+          // 线上向量模式忽略各库模型；编辑时不回写旧的本地模型。
+          ...(embeddingIsRemote.value
+            ? {}
+            : { embedding_model: form.value.embeddingModel.trim() }),
           learning_enabled: form.value.learningEnabled,
+          wiki_compile_interval_hours: form.value.wikiCompileInterval,
+          todo_sync_interval_hours: form.value.todoSyncInterval,
         }),
       })
       await kbs.fetchKbs()
@@ -294,8 +443,10 @@ async function saveEdit() {
           description: form.value.description.trim(),
           llm_config_id:
             form.value.llmConfig === 'inherit' ? null : form.value.llmConfig,
-          embedding_model: form.value.embeddingModel,
+          embedding_model: form.value.embeddingModel.trim() || DEFAULT_EMBED_MODEL,
           learning_enabled: form.value.learningEnabled,
+          wiki_compile_interval_hours: form.value.wikiCompileInterval,
+          todo_sync_interval_hours: form.value.todoSyncInterval,
         }),
       })
       await kbs.fetchKbs()
@@ -362,6 +513,111 @@ async function restoreBuiltin() {
     restoring.value = false
   }
 }
+
+// ---- 定时任务 / 手动触发 ----
+const compilingKbId = ref<string | null>(null)
+const syncingKbId = ref<string | null>(null)
+
+function intervalLabel(hours: number | null | undefined): string {
+  const value = Number(hours) || 0
+  if (value <= 0) return '未开启'
+  if (value % 24 === 0) return `每 ${value / 24} 天`
+  return `每 ${value} 小时`
+}
+
+function lastCompileLabel(kb: KbOverview): string {
+  if (!kb.wiki_compile_last_at) return '尚未运行'
+  const status = kb.wiki_compile_last_status || {}
+  if (status.status === 'failed') return `${relativeTime(kb.wiki_compile_last_at)} · 失败`
+  const scheduled = Number(status.scheduled) || 0
+  return `${relativeTime(kb.wiki_compile_last_at)} · 提交 ${scheduled} 篇`
+}
+
+async function compileKbNow(kb: KbOverview) {
+  compilingKbId.value = kb.id
+  try {
+    await request('/notes/compile-all', { method: 'POST', kbId: kb.id })
+    toast.success('已提交 Wiki 编译任务，稍后自动完成')
+    window.setTimeout(() => {
+      void kbs.fetchKbs()
+    }, 4000)
+  } catch (e: any) {
+    toast.error(e.message || '提交编译失败')
+  } finally {
+    compilingKbId.value = null
+  }
+}
+
+async function syncKbTodos(kb: KbOverview) {
+  syncingKbId.value = kb.id
+  try {
+    const result = await request<{ ok: boolean; open?: number; done?: number; error?: string }>(
+      `/kbs/${kb.id}/todos/sync`,
+      { method: 'POST' },
+    )
+    if (!result.ok) throw new Error(result.error || '同步失败')
+    toast.success(`待办已同步：${result.open ?? 0} 项待办，${result.done ?? 0} 项已完成`)
+    await kbs.fetchKbs()
+  } catch (e: any) {
+    toast.error(e.message || '同步待办失败')
+  } finally {
+    syncingKbId.value = null
+  }
+}
+
+// ---- 全量导入 / 导出 ----
+const importInput = ref<HTMLInputElement | null>(null)
+const importingKb = ref(false)
+const exportingKbId = ref<string | null>(null)
+
+function exportKb(kb: KbOverview) {
+  exportingKbId.value = kb.id
+  const anchor = document.createElement('a')
+  anchor.href = `/api/kbs/${kb.id}/export`
+  anchor.download = `${kb.slug || kb.name}.kiwizip`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  toast.success('正在导出知识库，请稍候…')
+  window.setTimeout(() => {
+    exportingKbId.value = null
+  }, 1500)
+}
+
+function pickImportKb() {
+  importInput.value?.click()
+}
+
+async function onImportKbFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!/\.(kiwizip|zip)$/i.test(file.name)) {
+    toast.info('请选择 .kiwizip 知识库导出包')
+    return
+  }
+  importingKb.value = true
+  try {
+    const data = new FormData()
+    data.append('file', file)
+    const result = await upload<{
+      kb: KbOverview
+      stats: Record<string, number>
+    }>('/kbs/import', data)
+    await Promise.all([kbs.fetchKbs(), kbs.fetchBuiltinStatus()])
+    kbs.currentKbId = result.kb.id
+    const stats = Object.entries(result.stats || {})
+      .filter(([, value]) => Number(value) > 0)
+      .map(([key, value]) => `${key} ${value}`)
+      .join(' · ')
+    toast.success(stats ? `知识库已导入：${stats}` : '知识库已导入')
+  } catch (e: any) {
+    toast.error(e.message || '导入知识库失败')
+  } finally {
+    importingKb.value = false
+  }
+}
 </script>
 
 <template>
@@ -381,10 +637,46 @@ async function restoreBuiltin() {
           每个知识库是独立的知识边界，素材、Wiki、笔记与检索都在库内隔离。
         </p>
       </div>
-      <button class="kiwi-btn-primary animate-fade-up" @click="openEdit(null)">
-        <KiwiIcon name="plus" :size="16" />
-        新建知识库
-      </button>
+      <div class="flex flex-wrap items-center gap-2 animate-fade-up">
+        <!-- 视图模式 -->
+        <div class="flex items-center rounded-xl border border-slate-200/70 bg-white/60 p-0.5">
+          <button
+            v-for="item in VIEW_MODES"
+            :key="item.value"
+            type="button"
+            class="grid h-7 w-7 place-items-center rounded-lg transition-colors"
+            :class="
+              viewMode === item.value
+                ? 'bg-white text-kiwi-600 shadow-sm'
+                : 'text-slate-400 hover:text-slate-600'
+            "
+            :title="item.label"
+            @click="setViewMode(item.value)"
+          >
+            <KiwiIcon :name="item.icon" :size="14" />
+          </button>
+        </div>
+        <button
+          class="kiwi-btn-secondary"
+          :disabled="importingKb"
+          title="导入 .kiwizip 知识库包"
+          @click="pickImportKb"
+        >
+          <KiwiIcon :name="importingKb ? 'loader' : 'fileDown'" :size="15" :spin="importingKb" />
+          {{ importingKb ? '导入中…' : '导入' }}
+        </button>
+        <button class="kiwi-btn-primary" @click="openEdit(null)">
+          <KiwiIcon name="plus" :size="16" />
+          新建知识库
+        </button>
+        <input
+          ref="importInput"
+          type="file"
+          accept=".kiwizip,.zip"
+          class="hidden"
+          @change="onImportKbFile"
+        />
+      </div>
     </div>
 
     <!-- 内置演示库不存在（首次初始化失败或已被删除）时的创建入口 -->
@@ -437,13 +729,13 @@ async function restoreBuiltin() {
     </KiwiEmpty>
 
     <!-- 卡片网格 -->
-    <div v-else class="grid md:grid-cols-2 2xl:grid-cols-3 gap-4">
+    <div v-else :class="gridClass">
       <div
         v-for="(k, i) in sortedKbs"
         :key="k.id"
-        class="kiwi-card p-5 cursor-pointer group relative overflow-hidden"
-        :style="{ animationDelay: `${i * 70}ms` }"
+        class="kiwi-card cursor-pointer group relative overflow-hidden"
         :class="[
+          viewMode === 'compact' ? 'p-3.5' : 'p-5',
           k.pinned
             ? 'bg-gradient-to-br from-amber-50/70 via-white/80 to-white'
             : '',
@@ -452,8 +744,13 @@ async function restoreBuiltin() {
             : k.pinned
               ? 'border-amber-200/90'
               : '',
+          dragClassOf(k),
         ]"
+        :style="{ animationDelay: `${i * 70}ms` }"
         @click="kbs.currentKbId = k.id"
+        @dragover="onKbDragOver($event, k)"
+        @drop="onKbDrop($event, k)"
+        @dragend="resetKbDrag"
       >
         <!-- 置顶标识：与普通卡片区分 -->
         <div
@@ -512,6 +809,18 @@ async function restoreBuiltin() {
           </div>
           <div class="flex shrink-0 items-center gap-1 relative">
             <button
+              type="button"
+              draggable="true"
+              class="cursor-grab touch-none p-1 text-slate-300 opacity-0 transition-all hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing group-hover:opacity-100"
+              :class="reordering ? 'pointer-events-none' : ''"
+              title="拖动排序（同一置顶分组内）"
+              @click.stop
+              @dragstart.stop="onKbDragStart($event, k)"
+              @dragend="resetKbDrag"
+            >
+              <KiwiIcon name="grip" :size="15" />
+            </button>
+            <button
               class="transition-colors p-1 rounded-lg disabled:opacity-40"
               :class="
                 k.pinned
@@ -523,6 +832,18 @@ async function restoreBuiltin() {
               @click.stop="toggleKbPin(k)"
             >
               <KiwiIcon name="pin" :size="15" />
+            </button>
+            <button
+              class="text-slate-300 hover:text-kiwi-600 transition-colors p-1 hover:bg-kiwi-50 hover:rounded-lg disabled:opacity-40"
+              title="导出为 .kiwizip（含笔记、素材与 Wiki）"
+              :disabled="exportingKbId === k.id"
+              @click.stop="exportKb(k)"
+            >
+              <KiwiIcon
+                name="download"
+                :size="15"
+                :class="exportingKbId === k.id ? 'animate-pulse' : ''"
+              />
             </button>
             <button
               class="text-slate-300 hover:text-kiwi-600 transition-colors p-1 hover:bg-kiwi-50 hover:rounded-lg"
@@ -541,12 +862,19 @@ async function restoreBuiltin() {
           </div>
         </div>
 
-        <p v-if="k.description" class="text-sm text-slate-500 mt-3 line-clamp-2 relative">
+        <p
+          v-if="k.description"
+          class="relative text-slate-500"
+          :class="viewMode === 'compact' ? 'mt-2 line-clamp-1 text-xs' : 'mt-3 line-clamp-2 text-sm'"
+        >
           {{ k.description }}
         </p>
 
         <!-- 置顶笔记 / 分组：与工作区目录树保持同一份置顶数据 -->
-        <div v-if="pinnedOf(k.id).length" class="mt-3 relative">
+        <div
+          v-if="pinnedOf(k.id).length && viewMode !== 'compact'"
+          class="mt-3 relative"
+        >
           <div class="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-amber-600">
             <KiwiIcon name="pin" :size="12" />
             置顶
@@ -605,9 +933,58 @@ async function restoreBuiltin() {
           </div>
         </div>
 
+        <!-- 自动化：Wiki 定时编译 / 待办定时汇总，可手动触发 -->
+        <div
+          class="relative mt-3 space-y-1 rounded-xl border border-slate-100 bg-white/55 px-3 py-2"
+        >
+          <div class="flex items-center gap-1.5 text-[11px]">
+            <KiwiIcon name="wiki" :size="12" class="shrink-0 text-kiwi-500" />
+            <span class="shrink-0 text-slate-500">Wiki 编译</span>
+            <span
+              class="shrink-0 rounded-full bg-slate-100 px-1.5 py-[1px] text-[10px] text-slate-500"
+            >
+              {{ intervalLabel(k.wiki_compile_interval_hours) }}
+            </span>
+            <span
+              class="min-w-0 flex-1 truncate text-right text-[10px] text-slate-400"
+              :title="lastCompileLabel(k)"
+            >
+              {{ lastCompileLabel(k) }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-kiwi-600 transition-colors hover:bg-kiwi-50 disabled:opacity-40"
+              :disabled="compilingKbId === k.id"
+              @click.stop="compileKbNow(k)"
+            >
+              {{ compilingKbId === k.id ? '提交中…' : '立即编译' }}
+            </button>
+          </div>
+          <div class="flex items-center gap-1.5 text-[11px]">
+            <KiwiIcon name="checkSquare" :size="12" class="shrink-0 text-emerald-500" />
+            <span class="shrink-0 text-slate-500">待办汇总</span>
+            <span
+              class="shrink-0 rounded-full bg-slate-100 px-1.5 py-[1px] text-[10px] text-slate-500"
+            >
+              {{ intervalLabel(k.todo_sync_interval_hours) }}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-right text-[10px] text-slate-400">
+              {{ k.todo_open_count }} 待办 · {{ k.todo_done_count }} 完成
+            </span>
+            <button
+              type="button"
+              class="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-40"
+              :disabled="syncingKbId === k.id"
+              @click.stop="syncKbTodos(k)"
+            >
+              {{ syncingKbId === k.id ? '同步中…' : '立即同步' }}
+            </button>
+          </div>
+        </div>
+
         <!-- 学习画像状态（只读）；关闭学习模式时展示记录库说明 -->
         <div
-          v-if="k.learning_enabled === false"
+          v-if="viewMode !== 'compact' && k.learning_enabled === false"
           class="mt-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 relative"
         >
           <div class="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
@@ -619,7 +996,7 @@ async function restoreBuiltin() {
           </p>
         </div>
         <div
-          v-else
+          v-else-if="viewMode !== 'compact'"
           class="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 relative"
         >
           <div class="flex items-center justify-between gap-2 text-[11px]">
@@ -645,6 +1022,7 @@ async function restoreBuiltin() {
         </div>
 
         <p
+          v-if="viewMode !== 'compact'"
           class="mt-2 text-xs truncate relative flex items-center gap-1.5"
           :class="modelColorOf(k.llm_config_id)"
         >
@@ -695,24 +1073,107 @@ async function restoreBuiltin() {
           </p>
         </div>
         <div>
-          <label class="text-xs font-medium text-slate-500">Embedding 模型</label>
-          <select
-            v-model="form.embeddingModel"
-            class="kiwi-input mt-1 appearance-none cursor-pointer"
-          >
-            <option v-for="m in embeddingOptions" :key="m.id" :value="m.id">
-              {{ m.label }}
-            </option>
-          </select>
-          <p v-if="embeddingProvider === 'openai'" class="text-[11px] text-amber-600 mt-1">
-            系统已启用线上向量模型，此处选择暂不生效。
-            <RouterLink to="/settings/embedding" class="underline hover:text-amber-700">
-              前往设置
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-xs font-medium text-slate-500">Embedding 模型</label>
+            <RouterLink
+              to="/settings/embedding"
+              class="text-[11px] font-medium text-kiwi-600 hover:text-kiwi-700"
+            >
+              向量设置
             </RouterLink>
-          </p>
-          <p v-else class="text-[11px] text-slate-400 mt-1">
-            每个知识库独立编码与检索；更换模型后需重新导入素材以重建向量。
-          </p>
+          </div>
+
+          <!-- 线上向量服务：由系统设置统一提供，逐库模型选择不生效 -->
+          <div
+            v-if="embeddingIsRemote"
+            class="mt-1 rounded-xl border border-amber-200/80 bg-amber-50/50 px-3 py-2.5"
+          >
+            <div class="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+              <KiwiIcon name="cloud" :size="13" />
+              使用系统线上向量服务
+            </div>
+            <dl class="mt-1.5 space-y-0.5 text-[11px] text-slate-500">
+              <div class="flex gap-1.5">
+                <dt class="shrink-0 text-slate-400">模型</dt>
+                <dd class="min-w-0 truncate font-mono text-slate-600">
+                  {{ embeddingConfig?.api_model || '未配置' }}
+                </dd>
+              </div>
+              <div class="flex gap-1.5">
+                <dt class="shrink-0 text-slate-400">服务地址</dt>
+                <dd class="min-w-0 truncate font-mono text-slate-600">
+                  {{ embeddingConfig?.api_base || '—' }}
+                </dd>
+              </div>
+              <div class="flex gap-1.5">
+                <dt class="shrink-0 text-slate-400">向量空间</dt>
+                <dd class="min-w-0 truncate font-mono text-slate-600">
+                  {{ embeddingConfig?.active_space || '—' }}
+                </dd>
+              </div>
+            </dl>
+            <p class="mt-1.5 text-[10.5px] leading-relaxed text-amber-600/90">
+              线上模式由全部知识库共用；切换服务地址或模型会影响所有库的检索，请在向量设置中统一调整。
+            </p>
+          </div>
+
+          <!-- 本地 fastembed：每个知识库独立选择与编码 -->
+          <template v-else>
+            <input
+              v-model="form.embeddingModel"
+              class="kiwi-input mt-1 font-mono text-[13px]"
+              list="kb-embedding-models"
+              placeholder="BAAI/bge-small-zh-v1.5"
+              spellcheck="false"
+            />
+            <datalist id="kb-embedding-models">
+              <option v-for="m in embeddingOptions" :key="m.id" :value="m.id">
+                {{ m.label }}
+              </option>
+            </datalist>
+            <p class="mt-1 text-[11px] text-slate-400">
+              {{ embeddingHint }}
+            </p>
+          </template>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="text-xs font-medium text-slate-500">Wiki 定时编译</label>
+            <div class="relative mt-1">
+              <input
+                v-model.number="form.wikiCompileInterval"
+                type="number"
+                min="0"
+                step="1"
+                class="kiwi-input pr-12"
+              />
+              <span
+                class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"
+              >小时</span>
+            </div>
+            <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
+              0 表示关闭；有变更的笔记会自动编译进 Wiki。
+            </p>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500">待办定时汇总</label>
+            <div class="relative mt-1">
+              <input
+                v-model.number="form.todoSyncInterval"
+                type="number"
+                min="0"
+                step="1"
+                class="kiwi-input pr-12"
+              />
+              <span
+                class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"
+              >小时</span>
+            </div>
+            <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
+              0 表示关闭；按周期把各笔记待办汇总到收件箱。
+            </p>
+          </div>
         </div>
         <button
           type="button"
@@ -853,3 +1314,26 @@ async function restoreBuiltin() {
     </KiwiModal>
   </div>
 </template>
+
+<style scoped>
+/* 卡片拖拽落点：在目标卡片内侧显示方向指示条 */
+.kiwi-card.kb-drop-before::before,
+.kiwi-card.kb-drop-after::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 9999px;
+  background: rgb(var(--kiwi-500));
+  box-shadow: 0 0 0 2px rgb(var(--kiwi-100));
+  z-index: 2;
+  pointer-events: none;
+}
+.kiwi-card.kb-drop-before::before {
+  left: 3px;
+}
+.kiwi-card.kb-drop-after::before {
+  right: 3px;
+}
+</style>

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-/** 新建菜单：模板 / 快速捕获 / 文档 / 画布 / 数据表 / 导入 / 分组 / 链接。 */
+/** 新建菜单：模板 / 文档 / 画布 / 数据表 / 导入 / 分组 / 链接。 */
 import KiwiDropdown from '@/components/ui/KiwiDropdown.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 
 const emit = defineEmits<{
   (e: 'template'): void
-  (e: 'capture'): void
   (e: 'doc'): void
   (e: 'canvas'): void
   (e: 'database'): void
@@ -17,7 +16,6 @@ const emit = defineEmits<{
 
 const items = [
   { key: 'template', label: '从模板新建', hint: '内置结构 · 自定义模板', icon: 'layoutTemplate', tone: 'text-kiwi-500' },
-  { key: 'capture', label: '快速捕获', hint: '零散想法 → 收件箱', icon: 'send', tone: 'text-rose-400' },
   { key: 'doc', label: '文档', hint: '富文本 · Markdown', icon: 'fileText', tone: 'text-blue-500' },
   { key: 'canvas', label: '画布', hint: '工程图 / 思维导图 · 模板', icon: 'pen', tone: 'text-violet-500' },
   { key: 'database', label: '数据表', hint: '表格 / 看板 / 画册 / 日历', icon: 'database', tone: 'text-kiwi-500' },
@@ -32,9 +30,6 @@ function choose(key: (typeof items)[number]['key'], close: () => void) {
   switch (key) {
     case 'template':
       emit('template')
-      break
-    case 'capture':
-      emit('capture')
       break
     case 'doc':
       emit('doc')

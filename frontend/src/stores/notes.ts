@@ -82,6 +82,20 @@ export interface RelatedNoteItem {
   reasons: string[]
 }
 
+export interface NoteRevisionSummary {
+  id: string
+  note_id: string
+  title: string
+  /** auto = 自动保存前快照，manual = 手动检查点，restore = 还原前快照 */
+  source: string
+  created_at: string
+}
+
+export interface NoteRevision extends NoteRevisionSummary {
+  body_md: string
+  props_json: Record<string, any>
+}
+
 export interface NoteTrash {
   total: number
   items: NoteSummary[]
@@ -448,6 +462,23 @@ export const useNotesStore = defineStore('notes', () => {
     })
   }
 
+  /** 同一层级内分组与笔记混合排序（目录树所见顺序即存储顺序）。 */
+  async function reorderTree(
+    parentId: string | null,
+    items: Array<{ type: 'folder' | 'note'; id: string }>,
+  ) {
+    await request('/notes/tree-reorder', {
+      method: 'POST',
+      kbId: kbId(),
+      body: JSON.stringify({ parent_id: parentId, items }),
+    })
+    items.forEach((item, index) => {
+      const list = item.type === 'folder' ? folders.value : notes.value
+      const found = list.find((x) => x.id === item.id)
+      if (found) found.sort_order = index
+    })
+  }
+
   // ---------- 导入 ----------
   async function importFile(
     file: File | null,
@@ -457,6 +488,8 @@ export const useNotesStore = defineStore('notes', () => {
       batch_id?: string
       upload_id?: string
       compile_now?: boolean
+      /** 只读导入：保留原始文件，仅阅读，不解析/不向量化 */
+      readonly?: boolean
       open?: boolean
     } = {},
   ) {
@@ -468,7 +501,12 @@ export const useNotesStore = defineStore('notes', () => {
     if (opts.folder_id) fd.append('folder_id', opts.folder_id)
     if (opts.title?.trim()) fd.append('title', opts.title.trim())
     if (opts.compile_now) fd.append('compile_now', 'true')
-    const res = await upload<{ note: NoteOut; job_id: string }>('/notes/import', fd, kbId())
+    if (opts.readonly) fd.append('readonly', 'true')
+    const res = await upload<{ note: NoteOut; job_id: string | null }>(
+      '/notes/import',
+      fd,
+      kbId(),
+    )
     await fetchTree()
     if (opts.open !== false) {
       currentNote.value = res.note
@@ -498,8 +536,9 @@ export const useNotesStore = defineStore('notes', () => {
     title?: string
     batch_id?: string
     compile_now?: boolean
+    readonly?: boolean
   }) {
-    const res = await request<{ note: NoteOut; job_id: string }>('/notes/import-url', {
+    const res = await request<{ note: NoteOut; job_id: string | null }>('/notes/import-url', {
       method: 'POST',
       kbId: kbId(),
       body: JSON.stringify({
@@ -508,6 +547,7 @@ export const useNotesStore = defineStore('notes', () => {
         title: data.title?.trim() || null,
         batch_id: data.batch_id || null,
         compile_now: !!data.compile_now,
+        readonly: !!data.readonly,
       }),
     })
     await fetchTree()
@@ -657,6 +697,8 @@ export const useNotesStore = defineStore('notes', () => {
     url: string
     title?: string
     folder_id?: string | null
+    /** 只读书签：只抓取标题与摘要，不生成可编辑正文 */
+    readonly?: boolean
   }) {
     const note = await request<NoteOut>('/notes/link', {
       method: 'POST',
@@ -685,6 +727,42 @@ export const useNotesStore = defineStore('notes', () => {
 
   async function getRelated(id: string) {
     return request<RelatedNoteItem[]>(`/notes/related/${id}`, { kbId: kbId() })
+  }
+
+  // ---------- 历史版本 ----------
+  async function fetchRevisions(id: string) {
+    return request<NoteRevisionSummary[]>(`/notes/${id}/revisions`, { kbId: kbId() })
+  }
+
+  async function getRevision(id: string, revisionId: string) {
+    return request<NoteRevision>(`/notes/${id}/revisions/${revisionId}`, {
+      kbId: kbId(),
+    })
+  }
+
+  async function createRevision(id: string) {
+    return request<NoteRevisionSummary>(`/notes/${id}/revisions`, {
+      method: 'POST',
+      kbId: kbId(),
+    })
+  }
+
+  async function restoreRevision(id: string, revisionId: string) {
+    const note = await request<NoteOut>(`/notes/${id}/revisions/${revisionId}/restore`, {
+      method: 'POST',
+      kbId: kbId(),
+    })
+    if (currentNote.value?.id === id) currentNote.value = note
+    upsertSummary(note)
+    await fetchTree()
+    return note
+  }
+
+  async function deleteRevision(id: string, revisionId: string) {
+    await request(`/notes/${id}/revisions/${revisionId}`, {
+      method: 'DELETE',
+      kbId: kbId(),
+    })
   }
 
   // ---------- 标签 ----------
@@ -1016,6 +1094,7 @@ export const useNotesStore = defineStore('notes', () => {
     updateFolder,
     deleteFolder,
     reorder,
+    reorderTree,
     importFile,
     importNotebook,
     importRemoteFile,
@@ -1033,6 +1112,11 @@ export const useNotesStore = defineStore('notes', () => {
     refreshLink,
     getBacklinks,
     getRelated,
+    fetchRevisions,
+    getRevision,
+    createRevision,
+    restoreRevision,
+    deleteRevision,
     fetchTags,
     createTag,
     updateTag,

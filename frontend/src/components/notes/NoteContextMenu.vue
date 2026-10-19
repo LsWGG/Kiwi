@@ -28,11 +28,42 @@ const emit = defineEmits<{
   (e: 'archive'): void
   (e: 'export', key: string): void
   (e: 'delete'): void
+  (e: 'create', kind: string): void
   (e: 'close'): void
 }>()
 
 const panelEl = ref<HTMLElement | null>(null)
 const pos = ref({ left: '0px', top: '0px' })
+
+/** 右键条目所在层级的新建入口（分组 = 分组内部，笔记 = 笔记所属层级）。 */
+const showCreate = ref(false)
+const createTriggerEl = ref<HTMLElement | null>(null)
+const createPanelEl = ref<HTMLElement | null>(null)
+const createPos = ref({ left: '0px', top: '0px' })
+let hideCreateTimer: number | null = null
+const CREATE_ITEMS = [
+  { key: 'doc', label: '文档', icon: 'fileText', tone: 'text-blue-500' },
+  { key: 'canvas', label: '画布', icon: 'pen', tone: 'text-violet-500' },
+  { key: 'database', label: '数据表', icon: 'database', tone: 'text-kiwi-500' },
+  { key: 'notebook', label: 'Notebook', icon: 'notebook', tone: 'text-indigo-500' },
+  { key: 'import', label: '导入', icon: 'fileImport', tone: 'text-emerald-500' },
+  { key: 'link', label: '链接', icon: 'link2', tone: 'text-sky-500' },
+  { key: 'template', label: '模板', icon: 'layoutTemplate', tone: 'text-kiwi-500' },
+  { key: 'folder', label: '子分组', icon: 'folder', tone: 'text-amber-400' },
+] as const
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) {
+      showCreate.value = false
+      cancelHideCreate()
+    }
+  },
+)
+watch(showCreate, (visible) => {
+  if (visible) placeCreate()
+})
 
 /**
  * 菜单挂到 <html> 下，外层用视口坐标定位、内层应用 --ui-scale。
@@ -52,6 +83,46 @@ function place() {
 }
 
 watch(() => [props.open, props.x, props.y], place, { immediate: true })
+
+/**
+ * 「在此层级新建」使用二级飞出列表，而不是在主菜单里内嵌展开。
+ * 优先贴右侧；右侧空间不足时翻到左侧，避免飞出屏幕。
+ */
+function placeCreate() {
+  if (!props.open || !showCreate.value) return
+  void nextTick(() => {
+    const trigger = createTriggerEl.value?.getBoundingClientRect()
+    const panel = createPanelEl.value?.getBoundingClientRect()
+    if (!trigger) return
+    const width = panel?.width ?? 160
+    const height = panel?.height ?? 260
+    const gap = 4
+    let left = trigger.right + gap
+    if (left + width > window.innerWidth - 8) {
+      left = Math.max(8, trigger.left - width - gap)
+    }
+    const top = Math.max(8, Math.min(trigger.top - 4, window.innerHeight - height - 8))
+    createPos.value = { left: `${left}px`, top: `${top}px` }
+  })
+}
+
+function cancelHideCreate() {
+  if (hideCreateTimer !== null) {
+    window.clearTimeout(hideCreateTimer)
+    hideCreateTimer = null
+  }
+}
+function openCreate() {
+  cancelHideCreate()
+  showCreate.value = true
+}
+function scheduleHideCreate() {
+  cancelHideCreate()
+  hideCreateTimer = window.setTimeout(() => {
+    hideCreateTimer = null
+    showCreate.value = false
+  }, 160)
+}
 
 const isFolder = computed(() => props.row?.type === 'folder')
 /** 「收件箱」始终置顶，无需再切换。 */
@@ -112,13 +183,21 @@ const batch = computed(() => !isFolder.value && props.selectionCount > 1)
             {{ pinned ? '取消置顶' : '置顶' }}
           </button>
           <button
-            v-if="isFolder"
+            ref="createTriggerEl"
             type="button"
             class="menu-row"
-            @click="emit('new-folder'); emit('close')"
+            :class="showCreate ? 'bg-kiwi-50 text-kiwi-700' : ''"
+            @mouseenter="openCreate"
+            @mouseleave="scheduleHideCreate"
+            @click.stop="openCreate"
           >
-            <KiwiIcon name="folder" :size="14" />
-            新建子分组
+            <KiwiIcon name="plus" :size="14" />
+            在此层级新建
+            <KiwiIcon
+              name="chevronRight"
+              :size="11"
+              class="ml-auto text-slate-300"
+            />
           </button>
           <template v-if="!isFolder">
             <button
@@ -191,6 +270,37 @@ const batch = computed(() => !isFolder.value && props.selectionCount > 1)
             移入回收站
           </button>
           </template>
+        </div>
+      </div>
+
+      <!-- 二级飞出列表：与主菜单分离定位，避免把主菜单撑高/撑宽 -->
+      <div
+        v-if="showCreate"
+        class="absolute z-[81]"
+        :style="createPos"
+        @mousedown.stop
+        @mouseenter="cancelHideCreate"
+        @mouseleave="scheduleHideCreate"
+        @contextmenu.prevent
+      >
+        <div
+          ref="createPanelEl"
+          class="w-44 rounded-xl border border-slate-200/70 bg-white/95 p-1 shadow-lifted backdrop-blur-xl animate-scale-in"
+          :style="{ zoom: 'var(--ui-scale)' }"
+        >
+          <div class="px-2.5 pb-1 pt-1.5 text-[10px] font-medium tracking-wide text-slate-400">
+            新建到当前层级
+          </div>
+          <button
+            v-for="item in CREATE_ITEMS"
+            :key="item.key"
+            type="button"
+            class="menu-row"
+            @click="emit('create', item.key); emit('close')"
+          >
+            <KiwiIcon :name="item.icon" :size="14" :class="item.tone + ' shrink-0'" />
+            <span class="truncate">{{ item.label }}</span>
+          </button>
         </div>
       </div>
     </div>

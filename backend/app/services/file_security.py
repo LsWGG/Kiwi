@@ -25,7 +25,23 @@ MAX_ZIP_RATIO = 200
 MAX_ARCHIVE_FILES = 5_000
 MAX_ARCHIVE_TOTAL = 500 * 1024 * 1024
 
-ALLOWED_EXT = {".md", ".markdown", ".txt", ".text", ".pdf", ".docx", ".doc"}
+ALLOWED_EXT = {
+    ".md",
+    ".markdown",
+    ".txt",
+    ".text",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+}
 TEXT_EXT = {".md", ".markdown", ".txt", ".text"}
 PLAIN_TYPE = {
     ".md": "md",
@@ -35,6 +51,23 @@ PLAIN_TYPE = {
     ".pdf": "pdf",
     ".docx": "docx",
     ".doc": "doc",
+    ".png": "png",
+    ".jpg": "jpg",
+    ".jpeg": "jpeg",
+    ".webp": "webp",
+    ".bmp": "bmp",
+    ".gif": "gif",
+    ".tif": "tif",
+    ".tiff": "tiff",
+}
+IMAGE_MAGIC: dict[str, tuple[bytes, ...]] = {
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".bmp": (b"BM",),
+    ".tif": (b"II*\x00", b"MM\x00*"),
+    ".tiff": (b"II*\x00", b"MM\x00*"),
 }
 
 EICAR = b"EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
@@ -149,6 +182,14 @@ def detect_real_type(
             raise FileRejected("文件头不是旧版 Word（OLE）格式", 415)
         warnings.append("旧版 .doc 将尝试通过 LibreOffice 转换；失败时标记待复核")
         return "doc", warnings
+
+    if ext in IMAGE_MAGIC:
+        if not any(content.startswith(magic) for magic in IMAGE_MAGIC[ext]):
+            raise FileRejected("图片文件头与扩展名不符", 415)
+        if ext == ".webp" and content[8:12] != b"WEBP":
+            raise FileRejected("图片文件头与扩展名不符", 415)
+        warnings.append("图片将通过 OCR 识别文字；可在系统设置中配置线上 OCR")
+        return PLAIN_TYPE[ext], warnings
 
     raise FileRejected("不支持的文件类型", 415)
 

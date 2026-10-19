@@ -109,14 +109,18 @@ elif command -v docker-compose >/dev/null 2>&1; then
   if [ -z "$COMPOSE_VERSION" ]; then
     COMPOSE_VERSION="$(docker-compose version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   fi
-  case "$COMPOSE_VERSION" in
-    2.*)
-      COMPOSE_CMD=(docker-compose)
-      ;;
-    *)
-      die "检测到 Docker Compose ${COMPOSE_VERSION:-V1}，本项目需要 Compose V2。请安装 docker-compose-plugin（或 docker-compose-v2）后重试。"
+  # 只比较主版本：独立发行版存在 2.x / 3.x / 5.x 等版本号，
+  # 只要 >= 2 都是兼容 Compose V2 规范的实现。
+  COMPOSE_MAJOR="${COMPOSE_VERSION%%.*}"
+  case "$COMPOSE_MAJOR" in
+    ''|*[!0-9]*)
+      die "无法识别 Docker Compose 版本（${COMPOSE_VERSION:-未知}），本项目需要 Compose V2。"
       ;;
   esac
+  if [ "$COMPOSE_MAJOR" -lt 2 ]; then
+    die "检测到 Docker Compose ${COMPOSE_VERSION:-V1}，本项目需要 Compose V2。请安装 docker-compose-plugin（或 docker-compose-v2）后重试。"
+  fi
+  COMPOSE_CMD=(docker-compose)
 else
   die "未找到 Docker Compose V2。请安装 docker-compose-plugin 或独立的 docker-compose（V2）后重试。"
 fi

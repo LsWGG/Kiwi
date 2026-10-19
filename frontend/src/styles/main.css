@@ -24,23 +24,24 @@
   --selection-ink: #4c46a6;
 }
 
-/* 学习模式：整站切换为青绿主题，和编辑模式形成明确区分。 */
+/* 学习模式：使用独立配置的品牌色（默认青绿），与编辑模式明确区分。
+   色阶由 system store 写入 --learn-*，这里的 fallback 保证首屏不闪烁。 */
 body.theme-learn {
-  --kiwi-50: 236 253 245;
-  --kiwi-100: 209 250 229;
-  --kiwi-200: 167 243 208;
-  --kiwi-300: 110 231 183;
-  --kiwi-400: 52 211 153;
-  --kiwi-500: 16 185 129;
-  --kiwi-600: 5 150 105;
-  --kiwi-700: 4 120 87;
-  --kiwi-800: 6 95 70;
-  --kiwi-900: 6 78 59;
-  --ambient-a: rgba(16, 185, 129, 0.10);
-  --ambient-b: rgba(52, 211, 153, 0.09);
-  --ambient-c: rgba(110, 231, 183, 0.07);
-  --selection-bg: rgba(16, 185, 129, 0.20);
-  --selection-ink: #047857;
+  --kiwi-50: var(--learn-kiwi-50, 236 253 245);
+  --kiwi-100: var(--learn-kiwi-100, 209 250 229);
+  --kiwi-200: var(--learn-kiwi-200, 167 243 208);
+  --kiwi-300: var(--learn-kiwi-300, 110 231 183);
+  --kiwi-400: var(--learn-kiwi-400, 52 211 153);
+  --kiwi-500: var(--learn-kiwi-500, 16 185 129);
+  --kiwi-600: var(--learn-kiwi-600, 5 150 105);
+  --kiwi-700: var(--learn-kiwi-700, 4 120 87);
+  --kiwi-800: var(--learn-kiwi-800, 6 95 70);
+  --kiwi-900: var(--learn-kiwi-900, 6 78 59);
+  --ambient-a: var(--learn-ambient-a, rgba(16, 185, 129, 0.10));
+  --ambient-b: var(--learn-ambient-b, rgba(52, 211, 153, 0.09));
+  --ambient-c: var(--learn-ambient-c, rgba(110, 231, 183, 0.07));
+  --selection-bg: var(--learn-selection-bg, rgba(16, 185, 129, 0.20));
+  --selection-ink: var(--learn-selection-ink, #047857);
   background-image:
     radial-gradient(52rem 32rem at 12% -8%, var(--ambient-a), transparent 60%),
     radial-gradient(44rem 30rem at 108% 118%, var(--ambient-b), transparent 60%),
