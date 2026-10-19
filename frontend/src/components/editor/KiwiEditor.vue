@@ -77,7 +77,7 @@ import {
 } from './extensions/paragraphFormat'
 import { KiwiTextStyle, normalizeTextStyleAttrs } from './extensions/textStyle'
 import { applyTextFormats, collectTextFormats } from './extensions/textFormat'
-import { orderedListStyleClass } from './orderedListStyles'
+import { orderedListStyleClass, type OrderedListStyleKey } from './orderedListStyles'
 import DocxParagraphDialog from './DocxParagraphDialog.vue'
 import type { LinkMeta } from '@/api/links'
 import {
@@ -150,6 +150,7 @@ const emit = defineEmits<{
   (e: 'text-formats', formats: ReturnType<typeof collectTextFormats>): void
   (e: 'word-preview'): void
   (e: 'toggle-agent'): void
+  (e: 'ordered-list-style', key: OrderedListStyleKey): void
 }>()
 
 const kbs = useKbsStore()
@@ -2115,6 +2116,8 @@ defineExpose({
       :revision="editorRevision"
       :code-prefs="codePrefs"
       :painter-active="!!formatPainter"
+      :ordered-list-style="orderedListStyle"
+      @ordered-list-style="emit('ordered-list-style', $event)"
       @painter="toggleFormatPainter"
       @code-prefs="onCodePrefs"
       @run-code="onToolbarRunCode"

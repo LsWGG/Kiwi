@@ -28,6 +28,12 @@ import {
 } from './extensions/paragraphFormat'
 import { applyTextFormat } from './extensions/textFormat'
 import { normalizeTextStyleAttrs } from './extensions/textStyle'
+import OrderedListStyleMenu from './OrderedListStyleMenu.vue'
+import {
+  DEFAULT_ORDERED_LIST_STYLE,
+  resolveOrderedListStyle,
+  type OrderedListStyleKey,
+} from './orderedListStyles'
 
 const props = withDefaults(
   defineProps<{
@@ -43,6 +49,8 @@ const props = withDefaults(
     codePrefs?: CodePrefs | null
     /** 格式刷已复制格式，等待应用到目标内容 */
     painterActive?: boolean
+    /** 当前笔记的多级有序列表编号预设 */
+    orderedListStyle?: string | null
   }>(),
   {
     mode: 'notion',
@@ -52,8 +60,14 @@ const props = withDefaults(
     revision: 0,
     codePrefs: null,
     painterActive: false,
+    orderedListStyle: null,
   },
 )
+/** 编号样式非默认时给合并按钮一个浅色提示，与扩展组件按钮的激活态一致。 */
+const listStyleCustomized = computed(
+  () => resolveOrderedListStyle(props.orderedListStyle) !== DEFAULT_ORDERED_LIST_STYLE,
+)
+
 const emit = defineEmits<{
   (e: 'image'): void
   (e: 'attach'): void
@@ -74,6 +88,8 @@ const emit = defineEmits<{
   (e: 'agent'): void
   /** 格式刷：复制当前格式，或把已复制的格式应用到当前选区 */
   (e: 'painter'): void
+  /** 切换多级有序列表编号预设 */
+  (e: 'ordered-list-style', key: OrderedListStyleKey): void
 }>()
 
 // 「插入组件」下拉：Simple / Agent 模式下也能发现斜杠菜单里的扩展块。
@@ -572,9 +588,36 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
       <button type="button" :class="[btn, editor.isActive('bulletList') ? activeBtn : '']" title="无序列表" @click="run((e) => e.chain().focus().toggleBulletList().run())">
         <KiwiIcon name="list" :size="14" />
       </button>
-      <button type="button" :class="[btn, editor.isActive('orderedList') ? activeBtn : '']" title="有序列表" @click="run((e) => e.chain().focus().toggleOrderedList().run())">
-        <KiwiIcon name="listOrdered" :size="14" />
-      </button>
+      <!-- 有序列表 + 多级编号样式合并为一个按钮组：主按钮切换列表，箭头选择编号样式 -->
+      <div
+        class="flex h-7 shrink-0 items-center rounded-lg transition-colors"
+        :class="
+          editor.isActive('orderedList')
+            ? 'bg-kiwi-100/80 text-kiwi-700'
+            : listStyleCustomized
+              ? 'bg-kiwi-50/70 text-kiwi-700'
+              : 'text-slate-500 hover:bg-kiwi-50 hover:text-kiwi-700'
+        "
+      >
+        <button
+          type="button"
+          class="grid h-7 w-7 place-items-center rounded-l-lg transition-colors"
+          :class="editor.isActive('orderedList') ? '' : 'hover:bg-kiwi-50 hover:text-kiwi-700'"
+          title="有序列表"
+          @click="run((e) => e.chain().focus().toggleOrderedList().run())"
+        >
+          <KiwiIcon name="listOrdered" :size="14" />
+        </button>
+        <span
+          class="h-3.5 w-px shrink-0"
+          :class="editor.isActive('orderedList') ? 'bg-kiwi-300/70' : 'bg-slate-200/80'"
+        />
+        <OrderedListStyleMenu
+          variant="chevron"
+          :value="orderedListStyle"
+          @change="emit('ordered-list-style', $event)"
+        />
+      </div>
       <button v-if="!docx" type="button" :class="[btn, editor.isActive('taskList') ? activeBtn : '']" title="任务列表" @click="run((e) => e.chain().focus().toggleTaskList().run())">
         <KiwiIcon name="checkSquare" :size="14" />
       </button>

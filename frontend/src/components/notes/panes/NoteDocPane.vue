@@ -8,7 +8,6 @@ import KiwiEditor from '@/components/editor/KiwiEditor.vue'
 import type { ParagraphFormatRecord } from '@/components/editor/extensions/paragraphFormat'
 import type { TextFormatRecord } from '@/components/editor/extensions/textFormat'
 import EditorModeMenu from '@/components/editor/EditorModeMenu.vue'
-import OrderedListStyleMenu from '@/components/editor/OrderedListStyleMenu.vue'
 import {
   resolveOrderedListStyle,
   type OrderedListStyleKey,
@@ -855,11 +854,6 @@ async function copyMarkdown() {
         反向链接
         <span class="tabular-nums text-slate-400">{{ backlinks.length }}</span>
       </button>
-      <OrderedListStyleMenu
-        v-if="!readonlyImport"
-        :value="orderedListStyle"
-        @change="setOrderedListStyle"
-      />
       <!-- 四种视图：编辑 / 大纲 / 分屏 / 阅读，按笔记持久化 -->
       <div
         v-if="!readonlyImport"
@@ -1105,6 +1099,7 @@ async function copyMarkdown() {
             @update="onBody"
             @paragraph-formats="onParagraphFormats"
             @text-formats="onTextFormats"
+            @ordered-list-style="setOrderedListStyle"
             @docx-prefs="onDocxPrefs"
             @word-preview="toggleWordPreview"
             @toggle-agent="agentOpen = !agentOpen"
