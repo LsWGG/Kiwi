@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from 'node:url'
 import { createReadStream, existsSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { cp, rm, stat } from 'node:fs/promises'
 import { extname, join, normalize, resolve as pathResolve, sep } from 'node:path'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -99,6 +99,98 @@ function portalDevPlugin(): Plugin {
   }
 }
 
+/**
+ * PDF.js 运行期资源（CJK CMap、标准字体、wasm、ICC）不参与打包，
+ * 开发期从 node_modules 直出，构建时复制到 dist/pdfjs。
+ * 这样仓库里不提交这几 MB 的第三方资源，又保证离线部署可用。
+ */
+const PDFJS_ASSET_DIRS = ['cmaps', 'standard_fonts', 'wasm', 'iccs']
+const PDFJS_DIR = pathResolve(__dirname, 'node_modules/pdfjs-dist')
+
+const PDFJS_MIME: Record<string, string> = {
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.bcmap': 'application/octet-stream',
+  '.pfb': 'application/octet-stream',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.icc': 'application/octet-stream',
+}
+
+/** 解析 /pdfjs/<dir>/<file>，拒绝 `..` 越界。 */
+function resolvePdfjsAsset(pathname: string): string | null {
+  if (!pathname.startsWith('/pdfjs/')) return null
+  const relative = pathname.slice('/pdfjs/'.length)
+  const slash = relative.indexOf('/')
+  if (slash <= 0) return null
+  const dir = relative.slice(0, slash)
+  if (!PDFJS_ASSET_DIRS.includes(dir)) return null
+  const base = pathResolve(PDFJS_DIR, dir)
+  const filePath = pathResolve(PDFJS_DIR, relative)
+  if (filePath !== base && !filePath.startsWith(base + sep)) return null
+  return filePath
+}
+
+function pdfjsAssetsDevPlugin(): Plugin {
+  return {
+    name: 'kiwi-pdfjs-assets-dev',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url) return next()
+        let pathname: string
+        try {
+          pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname)
+        } catch {
+          return next()
+        }
+        const filePath = resolvePdfjsAsset(pathname)
+        if (!filePath) return next()
+
+        try {
+          const info = await stat(filePath)
+          if (!info.isFile()) throw new Error('not a file')
+          res.statusCode = 200
+          res.setHeader(
+            'Content-Type',
+            PDFJS_MIME[extname(filePath).toLowerCase()] || 'application/octet-stream',
+          )
+          res.setHeader('Content-Length', info.size)
+          res.setHeader('Cache-Control', 'public, max-age=86400')
+          if (req.method === 'HEAD') {
+            res.end()
+            return
+          }
+          createReadStream(filePath).pipe(res)
+        } catch {
+          res.statusCode = 404
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+          res.end('PDF.js asset not found')
+        }
+      })
+    },
+  }
+}
+
+function pdfjsAssetsBuildPlugin(): Plugin {
+  return {
+    name: 'kiwi-pdfjs-assets-build',
+    apply: 'build',
+    async closeBundle() {
+      const outDir = pathResolve(__dirname, 'dist/pdfjs')
+      await rm(outDir, { recursive: true, force: true })
+      for (const dir of PDFJS_ASSET_DIRS) {
+        const source = pathResolve(PDFJS_DIR, dir)
+        if (existsSync(source)) {
+          await cp(source, pathResolve(outDir, dir), { recursive: true })
+        }
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // 后端地址可配：VITE_BACKEND_PROXY=http://localhost:8001 npm run dev
@@ -113,10 +205,21 @@ export default defineConfig(({ mode }) => {
     : { '@antv/g6': pathResolve(__dirname, 'src/graph/g6-stub.ts') }
 
   return {
-    plugins: [portalDevPlugin(), vue()],
+    plugins: [portalDevPlugin(), pdfjsAssetsDevPlugin(), pdfjsAssetsBuildPlugin(), vue()],
     build: {
       // 压缩体积统计对产物无影响，关闭后可降低 CI / 低内存主机上的构建内存。
       reportCompressedSize: false,
+      rollupOptions: {
+        output: {
+          // PDF.js 的 worker 源文件是 .mjs；nginx 默认 mime.types 不一定把 .mjs
+          // 识别为 JavaScript，改成 .js 可避免生产环境 module worker 因 MIME 被拒。
+          assetFileNames: (asset) => {
+            const name = asset.names?.[0] ?? ''
+            if (name.includes('pdf.worker')) return 'assets/pdf.worker-[hash].js'
+            return 'assets/[name]-[hash][extname]'
+          },
+        },
+      },
     },
     resolve: {
       alias: {

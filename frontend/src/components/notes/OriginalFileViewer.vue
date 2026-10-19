@@ -1,9 +1,12 @@
 <script setup lang="ts">
 /** 导入笔记的原始文件查看器：PDF / 图片内嵌预览，Markdown / 纯文本就地渲染，其余提供下载。 */
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { toast } from '@/components/ui/toast'
+
+// PDF.js 体积较大，只有真的打开只读 PDF 时才加载对应分包。
+const PdfViewer = defineAsyncComponent(() => import('@/components/notes/pdf/PdfViewer.vue'))
 
 const props = withDefaults(
   defineProps<{
@@ -12,8 +15,15 @@ const props = withDefaults(
     filename?: string
     contentType?: string
     size?: number
+    /**
+     * 嵌入只读阅读区：不再自己滚动，页面按自然高度铺开，
+     * 由外层阅读滚动容器统一滚动，批注层才能跟着内容走。
+     */
+    embedded?: boolean
+    /** 阅读工具条的缩放倍数，PDF 页面直接按此比例渲染。 */
+    zoom?: number
   }>(),
-  { filename: '', contentType: '', size: 0 },
+  { filename: '', contentType: '', size: 0, embedded: false, zoom: 1 },
 )
 
 const ext = computed(() => {
@@ -52,6 +62,8 @@ const sizeText = computed(() => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 })
+
+const pdfPages = ref(0)
 
 const textContent = ref('')
 const textLoading = ref(false)
@@ -98,8 +110,14 @@ function download() {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col bg-slate-100/50">
-    <div class="flex h-10 shrink-0 items-center gap-2 border-b border-slate-200/70 bg-white/70 px-3">
+  <div
+    class="flex flex-col bg-slate-100/50"
+    :class="embedded ? 'min-h-full' : 'h-full min-h-0'"
+  >
+    <div
+      class="flex h-10 shrink-0 items-center gap-2 border-b border-slate-200/70 px-3"
+      :class="embedded ? 'sticky top-0 z-20 bg-white/90 backdrop-blur-md' : 'bg-white/70'"
+    >
       <KiwiIcon
         :name="kind === 'pdf' ? 'fileText' : kind === 'image' ? 'image' : 'fileImport'"
         :size="14"
@@ -110,6 +128,9 @@ function download() {
       </span>
       <span v-if="sizeText" class="shrink-0 text-[10px] tabular-nums text-slate-400">
         {{ sizeText }}
+      </span>
+      <span v-if="kind === 'pdf' && pdfPages" class="shrink-0 text-[10px] tabular-nums text-slate-400">
+        {{ pdfPages }} 页
       </span>
       <div class="flex-1" />
       <button
@@ -130,21 +151,35 @@ function download() {
       </button>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-hidden">
+    <div :class="embedded ? '' : 'min-h-0 flex-1 overflow-hidden'">
+      <PdfViewer
+        v-if="kind === 'pdf' && embedded"
+        :url="fileUrl"
+        :zoom="zoom"
+        embedded
+        @loaded="pdfPages = $event"
+      />
       <iframe
-        v-if="kind === 'pdf'"
+        v-else-if="kind === 'pdf'"
         :src="fileUrl"
         :title="filename"
         class="h-full w-full border-0 bg-white"
       />
-      <div v-else-if="kind === 'image'" class="h-full overflow-auto p-5">
+      <div
+        v-else-if="kind === 'image'"
+        :class="embedded ? 'px-5 py-5' : 'h-full overflow-auto p-5'"
+      >
         <img
           :src="fileUrl"
           :alt="filename"
-          class="mx-auto max-h-full max-w-full rounded-lg bg-white object-contain shadow-sm"
+          class="mx-auto rounded-lg bg-white object-contain shadow-sm"
+          :class="embedded ? 'max-w-full' : 'max-h-full max-w-full'"
         />
       </div>
-      <div v-else-if="kind === 'markdown' || kind === 'text'" class="h-full overflow-auto px-6 py-5">
+      <div
+        v-else-if="kind === 'markdown' || kind === 'text'"
+        :class="embedded ? 'px-6 py-5' : 'h-full overflow-auto px-6 py-5'"
+      >
         <div v-if="textLoading" class="py-12 text-center text-[11px] text-slate-400">
           <KiwiIcon name="loader" :size="16" spin class="mx-auto mb-1.5" />
           读取原始文件…
@@ -158,7 +193,11 @@ function download() {
           class="whitespace-pre-wrap break-words rounded-xl border border-slate-200/70 bg-white/80 p-4 text-[12px] leading-relaxed text-slate-600"
         >{{ textContent }}</pre>
       </div>
-      <div v-else class="grid h-full place-items-center px-6">
+      <div
+        v-else
+        class="grid place-items-center px-6"
+        :class="embedded ? 'min-h-[420px] py-16' : 'h-full'"
+      >
         <div class="max-w-sm rounded-2xl border border-slate-200/70 bg-white/80 p-6 text-center shadow-sm">
           <KiwiIcon name="fileImport" :size="30" class="mx-auto text-slate-300" />
           <p class="mt-3 text-[13px] font-medium text-slate-600">{{ filename }}</p>

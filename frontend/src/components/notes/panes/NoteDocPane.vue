@@ -964,13 +964,15 @@ async function copyMarkdown() {
         :class="readMode ? 'cursor-none' : ''"
         @scroll.passive="onEditorScroll"
       >
-        <div v-if="readonlyImport" class="h-full min-h-[420px]">
+        <div v-if="readonlyImport" class="min-h-full">
           <OriginalFileViewer
             :note-id="note.id"
             :kb-id="kbs.currentKbId"
             :filename="importFilename"
             :content-type="importContentType"
             :size="importSize"
+            embedded
+            :zoom="readZoom"
           />
         </div>
         <div
