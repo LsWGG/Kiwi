@@ -593,6 +593,7 @@ watch(rows, (list) => {
 })
 
 function toggle(row: TreeRow) {
+  if (Date.now() < suppressClickUntil) return
   const set = new Set(expanded.value)
   if (set.has(row.id)) set.delete(row.id)
   else set.add(row.id)
@@ -615,10 +616,63 @@ function isDescendant(candidateId: string, ancestorId: string): boolean {
   return false
 }
 
-// ---------- 拖拽 ----------
+// ---------- 拖拽（指针实现，避免浏览器原生 DnD 的差异） ----------
 const dragRow = ref<TreeRow | null>(null)
 const dropState = ref<{ id: string; pos: DropPos } | null>(null)
 const rootOver = ref(false)
+const dragActive = ref(false)
+const pointer = ref({ x: 0, y: 0 })
+/** 按下时指针在行内的偏移：浮窗按同一握持点跟随，视觉上不会从指针旁边“飘”出去。 */
+const grabOffset = ref({ x: 0, y: 0 })
+/** 指针拖拽结束后短暂屏蔽 click，避免松手时顺手打开 / 折叠目标条目。 */
+let suppressClickUntil = 0
+let pointerStart: { x: number; y: number; row: TreeRow } | null = null
+let pointerSession = false
+let autoScrollTimer: number | null = null
+
+const dragGhost = computed(() => {
+  const row = dragRow.value
+  if (!row) return null
+  if (row.type === 'folder') {
+    return { label: row.folder?.name || '分组', icon: 'folder', tone: 'text-amber-500' }
+  }
+  const kind = row.note?.kind ?? 'doc'
+  const icon =
+    kind === 'database'
+      ? 'database'
+      : kind === 'canvas'
+        ? 'pen'
+        : kind === 'link'
+          ? 'link2'
+          : kind === 'import'
+            ? 'fileImport'
+            : kind === 'notebook'
+              ? 'notebook'
+              : 'fileText'
+  return { label: row.note?.title || '无标题', icon, tone: 'text-kiwi-500' }
+})
+
+const ghostEl = ref<HTMLElement | null>(null)
+const ghostWidth = ref(0)
+
+/** 浮窗左上角：保持按下时指针在行内的相对位置，让指针始终“握”在浮窗上。 */
+const ghostPos = computed(() => {
+  // 抓取点靠行尾时，把水平偏移收缩到浮窗宽度内，避免指针落在浮窗右侧外面。
+  const maxX = ghostWidth.value ? Math.max(ghostWidth.value - 24, 0) : Infinity
+  const dx = Math.min(grabOffset.value.x, maxX)
+  return {
+    x: pointer.value.x - dx,
+    y: pointer.value.y - grabOffset.value.y,
+  }
+})
+
+// 浮窗渲染后量一次宽度，用于上面的握持点收缩；每次拖拽开始时重置。
+watch(dragActive, async (active) => {
+  ghostWidth.value = 0
+  if (!active) return
+  await nextTick()
+  ghostWidth.value = ghostEl.value?.getBoundingClientRect().width ?? 0
+})
 
 /** 子笔记是否为某篇笔记的后代（用于阻止把笔记拖进自己的子树）。 */
 function isNoteDescendant(candidateId: string, ancestorId: string): boolean {
@@ -655,95 +709,182 @@ function scheduleAutoExpand(id: string, pos: DropPos) {
   autoExpand = { id, timer }
 }
 
-function onDragStart(event: DragEvent, row: TreeRow) {
-  dragRow.value = row
-  dropState.value = null
-  rootOver.value = false
-  cancelAutoExpand()
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', JSON.stringify({ type: row.type, id: row.id }))
+/** 根据指针落在行内的相对位置，计算插入位置；返回 null 表示该目标不合法。 */
+function resolveDropPos(
+  drag: TreeRow,
+  row: TreeRow,
+  rect: DOMRect,
+  clientY: number,
+): DropPos | null {
+  if (drag.type === row.type && drag.id === row.id) return null
+  const rel = (clientY - rect.top) / Math.max(rect.height, 1)
+  if (row.type === 'folder') {
+    if (drag.type === 'folder' && isDescendant(row.folder!.id, drag.id)) return null
+    // 上下边缘 = 与分组同级排序（可把笔记拖到分组上方），中间 = 放入分组。
+    return rel < 0.26 ? 'before' : rel > 0.74 ? 'after' : 'into'
   }
+  if (drag.type === 'note') {
+    if (isNoteDescendant(row.id, drag.id)) return null
+    // 中间 = 变成目标笔记的子笔记，上下边缘 = 与目标笔记同级排序。
+    return rel < 0.3 ? 'before' : rel > 0.7 ? 'after' : 'into'
+  }
+  // 分组不能放进笔记；只允许在根级笔记旁参与同一分组层级的排序。
+  if (row.note!.parent_note_id) return null
+  return rel < 0.5 ? 'before' : 'after'
 }
 
-function onDragOver(event: DragEvent, row: TreeRow) {
+function updateDropFromPoint(x: number, y: number) {
+  pointer.value = { x, y }
   const drag = dragRow.value
-  if (!drag || drag.id === row.id) {
+  if (!drag) return
+  const target = document.elementFromPoint(x, y) as Element | null
+  if (target?.closest('[data-tree-root-drop]')) {
     dropState.value = null
+    cancelAutoExpand()
+    rootOver.value = true
     return
   }
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  const rel = (event.clientY - rect.top) / Math.max(rect.height, 1)
-  let pos: DropPos | null = null
-  if (row.type === 'folder') {
-    if (drag.type === 'folder' && isDescendant(row.folder!.id, drag.id)) {
-      dropState.value = null
-      cancelAutoExpand()
-      return
-    }
-    // 上下边缘 = 与分组同级排序（可把笔记拖到分组上方），中间 = 放入分组。
-    pos = rel < 0.26 ? 'before' : rel > 0.74 ? 'after' : 'into'
-  } else if (drag.type === 'note') {
-    if (isNoteDescendant(row.id, drag.id)) {
-      dropState.value = null
-      cancelAutoExpand()
-      return
-    }
-    // 中间 = 变成目标笔记的子笔记，上下边缘 = 与目标笔记同级排序。
-    pos = rel < 0.3 ? 'before' : rel > 0.7 ? 'after' : 'into'
-  } else {
-    // 分组不能放进笔记；只允许在根级笔记旁参与同一分组层级的排序。
-    if (row.note!.parent_note_id) {
-      dropState.value = null
-      cancelAutoExpand()
-      return
-    }
-    pos = rel < 0.5 ? 'before' : 'after'
+  rootOver.value = false
+  const rowEl = target?.closest('[data-tree-row]') as HTMLElement | null
+  if (!rowEl || rowEl.dataset.treeRowHoisted) {
+    dropState.value = null
+    cancelAutoExpand()
+    return
   }
-  event.preventDefault()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const key = rowEl.dataset.treeRow
+  const row = rows.value.find((item) => `${item.type}:${item.id}` === key)
+  if (!row) {
+    dropState.value = null
+    cancelAutoExpand()
+    return
+  }
+  const pos = resolveDropPos(drag, row, rowEl.getBoundingClientRect(), y)
+  if (!pos) {
+    dropState.value = null
+    cancelAutoExpand()
+    return
+  }
   dropState.value = { id: row.id, pos }
   scheduleAutoExpand(row.id, pos)
 }
 
-function onDragLeave(event: DragEvent, row: TreeRow) {
-  const related = event.relatedTarget as Node | null
-  if (related && (event.currentTarget as HTMLElement).contains(related)) return
-  if (dropState.value?.id === row.id) dropState.value = null
-  cancelAutoExpand()
+function stopAutoScroll() {
+  if (autoScrollTimer === null) return
+  window.clearInterval(autoScrollTimer)
+  autoScrollTimer = null
 }
 
-/** 离开整个目录容器时清理高亮，避免拖拽状态残留。 */
-function onTreeDragLeave(event: DragEvent) {
-  const related = event.relatedTarget as Node | null
-  if (related && treeScrollEl.value?.contains(related)) return
-  dropState.value = null
-  rootOver.value = false
-  cancelAutoExpand()
+/** 拖到目录上下边缘时自动滚动，便于跨屏移动。 */
+function startAutoScroll() {
+  stopAutoScroll()
+  autoScrollTimer = window.setInterval(() => {
+    const el = treeScrollEl.value
+    if (!dragActive.value || !el) return
+    const rect = el.getBoundingClientRect()
+    const { x, y } = pointer.value
+    if (x < rect.left || x > rect.right) return
+    const edge = 32
+    let delta = 0
+    if (y < rect.top + edge) delta = -12
+    else if (y > rect.bottom - edge) delta = 12
+    if (!delta) return
+    const before = el.scrollTop
+    el.scrollTop = before + delta
+    if (el.scrollTop !== before) updateDropFromPoint(x, y)
+  }, 50)
 }
 
-function resetDrag() {
+function onRowPointerDown(event: PointerEvent, row: TreeRow) {
+  if (event.button !== 0 || event.pointerType === 'touch') return
+  if (row.hoisted || row.inbox) return
+  const target = event.target as Element | null
+  if (target?.closest('button, input, a, [contenteditable="true"]')) return
+  const rowEl = target?.closest('[data-tree-row]') as HTMLElement | null
+  if (rowEl) {
+    const rect = rowEl.getBoundingClientRect()
+    grabOffset.value = {
+      x: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
+      y: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+    }
+  } else {
+    grabOffset.value = { x: 0, y: 0 }
+  }
+  pointerStart = { x: event.clientX, y: event.clientY, row }
+  pointerSession = true
+  window.addEventListener('pointermove', onWindowPointerMove)
+  window.addEventListener('pointerup', onWindowPointerUp)
+  window.addEventListener('pointercancel', onWindowPointerUp)
+  window.addEventListener('keydown', onDragKeyDown)
+}
+
+function onWindowPointerMove(event: PointerEvent) {
+  if (!pointerSession) return
+  if ((event.buttons & 1) === 0) {
+    cleanupPointerSession()
+    return
+  }
+  if (!dragActive.value) {
+    const start = pointerStart
+    if (!start) return
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 4) return
+    dragActive.value = true
+    dragRow.value = start.row
+    document.body.classList.add('kiwi-tree-dragging')
+    startAutoScroll()
+  }
+  event.preventDefault()
+  updateDropFromPoint(event.clientX, event.clientY)
+}
+
+function cleanupPointerSession() {
+  pointerSession = false
+  pointerStart = null
+  dragActive.value = false
   dragRow.value = null
   dropState.value = null
   rootOver.value = false
+  grabOffset.value = { x: 0, y: 0 }
+  stopAutoScroll()
   cancelAutoExpand()
+  document.body.classList.remove('kiwi-tree-dragging')
+  window.removeEventListener('pointermove', onWindowPointerMove)
+  window.removeEventListener('pointerup', onWindowPointerUp)
+  window.removeEventListener('pointercancel', onWindowPointerUp)
+  window.removeEventListener('keydown', onDragKeyDown)
 }
 
-async function onDrop(event: DragEvent, row: TreeRow) {
-  event.preventDefault()
+function onDragKeyDown(event: KeyboardEvent) {
+  if (event.key === 'Escape') cleanupPointerSession()
+}
+
+async function moveDragToRoot(drag: TreeRow) {
+  if (drag.type === 'note' && drag.note) {
+    await notes.moveNoteTo(drag.note.id, { folder_id: null, parent_note_id: null })
+  } else if (drag.type === 'folder' && drag.folder) {
+    await notes.updateFolder(drag.folder.id, { parent_id: null })
+  }
+}
+
+async function onWindowPointerUp() {
+  if (!pointerSession) return
+  const active = dragActive.value
   const drag = dragRow.value
-  // 拖拽过程中若状态被清理，落在笔记上仍按「放入」处理，避免无响应。
-  const pos =
-    dropState.value?.id === row.id
-      ? dropState.value.pos
-      : drag?.type === 'note'
-        ? 'into'
-        : null
-  resetDrag()
-  if (!drag || drag.id === row.id || !pos) return
+  const state = dropState.value
+  const overRoot = rootOver.value
+  cleanupPointerSession()
+  if (!active || !drag) return
+  // 拖动结束后浏览器仍会派发一次 click，短暂屏蔽避免误打开。
+  suppressClickUntil = Date.now() + 400
   try {
-    if (drag.type === 'note' && drag.note) await dropNote(drag.note, row, pos)
-    else if (drag.type === 'folder' && drag.folder) await dropFolder(drag.folder, row, pos)
+    if (overRoot) {
+      await moveDragToRoot(drag)
+      return
+    }
+    if (!state) return
+    const row = rows.value.find((item) => item.id === state.id)
+    if (!row) return
+    if (drag.type === 'note' && drag.note) await dropNote(drag.note, row, state.pos)
+    else if (drag.type === 'folder' && drag.folder) await dropFolder(drag.folder, row, state.pos)
   } catch (e: any) {
     toast.error(e.message || '移动失败')
     await notes.fetchTree()
@@ -927,23 +1068,6 @@ async function dropFolder(folder: NoteFolder, target: TreeRow, pos: DropPos | nu
   if (items) await notes.reorderTree(parentId, items)
 }
 
-async function onRootDrop(event: DragEvent) {
-  event.preventDefault()
-  const drag = dragRow.value
-  resetDrag()
-  if (!drag) return
-  try {
-    if (drag.type === 'note' && drag.note) {
-      await notes.moveNoteTo(drag.note.id, { folder_id: null, parent_note_id: null })
-    } else if (drag.type === 'folder' && drag.folder) {
-      await notes.updateFolder(drag.folder.id, { parent_id: null })
-    }
-  } catch (e: any) {
-    toast.error(e.message || '移动失败')
-    await notes.fetchTree()
-  }
-}
-
 // ---------- 右键 / 重命名 / 删除 ----------
 const menu = ref<{ open: boolean; x: number; y: number; row: TreeRow | null }>({
   open: false,
@@ -1120,16 +1244,11 @@ function onQuickCaptureKey(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onQuickCaptureKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onQuickCaptureKey))
 
-// 拖到窗口外 / 按 Esc 取消时浏览器不保证触发节点上的 drop，统一兜底清理，
-// 避免 dragRow 残留导致之后的操作像「卡住」。
-onMounted(() => {
-  window.addEventListener('dragend', resetDrag)
-  window.addEventListener('blur', resetDrag)
-})
+// 窗口失焦 / 按 Esc 时取消拖拽，避免拖拽状态残留。
+onMounted(() => window.addEventListener('blur', cleanupPointerSession))
 onBeforeUnmount(() => {
-  window.removeEventListener('dragend', resetDrag)
-  window.removeEventListener('blur', resetDrag)
-  cancelAutoExpand()
+  window.removeEventListener('blur', cleanupPointerSession)
+  cleanupPointerSession()
 })
 
 function onTemplateCreated(note: NoteOut) {
@@ -1402,6 +1521,7 @@ function createFromMenu(kind: string) {
 }
 
 function onSelect(row: TreeRow, event?: MouseEvent) {
+  if (Date.now() < suppressClickUntil) return
   if (!row.note) return
   const shift = !!event?.shiftKey
   const toggle = !!(event?.ctrlKey || event?.metaKey)
@@ -1569,7 +1689,7 @@ const createFolderMenu = () => openFolderDialog(null)
     <div
       ref="treeScrollEl"
       class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2"
-      @dragleave="onTreeDragLeave"
+      @dragstart.prevent
     >
       <template
         v-for="row in rows"
@@ -1591,10 +1711,7 @@ const createFolderMenu = () => openFolderDialog(null)
           @select="onSelect"
           @toggle="toggle"
           @menu="openMenu"
-          @dragstart="onDragStart"
-          @dragover="onDragOver"
-          @dragleave="onDragLeave"
-          @drop="onDrop"
+          @pointerdown="onRowPointerDown"
           @rename="onRename"
           @rename-cancel="renamingId = null"
           @unpin="unpinFromRow(row)"
@@ -1620,15 +1737,15 @@ const createFolderMenu = () => openFolderDialog(null)
         </KiwiEmpty>
       </div>
 
-      <!-- 拖到空白处 = 移到根目录 -->
-      <div
-        class="mt-2 h-10 rounded-lg border border-dashed transition-colors grid place-items-center text-[10px]"
-        :class="rootOver && dragRow ? 'border-kiwi-400 bg-kiwi-50/70 text-kiwi-500' : 'border-transparent text-transparent'"
-        @dragover.prevent="rootOver = !!dragRow"
-        @dragleave="rootOver = false"
-        @drop="onRootDrop"
-      >
-        移到根目录
+      <!-- 拖拽时固定在底部的根目录投放区，长列表也不用滚到底 -->
+      <div v-if="dragActive" class="sticky bottom-0 z-10 -mx-1 px-1 pb-1">
+        <div
+          data-tree-root-drop
+          class="h-10 rounded-lg border border-dashed transition-colors grid place-items-center text-[10px]"
+          :class="rootOver ? 'border-kiwi-400 bg-kiwi-50/95 text-kiwi-500' : 'border-kiwi-200 bg-white/90 text-kiwi-400'"
+        >
+          松开移到根目录
+        </div>
       </div>
     </div>
 
@@ -2015,5 +2132,24 @@ const createFolderMenu = () => openFolderDialog(null)
       @close="captureOpen = false"
       @created="onCaptured"
     />
+
+    <!-- 指针拖拽时跟随光标的浮动标签：按抓取点锚定，与原生拖拽手感一致。
+         外层挂到 <html> 下用视口坐标（不受 body zoom 影响），内层按 --ui-scale 放大。 -->
+    <Teleport to="html">
+      <div
+        v-if="dragActive && dragGhost"
+        class="pointer-events-none fixed z-[300]"
+        :style="{ left: `${ghostPos.x}px`, top: `${ghostPos.y}px` }"
+      >
+        <div
+          ref="ghostEl"
+          class="flex h-8 max-w-[260px] items-center gap-1.5 rounded-lg border border-kiwi-300/80 bg-white/95 px-2.5 text-[12.5px] text-slate-700 shadow-lifted backdrop-blur"
+          :style="{ zoom: 'var(--ui-scale)' }"
+        >
+          <KiwiIcon :name="dragGhost.icon" :size="14" :class="dragGhost.tone" />
+          <span class="truncate">{{ dragGhost.label }}</span>
+        </div>
+      </div>
+    </Teleport>
   </aside>
 </template>

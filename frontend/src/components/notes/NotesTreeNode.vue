@@ -21,10 +21,7 @@ const emit = defineEmits<{
   (e: 'select', row: TreeRow, event: MouseEvent): void
   (e: 'toggle', row: TreeRow): void
   (e: 'menu', event: MouseEvent, row: TreeRow): void
-  (e: 'dragstart', event: DragEvent, row: TreeRow): void
-  (e: 'dragover', event: DragEvent, row: TreeRow): void
-  (e: 'dragleave', event: DragEvent, row: TreeRow): void
-  (e: 'drop', event: DragEvent, row: TreeRow): void
+  (e: 'pointerdown', event: PointerEvent, row: TreeRow): void
   (e: 'rename', row: TreeRow, name: string): void
   (e: 'rename-cancel'): void
   (e: 'unpin'): void
@@ -150,16 +147,14 @@ function onClick(event: MouseEvent) {
       dropTarget === 'into' ? 'ring-2 ring-kiwi-300 ring-inset bg-kiwi-50/80' : '',
     ]"
     :style="{ paddingLeft: `${6 + row.depth * 14}px` }"
+    :data-tree-row="`${row.type}:${row.id}`"
+    :data-tree-row-hoisted="row.hoisted ? '1' : undefined"
     :data-origin-note="!row.hoisted && !isFolder ? row.id : undefined"
     :title="isInbox ? '收件箱 · 始终置顶' : undefined"
     :aria-expanded="hasChildren ? open : undefined"
-    :draggable="!renaming"
     @click="onClick"
     @contextmenu.prevent.stop="emit('menu', $event, row)"
-    @dragstart="emit('dragstart', $event, row)"
-    @dragover="emit('dragover', $event, row)"
-    @dragleave="emit('dragleave', $event, row)"
-    @drop.stop="emit('drop', $event, row)"
+    @pointerdown="emit('pointerdown', $event, row)"
   >
     <span
       v-if="dropTarget === 'before'"

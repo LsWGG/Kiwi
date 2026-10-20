@@ -74,6 +74,13 @@ body {
   height: 100%;
 }
 
+/* 目录树指针拖拽：统一光标并禁止选中文本（Chromium / Firefox 行为一致）。 */
+body.kiwi-tree-dragging,
+body.kiwi-tree-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 /* 弹窗最大高度：body 的 zoom 会放大内容，但 100dvh 不随 zoom 缩放。
    在 2K/4K 自动放大后必须按 --ui-scale 折算回布局像素，否则弹窗会超出屏幕。 */
 .kiwi-modal-panel {
