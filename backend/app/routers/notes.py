@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import Text, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +51,9 @@ from app.schemas.note import (
     NoteFolderUpdate,
     NoteImportStartOut,
     NoteImportStatusOut,
+    NoteLockIn,
+    NoteLockOut,
+    NoteLockRemoveIn,
     NoteOut,
     NoteRevisionOut,
     NoteRevisionSummary,
@@ -70,6 +73,7 @@ from app.schemas.note import (
     NoteTransferIn,
     NoteTrashOut,
     NoteTreeOut,
+    NoteUnlockIn,
     NoteUpdate,
     NoteWikiLinkIn,
     NoteWikiLinkOut,
@@ -86,6 +90,7 @@ from app.services import (
     import_service,
     ingest_service,
     note_compiler,
+    note_lock,
     todo_sync,
     upload_session,
 )
@@ -126,7 +131,7 @@ TRASH_RETENTION_DAYS = 30
 REVISION_COALESCE_SECONDS = 120
 REVISION_MAX_PER_NOTE = 100
 
-BUILTIN_TEMPLATE_VERSION = 2
+BUILTIN_TEMPLATE_VERSION = 3
 BUILTIN_TEMPLATES: list[dict] = [
     {
         "name": "文献笔记",
@@ -134,18 +139,62 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "bookOpen",
         "title_pattern": "文献笔记：",
         "body_md": (
-            "> 一句话结论：\n\n"
-            "## 来源信息\n\n"
-            "| 项目 | 内容 |\n| --- | --- |\n"
-            "| 作者 |  |\n| 出处 |  |\n| 年份 |  |\n| 链接 |  |\n\n"
-            "## 研究问题\n\n作者试图回答什么？为什么重要？\n\n"
+            "> [!TIP] 🎯\n"
+            ">\n"
+            "> **一句话结论**：\n"
+            ">\n"
+            "> _先用一句话写下最值得记住的结论，再展开精读。_\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 📚 来源速览\n"
+            ">\n"
+            "> | 项目 | 内容 |\n"
+            "> | --- | --- |\n"
+            "> | 作者 / 机构 |  |\n"
+            "> | 出处 |  |\n"
+            "> | 年份 |  |\n"
+            "> | DOI / 链接 |  |\n"
+            "> | 阅读日期 | {{date}} |\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🧭 阅读坐标\n"
+            ">\n"
+            "> - **领域**：\n"
+            "> - **类型**：理论 / 实证 / 综述 / 工程\n"
+            "> - **阅读目的**：\n"
+            "> - **证据强度**：★★★☆☆\n"
+            ">\n"
+            "> **状态**：`待读` → `精读中` → `已沉淀`\n\n"
+            "## 研究问题\n\n"
+            "作者试图回答什么问题？为什么这个问题重要？用自己的话复述，而不是复制摘要。\n\n"
             "## 方法与证据\n\n"
-            "- 研究设计：\n- 样本 / 数据：\n- 关键指标：\n\n"
+            "| 维度 | 内容 |\n| --- | --- |\n"
+            "| 研究设计 |  |\n| 样本 / 数据 |  |\n"
+            "| 分析方法 |  |\n| 关键指标 |  |\n| 主要局限 |  |\n\n"
             "## 核心结论\n\n1. \n2. \n3. \n\n"
             "## 我的评注\n\n"
-            "- 可信之处：\n- 存疑之处：\n- 可迁移到我的工作：\n\n"
-            "## 可引用原文\n\n> \n\n"
-            "## 关联\n\n- 相关概念：[[相关笔记]]\n- 后续行动：\n"
+            "> [!TIP] 💭\n"
+            ">\n"
+            "> **可信之处**：\n"
+            ">\n"
+            "> **存疑之处**：\n"
+            ">\n"
+            "> **可迁移到我的工作**：\n\n"
+            "## 可引用原文\n\n"
+            "> “……”\n"
+            ">\n"
+            "> —— 章节 / 页码\n\n"
+            "## 延伸与关联\n\n"
+            "- 相关概念：[[相关笔记]]\n"
+            "- 引用此文的后续研究：\n"
+            "- [ ] 把结论沉淀为一张概念卡片\n\n"
+            "## 检索与引用\n\n"
+            "```kiwi-embed\n"
+            '{"kind":"link","url":"https://scholar.google.com/","title":"Google Scholar","site":"scholar.google.com","excerpt":"查找引用、相关研究与作者主页。","display":"title"}\n'
+            "```\n"
         ),
         "tags_json": ["文献"],
         "sort_order": 0,
@@ -156,18 +205,64 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "calendar",
         "title_pattern": "{{date}} 会议记录",
         "body_md": (
-            "## 会议信息\n\n"
-            "| 项目 | 内容 |\n| --- | --- |\n"
-            "| 时间 | {{date}} |\n| 主持人 |  |\n| 参与人 |  |\n| 目标 |  |\n\n"
-            "## 会前议程\n\n1. \n2. \n\n"
+            "> [!TIP] 🎯\n"
+            ">\n"
+            "> **会议目标**：\n"
+            ">\n"
+            "> **一句话结论**：\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🗓 会议信息\n"
+            ">\n"
+            "> | 项目 | 内容 |\n"
+            "> | --- | --- |\n"
+            "> | 时间 | {{date}} |\n"
+            "> | 主持人 |  |\n"
+            "> | 记录人 |  |\n"
+            "> | 地点 / 链接 |  |\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 👥 参会角色\n"
+            ">\n"
+            "> - **决策人**：\n"
+            "> - **执行人**：\n"
+            "> - **知情方**：\n"
+            ">\n"
+            "> **会议类型**：同步 / 评审 / 决策 / 复盘\n\n"
+            "## 日程\n\n"
+            "```kiwi-calendar\n"
+            '{"month":"","events":[{"id":"meeting","title":"本次会议","start":"{{date}}","end":"{{date}}","color":"violet"}],"title":"会议日程"}\n'
+            "```\n\n"
+            "## 会前议程\n\n"
+            "- [ ] 议题一：\n"
+            "- [ ] 议题二：\n"
+            "- [ ] 议题三：\n\n"
             "## 讨论要点\n\n"
-            "### 议题一\n\n- 背景：\n- 观点：\n- 结论：\n\n"
+            "> [!DETAILS]+ 议题一：\n"
+            ">\n"
+            "> - **背景**：\n"
+            "> - **各方观点**：\n"
+            "> - **分歧点**：\n\n"
             "## 决议\n\n"
-            "| 决议 | 负责人 | 截止日期 |\n| --- | --- | --- |\n|  |  |  |\n\n"
-            "## 待办\n\n"
+            "| 决议 | 负责人 | 截止日期 | 状态 |\n"
+            "| --- | --- | --- | --- |\n"
+            "|  |  |  | 待开始 |\n\n"
+            "## 会后行动\n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"会后行动完成度","color":"violet","bind":"next"}\n'
+            "```\n\n"
             "- [ ] 事项（负责人 / 截止日期）\n"
-            "- [ ] 会后同步纪要\n\n"
-            "## 未决问题\n\n- \n"
+            "- [ ] 把纪要发送给全体参会人\n"
+            "- [ ] 更新项目看板与相关文档\n\n"
+            "## 未决问题\n\n"
+            "> [!TIP] ❓\n"
+            ">\n"
+            "> - **待确认**：\n"
+            "> - **需要谁拍板**：\n"
+            "> - **下次讨论时间**：\n"
         ),
         "tags_json": ["会议"],
         "sort_order": 1,
@@ -178,15 +273,71 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "sparkle",
         "title_pattern": "概念：",
         "body_md": (
-            "## 一句话定义\n\n\n\n"
-            "## 直觉理解\n\n用生活中的类比解释它：\n\n"
-            "## 关键特征\n\n- \n- \n\n"
-            "## 示例\n\n"
-            "**正例**：\n\n\n**反例**：\n\n\n"
+            "> [!TIP] 💡\n"
+            ">\n"
+            "> **一句话定义**：\n"
+            ">\n"
+            "> _不用术语解释术语：如果讲给外行听，你会怎么说？_\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🧠 直觉理解\n"
+            ">\n"
+            "> 用一个生活类比解释它：\n"
+            ">\n"
+            "> **它像**……，因为……\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🔑 关键特征\n"
+            ">\n"
+            "> - \n"
+            "> - \n"
+            "> - \n\n"
+            "## 概念地图\n\n"
+            "```mermaid\n"
+            "mindmap\n"
+            "  root((概念))\n"
+            "    直觉\n"
+            "      一个生活类比\n"
+            "    特征\n"
+            "      关键属性\n"
+            "      边界条件\n"
+            "    应用\n"
+            "      真实场景\n"
+            "      常见误用\n"
+            "    关联\n"
+            "      易混概念\n"
+            "      上位概念\n"
+            "```\n\n"
+            "## 正例与反例\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **✓ 正例**\n"
+            ">\n"
+            "> - \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **✗ 反例**\n"
+            ">\n"
+            "> - \n\n"
             "## 易混概念\n\n"
-            "| 概念 | 区别 |\n| --- | --- |\n|  |  |\n\n"
-            "## 使用场景\n\n- \n\n"
-            "## 关联\n\n- [[相关笔记]]\n"
+            "| 概念 | 与本概念的区别 | 共同点 |\n"
+            "| --- | --- | --- |\n"
+            "|  |  |  |\n\n"
+            "## 使用场景\n\n"
+            "- **什么时候用**：\n"
+            "- **什么时候不用**：\n"
+            "- **常见误用**：\n\n"
+            "## 关联\n\n"
+            "- 上位概念：\n"
+            "- 下位概念：\n"
+            "- 相关笔记：[[相关笔记]]\n"
+            "- [ ] 用它解释一次真实问题\n"
         ),
         "tags_json": ["概念"],
         "sort_order": 2,
@@ -197,15 +348,55 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "target",
         "title_pattern": "学习笔记：",
         "body_md": (
-            "## 本节目标\n\n学完后我能：\n\n- [ ] \n\n"
-            "## 知识框架\n\n1. \n2. \n3. \n\n"
+            "> [!TIP] 🎯\n"
+            ">\n"
+            "> **本节目标**：学完后我能……\n"
+            ">\n"
+            "> **预计投入**：30 分钟\n\n"
+            "- [ ] 能用自己的话解释核心概念\n"
+            "- [ ] 能独立完成一道练习题\n"
+            "- [ ] 能指出一个常见误区\n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"本节目标完成度","color":"green","bind":"prev"}\n'
+            "```\n\n"
+            "## 知识框架\n\n"
+            "1. \n"
+            "2. \n"
+            "3. \n\n"
+            "## 在线演算\n\n"
+            "_按学科替换为常用工具或资料页；当前示例为可直接操作的图形计算器。_\n\n"
+            "```kiwi-embed\n"
+            '{"kind":"link","url":"https://www.desmos.com/calculator","title":"Desmos 图形计算器","site":"desmos.com","excerpt":"在笔记内直接画函数、验证几何直觉。","display":"web","height":420}\n'
+            "```\n\n"
             "## 核心知识点\n\n"
-            "### 知识点一\n\n- 定义：\n- 要点：\n- 记忆锚点：\n\n"
+            "### 知识点一\n\n"
+            "- **定义**：\n"
+            "- **要点**：\n"
+            "- **记忆锚点**：\n\n"
+            "> [!TIP] 🧩\n"
+            ">\n"
+            "> **一句话记忆**：\n\n"
             "## 易错点\n\n"
-            "| 易错点 | 正确做法 | 原因 |\n| --- | --- | --- |\n|  |  |  |\n\n"
-            "## 真题演练\n\n> 题目：\n>\n> 解析：\n\n"
-            "## 自我检测\n\n- [ ] 能用自己的话复述\n- [ ] 能举出一个反例\n\n"
-            "## 关联知识页\n\n- [[相关知识点]]\n"
+            "| 易错点 | 正确做法 | 为什么会错 |\n"
+            "| --- | --- | --- |\n"
+            "|  |  |  |\n\n"
+            "## 真题演练\n\n"
+            "> [!DETAILS]- 点击展开题目与解析\n"
+            ">\n"
+            "> **题目**：\n"
+            ">\n"
+            "> **我的答案**：\n"
+            ">\n"
+            "> **解析**：\n"
+            ">\n"
+            "> **失分点**：\n\n"
+            "## 自我检测\n\n"
+            "- [ ] 能用自己的话复述\n"
+            "- [ ] 能举出一个反例\n"
+            "- [ ] 能在一周后仍然记得\n\n"
+            "## 关联知识\n\n"
+            "- [[相关知识点]]\n"
+            "- 下一节：\n"
         ),
         "tags_json": ["学习"],
         "sort_order": 3,
@@ -216,19 +407,74 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "layoutTemplate",
         "title_pattern": "项目计划：",
         "body_md": (
-            "## 项目概述\n\n"
-            "- 背景：\n- 目标：\n- 成功标准：\n\n"
-            "## 范围\n\n"
-            "**包含**\n\n- \n\n**不包含**\n\n- \n\n"
+            "> [!TIP] 🚀\n"
+            ">\n"
+            "> **项目目标**：\n"
+            ">\n"
+            "> **成功标准**：\n"
+            ">\n"
+            "> **一句话范围**：在……之前，为……交付……，衡量标准是……\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 📌 背景\n"
+            ">\n"
+            "> 为什么现在要做？不做会怎样？\n"
+            ">\n"
+            "> **当前痛点**：\n"
+            ">\n"
+            "> - \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🎯 范围\n"
+            ">\n"
+            "> **包含**\n"
+            ">\n"
+            "> - \n"
+            ">\n"
+            "> **不包含**\n"
+            ">\n"
+            "> - \n\n"
             "## 关键干系人\n\n"
-            "| 角色 | 姓名 | 职责 |\n| --- | --- | --- |\n|  |  |  |\n\n"
-            "## 里程碑\n\n"
-            "| 阶段 | 交付物 | 负责人 | 计划日期 | 状态 |\n"
-            "| --- | --- | --- | --- | --- |\n"
-            "| 启动 |  |  |  | 待开始 |\n| 开发 |  |  |  | 待开始 |\n| 验收 |  |  |  | 待开始 |\n\n"
+            "| 角色 | 姓名 | 关注点 | 决策权限 |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 发起人 |  |  |  |\n"
+            "| 负责人 |  |  |  |\n"
+            "| 执行团队 |  |  |  |\n\n"
+            "## 里程碑路线\n\n"
+            "```mermaid\n"
+            "timeline\n"
+            "    title 项目里程碑\n"
+            "    启动 : 需求与验收标准确认\n"
+            "         : 资源到位\n"
+            "    开发 : 核心功能完成\n"
+            "         : 内部联调\n"
+            "    验收 : 用户验收\n"
+            "         : 复盘与归档\n"
+            "```\n\n"
+            "### 里程碑看板\n\n"
+            "```kiwi-datatable\n"
+            '{"title":"里程碑看板","view":"v_task","fields":[{"id":"name","name":"里程碑","type":"text"},{"id":"owner","name":"负责人","type":"text"},{"id":"date","name":"计划日期","type":"date"},{"id":"status","name":"状态","type":"select","options":[{"id":"todo","name":"待开始","color":"slate"},{"id":"doing","name":"进行中","color":"blue"},{"id":"done","name":"已完成","color":"green"}]},{"id":"progress","name":"进度","type":"progress"}],"views":[{"id":"v_table","name":"表格","type":"table","hidden_fields":[]},{"id":"v_task","name":"看板","type":"kanban","group_field":"status"},{"id":"v_calendar","name":"日历","type":"calendar","date_field":"date","title_field":"name"}],"rows":[{"id":"m1","data":{"name":"启动：需求与验收标准确认","status":"todo"}},{"id":"m2","data":{"name":"开发：核心功能完成","status":"todo"}},{"id":"m3","data":{"name":"验收：用户验收与复盘","status":"todo"}}]}\n'
+            "```\n\n"
+            "## 执行清单\n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"里程碑完成度","color":"indigo","bind":"next"}\n'
+            "```\n\n"
+            "- [ ] 明确需求与验收标准\n"
+            "- [ ] 排期与资源确认\n"
+            "- [ ] 完成核心交付物\n"
+            "- [ ] 用户验收通过\n"
+            "- [ ] 复盘并归档\n\n"
             "## 风险与应对\n\n"
-            "| 风险 | 影响 | 概率 | 应对 |\n| --- | --- | --- | --- |\n|  |  |  |  |\n\n"
-            "## 待办\n\n- [ ] 明确需求与验收标准\n- [ ] 排期与资源确认\n"
+            "| 风险 | 影响 | 概率 | 应对 | 负责人 |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "|  |  |  |  |  |\n\n"
+            "## 沟通机制\n\n"
+            "- **例会**：\n"
+            "- **周报**：\n"
+            "- **升级路径**：\n"
         ),
         "tags_json": ["项目"],
         "sort_order": 4,
@@ -239,15 +485,52 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "listOrdered",
         "title_pattern": "{{date}} 周复盘",
         "body_md": (
+            "> [!TIP] 📅\n"
+            ">\n"
+            "> **本周一句话**：\n"
+            ">\n"
+            "> **整体状态**：🟢 顺利 / 🟡 有风险 / 🔴 受阻\n\n"
+            "## 本周关键目标\n\n"
+            "- [ ] \n"
+            "- [ ] \n"
+            "- [ ] \n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"本周目标完成度","color":"blue","bind":"prev"}\n'
+            "```\n\n"
             "## 本周结果\n\n"
-            "| 目标 | 结果 | 完成度 |\n| --- | --- | --- |\n|  |  |  |\n\n"
-            "## 关键进展\n\n1. \n2. \n\n"
-            "## 阻碍与风险\n\n- 问题：\n- 影响：\n- 需要的支持：\n\n"
+            "| 目标 | 结果 | 完成度 | 说明 |\n"
+            "| --- | --- | --- | --- |\n"
+            "|  |  |  |  |\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🚀 关键进展\n"
+            ">\n"
+            "> 1. \n"
+            "> 2. \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🧱 阻碍与需要的支持\n"
+            ">\n"
+            "> - **问题**：\n"
+            "> - **影响**：\n"
+            "> - **需要谁支持**：\n\n"
             "## 经验沉淀\n\n"
-            "- 做得好的：\n- 可改进的：\n- 下次复用：\n\n"
+            "> [!TIP] 💡\n"
+            ">\n"
+            "> **做得好的**：\n"
+            ">\n"
+            "> **可改进的**：\n"
+            ">\n"
+            "> **下次复用**：\n\n"
             "## 下周计划\n\n"
-            "- [ ] \n- [ ] \n\n"
+            "- [ ] \n"
+            "- [ ] \n"
+            "- [ ] \n\n"
             "## 数据与观察\n\n"
+            "- \n"
         ),
         "tags_json": ["复盘", "周报"],
         "sort_order": 5,
@@ -258,14 +541,57 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "shield",
         "title_pattern": "决策：",
         "body_md": (
-            "## 决策摘要\n\n> 我们决定 ……，因为 ……。\n\n"
-            "## 状态\n\n提议 / 已采纳 / 已废弃（日期：）\n\n"
-            "## 背景\n\n当前面临的问题、约束与目标：\n\n"
+            "> [!TIP] ⚖️\n"
+            ">\n"
+            "> **决策**：我们决定……\n"
+            ">\n"
+            "> **因为**：……\n"
+            ">\n"
+            "> **影响**：……\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **状态**：提议 / 已采纳 / 已废弃\n"
+            ">\n"
+            "> **决策日期**：{{date}}\n"
+            ">\n"
+            "> **决策人**：\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **涉及系统 / 团队**：\n"
+            ">\n"
+            "> **关联需求**：\n"
+            ">\n"
+            "> **复审日期**：\n\n"
+            "## 背景\n\n"
+            "当前面临的问题、约束与目标。写清楚哪些是事实、哪些是假设。\n\n"
             "## 备选方案\n\n"
-            "| 方案 | 优点 | 缺点 | 风险 |\n| --- | --- | --- | --- |\n| A |  |  |  |\n| B |  |  |  |\n\n"
-            "## 决策理由\n\n- \n\n"
-            "## 影响与代价\n\n- 需要改变：\n- 放弃的机会：\n- 回滚方案：\n\n"
-            "## 关联\n\n- 相关项目：\n- 后续跟进：\n"
+            "| 方案 | 核心思路 | 优点 | 缺点 | 风险 |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| A |  |  |  |  |\n"
+            "| B |  |  |  |  |\n"
+            "| C（不行动） |  |  |  |  |\n\n"
+            "## 决策理由\n\n"
+            "- **选择该方案的关键因素**：\n"
+            "- **被放弃的方案及原因**：\n"
+            "- **我们接受了哪些代价**：\n\n"
+            "## 影响与代价\n\n"
+            "- **需要改变**：\n"
+            "- **放弃的机会**：\n"
+            "- **回滚方案**：\n"
+            "- **监控指标**：\n\n"
+            "## 讨论记录\n\n"
+            "> [!DETAILS]- 展开查看讨论与异议\n"
+            ">\n"
+            "> - **反对意见**：\n"
+            "> - **澄清的问题**：\n"
+            "> - **最终共识**：\n\n"
+            "## 关联\n\n"
+            "- 相关项目：\n"
+            "- 后续跟进：\n"
+            "- [ ] 通知相关方并更新文档\n"
         ),
         "tags_json": ["决策"],
         "sort_order": 6,
@@ -276,18 +602,75 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "alert",
         "title_pattern": "故障复盘：",
         "body_md": (
-            "## 事件概要\n\n"
-            "- 发生时间：\n- 恢复时间：\n- 影响范围：\n- 严重级别：\n\n"
+            "> [!TIP] 🔥\n"
+            ">\n"
+            "> **事故等级**：P0 / P1 / P2\n"
+            ">\n"
+            "> **一句话影响**：\n"
+            ">\n"
+            "> **当前状态**：已恢复 / 观察中\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### ⏱ 事件概要\n"
+            ">\n"
+            "> - **发生时间**：\n"
+            "> - **发现时间**：\n"
+            "> - **恢复时间**：\n"
+            "> - **持续时间**：\n"
+            "> - **值班人**：\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 📉 影响面\n"
+            ">\n"
+            "> - **用户影响**：\n"
+            "> - **数据影响**：\n"
+            "> - **业务损失**：\n"
+            "> - **是否需对外沟通**：是 / 否\n\n"
             "## 时间线\n\n"
-            "| 时间 | 事件 | 处理人 |\n| --- | --- | --- |\n|  |  |  |\n\n"
-            "## 影响\n\n- 用户影响：\n- 数据影响：\n- 业务损失：\n\n"
+            "| 时间 | 事件 | 处理人 | 备注 |\n"
+            "| --- | --- | --- | --- |\n"
+            "|  |  |  |  |\n\n"
             "## 根因分析\n\n"
-            "**直接原因**：\n\n\n**根本原因**：\n\n\n"
-            "## 做得好的 / 不足的\n\n- 好：\n- 不足：\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **直接原因**\n"
+            ">\n"
+            "> \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **根本原因**\n"
+            ">\n"
+            "> 用「5 Whys」追问到系统或流程层：\n"
+            ">\n"
+            "> 1. 为什么……\n"
+            "> 2. 为什么……\n\n"
+            "```mermaid\n"
+            "flowchart TD\n"
+            "    A[现象] --> B[为什么 1]\n"
+            "    B --> C[为什么 2]\n"
+            "    C --> D[为什么 3]\n"
+            "    D --> E[根本原因]\n"
+            "    E --> F[行动项]\n"
+            "```\n\n"
+            "## 做得好的 / 不足的\n\n"
+            "- **做得好的**：\n"
+            "- **不足的**：\n"
+            "- **运气成分**：\n\n"
             "## 行动项\n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"行动项完成度","color":"rose","bind":"next"}\n'
+            "```\n\n"
             "- [ ] 修复项（负责人 / 截止日期）\n"
-            "- [ ] 监控告警补充\n"
-            "- [ ] 流程或文档更新\n"
+            "- [ ] 补充监控与告警\n"
+            "- [ ] 更新流程或文档\n"
+            "- [ ] 补充自动化测试\n"
+            "- [ ] 把复盘结论同步给相关方\n"
         ),
         "tags_json": ["复盘", "故障"],
         "sort_order": 7,
@@ -298,14 +681,53 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "note",
         "title_pattern": "{{date}} 每日笔记",
         "body_md": (
+            "> [!TIP] ☀️\n"
+            ">\n"
+            "> **今日焦点**：\n"
+            ">\n"
+            "> **如果只能完成一件事**：\n\n"
             "## 今日三件要事\n\n"
-            "- [ ] \n- [ ] \n- [ ] \n\n"
-            "## 日程\n\n"
-            "| 时间 | 事项 | 备注 |\n| --- | --- | --- |\n|  |  |  |\n\n"
-            "## 随手记\n\n\n\n"
-            "## 沟通与跟进\n\n- [ ] \n\n"
-            "## 今日收获\n\n- \n\n"
-            "## 明日准备\n\n- \n"
+            "- [ ] \n"
+            "- [ ] \n"
+            "- [ ] \n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"三件要事完成度","color":"amber","bind":"prev"}\n'
+            "```\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🗓 日程\n"
+            ">\n"
+            "> | 时间 | 事项 | 备注 |\n"
+            "> | --- | --- | --- |\n"
+            "> | 09:00 |  |  |\n"
+            "> | 14:00 |  |  |\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 📮 沟通与跟进\n"
+            ">\n"
+            "> - [ ] \n"
+            "> - [ ] \n"
+            ">\n"
+            "> **等待他人回复**：\n"
+            ">\n"
+            "> - \n\n"
+            "## 随手记\n\n"
+            "> [!DETAILS]+ 灵感、链接、临时记录\n"
+            ">\n"
+            "> - \n\n"
+            "## 今日收获\n\n"
+            "> [!TIP] ✨\n"
+            ">\n"
+            "> **学到了**：\n"
+            ">\n"
+            "> **做对了**：\n"
+            ">\n"
+            "> **明天改进**：\n\n"
+            "## 明日准备\n\n"
+            "- \n"
         ),
         "tags_json": ["日记"],
         "sort_order": 8,
@@ -316,14 +738,47 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "book",
         "title_pattern": "读书笔记：",
         "body_md": (
-            "## 书籍信息\n\n"
-            "| 书名 | 作者 | 阅读区间 | 评分 |\n| --- | --- | --- | --- |\n|  |  |  |  |\n\n"
-            "## 为什么读这本书\n\n\n\n"
+            "> [!TIP] 📖\n"
+            ">\n"
+            "> **一句话推荐**：\n"
+            ">\n"
+            "> **适合谁读**：\n\n"
+            "| 书名 | 作者 | 阅读区间 | 评分 |\n"
+            "| --- | --- | --- | --- |\n"
+            "|  |  |  | ★★★★☆ |\n\n"
+            "## 为什么读这本书\n\n"
+            "- \n"
+            "- \n\n"
             "## 章节笔记\n\n"
-            "### 第一章\n\n- 核心观点：\n- 我的思考：\n\n"
-            "## 金句摘录\n\n> \n\n"
-            "## 行动清单\n\n- [ ] \n\n"
-            "## 推荐给谁\n\n"
+            "> [!DETAILS]+ 第一章：\n"
+            ">\n"
+            "> - **核心观点**：\n"
+            "> - **关键论据**：\n"
+            "> - **我的思考**：\n"
+            "> - **可行动点**：\n\n"
+            "## 金句摘录\n\n"
+            "> “……”\n"
+            ">\n"
+            "> —— 第 X 章\n\n"
+            "## 我的思考\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **认同的观点**\n"
+            ">\n"
+            "> - \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> **保留意见**\n"
+            ">\n"
+            "> - \n\n"
+            "## 行动清单\n\n"
+            "- [ ] \n"
+            "- [ ] \n\n"
+            "## 延伸阅读\n\n"
+            "- [[相关笔记]]\n"
         ),
         "tags_json": ["读书"],
         "sort_order": 9,
@@ -334,18 +789,67 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "fileText",
         "title_pattern": "PRD：",
         "body_md": (
-            "## 背景与问题\n\n谁在什么场景下遇到了什么问题？现有方案为何不够？\n\n"
+            "> [!TIP] 📝\n"
+            ">\n"
+            "> **问题陈述**：谁，在什么场景下，遇到了什么问题，现有方案为什么不够。\n"
+            ">\n"
+            "> **一句话方案**：\n"
+            ">\n"
+            "> **成功指标**：\n\n"
             "## 目标与衡量\n\n"
-            "| 目标 | 指标 | 当前值 | 目标值 |\n| --- | --- | --- | --- |\n|  |  |  |  |\n\n"
+            "| 目标 | 指标 | 当前值 | 目标值 | 观察周期 |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "|  |  |  |  |  |\n\n"
             "## 用户故事\n\n"
+            "- 作为【角色】，我希望【能力】，以便【价值】。\n"
             "- 作为【角色】，我希望【能力】，以便【价值】。\n\n"
-            "## 功能范围\n\n"
-            "**本期**\n\n- \n\n**后续**\n\n- \n\n"
-            "## 流程与交互\n\n1. \n2. \n3. \n\n"
-            "## 异常与边界\n\n- 空状态：\n- 权限：\n- 失败重试：\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### ✅ 本期范围\n"
+            ">\n"
+            "> - \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### ⏭ 后续范围\n"
+            ">\n"
+            "> - \n\n"
+            "## 流程与交互\n\n"
+            "1. 用户进入……\n"
+            "2. 系统展示……\n"
+            "3. 用户完成……\n\n"
+            "```mermaid\n"
+            "flowchart LR\n"
+            "    A[进入页面] --> B{是否满足条件?}\n"
+            "    B -- 是 --> C[完成核心操作]\n"
+            "    B -- 否 --> D[空状态 / 引导]\n"
+            "    C --> E[结果反馈]\n"
+            "    D --> E\n"
+            "```\n\n"
+            "**关键页面 / 状态**：\n\n"
+            "- 空状态：\n"
+            "- 加载状态：\n"
+            "- 错误状态：\n"
+            "- 成功状态：\n\n"
+            "## 异常与边界\n\n"
+            "> [!DETAILS]+ 展开检查清单\n"
+            ">\n"
+            "> - **权限**：\n"
+            "> - **并发**：\n"
+            "> - **失败重试**：\n"
+            "> - **数据上限**：\n"
+            "> - **兼容性**：\n"
+            "> - **埋点**：\n\n"
             "## 验收标准\n\n"
-            "- [ ] \n- [ ] \n\n"
-            "## 数据与埋点\n\n"
+            "```kiwi-task-progress\n"
+            '{"label":"验收完成度","color":"blue","bind":"next"}\n'
+            "```\n\n"
+            "- [ ] 功能验收：\n"
+            "- [ ] 体验验收：\n"
+            "- [ ] 数据验收：\n"
+            "- [ ] 灰度与回滚方案：\n"
         ),
         "tags_json": ["产品", "需求"],
         "sort_order": 10,
@@ -356,14 +860,60 @@ BUILTIN_TEMPLATES: list[dict] = [
         "icon": "columns",
         "title_pattern": "SWOT：",
         "body_md": (
-            "## 分析对象\n\n\n\n"
-            "## 四象限\n\n"
-            "| 优势 Strengths | 劣势 Weaknesses |\n| --- | --- |\n|  |  |\n\n"
-            "| 机会 Opportunities | 威胁 Threats |\n| --- | --- |\n|  |  |\n\n"
+            "> [!TIP] 🧭\n"
+            ">\n"
+            "> **分析对象**：\n"
+            ">\n"
+            "> **一句话结论**：\n"
+            ">\n"
+            "> **分析时间**：{{date}}\n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 💪 优势 Strengths\n"
+            ">\n"
+            "> - \n"
+            "> - \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🩹 劣势 Weaknesses\n"
+            ">\n"
+            "> - \n"
+            "> - \n\n"
+            "> [!COLUMNS]\n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### 🌱 机会 Opportunities\n"
+            ">\n"
+            "> - \n"
+            "> - \n"
+            ">\n"
+            "> [!COLUMN]\n"
+            ">\n"
+            "> ### ⚡ 威胁 Threats\n"
+            ">\n"
+            "> - \n"
+            "> - \n\n"
             "## 交叉策略\n\n"
-            "- SO（优势 × 机会）：\n- WO（劣势 × 机会）：\n"
-            "- ST（优势 × 威胁）：\n- WT（劣势 × 威胁）：\n\n"
-            "## 下一步\n\n- [ ] \n"
+            "| 组合 | 策略 | 优先级 | 负责人 |\n"
+            "| --- | --- | --- | --- |\n"
+            "| SO 优势 × 机会 |  |  |  |\n"
+            "| WO 劣势 × 机会 |  |  |  |\n"
+            "| ST 优势 × 威胁 |  |  |  |\n"
+            "| WT 劣势 × 威胁 |  |  |  |\n\n"
+            "## 结论与下一步\n\n"
+            "> [!TIP] ➡️\n"
+            ">\n"
+            "> **优先行动**：\n"
+            ">\n"
+            "> **需要避免**：\n"
+            ">\n"
+            "> **下一次复盘**：\n\n"
+            "- [ ] \n"
+            "- [ ] \n"
         ),
         "tags_json": ["分析"],
         "sort_order": 11,
@@ -384,6 +934,28 @@ async def _get_note(
     if note.status == "trash" and not include_trash:
         raise HTTPException(404, "笔记已在回收站")
     return note
+
+
+def _serialize_note(note: Note, token: str | None = None) -> NoteOut:
+    """序列化笔记；上锁且未解锁时清空正文与结构化内容。
+
+    正文之外的画布 / Notebook 文档、段落格式等都存放在 props_json，
+    同样属于笔记内容，未解锁时一并清空，避免从属性侧旁路读取。
+    """
+    out = NoteOut.model_validate(note, from_attributes=True)
+    if note.is_locked:
+        if note_lock.token_is_valid(note, token):
+            out.unlocked = True
+        else:
+            out.body_md = ""
+            out.props_json = {}
+    return out
+
+
+def _require_unlocked(note: Note, token: str | None, action: str = "查看") -> None:
+    """上锁笔记的内容类操作：无有效令牌时拒绝。"""
+    if note.is_locked and not note_lock.token_is_valid(note, token):
+        raise HTTPException(403, f"笔记已上锁，请先输入密码解锁后再{action}")
 
 
 async def _reload_tags(session: AsyncSession, note: Note) -> None:
@@ -2280,7 +2852,12 @@ async def search_notes(
     session: AsyncSession = Depends(get_session),
 ):
     """全文检索：标题 / 正文 / 标签 / 链接元数据，支持组合筛选与片段高亮。"""
-    stmt = select(Note).options(selectinload(Note.tags)).where(Note.kb_id == kb_id)
+    # 上锁笔记不参与全文检索：标题 / 正文片段都不能通过搜索旁路泄露。
+    stmt = (
+        select(Note)
+        .options(selectinload(Note.tags))
+        .where(Note.kb_id == kb_id, Note.lock_hash.is_(None))
+    )
 
     if status and status != "all":
         if status not in ("active", "archived", "trash"):
@@ -2514,6 +3091,7 @@ async def related_notes(
                     Note.kb_id == kb_id,
                     Note.id != note_id,
                     Note.status.in_(["active", "archived"]),
+                    Note.lock_hash.is_(None),
                 )
                 .order_by(Note.updated_at.desc())
                 .limit(300)
@@ -2536,6 +3114,7 @@ async def related_notes(
                     Note.kb_id == kb_id,
                     Note.id.in_(candidate_ids),
                     Note.status.in_(["active", "archived"]),
+                    Note.lock_hash.is_(None),
                 )
             )
         )
@@ -2584,7 +3163,7 @@ async def note_graph(
     session: AsyncSession = Depends(get_session),
 ):
     """笔记（及可选 Wiki 页面）图谱节点与边，供编辑模式图谱筛选。"""
-    note_stmt = select(Note).where(Note.kb_id == kb_id)
+    note_stmt = select(Note).where(Note.kb_id == kb_id, Note.lock_hash.is_(None))
     if status == "all":
         note_stmt = note_stmt.where(Note.status.in_(["active", "archived"]))
     else:
@@ -2721,10 +3300,11 @@ async def get_note(
     note_id: uuid.UUID,
     kb_id: uuid.UUID,
     include_trash: bool = False,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     note = await _get_note(session, kb_id, note_id, include_trash=include_trash)
-    return NoteOut.model_validate(note, from_attributes=True)
+    return _serialize_note(note, x_note_token)
 
 
 def _link_context(body: str, title: str, note_id: uuid.UUID | None = None, span: int = 60) -> str:
@@ -2772,7 +3352,16 @@ async def backlinks(
     if not ids:
         return []
     rows = (
-        (await session.execute(select(Note).where(Note.id.in_(ids), Note.kb_id == kb_id)))
+        (
+            await session.execute(
+                select(Note).where(
+                    Note.id.in_(ids),
+                    Note.kb_id == kb_id,
+                    # 上锁笔记的正文片段不能出现在反向链接上下文里。
+                    Note.lock_hash.is_(None),
+                )
+            )
+        )
         .scalars()
         .all()
     )
@@ -2863,9 +3452,11 @@ async def update_note(
     note_id: uuid.UUID,
     kb_id: uuid.UUID,
     data: NoteUpdate,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     note = await _get_note(session, kb_id, note_id)
+    _require_unlocked(note, x_note_token, "编辑")
     # 内容发生变化时先记录变更前的快照，供历史记录查看与还原。
     incoming_title = (
         data.title
@@ -2975,17 +3566,91 @@ async def update_note(
     if is_todo_hub:
         todo_sync.schedule_kb_sync(kb_id, delay=2.5)
     await _reload_tags(session, note)
-    return NoteOut.model_validate(note, from_attributes=True)
+    return _serialize_note(note, x_note_token)
+
+
+# ---- 密码锁 ----
+
+@router.post("/{note_id}/lock", response_model=NoteLockOut)
+async def set_note_lock(
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    data: NoteLockIn,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
+):
+    """给笔记设置密码；已上锁时需先持有当前解锁令牌。"""
+    note = await _get_note(session, kb_id, note_id)
+    _require_unlocked(note, x_note_token, "修改密码")
+    salt = note_lock.new_salt()
+    note.lock_salt = salt
+    note.lock_hash = note_lock.hash_password(data.password, salt)
+    note.lock_hint = (data.hint or "").strip()[:120] or None
+    note.locked_at = datetime.now(timezone.utc)
+    await session.commit()
+    token, expires_at = note_lock.issue_unlock_token(note)
+    # 上锁后立即清理该笔记的问答向量，避免正文从 AI 检索侧泄露。
+    try:
+        kb = await session.get(KnowledgeBase, kb_id)
+        if kb is not None:
+            from app.services import qdrant_store
+
+            await asyncio.to_thread(qdrant_store.delete_note_chunks, note.id, kb.embedding_model)
+    except Exception:  # noqa: BLE001 —— 向量库不可用时由后台巡检兜底
+        logger.warning("清理上锁笔记向量失败：%s", note.id, exc_info=True)
+    return NoteLockOut(token=token, expires_at=expires_at, is_locked=True)
+
+
+@router.post("/{note_id}/unlock", response_model=NoteLockOut)
+async def unlock_note(
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    data: NoteUnlockIn,
+    session: AsyncSession = Depends(get_session),
+):
+    """校验密码并签发 2 小时有效的解锁令牌。"""
+    note = await _get_note(session, kb_id, note_id)
+    if not note.is_locked:
+        return NoteLockOut(token="", expires_at=0, is_locked=False)
+    if not note_lock.verify_password(note, data.password):
+        raise HTTPException(401, "密码不正确")
+    token, expires_at = note_lock.issue_unlock_token(note)
+    return NoteLockOut(token=token, expires_at=expires_at, is_locked=True)
+
+
+@router.delete("/{note_id}/lock", status_code=204)
+async def remove_note_lock(
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    data: NoteLockRemoveIn | None = Body(default=None),
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
+):
+    """移除密码锁：需要密码或有效解锁令牌。"""
+    note = await _get_note(session, kb_id, note_id)
+    if note.is_locked:
+        password_ok = bool(data and data.password and note_lock.verify_password(note, data.password))
+        if not password_ok and not note_lock.token_is_valid(note, x_note_token):
+            raise HTTPException(403, "请输入密码或先解锁后再移除密码")
+    note.lock_hash = None
+    note.lock_salt = None
+    note.lock_hint = None
+    note.locked_at = None
+    await session.commit()
 
 
 # ---- 历史版本 ----
 
 @router.get("/{note_id}/revisions", response_model=list[NoteRevisionSummary])
 async def list_note_revisions(
-    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
 ):
     """按时间倒序返回版本列表（不含正文）。"""
-    await _get_note(session, kb_id, note_id, include_trash=True)
+    note = await _get_note(session, kb_id, note_id, include_trash=True)
+    _require_unlocked(note, x_note_token, "查看历史版本")
     rows = (
         (
             await session.execute(
@@ -3003,10 +3668,14 @@ async def list_note_revisions(
 
 @router.post("/{note_id}/revisions", response_model=NoteRevisionSummary, status_code=201)
 async def create_note_revision(
-    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
 ):
     """手动保存一个检查点。"""
     note = await _get_note(session, kb_id, note_id)
+    _require_unlocked(note, x_note_token, "创建历史版本")
     revision = await _snapshot_revision(session, note, source="manual", coalesce=False)
     await session.commit()
     await session.refresh(revision)
@@ -3018,9 +3687,11 @@ async def get_note_revision(
     note_id: uuid.UUID,
     revision_id: uuid.UUID,
     kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_note(session, kb_id, note_id, include_trash=True)
+    note = await _get_note(session, kb_id, note_id, include_trash=True)
+    _require_unlocked(note, x_note_token, "查看历史版本")
     revision = await session.get(NoteRevision, revision_id)
     if revision is None or revision.note_id != note_id or revision.kb_id != kb_id:
         raise HTTPException(404, "历史版本不存在")
@@ -3034,15 +3705,17 @@ async def restore_note_revision(
     note_id: uuid.UUID,
     revision_id: uuid.UUID,
     kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     """还原到指定版本；当前内容会先保存为「还原前」快照。"""
     note = await _get_note(session, kb_id, note_id, include_trash=True)
+    _require_unlocked(note, x_note_token, "还原历史版本")
     revision = await session.get(NoteRevision, revision_id)
     if revision is None or revision.note_id != note_id or revision.kb_id != kb_id:
         raise HTTPException(404, "历史版本不存在")
     if revision.title == note.title and revision.body_md == note.body_md:
-        return NoteOut.model_validate(note, from_attributes=True)
+        return _serialize_note(note, x_note_token)
 
     await _snapshot_revision(session, note, source="restore", coalesce=False)
     note.title = revision.title or note.title
@@ -3060,15 +3733,19 @@ async def restore_note_revision(
             coll.name = note.title
     await session.commit()
     await _reload_tags(session, note)
-    return NoteOut.model_validate(note, from_attributes=True)
+    return _serialize_note(note, x_note_token)
 
 
 @router.get("/{note_id}/source-file")
 async def note_source_file(
-    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
 ):
     """导入笔记的原始文件：内联预览 / 下载（PDF 不再依赖解析结果）。"""
     note = await _get_note(session, kb_id, note_id, include_trash=True)
+    _require_unlocked(note, x_note_token, "查看原始文件")
     import_meta = _import_props(note)
     filename = str(import_meta.get("filename") or f"{note.title}")
 
@@ -3125,9 +3802,11 @@ async def delete_note_revision(
     note_id: uuid.UUID,
     revision_id: uuid.UUID,
     kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
-    await _get_note(session, kb_id, note_id, include_trash=True)
+    note = await _get_note(session, kb_id, note_id, include_trash=True)
+    _require_unlocked(note, x_note_token, "删除历史版本")
     revision = await session.get(NoteRevision, revision_id)
     if revision is None or revision.note_id != note_id or revision.kb_id != kb_id:
         raise HTTPException(404, "历史版本不存在")
@@ -3620,7 +4299,11 @@ async def compile_all_notes(
         (
             await session.execute(
                 select(Note)
-                .where(Note.kb_id == kb_id, Note.status == "active")
+                .where(
+                    Note.kb_id == kb_id,
+                    Note.status == "active",
+                    Note.lock_hash.is_(None),
+                )
                 .order_by(Note.updated_at.desc())
             )
         )
@@ -3691,10 +4374,12 @@ async def compile_all_notes(
 async def compile_note(
     note_id: uuid.UUID,
     kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     """把笔记内容（含数据表 / 画布 / 链接）送入编译流水线。"""
     note = await _get_note(session, kb_id, note_id)
+    _require_unlocked(note, x_note_token, "编译")
     kb = await session.get(KnowledgeBase, kb_id)
     if kb is None:
         raise HTTPException(404, "知识库不存在")
@@ -3808,9 +4493,13 @@ def _study_points(note: Note) -> list[NoteStudyPointOut]:
 
 @router.get("/{note_id}/study-points", response_model=list[NoteStudyPointOut])
 async def list_study_points(
-    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
 ):
     note = await _get_note(session, kb_id, note_id)
+    _require_unlocked(note, x_note_token, "查看学习点")
     return _study_points(note)
 
 
@@ -3819,9 +4508,11 @@ async def set_study_points(
     note_id: uuid.UUID,
     kb_id: uuid.UUID,
     data: NoteStudyPointsIn,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     note = await _get_note(session, kb_id, note_id)
+    _require_unlocked(note, x_note_token, "编辑学习点")
     existing = {p.id: p for p in _study_points(note)}
     points: list[dict] = []
     for point in data.points:
@@ -3853,10 +4544,12 @@ async def copy_note(
     note_id: uuid.UUID,
     kb_id: uuid.UUID,
     data: NoteCopyIn,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     """复制笔记到当前知识库；数据表会连同字段、视图和记录一起复制。"""
     src = await _get_note(session, kb_id, note_id)
+    _require_unlocked(src, x_note_token, "复制")
     parent_note_id = src.parent_note_id
     if "parent_note_id" in data.model_fields_set:
         parent_note_id = data.parent_note_id

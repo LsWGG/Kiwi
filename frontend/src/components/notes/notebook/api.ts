@@ -1,5 +1,6 @@
 /** Notebook 内核 API：执行单元格、状态、重启与 `.ipynb` 导出。 */
 import { request } from '@/api/client'
+import { useNotesStore } from '@/stores/notes'
 import type { NotebookOutput } from './types'
 
 export interface ExecuteResult {
@@ -31,6 +32,10 @@ export interface KernelStatus {
   }
 }
 
+function authHeaders(noteId: string) {
+  return useNotesStore().noteHeaders(noteId)
+}
+
 export function executeCell(
   kbId: string,
   noteId: string,
@@ -41,6 +46,7 @@ export function executeCell(
   return request<ExecuteResult>(`/notebooks/${noteId}/execute`, {
     method: 'POST',
     kbId,
+    headers: authHeaders(noteId),
     body: JSON.stringify({
       cell_id: cellId,
       code,
@@ -50,13 +56,17 @@ export function executeCell(
 }
 
 export function kernelStatus(kbId: string, noteId: string) {
-  return request<KernelStatus>(`/notebooks/${noteId}/status`, { kbId })
+  return request<KernelStatus>(`/notebooks/${noteId}/status`, {
+    kbId,
+    headers: authHeaders(noteId),
+  })
 }
 
 export function restartKernel(kbId: string, noteId: string) {
   return request<KernelStatus>(`/notebooks/${noteId}/restart`, {
     method: 'POST',
     kbId,
+    headers: authHeaders(noteId),
   })
 }
 

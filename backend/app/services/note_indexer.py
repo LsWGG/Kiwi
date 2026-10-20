@@ -226,7 +226,11 @@ async def ensure_notes_indexed(
                     (
                         await db.execute(
                             select(Note).where(
-                                Note.kb_id == kb_id, Note.status == "active"
+                                Note.kb_id == kb_id,
+                                Note.status == "active",
+                                # 上锁笔记不进入问答检索；active_ids 不含它，
+                                # 下方 _drop_stale 会顺带清掉历史向量。
+                                Note.lock_hash.is_(None),
                             )
                         )
                     )

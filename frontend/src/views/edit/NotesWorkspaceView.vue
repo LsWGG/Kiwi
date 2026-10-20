@@ -7,6 +7,7 @@ import { useNotesStore, type NoteOut } from '@/stores/notes'
 import NotesTreePanel from '@/components/notes/NotesTreePanel.vue'
 import NoteInfoPanel from '@/components/notes/NoteInfoPanel.vue'
 import NoteSearchDialog from '@/components/notes/NoteSearchDialog.vue'
+import NoteLockGate from '@/components/notes/NoteLockGate.vue'
 import NoteDocPane from '@/components/notes/panes/NoteDocPane.vue'
 import NoteLinkPane from '@/components/notes/panes/NoteLinkPane.vue'
 import NoteDatabasePane from '@/components/notes/panes/NoteDatabasePane.vue'
@@ -24,6 +25,11 @@ const notes = useNotesStore()
 const activeId = computed(() =>
   typeof route.params.id === 'string' && route.params.id ? route.params.id : null,
 )
+/** 上锁且本次会话未解锁：不挂载编辑器 / 阅读组件，也不展示信息面板。 */
+const contentLocked = computed(() => {
+  const note = notes.currentNote
+  return !!note && !!note.is_locked && !note.unlocked
+})
 const loading = ref(false)
 const creating = ref(false)
 const infoOpen = ref(false)
@@ -40,7 +46,7 @@ function onGlobalKey(event: KeyboardEvent) {
   if (key === 'k') {
     event.preventDefault()
     if (kbs.currentKbId) searchOpen.value = true
-  } else if (key === 'i' && notes.currentNote) {
+  } else if (key === 'i' && notes.currentNote && !contentLocked.value) {
     event.preventDefault()
     infoOpen.value = !infoOpen.value
   }
@@ -178,7 +184,7 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
     <!-- 信息面板折叠时预留右侧槽位，避免悬浮入口遮挡数据表行操作等右侧交互 -->
     <section
       class="flex-1 min-w-0 flex flex-col overflow-hidden transition-[padding] duration-200"
-      :class="notes.currentNote && !infoOpen ? 'pr-7' : ''"
+      :class="notes.currentNote && !contentLocked && !infoOpen ? 'pr-7' : ''"
     >
       <div v-if="!kbs.currentKbId" class="flex-1 grid place-items-center">
         <KiwiEmpty icon="database" title="请先选择知识库" desc="工作区条目按知识库隔离" />
@@ -192,8 +198,13 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
       </div>
 
       <template v-else-if="notes.currentNote">
+        <NoteLockGate
+          v-if="contentLocked"
+          :key="`lock-${notes.currentNote.id}`"
+          :note="notes.currentNote"
+        />
         <NoteDocPane
-          v-if="notes.currentNote.kind === 'doc' || notes.currentNote.kind === 'import'"
+          v-else-if="notes.currentNote.kind === 'doc' || notes.currentNote.kind === 'import'"
           :key="notes.currentNote.id"
           :note="notes.currentNote"
           @open-info="infoOpen = true"
@@ -250,7 +261,7 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
 
     <!-- 信息面板折叠态入口 -->
     <button
-      v-if="notes.currentNote && !infoOpen"
+      v-if="notes.currentNote && !contentLocked && !infoOpen"
       type="button"
       class="absolute right-0 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1 rounded-l-xl border border-r-0 border-slate-200/70 bg-white/85 backdrop-blur px-1 py-2.5 text-slate-400 shadow-soft transition-colors hover:text-kiwi-600"
       title="笔记信息（Ctrl/⌘ + I）"
@@ -261,7 +272,7 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
     </button>
 
     <NoteInfoPanel
-      v-if="notes.currentNote"
+      v-if="notes.currentNote && !contentLocked"
       :note="notes.currentNote"
       :open="infoOpen"
       @close="infoOpen = false"

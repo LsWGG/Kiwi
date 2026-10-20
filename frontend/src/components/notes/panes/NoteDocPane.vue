@@ -17,6 +17,7 @@ import NoteAgentPanel from '@/components/editor/NoteAgentPanel.vue'
 import NoteReadingTools from '@/components/notes/reading/NoteReadingTools.vue'
 import OriginalFileViewer from '@/components/notes/OriginalFileViewer.vue'
 import NoteHistoryDialog from '@/components/notes/NoteHistoryDialog.vue'
+import NoteLockDialog from '@/components/notes/NoteLockDialog.vue'
 import WordPreview from '@/components/editor/WordPreview.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
@@ -110,6 +111,7 @@ const editorRef = ref<InstanceType<typeof KiwiEditor> | null>(null)
 
 // ---------- 历史版本 ----------
 const historyOpen = ref(false)
+const lockOpen = ref(false)
 
 async function openHistory() {
   // 先把待保存内容落库，手动检查点才能包含最新编辑。
@@ -312,7 +314,12 @@ function onAgentApply(payload: {
 async function exportDocx() {
   exporting.value = true
   try {
-    await downloadNoteDocx(props.note.id, kbs.currentKbId, title.value)
+    await downloadNoteDocx(
+      props.note.id,
+      kbs.currentKbId,
+      title.value,
+      notes.noteHeaders(props.note.id),
+    )
     toast.success('Word 文档已导出')
   } catch (e: any) {
     toast.error(e.message || '导出失败')
@@ -805,6 +812,21 @@ async function copyMarkdown() {
       <button
         v-if="!readonlyImport"
         type="button"
+        class="inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 transition-colors"
+        :class="
+          note.is_locked
+            ? 'text-amber-500 hover:bg-amber-50 hover:text-amber-600'
+            : 'text-slate-400 hover:bg-kiwi-50 hover:text-kiwi-700'
+        "
+        :title="note.is_locked ? '密码锁已开启，可修改或移除' : '设置密码锁，保护笔记内容'"
+        aria-label="密码锁"
+        @click="lockOpen = true"
+      >
+        <KiwiIcon :name="note.is_locked ? 'lock' : 'unlock'" :size="13" />
+      </button>
+      <button
+        v-if="!readonlyImport"
+        type="button"
         class="inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700"
         title="查看历史版本并还原"
         aria-label="历史版本"
@@ -1119,20 +1141,26 @@ async function copyMarkdown() {
                 >{{ note.props_json.emoji }}</span>
                 <h1
                   v-if="readMode"
-                  class="min-w-0 flex-1 text-[26px] leading-tight font-semibold text-slate-800"
+                  class="min-w-0 flex-1 text-[27px] leading-[1.22] font-semibold tracking-[-0.022em] text-slate-900"
                 >
                   {{ title || '无标题文档' }}
                 </h1>
                 <input
                   v-else
                   v-model="title"
-                  class="min-w-0 flex-1 bg-transparent text-[26px] leading-tight font-semibold text-slate-800 outline-none placeholder:text-slate-300"
+                  class="min-w-0 flex-1 bg-transparent text-[27px] leading-[1.22] font-semibold tracking-[-0.022em] text-slate-900 outline-none placeholder:text-slate-300"
                   placeholder="无标题文档"
                   @input="onTitleInput"
                   @keydown.enter.prevent="focusBody"
                 />
               </div>
-              <p class="mt-2 text-[11px] text-slate-400">{{ updatedText }}</p>
+              <p class="mt-2.5 flex items-center gap-1.5 text-[11px] text-slate-400">
+                <span
+                  class="h-1.5 w-1.5 shrink-0 rounded-full bg-gradient-to-br from-kiwi-300 to-kiwi-500"
+                  aria-hidden="true"
+                />
+                {{ updatedText }}
+              </p>
             </template>
           </KiwiEditor>
         </div>
@@ -1234,6 +1262,13 @@ async function copyMarkdown() {
         </div>
       </div>
     </div>
+
+    <NoteLockDialog
+      :open="lockOpen"
+      :note="note"
+      @close="lockOpen = false"
+      @changed="lockOpen = false"
+    />
 
     <NoteHistoryDialog
       :open="historyOpen"

@@ -21,6 +21,7 @@ import NoteImportDialog from './NoteImportDialog.vue'
 import NoteEmojiPicker from './NoteEmojiPicker.vue'
 import NoteTagEditor from './NoteTagEditor.vue'
 import NoteMoveKbDialog from './NoteMoveKbDialog.vue'
+import NoteLockDialog from './NoteLockDialog.vue'
 import NoteTemplatePicker from './NoteTemplatePicker.vue'
 import QuickCaptureDialog from './QuickCaptureDialog.vue'
 import { useKbsStore } from '@/stores/kbs'
@@ -1060,6 +1061,23 @@ async function onPickEmoji(emoji: string) {
   }
 }
 
+// 密码锁：设置 / 移除后刷新目录树上的锁标记
+const locking = ref<TreeRow | null>(null)
+
+function openLockFromMenu() {
+  const row = menu.value.row
+  if (row?.note) locking.value = row
+}
+
+async function onLockChanged() {
+  const activeTarget = props.activeId && locking.value?.note?.id === props.activeId
+  await notes.fetchTree()
+  // 当前打开的就是这篇笔记时，同步一次状态（上锁 / 解锁都会改变可读性）。
+  if (activeTarget && props.activeId) {
+    await notes.getNote(props.activeId).catch(() => {})
+  }
+}
+
 // 复制 / 归档 / 跨知识库移动
 async function copyFromMenu() {
   const row = menu.value.row
@@ -1857,6 +1875,7 @@ const createFolderMenu = () => openFolderDialog(null)
       @move-kb="openMoveFromMenu"
       @emoji="openEmojiFromMenu"
       @tags="openTagsFromMenu"
+      @lock="openLockFromMenu"
       @archive="archiveFromMenu"
       @export="exportFromMenu"
       @delete="deleteFromMenu"
@@ -1892,6 +1911,13 @@ const createFolderMenu = () => openFolderDialog(null)
         </div>
       </div>
     </KiwiModal>
+
+    <NoteLockDialog
+      :open="!!locking"
+      :note="locking?.note ?? null"
+      @close="locking = null"
+      @changed="onLockChanged"
+    />
 
     <NoteMoveKbDialog
       :open="moveOpen"

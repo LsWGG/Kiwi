@@ -305,19 +305,26 @@ function iconOf(template: NoteTemplate): string {
       <div v-else class="max-h-[58vh] overflow-y-auto pr-1 space-y-5">
         <section v-if="builtin.length">
           <h3 class="tpl-section-title">内置模板</h3>
-          <div class="grid grid-cols-2 gap-2.5">
+          <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <div
               v-for="template in builtin"
               :key="template.id"
-              class="group relative rounded-xl border border-slate-200/80 bg-white/70 p-3 transition-all hover:border-kiwi-200 hover:shadow-soft"
+              class="group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-b from-white/90 to-white/55 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-kiwi-200 hover:shadow-lifted"
             >
+              <span
+                class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-kiwi-200/80 to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+              />
               <div class="flex items-start gap-2.5">
-                <span class="shrink-0 w-8 h-8 grid place-items-center rounded-lg bg-kiwi-50 text-kiwi-600">
+                <span
+                  class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-kiwi-50 to-white text-kiwi-600 ring-1 ring-inset ring-kiwi-100"
+                >
                   <KiwiIcon :name="iconOf(template)" :size="15" />
                 </span>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
-                    <h3 class="text-[12.5px] font-semibold text-slate-700 truncate">
+                    <h3
+                      class="truncate text-[12.5px] font-semibold text-slate-700 transition-colors group-hover:text-kiwi-700"
+                    >
                       {{ template.name }}
                     </h3>
                     <span class="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] text-slate-400">
@@ -329,27 +336,28 @@ function iconOf(template: NoteTemplate): string {
                   </p>
                 </div>
               </div>
-              <div class="mt-2 flex items-center gap-1 flex-wrap min-h-[18px]">
+              <div class="mt-2 flex flex-wrap items-center gap-1 min-h-[18px]">
                 <span
                   v-for="tag in template.tags_json.slice(0, 4)"
                   :key="tag"
-                  class="text-[9.5px] text-kiwi-500"
+                  class="rounded-full bg-kiwi-50/70 px-1.5 py-px text-[9px] text-kiwi-600"
                 >
                   {{ tag }}
                 </span>
-                <span v-if="template.title_pattern" class="text-[9.5px] text-slate-300 truncate">
+                <span v-if="template.title_pattern" class="truncate text-[9.5px] text-slate-300">
                   标题：{{ template.title_pattern }}
                 </span>
               </div>
-              <div class="mt-2 flex items-center gap-1.5">
+              <div class="mt-2.5 flex items-center gap-1">
                 <button
-                  class="kiwi-btn-primary flex-1 !py-1 !text-[11px]"
+                  class="kiwi-btn-primary !px-3 !py-1 !text-[10.5px]"
                   :disabled="usingId === template.id"
                   @click="use(template)"
                 >
                   <KiwiIcon name="plus" :size="11" />
                   {{ usingId === template.id ? '创建中…' : '使用模板' }}
                 </button>
+                <span class="flex-1" />
                 <button
                   class="kiwi-btn-ghost !p-1"
                   title="预览模板内容"
@@ -374,19 +382,23 @@ function iconOf(template: NoteTemplate): string {
             <h3 class="tpl-section-title !mb-0">自定义模板</h3>
             <span class="text-[10px] text-slate-300">{{ custom.length }} 个</span>
           </div>
-          <div v-if="custom.length" class="grid grid-cols-2 gap-2.5">
+          <div v-if="custom.length" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <div
               v-for="template in custom"
               :key="template.id"
-              class="group rounded-xl border border-slate-200/80 bg-white/70 p-3 transition-all hover:border-kiwi-200 hover:shadow-soft"
+              class="group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-b from-white/90 to-white/55 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-kiwi-200 hover:shadow-lifted"
             >
               <div class="flex items-start gap-2.5">
-                <span class="shrink-0 w-8 h-8 grid place-items-center rounded-lg bg-slate-100 text-slate-500">
+                <span
+                  class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-slate-50 to-white text-slate-500 ring-1 ring-inset ring-slate-200/70"
+                >
                   <KiwiIcon :name="iconOf(template)" :size="15" />
                 </span>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
-                    <h3 class="text-[12.5px] font-semibold text-slate-700 truncate">
+                    <h3
+                      class="truncate text-[12.5px] font-semibold text-slate-700 transition-colors group-hover:text-kiwi-700"
+                    >
                       {{ template.name }}
                     </h3>
                     <span
@@ -401,24 +413,25 @@ function iconOf(template: NoteTemplate): string {
                   </p>
                 </div>
               </div>
-              <div class="mt-2 flex items-center gap-1 flex-wrap min-h-[18px]">
+              <div class="mt-2 flex flex-wrap items-center gap-1 min-h-[18px]">
                 <span
                   v-for="tag in template.tags_json.slice(0, 4)"
                   :key="tag"
-                  class="text-[9.5px] text-kiwi-500"
+                  class="rounded-full bg-kiwi-50/70 px-1.5 py-px text-[9px] text-kiwi-600"
                 >
                   {{ tag }}
                 </span>
               </div>
-              <div class="mt-2 flex items-center gap-1.5">
+              <div class="mt-2.5 flex items-center gap-1">
                 <button
-                  class="kiwi-btn-primary flex-1 !py-1 !text-[11px]"
+                  class="kiwi-btn-primary !px-3 !py-1 !text-[10.5px]"
                   :disabled="usingId === template.id"
                   @click="use(template)"
                 >
                   <KiwiIcon name="plus" :size="11" />
                   {{ usingId === template.id ? '创建中…' : '使用模板' }}
                 </button>
+                <span class="flex-1" />
                 <button class="kiwi-btn-ghost !p-1" title="编辑" @click="startEdit(template)">
                   <KiwiIcon name="edit" :size="11" />
                 </button>

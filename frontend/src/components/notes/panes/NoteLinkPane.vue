@@ -149,7 +149,12 @@ function onAgentApply(payload: {
 async function exportDocx() {
   exporting.value = true
   try {
-    await downloadNoteDocx(props.note.id, kbs.currentKbId, title.value)
+    await downloadNoteDocx(
+      props.note.id,
+      kbs.currentKbId,
+      title.value,
+      notes.noteHeaders(props.note.id),
+    )
     toast.success('Word 文档已导出')
   } catch (e: any) {
     toast.error(e.message || '导出失败')

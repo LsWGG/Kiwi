@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,8 @@ from app.schemas.note_database import (
     RowUpdate,
 )
 from app.services import todo_sync
+from app.routers.note_guard import require_unlocked_note
+from app.services import note_lock
 from app.services.note_database import (
     default_views_for,
     ensure_collection,
@@ -30,7 +32,11 @@ from app.services.note_database import (
     validate_views,
 )
 
-router = APIRouter(prefix="/api/notes", tags=["note-databases"])
+router = APIRouter(
+    prefix="/api/notes",
+    tags=["note-databases"],
+    dependencies=[Depends(require_unlocked_note)],
+)
 
 
 async def _get_database(
@@ -103,7 +109,10 @@ async def update_database(
 
 @router.get("/{note_id}/collection-context", response_model=CollectionContextOut)
 async def get_collection_context(
-    note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
 ):
     """行笔记 → 所属集合的属性字段与当前值（供笔记详情面板编辑）。"""
     note = await session.get(Note, note_id)
@@ -118,6 +127,9 @@ async def get_collection_context(
     db_note = await session.get(Note, db_note_id)
     if db_note is None or db_note.kb_id != kb_id or db_note.kind != "database":
         raise HTTPException(404, "所属数据表不存在")
+    # 行笔记属性面板会暴露所属数据表的字段与行值；数据表上锁时同样要求解锁。
+    if db_note.is_locked and not note_lock.token_is_valid(db_note, x_note_token):
+        raise HTTPException(403, "所属数据表已上锁，请先输入密码解锁")
     coll = await ensure_collection(session, db_note)
     row = await session.get(CollectionRow, row_id)
     if row is None or row.collection_id != coll.id or row.kb_id != kb_id:

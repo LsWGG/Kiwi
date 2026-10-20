@@ -33,26 +33,95 @@ const detail = ref<NoteRevision | null>(null)
 const detailLoading = ref(false)
 const deleteTarget = ref<NoteRevisionSummary | null>(null)
 
-const SOURCE_META: Record<string, { label: string; tone: string }> = {
-  auto: { label: '自动保存', tone: 'bg-slate-100 text-slate-500 border-slate-200' },
-  manual: { label: '手动检查点', tone: 'bg-kiwi-50 text-kiwi-600 border-kiwi-200' },
-  restore: { label: '还原前', tone: 'bg-amber-50 text-amber-600 border-amber-200' },
+const SOURCE_META: Record<string, { label: string; tone: string; dot: string }> = {
+  auto: {
+    label: '自动保存',
+    tone: 'bg-slate-100/80 text-slate-500 ring-slate-200/70',
+    dot: 'bg-slate-300',
+  },
+  manual: {
+    label: '手动检查点',
+    tone: 'bg-kiwi-50 text-kiwi-600 ring-kiwi-200/70',
+    dot: 'bg-kiwi-500',
+  },
+  restore: {
+    label: '还原前',
+    tone: 'bg-amber-50 text-amber-600 ring-amber-200/70',
+    dot: 'bg-amber-400',
+  },
 }
 
 function sourceMeta(source: string) {
-  return SOURCE_META[source] || { label: source || '版本', tone: 'bg-slate-100 text-slate-500 border-slate-200' }
+  return (
+    SOURCE_META[source] || {
+      label: source || '版本',
+      tone: 'bg-slate-100/80 text-slate-500 ring-slate-200/70',
+      dot: 'bg-slate-300',
+    }
+  )
 }
 
-function formatTime(value: string) {
+function formatClock(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatFullTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString('zh-CN', {
+    year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   })
+}
+
+function dayLabel(date: Date) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const days = Math.round((today - day) / 86_400_000)
+  if (days <= 0) return '今天'
+  if (days === 1) return '昨天'
+  if (days < 7) return `${days} 天前`
+  return date.toLocaleDateString('zh-CN', {
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
+interface RevisionGroup {
+  key: string
+  label: string
+  items: NoteRevisionSummary[]
+}
+
+/** 按自然日分组，时间线读起来比一串时间戳清晰。 */
+const revisionGroups = computed<RevisionGroup[]>(() => {
+  const groups: RevisionGroup[] = []
+  for (const revision of revisions.value) {
+    const date = new Date(revision.created_at)
+    const valid = !Number.isNaN(date.getTime())
+    const key = valid
+      ? `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+      : 'unknown'
+    const last = groups[groups.length - 1]
+    if (last?.key === key) {
+      last.items.push(revision)
+    } else {
+      groups.push({ key, label: valid ? dayLabel(date) : '更早', items: [revision] })
+    }
+  }
+  return groups
+})
+
+function isLatest(revision: NoteRevisionSummary) {
+  return revisions.value[0]?.id === revision.id
 }
 
 const selected = computed(
@@ -273,206 +342,363 @@ async function confirmDelete() {
 <template>
   <KiwiModal
     :open="open"
-    title="历史版本"
     max-w="max-w-5xl"
     @close="emit('close')"
   >
-    <div class="flex h-[min(66vh,620px)] min-h-[360px] flex-col gap-3 sm:flex-row">
-      <!-- 左侧：版本时间线 -->
-      <div class="flex w-full shrink-0 flex-col sm:w-64">
-        <div class="mb-2 flex items-center gap-2">
-          <button
-            class="kiwi-btn-primary !px-2.5 !py-1.5 !text-[11px]"
-            :disabled="creating"
-            @click="createCheckpoint"
-          >
-            <KiwiIcon :name="creating ? 'loader' : 'plus'" :size="12" :spin="creating" />
-            保存当前版本
-          </button>
+    <div class="flex h-[min(70vh,640px)] min-h-[380px] flex-col">
+      <!-- 顶栏：标题 + 全局操作 -->
+      <header class="mb-3.5 flex shrink-0 items-center gap-2.5">
+        <span
+          class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-kiwi-500 to-kiwi-700 text-white shadow-[0_10px_24px_-12px_rgba(90,85,199,0.7)]"
+        >
+          <KiwiIcon name="layers" :size="17" />
+        </span>
+        <div class="min-w-0">
+          <h2 class="text-[15px] leading-tight font-semibold text-slate-800">历史版本</h2>
+          <p class="mt-0.5 text-[10px] text-slate-400">
+            自动留档 · 共 <span class="tabular-nums">{{ revisions.length }}</span> 个版本
+          </p>
+        </div>
+        <div class="ml-auto flex items-center gap-1">
           <button
             class="kiwi-btn-ghost !p-1.5"
-            title="刷新"
+            title="刷新版本列表"
             :disabled="loading"
             @click="load(selectedId)"
           >
-            <KiwiIcon name="refresh" :size="13" :spin="loading" />
+            <KiwiIcon name="refresh" :size="14" :spin="loading" />
+          </button>
+          <button class="kiwi-btn-ghost !p-1.5" aria-label="关闭" @click="emit('close')">
+            <KiwiIcon name="close" :size="15" />
           </button>
         </div>
-        <p class="mb-1.5 px-0.5 text-[10px] leading-relaxed text-slate-400">
-          每次保存前自动留档；2 分钟内的连续编辑会合并为一个检查点，最多保留最近 60 个。
-        </p>
-        <div class="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200/70 bg-white/60 p-1">
-          <div v-if="loading" class="py-12 text-center text-[11px] text-slate-400">
-            <KiwiIcon name="loader" :size="16" spin class="mx-auto mb-1.5" />
-            加载历史版本…
-          </div>
-          <div v-else-if="!revisions.length" class="px-3 py-12 text-center text-[11px] leading-relaxed text-slate-400">
-            还没有历史版本。<br />
-            开始编辑后会自动记录；也可以先保存一个检查点。
-          </div>
-          <template v-else>
-          <button
-            v-for="revision in revisions"
-            :key="revision.id"
-            type="button"
-            class="w-full rounded-lg px-2.5 py-2 text-left transition-colors"
-            :class="
-              revision.id === selectedId
-                ? 'bg-kiwi-50/90 ring-1 ring-inset ring-kiwi-200/70'
-                : 'hover:bg-slate-50'
-            "
-            @click="select(revision.id)"
-          >
-            <div class="flex items-center gap-1.5">
-              <span
-                class="shrink-0 rounded border px-1 py-px text-[9px]"
-                :class="sourceMeta(revision.source).tone"
-              >
-                {{ sourceMeta(revision.source).label }}
-              </span>
-              <span class="ml-auto shrink-0 text-[9.5px] tabular-nums text-slate-400">
-                {{ formatTime(revision.created_at) }}
-              </span>
-            </div>
-            <p class="mt-1 truncate text-[11.5px] text-slate-600">
-              {{ revision.title || '无标题' }}
-            </p>
-          </button>
-          </template>
-        </div>
-      </div>
+      </header>
 
-      <!-- 右侧：内容预览 -->
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-slate-200/70 bg-white/70">
-        <div class="flex shrink-0 items-center gap-2 border-b border-slate-200/60 px-3 py-2">
-          <KiwiIcon name="layers" :size="13" class="text-slate-400" />
-          <span class="min-w-0 truncate text-[11.5px] text-slate-600">
-            {{ detail?.title || selected?.title || '版本预览' }}
-          </span>
-          <span v-if="detail" class="shrink-0 text-[9.5px] tabular-nums text-slate-400">
-            {{ bodyChars.toLocaleString() }} 字符
-          </span>
-          <div class="ml-1 flex shrink-0 items-center rounded-lg bg-slate-100/80 p-0.5">
+      <div class="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row">
+        <!-- 左侧：版本时间线 -->
+        <aside
+          class="flex max-h-[220px] min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white/55 backdrop-blur sm:max-h-none sm:w-[264px]"
+        >
+          <div class="shrink-0 border-b border-slate-200/60 p-2.5">
             <button
-              type="button"
-              class="rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors"
-              :class="
-                viewMode === 'preview'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-600'
-              "
-              @click="viewMode = 'preview'"
+              class="kiwi-btn-primary w-full !py-1.5 !text-[11px]"
+              :disabled="creating"
+              @click="createCheckpoint"
             >
-              版本内容
+              <KiwiIcon :name="creating ? 'loader' : 'plus'" :size="12" :spin="creating" />
+              保存当前版本
             </button>
-            <button
-              type="button"
-              class="rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors"
-              :class="
-                viewMode === 'diff'
-                  ? 'bg-white text-slate-700 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-600'
-              "
-              @click="viewMode = 'diff'"
+            <div class="mt-2 flex items-center justify-between px-0.5 text-[9.5px] text-slate-400">
+              <span>最多保留最近 60 个</span>
+              <span class="tabular-nums">{{ revisions.length }} 个</span>
+            </div>
+          </div>
+
+          <div class="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+            <div
+              v-if="loading"
+              class="flex h-full flex-col items-center justify-center py-10 text-[10.5px] text-slate-400"
             >
-              对比当前
-            </button>
-          </div>
-          <div class="flex-1" />
-          <button
-            v-if="selected"
-            class="rounded-md px-1.5 py-1 text-[10px] text-rose-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
-            title="删除该历史版本"
-            @click="deleteTarget = selected"
-          >
-            删除
-          </button>
-          <button
-            class="kiwi-btn-primary !px-2.5 !py-1 !text-[10.5px]"
-            :disabled="!selected || restoring || detailLoading"
-            @click="restore"
-          >
-            <KiwiIcon :name="restoring ? 'loader' : 'undo'" :size="11" :spin="restoring" />
-            还原此版本
-          </button>
-        </div>
-        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div v-if="detailLoading" class="py-16 text-center text-[11px] text-slate-400">
-            <KiwiIcon name="loader" :size="16" spin class="mx-auto mb-1.5" />
-            读取版本内容…
-          </div>
-          <div v-else-if="detail" class="space-y-2">
-            <template v-if="viewMode === 'diff'">
-              <div
-                class="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-slate-200/70 bg-slate-50/80 px-2.5 py-1.5 text-[10.5px]"
+              <KiwiIcon name="loader" :size="16" spin class="mb-2" />
+              加载历史版本…
+            </div>
+            <div v-else-if="!revisions.length" class="px-2 py-10 text-center">
+              <span
+                class="mx-auto mb-2 grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-slate-300"
               >
-                <span class="font-medium text-slate-600">历史版本 → 当前版本</span>
-                <span v-if="diffStats.identical" class="text-slate-400">内容一致</span>
-                <template v-else>
-                  <span class="font-medium text-emerald-600">+{{ diffStats.added }} 行</span>
-                  <span class="font-medium text-rose-500">−{{ diffStats.removed }} 行</span>
-                </template>
-                <span class="ml-auto text-[9.5px] text-slate-400">
-                  当前：{{ currentTitle || '未命名' }} · {{ (currentBody || '').length.toLocaleString() }} 字符
+                <KiwiIcon name="layers" :size="15" />
+              </span>
+              <p class="text-[10.5px] leading-relaxed text-slate-400">
+                还没有历史版本<br />
+                开始编辑后会自动记录，也可先保存检查点
+              </p>
+            </div>
+            <template v-else>
+              <section v-for="group in revisionGroups" :key="group.key" class="mb-1">
+                <div
+                  class="sticky top-0 z-10 -mx-2 flex items-center gap-1.5 bg-white/90 px-2.5 py-1 text-[9px] font-medium tracking-[0.08em] text-slate-400 backdrop-blur"
+                >
+                  {{ group.label }}
+                  <span class="ml-auto font-normal tracking-normal text-slate-300">
+                    {{ group.items.length }}
+                  </span>
+                </div>
+                <div class="relative">
+                  <span
+                    class="pointer-events-none absolute top-1 bottom-1 left-[7px] w-px bg-slate-200/90"
+                    aria-hidden="true"
+                  />
+                  <button
+                    v-for="revision in group.items"
+                    :key="revision.id"
+                    type="button"
+                    class="group relative block w-full rounded-lg py-1.5 pr-2 pl-5 text-left transition-all duration-150"
+                    :class="
+                      revision.id === selectedId
+                        ? 'bg-white ring-1 ring-inset ring-kiwi-200/80 shadow-[0_4px_14px_-12px_rgba(15,23,42,0.5)]'
+                        : 'hover:bg-white/70'
+                    "
+                    @click="select(revision.id)"
+                  >
+                    <span
+                      class="absolute top-[8px] left-[3.5px] h-[7px] w-[7px] rounded-full transition-colors"
+                      :class="
+                        revision.id === selectedId
+                          ? 'bg-kiwi-500 ring-4 ring-kiwi-100'
+                          : [sourceMeta(revision.source).dot, 'ring-2 ring-white']
+                      "
+                    />
+                    <span class="flex items-baseline gap-1.5">
+                      <span
+                        class="truncate text-[11.5px] leading-snug"
+                        :class="
+                          revision.id === selectedId
+                            ? 'font-medium text-slate-800'
+                            : 'text-slate-600'
+                        "
+                      >
+                        {{ revision.title || '无标题' }}
+                      </span>
+                      <span
+                        class="ml-auto shrink-0 text-[9px] tabular-nums text-slate-400"
+                      >
+                        {{ formatClock(revision.created_at) }}
+                      </span>
+                    </span>
+                    <span class="mt-1 flex items-center gap-1">
+                      <span
+                        class="rounded px-1 py-px text-[8.5px] font-medium ring-1 ring-inset"
+                        :class="sourceMeta(revision.source).tone"
+                      >
+                        {{ sourceMeta(revision.source).label }}
+                      </span>
+                      <span
+                        v-if="isLatest(revision)"
+                        class="rounded bg-kiwi-500/10 px-1 py-px text-[8.5px] font-medium text-kiwi-600"
+                      >
+                        最新
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              </section>
+            </template>
+          </div>
+
+          <p
+            class="shrink-0 border-t border-slate-200/60 px-3 py-2 text-[9.5px] leading-relaxed text-slate-400"
+          >
+            2 分钟内的连续编辑会合并为一个检查点
+          </p>
+        </aside>
+
+        <!-- 右侧：内容预览 / 差异对比 -->
+        <section
+          class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 shadow-soft"
+        >
+          <header class="flex shrink-0 items-center gap-2 border-b border-slate-200/60 px-3.5 py-2.5">
+            <span
+              class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-kiwi-50 text-kiwi-500"
+            >
+              <KiwiIcon name="layers" :size="12" />
+            </span>
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="truncate text-[12px] font-medium text-slate-700">
+                  {{ detail?.title || selected?.title || '版本预览' }}
+                </span>
+                <span
+                  v-if="selected"
+                  class="shrink-0 rounded px-1 py-px text-[8.5px] font-medium ring-1 ring-inset"
+                  :class="sourceMeta(selected.source).tone"
+                >
+                  {{ sourceMeta(selected.source).label }}
                 </span>
               </div>
-              <div
-                v-if="diffStats.identical"
-                class="py-16 text-center text-[11px] text-slate-400"
+              <p class="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400">
+                <template v-if="selected">
+                  {{ formatFullTime(selected.created_at) }}
+                  <template v-if="detail"> · {{ bodyChars.toLocaleString() }} 字符</template>
+                </template>
+                <template v-else>从左侧选择一个版本</template>
+              </p>
+            </div>
+            <div class="ml-auto flex shrink-0 items-center rounded-lg bg-slate-100/80 p-0.5">
+              <button
+                type="button"
+                class="rounded-md px-2 py-1 text-[10px] font-medium transition-all"
+                :class="
+                  viewMode === 'preview'
+                    ? 'bg-white text-kiwi-700 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                "
+                @click="viewMode = 'preview'"
               >
-                该版本与当前内容完全一致
-              </div>
-              <div
-                v-else
-                class="overflow-hidden rounded-lg border border-slate-200/70 font-mono text-[11.5px] leading-[1.7]"
+                版本内容
+              </button>
+              <button
+                type="button"
+                class="rounded-md px-2 py-1 text-[10px] font-medium transition-all"
+                :class="
+                  viewMode === 'diff'
+                    ? 'bg-white text-kiwi-700 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                "
+                @click="viewMode = 'diff'"
               >
+                对比当前
+              </button>
+            </div>
+          </header>
+
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <div
+              v-if="detailLoading"
+              class="flex h-full flex-col items-center justify-center py-16 text-[10.5px] text-slate-400"
+            >
+              <KiwiIcon name="loader" :size="16" spin class="mb-2" />
+              读取版本内容…
+            </div>
+            <template v-else-if="detail">
+              <div v-if="viewMode === 'diff'" class="p-3.5">
                 <div
-                  v-for="(line, index) in diffLines"
-                  :key="index"
-                  class="flex min-w-0"
-                  :class="
-                    line.kind === 'add'
-                      ? 'bg-emerald-50/70'
-                      : line.kind === 'del'
-                        ? 'bg-rose-50/70'
-                        : ''
-                  "
+                  class="mb-2.5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/70 bg-gradient-to-r from-white via-white to-kiwi-50/40 px-3 py-2"
+                >
+                  <span class="flex items-center gap-1 text-[10px] font-medium text-slate-500">
+                    <KiwiIcon name="layers" :size="11" class="text-slate-400" />
+                    历史 → 当前
+                  </span>
+                  <span
+                    v-if="diffStats.identical"
+                    class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] text-slate-500"
+                  >
+                    内容一致
+                  </span>
+                  <template v-else>
+                    <span
+                      class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[9.5px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/60"
+                    >
+                      +{{ diffStats.added }} 行
+                    </span>
+                    <span
+                      class="inline-flex items-center rounded-full bg-rose-50 px-2 py-0.5 text-[9.5px] font-medium text-rose-600 ring-1 ring-inset ring-rose-200/60"
+                    >
+                      −{{ diffStats.removed }} 行
+                    </span>
+                  </template>
+                  <span class="ml-auto max-w-[55%] truncate text-[9.5px] text-slate-400">
+                    当前：{{ currentTitle || '未命名' }} ·
+                    {{ (currentBody || '').length.toLocaleString() }} 字符
+                  </span>
+                </div>
+
+                <div
+                  v-if="diffStats.identical"
+                  class="flex flex-col items-center justify-center py-16 text-center"
                 >
                   <span
-                    class="w-8 shrink-0 select-none border-r border-slate-100 px-1.5 py-0.5 text-right text-[9.5px] tabular-nums text-slate-300"
-                  >{{ line.oldNo ?? '' }}</span>
-                  <span
-                    class="w-8 shrink-0 select-none border-r border-slate-100 px-1.5 py-0.5 text-right text-[9.5px] tabular-nums text-slate-300"
-                  >{{ line.newNo ?? '' }}</span>
-                  <span
-                    class="w-4 shrink-0 select-none py-0.5 text-center font-semibold"
+                    class="mb-3 grid h-11 w-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-500 ring-1 ring-inset ring-emerald-100"
+                  >
+                    <KiwiIcon name="check" :size="18" />
+                  </span>
+                  <p class="text-[11.5px] font-medium text-slate-600">该版本与当前内容一致</p>
+                  <p class="mt-1 text-[10px] text-slate-400">没有需要对比的改动</p>
+                </div>
+
+                <div
+                  v-else
+                  class="overflow-hidden rounded-xl border border-slate-200/70 bg-white font-mono text-[11.5px] leading-[1.7] shadow-[0_16px_44px_-38px_rgba(15,23,42,0.5)]"
+                >
+                  <div
+                    v-for="(line, index) in diffLines"
+                    :key="index"
+                    class="flex min-w-0 border-l-2"
                     :class="
                       line.kind === 'add'
-                        ? 'text-emerald-500'
+                        ? 'border-emerald-300 bg-emerald-50/60'
                         : line.kind === 'del'
-                          ? 'text-rose-400'
-                          : 'text-transparent'
+                          ? 'border-rose-300 bg-rose-50/60'
+                          : 'border-transparent'
                     "
-                  >{{ diffPrefix(line.kind) }}</span>
-                  <span
-                    class="min-w-0 flex-1 whitespace-pre-wrap break-words px-1.5 py-0.5"
-                    :class="
-                      line.kind === 'add'
-                        ? 'text-emerald-800'
-                        : line.kind === 'del'
-                          ? 'text-rose-700'
-                          : 'text-slate-600'
-                    "
-                  >{{ line.text || ' ' }}</span>
+                  >
+                    <span
+                      class="w-9 shrink-0 select-none border-r border-slate-100 bg-slate-50/50 px-1.5 py-[3px] text-right text-[9.5px] tabular-nums text-slate-300"
+                    >{{ line.oldNo ?? '' }}</span>
+                    <span
+                      class="w-9 shrink-0 select-none border-r border-slate-100 bg-slate-50/50 px-1.5 py-[3px] text-right text-[9.5px] tabular-nums text-slate-300"
+                    >{{ line.newNo ?? '' }}</span>
+                    <span
+                      class="w-4 shrink-0 select-none py-[3px] text-center font-semibold"
+                      :class="
+                        line.kind === 'add'
+                          ? 'text-emerald-500'
+                          : line.kind === 'del'
+                            ? 'text-rose-400'
+                            : 'text-transparent'
+                      "
+                    >{{ diffPrefix(line.kind) }}</span>
+                    <span
+                      class="min-w-0 flex-1 px-2 py-[3px] break-words whitespace-pre-wrap"
+                      :class="
+                        line.kind === 'add'
+                          ? 'text-emerald-800'
+                          : line.kind === 'del'
+                            ? 'text-rose-700'
+                            : 'text-slate-600'
+                      "
+                    >{{ line.text || ' ' }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="bg-gradient-to-b from-slate-50/80 to-white px-3.5 py-4">
+                <div
+                  class="mx-auto max-w-[720px] rounded-xl border border-slate-200/60 bg-white px-6 py-6 shadow-[0_24px_60px_-48px_rgba(15,23,42,0.5)]"
+                >
+                  <MarkdownView :content="detail.body_md || ''" />
                 </div>
               </div>
             </template>
-            <MarkdownView v-else :content="detail.body_md || ''" />
+            <div
+              v-else
+              class="flex h-full flex-col items-center justify-center px-6 py-16 text-center"
+            >
+              <span
+                class="mb-3 grid h-11 w-11 place-items-center rounded-2xl bg-slate-100 text-slate-300"
+              >
+                <KiwiIcon name="layers" :size="18" />
+              </span>
+              <p class="text-[11.5px] text-slate-400">从左侧选择一个版本查看内容</p>
+            </div>
           </div>
-          <p v-else class="py-16 text-center text-[11px] text-slate-400">
-            从左侧选择一个版本查看内容
-          </p>
-        </div>
+
+          <footer
+            class="flex shrink-0 items-center gap-2 border-t border-slate-200/60 bg-white/60 px-3.5 py-2.5"
+          >
+            <p class="hidden text-[9.5px] leading-relaxed text-slate-400 sm:block">
+              还原后，当前内容会自动留档为「还原前」版本
+            </p>
+            <div class="ml-auto flex items-center gap-1.5">
+              <button
+                v-if="selected"
+                class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] text-rose-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                title="删除该历史版本"
+                @click="deleteTarget = selected"
+              >
+                <KiwiIcon name="trash" :size="11" />
+                删除
+              </button>
+              <button
+                class="kiwi-btn-primary !px-3 !py-1.5 !text-[10.5px]"
+                :disabled="!selected || restoring || detailLoading"
+                @click="restore"
+              >
+                <KiwiIcon :name="restoring ? 'loader' : 'undo'" :size="11" :spin="restoring" />
+                还原此版本
+              </button>
+            </div>
+          </footer>
+        </section>
       </div>
     </div>
 

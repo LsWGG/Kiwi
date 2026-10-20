@@ -3,9 +3,11 @@ export async function downloadNoteDocx(
   noteId: string,
   kbId: string | null,
   title: string,
+  headers: Record<string, string> = {},
 ): Promise<void> {
   const res = await fetch(
     `/api/notes/${noteId}/export/docx?kb_id=${encodeURIComponent(kbId ?? '')}`,
+    { headers },
   )
   if (!res.ok) {
     const detail = await res.json().catch(() => null)

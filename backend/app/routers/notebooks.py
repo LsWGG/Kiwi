@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import KnowledgeBase, Note, NoteFolder
 from app.db.session import get_session
+from app.routers.note_guard import require_unlocked_note
 from app.schemas.note import NoteOut
 from app.services.notebook_format import doc_from_ipynb, doc_to_ipynb
 from app.services.notebook_kernel import (
@@ -24,7 +25,11 @@ from app.services.notebook_kernel import (
 )
 from app.services.sandbox import SandboxUnavailable
 
-router = APIRouter(prefix="/api/notebooks", tags=["notebooks"])
+router = APIRouter(
+    prefix="/api/notebooks",
+    tags=["notebooks"],
+    dependencies=[Depends(require_unlocked_note)],
+)
 
 MAX_IPYNB_BYTES = 20 * 1024 * 1024
 

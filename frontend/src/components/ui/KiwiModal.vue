@@ -41,7 +41,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         />
         <!-- 面板 -->
         <div
-          class="relative flex max-h-[calc(100dvh-1.5rem)] w-full flex-col rounded-2xl glass-strong p-6 shadow-lifted animate-scale-in"
+          class="kiwi-modal-panel relative flex w-full flex-col rounded-2xl glass-strong p-6 shadow-lifted animate-scale-in"
           :class="maxW"
         >
           <div v-if="title" class="mb-4 flex shrink-0 items-center justify-between gap-3">

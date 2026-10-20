@@ -209,6 +209,14 @@ function onClick(event: MouseEvent) {
     <span v-else class="min-w-0 flex-1 truncate text-[12.5px]" :class="active ? 'font-medium' : ''">
       {{ label }}
     </span>
+    <span
+      v-if="!isFolder && row.note?.is_locked"
+      class="shrink-0 text-amber-500"
+      title="已上锁，打开需要密码"
+      aria-label="已上锁"
+    >
+      <KiwiIcon name="lock" :size="10" />
+    </span>
     <button
       v-if="pinned && !isInbox"
       type="button"

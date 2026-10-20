@@ -1,10 +1,12 @@
 """用户手写笔记及四种组织维度（文件夹/标签/双向链接）。"""
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from sqlalchemy import (
     Boolean,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -101,6 +103,11 @@ class Note(UUIDPkMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # 链接元数据 / 导入状态等结构化附加信息
     props_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    # 密码锁：只保存 PBKDF2 哈希与盐；解锁令牌见 services/note_lock.py
+    lock_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lock_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lock_hint: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     kb = relationship("KnowledgeBase", back_populates="notes")
     tags: Mapped[list[NoteTag]] = relationship(secondary="note_tag_links", lazy="selectin")
@@ -117,6 +124,11 @@ class Note(UUIDPkMixin, Base):
         if override is not None:
             return sorted(override)
         return sorted(tag.name for tag in self.tags)
+
+    @property
+    def is_locked(self) -> bool:
+        """序列化用：是否设置了密码锁（不暴露哈希）。"""
+        return bool(self.lock_hash and self.lock_salt)
 
     @property
     def wiki_page_id(self) -> uuid.UUID | None:

@@ -25,6 +25,7 @@ const emit = defineEmits<{
   (e: 'move-kb'): void
   (e: 'emoji'): void
   (e: 'tags'): void
+  (e: 'lock'): void
   (e: 'archive'): void
   (e: 'export', key: string): void
   (e: 'delete'): void
@@ -224,6 +225,14 @@ const createTitle = computed(() =>
             >
               <KiwiIcon name="hash" :size="14" />
               设置标签
+            </button>
+            <button
+              type="button"
+              class="menu-row"
+              @click="emit('lock'); emit('close')"
+            >
+              <KiwiIcon :name="row?.note?.is_locked ? 'unlock' : 'lock'" :size="14" />
+              {{ row?.note?.is_locked ? '密码锁（已上锁）' : '设置密码锁' }}
             </button>
             <button
               type="button"

@@ -7,6 +7,7 @@
 import Image, { type ImageOptions } from '@tiptap/extension-image'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import ImageNodeView from './ImageNodeView.vue'
+import { foldImageCaptionTokens } from '../imageCaptions'
 
 const IMAGE_LANGUAGE = 'kiwi-image'
 
@@ -100,6 +101,11 @@ export const KiwiImage = Image.extend<KiwiImageOptions>({
         },
         parse: {
           setup(markdownit: any) {
+            // 兼容「图片 + 独立图注段落」的历史写法：解析时折叠为图片 title。
+            if (!markdownit.__kiwiImageCaptionFold) {
+              markdownit.core.ruler.push('kiwi_image_caption_fold', foldImageCaptionTokens)
+              markdownit.__kiwiImageCaptionFold = true
+            }
             const rules = markdownit.renderer.rules
             if (rules.fence?.__kiwiImage) return
             const originalFence = rules.fence

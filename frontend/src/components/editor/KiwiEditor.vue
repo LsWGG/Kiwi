@@ -45,6 +45,7 @@ import { KiwiCalendar } from './extensions/calendar'
 import { KiwiDataTable } from './extensions/dataTable'
 import type { NoteSummary } from '@/stores/notes'
 import { Callout } from './extensions/callout'
+import { MarkdownSerializerFix } from './extensions/markdownSerializerFix'
 import { Video } from './extensions/video'
 import { KiwiDetails } from './extensions/details'
 import { KiwiYoutube } from './extensions/youtube'
@@ -1828,6 +1829,9 @@ const editor = useEditor({
       // 需要原样粘贴源码时按住 Shift 再粘贴（ProseMirror 会走纯文本分支）。
       transformPastedText: true,
     }),
+    // 必须排在 Markdown 之后（priority 40），修正引用块/提示块中
+    // 行首加粗、斜体的 Markdown 序列化错位。
+    MarkdownSerializerFix,
   ],
   editable: !props.readonly,
   editorProps: {
@@ -2699,10 +2703,15 @@ defineExpose({
 
 /* ---------- 四种模式共用：灰色画布 + 白色纸张 ---------- */
 .editor-canvas {
-  @apply flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200/70 bg-slate-100/80 p-5 transition-colors;
+  @apply relative flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200/60 p-5 transition-colors;
+  /* 冷灰底 + 左上紫罗兰环境光 + 右下青蓝环境光 + 细点阵，让纸张浮起来 */
+  background-color: #eef1f7;
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.16) 1px, transparent 0);
-  background-size: 18px 18px;
+    radial-gradient(900px 420px at 8% -10%, rgba(139, 140, 232, 0.16), transparent 62%),
+    radial-gradient(820px 380px at 100% 108%, rgba(94, 183, 214, 0.09), transparent 66%),
+    radial-gradient(circle at 1px 1px, rgba(100, 116, 139, 0.17) 1px, transparent 0);
+  background-size: auto, auto, 18px 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .editor-canvas-inner {
   @apply flex w-full flex-1 items-stretch justify-center gap-3;
@@ -2719,10 +2728,27 @@ defineExpose({
   max-width: 100%;
 }
 .editor-sheet {
-  @apply relative flex min-w-0 flex-col rounded-md border border-slate-200/70 px-8 py-8;
+  @apply relative flex min-w-0 flex-col rounded-[10px] border border-white/70 px-8 py-8;
   box-shadow:
+    0 0 0 1px rgba(226, 232, 240, 0.55),
     0 1px 2px rgba(15, 23, 42, 0.04),
-    0 18px 44px -24px rgba(15, 23, 42, 0.3);
+    0 12px 28px -20px rgba(15, 23, 42, 0.26),
+    0 46px 90px -56px rgba(15, 23, 42, 0.4);
+}
+/* 文档 / 笔记模式：更从容的页边距与顶部品牌细线 */
+.kiwi-editor:not(.kiwi-editor-docx) .editor-sheet {
+  padding: 2.4rem 2.6rem 2.2rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .editor-sheet::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16%;
+  right: 16%;
+  height: 2px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, rgba(165, 166, 238, 0), rgba(139, 140, 232, 0.7), rgba(165, 166, 238, 0));
+  pointer-events: none;
 }
 .editor-sheet :deep(.ProseMirror) {
   @apply flex-1;
@@ -2911,7 +2937,8 @@ defineExpose({
 
 /* 通用页脚 */
 .editor-meta-bar {
-  @apply mt-5 flex items-center justify-between border-t border-dashed border-slate-200/70 pt-2.5 text-[10px] text-slate-300;
+  @apply mt-6 flex items-center justify-between border-t border-slate-200/60 pt-3 text-[10.5px] text-slate-400;
+  letter-spacing: 0.01em;
 }
 
 @media (max-width: 1100px) {

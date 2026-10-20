@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { request } from '@/api/client'
 import { useKbsStore } from './kbs'
+import { useNotesStore } from './notes'
 
 export type FieldType =
   | 'text'
@@ -119,6 +120,7 @@ export function newViewId() {
 
 export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
   const kbs = useKbsStore()
+  const notes = useNotesStore()
   const noteId = ref<string | null>(null)
   const name = ref('')
   const fields = ref<DbField[]>([])
@@ -128,6 +130,11 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
   const saving = ref(false)
   const error = ref<string | null>(null)
 
+  /** 上锁数据表的读写都需要解锁令牌。 */
+  function authHeaders(id: string) {
+    return notes.noteHeaders(id)
+  }
+
   async function load(id: string) {
     const kbId = kbs.currentKbId
     noteId.value = id
@@ -135,8 +142,8 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
     error.value = null
     try {
       const [db, rowList] = await Promise.all([
-        request<DatabaseOut>(`/notes/${id}/database`, { kbId }),
-        request<DbRow[]>(`/notes/${id}/rows`, { kbId }),
+        request<DatabaseOut>(`/notes/${id}/database`, { kbId, headers: authHeaders(id) }),
+        request<DbRow[]>(`/notes/${id}/rows`, { kbId, headers: authHeaders(id) }),
       ])
       fields.value = db.fields
       views.value = db.views
@@ -157,6 +164,7 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
       const db = await request<DatabaseOut>(`/notes/${noteId.value}/database`, {
         method: 'PATCH',
         kbId: kbs.currentKbId,
+        headers: authHeaders(noteId.value),
         body: JSON.stringify({
           name: patch.name,
           fields: patch.fields,
@@ -177,6 +185,7 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
     const row = await request<DbRow>(`/notes/${noteId.value}/rows`, {
       method: 'POST',
       kbId: kbs.currentKbId,
+      headers: authHeaders(noteId.value),
       body: JSON.stringify({ data }),
     })
     rows.value.push(row)
@@ -192,6 +201,7 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
       const fresh = await request<DbRow>(`/notes/${noteId.value}/rows/${id}`, {
         method: 'PATCH',
         kbId: kbs.currentKbId,
+        headers: authHeaders(noteId.value),
         body: JSON.stringify({ data }),
       })
       if (row) {
@@ -213,6 +223,7 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
     >(`/notes/${noteId.value}/rows/notes`, {
       method: 'POST',
       kbId: kbs.currentKbId,
+      headers: authHeaders(noteId.value),
       body: JSON.stringify({ row_ids: ids }),
     })
     for (const item of result) {
@@ -231,6 +242,7 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
       await request(`/notes/${noteId.value}/rows/${id}`, {
         method: 'DELETE',
         kbId: kbs.currentKbId,
+        headers: authHeaders(noteId.value),
       })
     } catch (e) {
       if (removed) rows.value.splice(idx, 0, removed)
@@ -247,6 +259,7 @@ export const useNoteDatabaseStore = defineStore('noteDatabase', () => {
       await request<{ deleted: number }>(`/notes/${noteId.value}/rows/batch-delete`, {
         method: 'POST',
         kbId: kbs.currentKbId,
+        headers: authHeaders(noteId.value),
         body: JSON.stringify({ row_ids: ids }),
       })
     } catch (e) {

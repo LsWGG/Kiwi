@@ -74,6 +74,13 @@ body {
   height: 100%;
 }
 
+/* 弹窗最大高度：body 的 zoom 会放大内容，但 100dvh 不随 zoom 缩放。
+   在 2K/4K 自动放大后必须按 --ui-scale 折算回布局像素，否则弹窗会超出屏幕。 */
+.kiwi-modal-panel {
+  max-height: calc(100dvh - 1.5rem);
+  max-height: calc((100dvh - 1.5rem) / var(--ui-scale, 1));
+}
+
 ::selection {
   background: var(--selection-bg);
   color: var(--selection-ink);
@@ -704,6 +711,180 @@ body {
 }
 .kiwi-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
   accent-color: #6f72dc;
+}
+
+/* ---------- 正文排版观感 ----------
+ * 目标：更细腻的阅读质感，同时保持 Word 模式（.kiwi-editor-docx）的
+ * 版式还原度——结构性装饰（标题竖条、引用底色、表格斑马纹等）只在
+ * 文档 / 笔记模式下生效，Word 模式仍按用户设置的字体、字号与行距呈现。
+ */
+.kiwi-editor .ProseMirror {
+  color: #263143;
+  caret-color: #5a55c7;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.kiwi-editor .ProseMirror ::selection {
+  background: rgba(139, 140, 232, 0.26);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror {
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+  letter-spacing: 0.004em;
+  color: #263143;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror p {
+  text-wrap: pretty;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > * + * {
+  margin-top: 0.78em;
+}
+
+/* 标题：更紧凑的字距 + 顶部紫罗兰细线，形成稳定的章节节奏 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h1,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h2,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h3,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h4 {
+  color: #101a2e;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h1 {
+  font-size: 1.72rem;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.024em;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h2 {
+  position: relative;
+  font-size: 1.32rem;
+  line-height: 1.38;
+  font-weight: 650;
+  padding-left: 0.74rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.34em;
+  bottom: 0.3em;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #a5a6ee 0%, #5a55c7 100%);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h3 {
+  font-size: 1.12rem;
+  font-weight: 600;
+}
+
+/* 引用：淡紫渐变底色 + 圆角，与提示块视觉语言一致 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote {
+  position: relative;
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  padding: 0.62rem 1rem 0.62rem 1.05rem;
+  background: linear-gradient(90deg, rgba(111, 114, 220, 0.075), rgba(111, 114, 220, 0.022) 58%, transparent);
+  color: #4b5a72;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #b3b4f0, #6f72dc);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote > * + * {
+  margin-top: 0.55em;
+}
+
+/* 列表：项目符号取主题紫，有序列表编号更克制 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ul > li::marker {
+  color: #8b8ce8;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li::marker {
+  color: #7c89a0;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > p {
+  text-wrap: pretty;
+}
+
+/* 行内元素 */
+.kiwi-editor .ProseMirror code {
+  border: 1px solid rgba(111, 114, 220, 0.16);
+  background: linear-gradient(180deg, #f5f5ff, #eef0ff);
+  color: #4b46a4;
+  border-radius: 5px;
+  padding: 0.06em 0.36em;
+}
+.kiwi-editor .ProseMirror pre code {
+  border: 0;
+  background: transparent;
+  font-size: inherit;
+}
+.kiwi-editor .ProseMirror a {
+  color: #564fc4;
+  text-decoration-color: rgba(111, 114, 220, 0.38);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+.kiwi-editor .ProseMirror a:hover {
+  color: #403aa8;
+  text-decoration-color: currentColor;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror mark {
+  background: linear-gradient(180deg, transparent 42%, #fde68a 42%);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.08em;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror hr {
+  height: 1px;
+  margin: 2.1rem auto;
+  max-width: 78%;
+  border: 0;
+  background: linear-gradient(90deg, transparent, #d5dbe6 18%, #b7b9e9 50%, #d5dbe6 82%, transparent);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror img {
+  border-radius: 14px;
+  border-color: rgba(226, 232, 240, 0.9);
+  box-shadow: 0 14px 34px -26px rgba(15, 23, 42, 0.45);
+}
+
+/* 表格：柔和表头、悬停高亮，增强数据可读性 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror th {
+  background: linear-gradient(180deg, #f9faff, #f2f4fb);
+  color: #334155;
+  font-weight: 600;
+  letter-spacing: 0.006em;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror td {
+  border-color: #e8ecf3;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr:nth-child(even) td {
+  background: rgba(248, 250, 252, 0.6);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr {
+  transition: background 0.12s ease;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr:hover td {
+  background: rgba(111, 114, 220, 0.045);
+}
+
+/* 任务清单：勾选后弱化并划线 */
+.kiwi-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.kiwi-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p {
+  color: #94a3b8;
+  text-decoration: line-through;
+  text-decoration-color: rgba(148, 163, 184, 0.55);
+  transition: color 0.15s ease;
 }
 
 /* ---------- 待办进度组件（可插入 / 可配置） ---------- */

@@ -21,8 +21,20 @@ export interface NoteOut {
   props_json: Record<string, any>
   tags: string[]
   wiki_page_id: string | null
+  /** 是否设置了密码锁 */
+  is_locked?: boolean
+  /** 密码提示（不含密码本身） */
+  lock_hint?: string | null
+  /** 本次响应是否已通过解锁令牌验证 */
+  unlocked?: boolean
   created_at: string
   updated_at: string
+}
+
+export interface NoteLockResult {
+  token: string
+  expires_at: number
+  is_locked: boolean
 }
 
 export interface NoteSummary {
@@ -37,6 +49,8 @@ export interface NoteSummary {
   props_json: Record<string, any>
   tags: string[]
   wiki_page_id: string | null
+  is_locked?: boolean
+  lock_hint?: string | null
   /** 反向链接条目附带引用上下文 */
   context?: string
   created_at?: string
@@ -276,6 +290,24 @@ export const useNotesStore = defineStore('notes', () => {
   const folders = ref<NoteFolder[]>([])
   const notes = ref<NoteSummary[]>([])
   const currentNote = ref<NoteOut | null>(null)
+  // 解锁令牌只保存在内存中：刷新 / 关闭页面后需要重新输入密码。
+  const unlockTokens = ref<Record<string, string>>({})
+
+  function noteHeaders(id: string): Record<string, string> {
+    const token = unlockTokens.value[id]
+    return token ? { 'X-Note-Token': token } : {}
+  }
+
+  function hasUnlockToken(id: string): boolean {
+    return !!unlockTokens.value[id]
+  }
+
+  function rememberUnlockToken(id: string, token: string | null | undefined) {
+    const next = { ...unlockTokens.value }
+    if (token) next[id] = token
+    else delete next[id]
+    unlockTokens.value = next
+  }
   const loading = ref(false)
   const treeLoading = ref(false)
   const importStatus = ref<ImportStatus | null>(null)
@@ -303,6 +335,8 @@ export const useNotesStore = defineStore('notes', () => {
       props_json: note.props_json,
       tags: note.tags || [],
       wiki_page_id: note.wiki_page_id,
+      is_locked: note.is_locked,
+      lock_hint: note.lock_hint,
       created_at: note.created_at,
       updated_at: note.updated_at,
     }
@@ -332,7 +366,10 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function getNote(id: string) {
-    const note = await request<NoteOut>(`/notes/${id}`, { kbId: kbId() })
+    const note = await request<NoteOut>(`/notes/${id}`, {
+      kbId: kbId(),
+      headers: noteHeaders(id),
+    })
     currentNote.value = note
     if (note.kind === 'import') {
       startImportPolling(note.id)
@@ -369,6 +406,7 @@ export const useNotesStore = defineStore('notes', () => {
     const note = await request<NoteOut>(`/notes/${id}`, {
       method: 'PATCH',
       kbId: kbId(),
+      headers: noteHeaders(id),
       body: JSON.stringify(patch),
     })
     if (currentNote.value?.id === id) currentNote.value = note
@@ -410,6 +448,7 @@ export const useNotesStore = defineStore('notes', () => {
     const note = await request<NoteOut>(`/notes/${id}/copy`, {
       method: 'POST',
       kbId: kbId(),
+      headers: noteHeaders(id),
       body: JSON.stringify(body),
     })
     await fetchTree()
@@ -425,6 +464,7 @@ export const useNotesStore = defineStore('notes', () => {
     const note = await request<NoteOut>(`/notes/${id}/transfer`, {
       method: 'POST',
       kbId: kbId(),
+      headers: noteHeaders(id),
       body: JSON.stringify({ target_kb_id: targetKbId, folder_id: folderId }),
     })
     notes.value = notes.value.filter((n) => n.id !== id)
@@ -771,12 +811,16 @@ export const useNotesStore = defineStore('notes', () => {
 
   // ---------- 历史版本 ----------
   async function fetchRevisions(id: string) {
-    return request<NoteRevisionSummary[]>(`/notes/${id}/revisions`, { kbId: kbId() })
+    return request<NoteRevisionSummary[]>(`/notes/${id}/revisions`, {
+      kbId: kbId(),
+      headers: noteHeaders(id),
+    })
   }
 
   async function getRevision(id: string, revisionId: string) {
     return request<NoteRevision>(`/notes/${id}/revisions/${revisionId}`, {
       kbId: kbId(),
+      headers: noteHeaders(id),
     })
   }
 
@@ -784,6 +828,7 @@ export const useNotesStore = defineStore('notes', () => {
     return request<NoteRevisionSummary>(`/notes/${id}/revisions`, {
       method: 'POST',
       kbId: kbId(),
+      headers: noteHeaders(id),
     })
   }
 
@@ -791,6 +836,7 @@ export const useNotesStore = defineStore('notes', () => {
     const note = await request<NoteOut>(`/notes/${id}/revisions/${revisionId}/restore`, {
       method: 'POST',
       kbId: kbId(),
+      headers: noteHeaders(id),
     })
     if (currentNote.value?.id === id) currentNote.value = note
     upsertSummary(note)
@@ -802,7 +848,67 @@ export const useNotesStore = defineStore('notes', () => {
     await request(`/notes/${id}/revisions/${revisionId}`, {
       method: 'DELETE',
       kbId: kbId(),
+      headers: noteHeaders(id),
     })
+  }
+
+  // ---------- 密码锁 ----------
+  async function unlockNote(id: string, password: string) {
+    const result = await request<NoteLockResult>(`/notes/${id}/unlock`, {
+      method: 'POST',
+      kbId: kbId(),
+      body: JSON.stringify({ password }),
+    })
+    if (result.token) rememberUnlockToken(id, result.token)
+    return result
+  }
+
+  async function setNoteLock(id: string, password: string, hint: string | null = null) {
+    const result = await request<NoteLockResult>(`/notes/${id}/lock`, {
+      method: 'POST',
+      kbId: kbId(),
+      headers: noteHeaders(id),
+      body: JSON.stringify({ password, hint: hint || null }),
+    })
+    // 上锁响应会签发令牌，避免设置完立刻被锁在门外。
+    rememberUnlockToken(id, result.token)
+    if (currentNote.value?.id === id) {
+      currentNote.value = {
+        ...currentNote.value,
+        is_locked: true,
+        lock_hint: hint || null,
+        unlocked: true,
+      }
+    }
+    const summary = notes.value.find((n) => n.id === id)
+    if (summary) {
+      summary.is_locked = true
+      summary.lock_hint = hint || null
+    }
+    return result
+  }
+
+  async function removeNoteLock(id: string, password?: string) {
+    await request(`/notes/${id}/lock`, {
+      method: 'DELETE',
+      kbId: kbId(),
+      headers: noteHeaders(id),
+      body: JSON.stringify({ password: password || null }),
+    })
+    rememberUnlockToken(id, null)
+    if (currentNote.value?.id === id) {
+      currentNote.value = {
+        ...currentNote.value,
+        is_locked: false,
+        lock_hint: null,
+        unlocked: false,
+      }
+    }
+    const summary = notes.value.find((n) => n.id === id)
+    if (summary) {
+      summary.is_locked = false
+      summary.lock_hint = null
+    }
   }
 
   // ---------- 标签 ----------
@@ -1166,6 +1272,11 @@ export const useNotesStore = defineStore('notes', () => {
     createRevision,
     restoreRevision,
     deleteRevision,
+    unlockNote,
+    setNoteLock,
+    removeNoteLock,
+    hasUnlockToken,
+    noteHeaders,
     fetchTags,
     createTag,
     updateTag,

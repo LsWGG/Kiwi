@@ -55,6 +55,29 @@ class NoteUpdate(BaseModel):
     tags: list[str] | None = Field(default=None, max_length=30)
 
 
+class NoteLockIn(BaseModel):
+    """设置 / 修改笔记密码锁。密码长度至少 4 位。"""
+
+    password: str = Field(min_length=4, max_length=128)
+    hint: str | None = Field(default=None, max_length=120)
+
+
+class NoteUnlockIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class NoteLockRemoveIn(BaseModel):
+    """移除密码锁：可用密码，或已持有的解锁令牌。"""
+
+    password: str | None = Field(default=None, max_length=128)
+
+
+class NoteLockOut(BaseModel):
+    token: str
+    expires_at: int
+    is_locked: bool = True
+
+
 class NoteCopyIn(BaseModel):
     """复制笔记：默认复制到同一分组的末尾。"""
 
@@ -87,6 +110,10 @@ class NoteOut(BaseModel):
     props_json: dict
     tags: list[str] = Field(default_factory=list, validation_alias="tag_names")
     wiki_page_id: uuid.UUID | None = None
+    is_locked: bool = False
+    lock_hint: str | None = None
+    # 本次响应是否已通过 X-Note-Token 解锁（上锁笔记的正文仅在解锁时返回）
+    unlocked: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -113,6 +140,8 @@ class NoteSummary(BaseModel):
     props_json: dict
     tags: list[str] = Field(default_factory=list, validation_alias="tag_names")
     wiki_page_id: uuid.UUID | None = None
+    is_locked: bool = False
+    lock_hint: str | None = None
     created_at: datetime
     updated_at: datetime
 

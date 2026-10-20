@@ -5,7 +5,7 @@ import re
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from app.routers.chat import resolve_llm
 from app.schemas.note import NoteAssistIn, NoteAssistOut, NoteAssistReference
 from app.services.docx_export import markdown_to_docx, resolve_note_mentions
 from app.services.llm_factory import llm_factory
+from app.services.note_lock import token_is_valid
 from app.services.retrieval import hyrid_search
 
 router = APIRouter(prefix="/api/notes", tags=["note-editor"])
@@ -224,10 +225,13 @@ async def _mention_titles(
 async def export_docx(
     note_id: uuid.UUID,
     kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
     session: AsyncSession = Depends(get_session),
 ):
     """把笔记正文转换为 Word 文档下载。"""
     note = await _get_note(session, kb_id, note_id)
+    if note.is_locked and not token_is_valid(note, x_note_token):
+        raise HTTPException(403, "笔记已上锁，请先输入密码解锁后再导出")
     props = note.props_json or {}
     body_md = note.body_md or ""
     titles = await _mention_titles(session, kb_id, body_md)

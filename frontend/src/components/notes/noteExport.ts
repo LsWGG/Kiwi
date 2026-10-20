@@ -6,7 +6,7 @@
 import { request } from '@/api/client'
 import { downloadNoteDocx } from '@/components/editor/docx'
 import type { DbField, DbRow } from '@/stores/noteDatabase'
-import type { NoteOut, NoteSummary } from '@/stores/notes'
+import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
 import { canvasDocToSvg } from './canvas/canvasSvgExport'
 import { normalizeDoc } from './canvas/types'
 import type { NotebookDoc } from './notebook/types'
@@ -84,8 +84,20 @@ function downloadText(text: string, filename: string, mime: string) {
   downloadBlob(new Blob([text], { type: `${mime};charset=utf-8` }), filename)
 }
 
+/** 上锁笔记导出时附带解锁令牌；未解锁的响应正文会被后端清空。 */
+function noteHeaders(id: string): Record<string, string> {
+  return useNotesStore().noteHeaders(id)
+}
+
 async function fetchNote(note: Pick<NoteSummary, 'id' | 'kb_id'>): Promise<NoteOut> {
-  return request<NoteOut>(`/notes/${note.id}`, { kbId: note.kb_id })
+  const full = await request<NoteOut>(`/notes/${note.id}`, {
+    kbId: note.kb_id,
+    headers: noteHeaders(note.id),
+  })
+  if (full.is_locked && !full.unlocked) {
+    throw new Error('笔记已上锁，请先输入密码解锁后再导出')
+  }
+  return full
 }
 
 function markdownDocument(note: NoteOut): string {
@@ -223,9 +235,10 @@ function displayWidth(text: string): number {
 }
 
 async function exportDatabase(note: NoteOut, kind: 'xlsx' | 'csv' | 'json') {
+  const headers = noteHeaders(note.id)
   const [db, rows] = await Promise.all([
-    request<DatabaseOut>(`/notes/${note.id}/database`, { kbId: note.kb_id }),
-    request<DbRow[]>(`/notes/${note.id}/rows`, { kbId: note.kb_id }),
+    request<DatabaseOut>(`/notes/${note.id}/database`, { kbId: note.kb_id, headers }),
+    request<DbRow[]>(`/notes/${note.id}/rows`, { kbId: note.kb_id, headers }),
   ])
   const fields = Array.isArray(db.fields) ? db.fields : []
   const base = safeFileName(note.title)
@@ -293,6 +306,7 @@ async function exportDatabase(note: NoteOut, kind: 'xlsx' | 'csv' | 'json') {
 async function exportNotebookFile(note: Pick<NoteSummary, 'id' | 'kb_id' | 'title'>) {
   const res = await fetch(
     `/api/notebooks/${note.id}/export?kb_id=${encodeURIComponent(note.kb_id)}`,
+    { headers: noteHeaders(note.id) },
   )
   if (!res.ok) {
     const detail = await res.json().catch(() => null)
@@ -308,7 +322,7 @@ export async function runNoteExport(
 ): Promise<void> {
   const base = safeFileName(note.title)
   if (key === 'docx') {
-    await downloadNoteDocx(note.id, note.kb_id, note.title)
+    await downloadNoteDocx(note.id, note.kb_id, note.title, noteHeaders(note.id))
     return
   }
   if (key === 'ipynb') {

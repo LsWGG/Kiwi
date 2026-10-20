@@ -37,7 +37,12 @@ logger = logging.getLogger("kiwi.todo")
 HUB_FOLDER_NAME = "收件箱"
 HUB_NOTE_TITLE = "待办汇总"
 
-TASK_RE = re.compile(r"^(?P<indent>\s*)[-*+]\s+\[(?P<state>[ xX])\]\s+(?P<text>.+?)\s*$")
+# 支持块引用中的任务项：`> - [ ] xxx`（子笔记复制引用块时很常见），
+# 前缀原样保留，勾选回写时不会破坏引用结构。
+TASK_RE = re.compile(
+    r"^(?P<quote>(?:\s*>\s*)*)(?P<indent>\s*)[-*+]\s+"
+    r"\[(?P<state>[ xX])\]\s+(?P<text>.+?)\s*$"
+)
 TODO_LINK_RE = re.compile(r"kiwi://todo/([0-9a-fA-F-]{36})")
 DONE_NAMES = {
     "done",
@@ -259,6 +264,8 @@ async def collect_sources(
                     Note.kb_id == kb_id,
                     Note.status == "active",
                     Note.id != hub_id,
+                    # 上锁笔记的待办不汇总到收件箱，避免旁路泄露正文。
+                    Note.lock_hash.is_(None),
                 )
             )
         )
@@ -475,7 +482,10 @@ async def _set_task_state(
         core = line[: -1] if newline else line
         new_state = "x" if done else " "
         lines[index] = TASK_RE.sub(
-            lambda m: f"{m.group('indent')}- [{new_state}] {m.group('text')}", core
+            lambda m: (
+                f"{m.group('quote')}{m.group('indent')}- [{new_state}] {m.group('text')}"
+            ),
+            core,
         ) + newline
         changed = True
         break

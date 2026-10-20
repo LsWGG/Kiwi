@@ -18,6 +18,7 @@ import {
 import { normalizeDataTable, type DataTableModel } from './extensions/dataTableModel'
 import type { DbField, DbView } from '@/stores/noteDatabase'
 import { orderedListStyleClass } from './orderedListStyles'
+import { foldImageCaptionTokens } from './imageCaptions'
 
 const props = withDefaults(
   defineProps<{
@@ -39,6 +40,9 @@ const md = new MarkdownIt({
   breaks: false,
   typographer: false,
 }).use(taskLists, { enabled: true, label: true })
+
+// 与编辑器解析保持一致：把图片后的独立图注段落折叠为图片 title。
+md.core.ruler.push('kiwi_image_caption_fold', foldImageCaptionTokens)
 
 /**
  * 问答引用标注：把 [1] / [1,2] / [1-3] 渲染成可点击的引用角标。
@@ -212,6 +216,74 @@ function noteCardHtml(content: string): string {
   } catch {
     return ''
   }
+}
+
+/** 内嵌网页 / 链接卡片：与编辑器内的 EmbedBlock 保持同一份 JSON 数据。 */
+function embedHtml(content: string): string {
+  let data: Record<string, any> = {}
+  try {
+    data = JSON.parse(content) || {}
+  } catch {
+    return ''
+  }
+  const url = String(data.url || '')
+  if (!/^https?:\/\//i.test(url)) return ''
+  const title = escapeHtml(String(data.title || data.site || url))
+  const site = escapeHtml(String(data.site || ''))
+  const excerpt = escapeHtml(String(data.excerpt || ''))
+  const faviconRaw = String(data.favicon || '')
+  const favicon = /^https?:\/\//i.test(faviconRaw)
+    ? `<img src="${escapeAttr(faviconRaw)}" alt="" loading="lazy" />`
+    : '<span class="md-embed-glyph">▤</span>'
+  const kind = data.kind === 'link' || !data.kind ? 'link' : 'file'
+  const display =
+    kind === 'link' && data.display === 'web'
+      ? 'web'
+      : kind === 'link' && data.display === 'title'
+        ? 'title'
+        : 'card'
+  if (display === 'title') {
+    return (
+      `<p class="md-embed-title-line">` +
+      `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">` +
+      `<span class="md-embed-favicon">${favicon}</span>` +
+      `<span>${title}</span>` +
+      `<span class="md-embed-arrow">↗</span>` +
+      `</a></p>`
+    )
+  }
+  if (display === 'web') {
+    const height = Math.min(1600, Math.max(240, Number(data.height) || 480))
+    return (
+      `<div class="md-embed-web">` +
+      `<div class="md-embed-web-bar">` +
+      `<span class="md-embed-favicon">${favicon}</span>` +
+      `<a class="md-embed-web-title" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">` +
+      `<span class="md-embed-title">${title}</span>` +
+      (site ? `<span class="md-embed-site">${site}</span>` : '') +
+      `</a>` +
+      `<a class="md-embed-open" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">新窗口打开 ↗</a>` +
+      `</div>` +
+      `<iframe src="${escapeAttr(url)}" title="${escapeAttr(
+        String(data.title || url),
+      )}" loading="lazy" referrerpolicy="no-referrer"` +
+      ` sandbox="allow-scripts allow-same-origin allow-popups allow-forms"` +
+      ` style="height:${height}px"></iframe>` +
+      `<p class="md-embed-tip">部分网站禁止被嵌入，若显示空白可点击标题在新窗口打开</p>` +
+      `</div>`
+    )
+  }
+  return (
+    `<a class="md-embed-card" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">` +
+    `<span class="md-embed-favicon">${favicon}</span>` +
+    `<span class="md-embed-body">` +
+    `<span class="md-embed-title">${title}</span>` +
+    (site ? `<span class="md-embed-site">${site}</span>` : '') +
+    (excerpt ? `<span class="md-embed-excerpt">${excerpt}</span>` : '') +
+    `</span>` +
+    `<span class="md-embed-arrow">↗</span>` +
+    `</a>`
+  )
 }
 
 function shortRangeLabel(event: CalendarEvent): string {
@@ -708,6 +780,9 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   }
   if (lang === 'kiwi-note') {
     return `${noteCardHtml(body)}\n`
+  }
+  if (lang === 'kiwi-embed') {
+    return `${embedHtml(body)}\n`
   }
   if (lang === 'kiwi-calendar') {
     return `${calendarHtml(body)}\n`
@@ -1674,6 +1749,148 @@ function onClick(event: MouseEvent) {
   color: rgb(148 163 184);
 }
 
+.markdown-view .md-embed-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 0.8rem 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgb(226 232 240);
+  background: linear-gradient(135deg, rgb(248 250 252), rgb(255 255 255));
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.markdown-view .md-embed-card:hover {
+  border-color: rgb(186 230 253);
+  box-shadow: 0 8px 22px rgb(15 23 42 / 0.07);
+  transform: translateY(-1px);
+}
+.markdown-view .md-embed-favicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  background: rgb(240 249 255);
+  color: rgb(2 132 199);
+  font-size: 13px;
+  overflow: hidden;
+}
+.markdown-view .md-embed-favicon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+.markdown-view .md-embed-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+.markdown-view .md-embed-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(30 41 59);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markdown-view .md-embed-site {
+  font-size: 11px;
+  color: rgb(148 163 184);
+}
+.markdown-view .md-embed-excerpt {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgb(100 116 139);
+}
+.markdown-view .md-embed-arrow {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgb(148 163 184);
+}
+.markdown-view .md-embed-title-line {
+  margin: 0.6rem 0;
+}
+.markdown-view .md-embed-title-line > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 5px;
+  border-radius: 999px;
+  border: 1px solid rgb(226 232 240);
+  background: rgb(248 250 252);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgb(51 65 85);
+  text-decoration: none;
+}
+.markdown-view .md-embed-title-line > a:hover {
+  border-color: rgb(186 230 253);
+  color: rgb(2 132 199);
+}
+.markdown-view .md-embed-web {
+  margin: 0.9rem 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgb(226 232 240);
+  background: white;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 0.05);
+}
+.markdown-view .md-embed-web-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgb(241 245 249);
+  background: rgb(248 250 252);
+}
+.markdown-view .md-embed-web-title {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  text-decoration: none;
+}
+.markdown-view .md-embed-web-title .md-embed-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.markdown-view .md-embed-open {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: rgb(100 116 139);
+  text-decoration: none;
+}
+.markdown-view .md-embed-open:hover {
+  color: rgb(2 132 199);
+}
+.markdown-view .md-embed-web iframe {
+  display: block;
+  width: 100%;
+  max-height: 80vh;
+  border: 0;
+  background: white;
+}
+.markdown-view .md-embed-tip {
+  margin: 0;
+  padding: 5px 10px;
+  border-top: 1px solid rgb(241 245 249);
+  font-size: 10.5px;
+  color: rgb(148 163 184);
+}
+
 .markdown-view .md-columns {
   display: grid;
   gap: 12px;
@@ -1701,8 +1918,10 @@ function onClick(event: MouseEvent) {
   margin: 0.8rem 0;
   padding: 11px 13px;
   border-radius: 11px;
-  border: 1px solid rgb(217 249 157);
-  background: rgb(247 254 231 / 0.7);
+  /* 与编辑器内的提示块保持一致：淡紫底色 + 主题紫左侧强调 */
+  border: 1px solid rgba(199, 210, 254, 0.8);
+  border-left: 3px solid #8b8ce8;
+  background: linear-gradient(135deg, #f8f9ff 0%, #f4f6ff 100%);
 }
 .markdown-view .md-callout-icon {
   flex: 0 0 auto;
