@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -288,6 +289,302 @@ def _normalize_headers(raw: list[Any], width: int) -> list[str]:
     return headers
 
 
+# ---------- Excel 工作簿（多工作表 + 公式 + 基础样式） ----------
+# 新的「表格」笔记类型直接保存工作簿 JSON；与数据表导入共用同一套
+# 文件大小 / 行列数 / 单元格长度约束。前端按 A1 记法渲染与计算公式。
+
+MAX_SHEETS = 50
+MAX_WORKBOOK_CELLS = 200_000
+DEFAULT_SHEET_ROWS = 100
+DEFAULT_SHEET_COLS = 26
+
+
+def _argb_color(value: Any) -> str | None:
+    """openpyxl 的颜色是 ARGB；只接受不透明的 #RRGGBB。"""
+    raw = str(value or "").strip().lstrip("#")
+    if len(raw) == 8:
+        if raw[:2].upper() == "00":
+            return None
+        raw = raw[2:]
+    if len(raw) != 6 or not re.fullmatch(r"[0-9a-fA-F]{6}", raw):
+        return None
+    if raw.upper() == "000000":
+        return None
+    return f"#{raw.upper()}"
+
+
+def _number_format(value: Any) -> str | None:
+    fmt = str(value or "").strip().lower()
+    if not fmt or fmt == "general":
+        return None
+    if "%" in fmt:
+        return "percent"
+    if any(token in fmt for token in ("yy", "mm", "dd", "hh", "ss", "年", "月", "日")):
+        return "date"
+    if any(token in fmt for token in ("¥", "￥", "$", "€", "£", "currency")):
+        return "currency"
+    if fmt == "@":
+        return "text"
+    if any(token in fmt for token in ("0", "#")):
+        return "number"
+    return None
+
+
+def _cell_style(cell: Any, *, bold: bool | None = None) -> dict:
+    """把 openpyxl 单元格样式压缩成前端渲染需要的少量字段。"""
+    style: dict[str, Any] = {}
+    font = getattr(cell, "font", None)
+    if font is not None:
+        if bold is not None:
+            if bold:
+                style["bold"] = True
+        elif font.bold:
+            style["bold"] = True
+        if font.italic:
+            style["italic"] = True
+        if font.underline:
+            style["underline"] = True
+        color = _argb_color(getattr(font, "color", None) and font.color.rgb)
+        if color:
+            style["color"] = color
+    fill = getattr(cell, "fill", None)
+    if fill is not None and getattr(fill, "fill_type", None) == "solid":
+        background = _argb_color(fill.fgColor.rgb if fill.fgColor else None)
+        if background:
+            style["bg"] = background
+    alignment = getattr(cell, "alignment", None)
+    if alignment is not None and alignment.horizontal in ("left", "center", "right"):
+        style["align"] = alignment.horizontal
+    fmt = _number_format(getattr(cell, "number_format", None))
+    if fmt:
+        style["fmt"] = fmt
+    return style
+
+
+def _sheet_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, datetime):
+        # 去掉无意义的 00:00:00，保持与 Excel 一致的日期观感。
+        return value.isoformat(sep=" ") if (value.hour or value.minute or value.second) else value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value)
+    return text[:MAX_CELL_CHARS]
+
+
+def _date_style(value: Any) -> dict:
+    if isinstance(value, (date, datetime)):
+        return {"fmt": "date"}
+    return {}
+
+
+def _grid_workbook(
+    names: list[str], sheets: dict[str, list[list[Any]]], *, has_header: bool
+) -> tuple[dict, bool]:
+    """CSV / .xls 的通用回退：无公式与样式，仅保留单元格文本。"""
+    sheet_list: list[dict] = []
+    truncated = False
+    for name in names[:MAX_SHEETS]:
+        grid = sheets.get(name, [])
+        rows = max(DEFAULT_SHEET_ROWS, min(len(grid) + 10, MAX_TABLE_ROWS))
+        cols = max(
+            DEFAULT_SHEET_COLS,
+            min(max((len(row) for row in grid), default=0), MAX_TABLE_COLUMNS),
+        )
+        cells: dict[str, dict] = {}
+        for row_index, row in enumerate(grid[:MAX_TABLE_ROWS]):
+            for col_index, raw in enumerate(row[:MAX_TABLE_COLUMNS]):
+                if raw is None or (isinstance(raw, str) and not raw.strip()):
+                    continue
+                value = _sheet_value(raw)
+                style = _date_style(raw)
+                if has_header and row_index == 0:
+                    style["bold"] = True
+                cell: dict[str, Any] = {"v": value}
+                if style:
+                    cell["s"] = style
+                cells[_address(row_index, col_index)] = cell
+        sheet_list.append(
+            {
+                "id": uuid.uuid4().hex,
+                "name": name[:80] or f"Sheet{len(sheet_list) + 1}",
+                "rows": rows,
+                "cols": cols,
+                "cells": cells,
+                "colWidths": {},
+                "rowHeights": {},
+                "merges": [],
+            }
+        )
+    if not sheet_list:
+        raise TableImportError("表格文件没有可读取的工作表", 422)
+    return {
+        "version": 1,
+        "active": sheet_list[0]["id"],
+        "sheets": sheet_list,
+    }, truncated
+
+
+def _address(row: int, col: int) -> str:
+    """0 基行列 → A1 地址。"""
+    label = ""
+    value = col + 1
+    while value > 0:
+        value, rem = divmod(value - 1, 26)
+        label = chr(65 + rem) + label
+    return f"{label}{row + 1}"
+
+
+def _workbook_from_xlsx(content: bytes) -> tuple[dict, bool]:
+    _guard_xlsx(content)
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:  # pragma: no cover - 依赖缺失
+        raise TableImportError("服务端缺少 Excel 解析组件 openpyxl", 500) from exc
+
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=False, data_only=False)
+        cached_book = load_workbook(io.BytesIO(content), read_only=False, data_only=True)
+    except Exception as exc:  # noqa: BLE001 - 第三方解析异常统一转 415
+        raise TableImportError("Excel 文件解析失败，请确认文件未加密", 415) from exc
+
+    try:
+        from openpyxl.utils import column_index_from_string
+    except ImportError as exc:  # pragma: no cover - 依赖缺失
+        workbook.close()
+        cached_book.close()
+        raise TableImportError("服务端缺少 Excel 解析组件 openpyxl", 500) from exc
+
+    sheet_list: list[dict] = []
+    truncated = False
+    total_cells = 0
+    try:
+        for worksheet in workbook.worksheets[:MAX_SHEETS]:
+            cached_ws = cached_book[worksheet.title]
+            max_row = min(worksheet.max_row or 0, MAX_TABLE_ROWS)
+            max_col = min(worksheet.max_column or 0, MAX_TABLE_COLUMNS)
+            if worksheet.max_row and worksheet.max_row > MAX_TABLE_ROWS:
+                truncated = True
+            if worksheet.max_column and worksheet.max_column > MAX_TABLE_COLUMNS:
+                truncated = True
+            rows = max(DEFAULT_SHEET_ROWS, min(max_row + 10, MAX_TABLE_ROWS))
+            cols = max(DEFAULT_SHEET_COLS, min(max_col, MAX_TABLE_COLUMNS))
+            cells: dict[str, dict] = {}
+            for row_index in range(max_row):
+                for col_index in range(max_col):
+                    cell = worksheet.cell(row=row_index + 1, column=col_index + 1)
+                    raw = cell.value
+                    if raw is None and not cell.has_style:
+                        continue
+                    if total_cells >= MAX_WORKBOOK_CELLS:
+                        truncated = True
+                        break
+                    entry: dict[str, Any] = {}
+                    if isinstance(raw, str) and raw.startswith("="):
+                        entry["f"] = raw[:MAX_CELL_CHARS]
+                        cached = cached_ws.cell(
+                            row=row_index + 1, column=col_index + 1
+                        ).value
+                        cached_value = _sheet_value(cached)
+                        if cached_value is not None:
+                            entry["cached"] = cached_value
+                    else:
+                        value = _sheet_value(raw)
+                        if value is not None:
+                            entry["v"] = value
+                    style = _cell_style(cell)
+                    style.update(_date_style(raw))
+                    if style:
+                        entry["s"] = style
+                    if not entry:
+                        continue
+                    cells[_address(row_index, col_index)] = entry
+                    total_cells += 1
+                if total_cells >= MAX_WORKBOOK_CELLS:
+                    break
+
+            col_widths: dict[str, int] = {}
+            for letter, dimension in worksheet.column_dimensions.items():
+                width = getattr(dimension, "width", None)
+                if not width:
+                    continue
+                try:
+                    index = column_index_from_string(letter) - 1
+                except Exception:  # noqa: BLE001 - 异常维度名直接跳过
+                    continue
+                if 0 <= index < cols:
+                    col_widths[str(index)] = max(48, min(420, int(width * 7.5 + 5)))
+
+            row_heights: dict[str, int] = {}
+            for index, dimension in worksheet.row_dimensions.items():
+                height = getattr(dimension, "height", None)
+                if not height:
+                    continue
+                if 1 <= index <= rows:
+                    row_heights[str(index - 1)] = max(20, min(200, int(height * 4 / 3)))
+
+            merges: list[str] = []
+            for merged in worksheet.merged_cells.ranges:
+                if merged.min_row > MAX_TABLE_ROWS or merged.min_col > MAX_TABLE_COLUMNS:
+                    truncated = True
+                    continue
+                merges.append(str(merged))
+
+            sheet_list.append(
+                {
+                    "id": uuid.uuid4().hex,
+                    "name": worksheet.title[:80] or f"Sheet{len(sheet_list) + 1}",
+                    "rows": rows,
+                    "cols": cols,
+                    "cells": cells,
+                    "colWidths": col_widths,
+                    "rowHeights": row_heights,
+                    "merges": merges,
+                }
+            )
+    finally:
+        workbook.close()
+        cached_book.close()
+
+    if not sheet_list:
+        raise TableImportError("Excel 中没有可读取的工作表", 422)
+    return {
+        "version": 1,
+        "active": sheet_list[0]["id"],
+        "sheets": sheet_list,
+    }, truncated
+
+
+def parse_sheet_workbook(
+    content: bytes, filename: str, *, has_header: bool = False
+) -> tuple[dict, bool]:
+    """把 CSV / Excel 解析成表格笔记的工作簿 JSON。"""
+    if not content:
+        raise TableImportError("表格文件为空", 400)
+    if len(content) > MAX_TABLE_BYTES:
+        raise TableImportError("表格文件超过 20MB 上限", 413)
+    scan_status, scan_detail = scan_bytes(content)
+    if scan_status in ("infected", "error"):
+        raise TableImportError(f"文件安全扫描未通过：{scan_detail}", 422)
+
+    ext = Path(filename).suffix.lower()
+    if ext == ".xlsx":
+        return _workbook_from_xlsx(content)
+    if ext in (".csv", ".xls"):
+        names, sheets = _read_workbook(content, filename)
+        return _grid_workbook(names, sheets, has_header=has_header)
+    raise TableImportError(
+        f"不支持的表格类型 {ext or '（无扩展名）'}，允许：.csv、.xlsx、.xls", 415
+    )
+
+
 def parse_table(
     content: bytes,
     filename: str,
@@ -391,6 +688,7 @@ __all__ = [
     "MAX_TABLE_BYTES",
     "TableImportError",
     "ParsedTable",
+    "parse_sheet_workbook",
     "parse_table",
     "preview_payload",
 ]

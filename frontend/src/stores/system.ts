@@ -7,6 +7,7 @@ export const DEFAULT_APP_NAME = 'Kiwi'
 export const DEFAULT_APP_DESCRIPTION = '知识编译与检索系统'
 export const DEFAULT_THEME_COLOR = '#5a55c7'
 export const DEFAULT_LEARN_THEME_COLOR = '#10b981'
+export const DEFAULT_LEARN_DESCRIPTION = '学习训练 · 复习'
 
 export interface SystemSettings {
   app_name: string
@@ -14,6 +15,10 @@ export interface SystemSettings {
   logo_url: string
   theme_color: string
   learn_theme_color: string
+  /** 学习模式独立 Logo，留空沿用品牌 Logo */
+  learn_logo_url: string
+  /** 学习模式一句话描述 */
+  learn_description: string
   ocr_enabled: boolean
   ocr_provider: string
   ocr_api_base: string
@@ -44,6 +49,8 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   logo_url: '',
   theme_color: DEFAULT_THEME_COLOR,
   learn_theme_color: DEFAULT_LEARN_THEME_COLOR,
+  learn_logo_url: '',
+  learn_description: DEFAULT_LEARN_DESCRIPTION,
   ocr_enabled: false,
   ocr_provider: 'openai',
   ocr_api_base: '',
@@ -211,6 +218,12 @@ export const useSystemStore = defineStore('system', () => {
     () => settings.value.app_description || DEFAULT_APP_DESCRIPTION,
   )
   const logoUrl = computed(() => settings.value.logo_url || '')
+  const learnLogoUrl = computed(
+    () => settings.value.learn_logo_url || settings.value.logo_url || '',
+  )
+  const learnDescription = computed(
+    () => settings.value.learn_description?.trim() || DEFAULT_LEARN_DESCRIPTION,
+  )
 
   async function fetchSettings(force = false): Promise<SystemSettings> {
     if (inflight) return inflight
@@ -278,6 +291,8 @@ export const useSystemStore = defineStore('system', () => {
     appName,
     appDescription,
     logoUrl,
+    learnLogoUrl,
+    learnDescription,
     fetchSettings,
     saveSettings,
     uploadLogo,

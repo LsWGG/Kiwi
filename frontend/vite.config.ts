@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
-import { createReadStream, existsSync } from 'node:fs'
-import { cp, rm, stat } from 'node:fs/promises'
+import { execSync } from 'node:child_process'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import { cp, mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { extname, join, normalize, resolve as pathResolve, sep } from 'node:path'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -191,6 +192,56 @@ function pdfjsAssetsBuildPlugin(): Plugin {
   }
 }
 
+/**
+ * 前端构建信息：dist/build-info.json 与设置页的「前后端版本一致性」检查共用。
+ * deploy.sh / CI 可传入 KIWI_BUILD_COMMIT、KIWI_BUILD_TIME；本地构建回退到 git。
+ */
+function buildInfoPlugin(): Plugin {
+  const pkg = JSON.parse(readFileSync(pathResolve(__dirname, 'package.json'), 'utf8')) as {
+    version?: string
+  }
+  const commit =
+    process.env.KIWI_BUILD_COMMIT?.trim() ||
+    (() => {
+      try {
+        return execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] })
+          .toString()
+          .trim()
+      } catch {
+        return 'unknown'
+      }
+    })()
+  const info = {
+    name: 'kiwi-frontend',
+    version: pkg.version || '0.0.0',
+    commit,
+    built_at: process.env.KIWI_BUILD_TIME?.trim() || new Date().toISOString(),
+  }
+  let outDir = pathResolve(__dirname, 'dist')
+
+  return {
+    name: 'kiwi-build-info',
+    configResolved(config) {
+      outDir = pathResolve(__dirname, config.build.outDir)
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = (req.url || '').split('?')[0]
+        if (pathname !== '/build-info.json') return next()
+        const body = JSON.stringify(info, null, 2)
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.setHeader('Cache-Control', 'no-store')
+        res.end(body)
+      })
+    },
+    async closeBundle() {
+      await mkdir(outDir, { recursive: true })
+      await writeFile(join(outDir, 'build-info.json'), JSON.stringify(info, null, 2))
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // 后端地址可配：VITE_BACKEND_PROXY=http://localhost:8001 npm run dev
@@ -205,7 +256,13 @@ export default defineConfig(({ mode }) => {
     : { '@antv/g6': pathResolve(__dirname, 'src/graph/g6-stub.ts') }
 
   return {
-    plugins: [portalDevPlugin(), pdfjsAssetsDevPlugin(), pdfjsAssetsBuildPlugin(), vue()],
+    plugins: [
+      portalDevPlugin(),
+      pdfjsAssetsDevPlugin(),
+      pdfjsAssetsBuildPlugin(),
+      buildInfoPlugin(),
+      vue(),
+    ],
     build: {
       // 压缩体积统计对产物无影响，关闭后可降低 CI / 低内存主机上的构建内存。
       reportCompressedSize: false,

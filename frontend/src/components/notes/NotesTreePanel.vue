@@ -239,6 +239,7 @@ const KIND_ICON: Record<string, string> = {
   import: 'fileImport',
   canvas: 'pen',
   notebook: 'notebook',
+  sheet: 'table',
 }
 
 function kindIcon(kind: string): string {
@@ -648,7 +649,9 @@ const dragGhost = computed(() => {
             ? 'fileImport'
             : kind === 'notebook'
               ? 'notebook'
-              : 'fileText'
+              : kind === 'sheet'
+                ? 'table'
+                : 'fileText'
   return { label: row.note?.title || '无标题', icon, tone: 'text-kiwi-500' }
 })
 
@@ -1404,7 +1407,7 @@ async function confirmFolder() {
 const createFolderId = ref<string | null>(null)
 
 async function createNoteAt(
-  kind: 'doc' | 'canvas' | 'database' | 'notebook',
+  kind: 'doc' | 'canvas' | 'database' | 'notebook' | 'sheet',
   folderId: string | null = null,
   parentNoteId: string | null = null,
 ) {
@@ -1413,12 +1416,14 @@ async function createNoteAt(
     canvas: '无标题画布',
     database: '无标题数据表',
     notebook: '无标题 Notebook',
+    sheet: '无标题表格',
   } as const
   const names = {
     doc: '创建文档',
     canvas: '创建画布',
     database: '创建数据表',
     notebook: '创建 Notebook',
+    sheet: '创建表格',
   } as const
   try {
     const note = await notes.createNote({
@@ -1445,6 +1450,7 @@ const createDoc = (folderId: string | null = null) => createNoteAt('doc', folder
 const createCanvas = (folderId: string | null = null) => createNoteAt('canvas', folderId)
 const createDatabase = (folderId: string | null = null) => createNoteAt('database', folderId)
 const createNotebook = (folderId: string | null = null) => createNoteAt('notebook', folderId)
+const createSheet = (folderId: string | null = null) => createNoteAt('sheet', folderId)
 
 const importOpen = ref(false)
 const importFolderId = ref<string | null>(null)
@@ -1503,6 +1509,9 @@ function createFromMenu(kind: string) {
       break
     case 'notebook':
       void createNoteAt('notebook', folderId, parentNoteId)
+      break
+    case 'sheet':
+      void createNoteAt('sheet', folderId, parentNoteId)
       break
     case 'import':
       openImport(folderId, parentNoteId)
@@ -1585,6 +1594,7 @@ const createFolderMenu = () => openFolderDialog(null)
           @doc="createDoc()"
           @canvas="createCanvas()"
           @database="createDatabase()"
+          @sheet="createSheet()"
           @notebook="createNotebook()"
           @import="openImport()"
           @folder="createFolderMenu"
@@ -1614,6 +1624,7 @@ const createFolderMenu = () => openFolderDialog(null)
         @doc="createDoc()"
         @canvas="createCanvas()"
         @database="createDatabase()"
+        @sheet="createSheet()"
         @notebook="createNotebook()"
         @import="openImport()"
         @folder="createFolderMenu"

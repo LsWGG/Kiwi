@@ -14,6 +14,7 @@ DEFAULT_APP_NAME = "Kiwi"
 DEFAULT_APP_DESCRIPTION = "知识编译与检索系统"
 DEFAULT_THEME_COLOR = "#5a55c7"
 DEFAULT_LEARN_THEME_COLOR = "#10b981"
+DEFAULT_LEARN_DESCRIPTION = "学习训练 · 复习"
 
 
 def runtime_from_row(row: SystemSettings | None) -> ocr_service.OcrConfig:

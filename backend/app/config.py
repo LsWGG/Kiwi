@@ -57,6 +57,30 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     # 本地实例直连远端数据库时关闭，避免向共享库 / 向量库写入巡检与调度数据。
     background_jobs: bool = True
+    # 后台任务 worker：与 background_jobs 同时开启才会消费持久化任务。
+    job_worker_enabled: bool = True
+    job_concurrency: int = 2
+    job_max_attempts: int = 3
+
+    # --- 访问控制（单用户本地应用默认关闭）---
+    # 设置后，/api 与 /media 需要 X-Access-Token、Authorization: Bearer
+    # 或登录后写入的同名 Cookie。留空表示不启用。
+    access_token: str = ""
+    access_cookie_name: str = "kiwi_access"
+    rate_limit_enabled: bool = True
+    rate_limit_llm_per_minute: int = 20
+    rate_limit_import_per_minute: int = 10
+    rate_limit_code_per_minute: int = 30
+
+    # --- 备份 ---
+    backup_enabled: bool = True
+    backup_interval_hours: float = 24.0
+    backup_retention_days: int = 14
+    backup_dir: Path = Path("data/backups")
+
+    # --- 构建信息 ---
+    build_commit: str = ""
+    build_time: str = ""
 
 
 @lru_cache

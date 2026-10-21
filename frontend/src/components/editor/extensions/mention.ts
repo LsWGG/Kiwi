@@ -21,7 +21,7 @@ export type MentionTarget = 'note' | 'wiki'
 export interface MentionNote {
   id: string
   title: string
-  kind?: 'doc' | 'database' | 'link' | 'import' | 'canvas' | 'notebook'
+  kind?: 'doc' | 'database' | 'link' | 'import' | 'canvas' | 'notebook' | 'sheet'
 }
 
 export interface MentionWikiPage {

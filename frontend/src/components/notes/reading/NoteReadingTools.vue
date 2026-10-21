@@ -2,7 +2,7 @@
 /**
  * 阅读模式演示层：
  * - 红色激光点跟随鼠标
- * - 底部浮动栏：全屏 / 页面缩放 / 演示笔（画笔、箭头、矩形、椭圆、颜色）/ 橡皮擦 / 清空
+ * - 底部浮动栏：目录 / 全屏 / 页面缩放 / 演示笔（画笔、箭头、矩形、椭圆、颜色）/ 橡皮擦 / 清空
  * 批注画布只覆盖当前可视区域，不修改笔记内容。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -23,16 +23,24 @@ interface Stroke {
   points: Point[]
 }
 
-const props = defineProps<{
-  areaEl: HTMLElement | null
-  scrollerEl: HTMLElement | null
-  zoom: number
-  zen: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    areaEl: HTMLElement | null
+    scrollerEl: HTMLElement | null
+    zoom: number
+    zen: boolean
+    /** 阅读模式下目录侧栏是否展开 */
+    outlineOpen?: boolean
+    /** 当前页面是否有目录可显示（链接 / 手账等没有大纲的页面不显示按钮） */
+    outlineAvailable?: boolean
+  }>(),
+  { outlineOpen: false, outlineAvailable: false },
+)
 
 const emit = defineEmits<{
   (e: 'update:zoom', value: number): void
   (e: 'update:zen', value: boolean): void
+  (e: 'toggle-outline'): void
 }>()
 
 const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#0f172a']
@@ -488,6 +496,18 @@ defineExpose({ reset })
     <div
       class="reading-toolbar pointer-events-auto absolute bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-0.5 rounded-2xl border border-white/10 bg-slate-900/70 px-2 py-1.5 text-white shadow-2xl backdrop-blur-xl opacity-25 transition-opacity duration-300 hover:opacity-100 focus-within:opacity-100"
     >
+      <button
+        v-if="outlineAvailable"
+        type="button"
+        class="rt-btn"
+        :class="{ 'is-active': outlineOpen }"
+        :title="outlineOpen ? '隐藏目录' : '显示目录'"
+        :aria-pressed="outlineOpen"
+        @click="emit('toggle-outline')"
+      >
+        <KiwiIcon name="listTree" :size="15" />
+      </button>
+
       <button
         type="button"
         class="rt-btn"

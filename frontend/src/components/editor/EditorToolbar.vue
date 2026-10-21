@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * 编辑器工具栏：按模式裁剪，体现不同的编辑方式。
- * - Simple：常用行内格式与列表 + Agent 按钮（点击唤起底部 AI 指令栏）；
- * - Notion：不显示常驻工具栏（由斜杠命令 / 气泡菜单承担）；
+ * - 标准编辑：常用行内格式、列表、插入与 Agent 指令（语雀式）；
  * - DOCX：Word 风格（缩放、字体/字号、表格/图片/对齐 + 页面设置）。
+ * 表格行列 / 合并 / 表头等操作只在表格上下文菜单中，不放在这里。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Editor } from '@tiptap/core'
@@ -27,7 +27,8 @@ import {
   defaultBlockSize,
 } from './extensions/paragraphFormat'
 import { applyTextFormat } from './extensions/textFormat'
-import { normalizeTextStyleAttrs } from './extensions/textStyle'
+import { normalizeColor, normalizeTextStyleAttrs } from './extensions/textStyle'
+import EditorColorPicker from './EditorColorPicker.vue'
 import OrderedListStyleMenu from './OrderedListStyleMenu.vue'
 import {
   DEFAULT_ORDERED_LIST_STYLE,
@@ -53,7 +54,7 @@ const props = withDefaults(
     orderedListStyle?: string | null
   }>(),
   {
-    mode: 'notion',
+    mode: 'simple',
     docxPrefs: null,
     zoom: 100,
     agentOpen: false,
@@ -198,8 +199,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', onComponentViewportChange, true)
 })
 
-// Agent 已合并进 Simple：历史 agent 模式也按 Simple 展示
-const simple = computed(() => props.mode === 'simple' || props.mode === 'agent')
+// Simple / Notion / Agent 已合并为标准编辑
+const simple = computed(() => props.mode !== 'docx')
 const docx = computed(() => props.mode === 'docx')
 const prefs = computed<DocxPrefs>(() => props.docxPrefs ?? DEFAULT_DOCX_PREFS)
 const code = computed<CodePrefs>(() => props.codePrefs ?? DEFAULT_CODE_PREFS)
@@ -289,6 +290,9 @@ const textFormat = computed(() => {
 const currentFont = computed<DocxFont>(
   () => textFormat.value.font ?? paragraphFormat.value.font ?? prefs.value.font,
 )
+const currentTextColor = computed(
+  () => textFormat.value.color ?? '#1F2937',
+)
 const currentSize = computed(() => {
   const selectionSize = textFormat.value.size
   if (typeof selectionSize === 'number') return selectionSize
@@ -315,7 +319,11 @@ function captureSelection() {
     : { from: selection.from, to: selection.to }
 }
 
-function applyToolbarTextFormat(patch: { font?: DocxFont; size?: number }): boolean {
+function applyToolbarTextFormat(patch: {
+  font?: DocxFont
+  size?: number
+  color?: string | null
+}): boolean {
   const ed = props.editor
   if (!ed) return false
   if (!ed.state.selection.empty) return applyTextFormat(ed, patch)
@@ -342,6 +350,18 @@ function onFont(e: Event) {
   if (docx.value) applyParagraphFormat(ed, { font })
   else applyTextFormat(ed, { font })
 }
+function onTextColor(color: string) {
+  const ed = props.editor
+  if (!ed) return
+  if (applyToolbarTextFormat({ color })) return
+  // 无选区时设置为「后续输入」的颜色，与字体 / 字号行为一致
+  applyTextFormat(ed, { color })
+}
+
+function clearTextColor() {
+  applyToolbarTextFormat({ color: null })
+}
+
 function onSize(e: Event) {
   const ed = props.editor
   if (!ed) return
@@ -358,7 +378,7 @@ function zoomBy(direction: -1 | 1) {
   emit('zoom', next)
 }
 
-/** Word 模式只保留版式类段落样式，不提供代码块等 Notion 专属块。 */
+/** Word 模式只保留版式类段落样式，不提供代码块等扩展块。 */
 const blockOptions = computed(() => {
   const options = [
     { value: 'paragraph', label: '正文' },
@@ -555,6 +575,14 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
       <button type="button" :class="[btn, editor.isActive('highlight') ? activeBtn : '']" title="高亮" @click="run((e) => e.chain().focus().toggleHighlight().run())">
         <KiwiIcon name="highlight" :size="14" />
       </button>
+      <EditorColorPicker
+        variant="toolbar"
+        :value="currentTextColor"
+        :active="!!textFormat.color"
+        @pointerdown="captureSelection"
+        @select="onTextColor"
+        @clear="clearTextColor"
+      />
       <button v-if="!docx" type="button" :class="[btn, editor.isActive('code') ? activeBtn : '']" title="行内代码" @click="run((e) => e.chain().focus().toggleCode().run())">
         <KiwiIcon name="code" :size="14" />
       </button>
@@ -661,7 +689,7 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
             >
               <div
                 ref="componentMenuEl"
-                class="w-60 rounded-xl border border-slate-200/90 bg-white/98 p-1.5 shadow-xl backdrop-blur"
+                class="w-60 rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
                 :style="{ zoom: 'var(--ui-scale)' }"
               >
                 <p class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">
@@ -713,40 +741,6 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
           <KiwiIcon name="chevron" :size="14" />
         </button>
         <button type="button" :class="[btn, 'hover:text-rose-600']" title="解除折叠" @click="run((e) => e.chain().focus().unsetDetails().run())">
-          <KiwiIcon name="trash" :size="14" />
-        </button>
-      </div>
-    </template>
-
-    <!-- 光标位于表格内：行列与单元格操作 -->
-    <template v-if="editor.isActive('table')">
-      <span :class="sep" />
-      <div :class="group">
-        <button type="button" :class="btn" title="在上方插入行" @click="run((e) => e.chain().focus().addRowBefore().run())">
-          <KiwiIcon name="plus" :size="14" />
-        </button>
-        <button type="button" :class="btn" title="在下方插入行" @click="run((e) => e.chain().focus().addRowAfter().run())">
-          <KiwiIcon name="plus" :size="14" class="rotate-90" />
-        </button>
-        <button type="button" :class="btn" title="在左侧插入列" @click="run((e) => e.chain().focus().addColumnBefore().run())">
-          <KiwiIcon name="columns" :size="14" class="rotate-90" />
-        </button>
-        <button type="button" :class="btn" title="在右侧插入列" @click="run((e) => e.chain().focus().addColumnAfter().run())">
-          <KiwiIcon name="columns" :size="14" />
-        </button>
-        <button type="button" :class="btn" title="删除当前行" @click="run((e) => e.chain().focus().deleteRow().run())">
-          <KiwiIcon name="minus" :size="14" />
-        </button>
-        <button type="button" :class="btn" title="删除当前列" @click="run((e) => e.chain().focus().deleteColumn().run())">
-          <KiwiIcon name="minus" :size="14" class="rotate-90" />
-        </button>
-        <button type="button" :class="btn" title="合并单元格" @click="run((e) => e.chain().focus().mergeCells().run())">
-          <KiwiIcon name="table" :size="14" />
-        </button>
-        <button type="button" :class="btn" title="拆分单元格" @click="run((e) => e.chain().focus().splitCell().run())">
-          <KiwiIcon name="expand" :size="14" />
-        </button>
-        <button type="button" :class="[btn, 'hover:text-rose-600']" title="删除表格" @click="run((e) => e.chain().focus().deleteTable().run())">
           <KiwiIcon name="trash" :size="14" />
         </button>
       </div>

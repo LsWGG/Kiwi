@@ -352,15 +352,18 @@ async def compile_source(
 
     from openai import APIError
 
+    from app.services.metrics import llm_call
+
     heartbeat_stop = asyncio.Event()
     heartbeat = asyncio.create_task(_job_heartbeat(job_id, heartbeat_stop))
     try:
-        resp = await client.chat.completions.create(
-            model=cfg.model_name,
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=0.2,
-        )
+        async with llm_call(cfg.model_name):
+            resp = await client.chat.completions.create(
+                model=cfg.model_name,
+                messages=messages,
+                response_format={"type": "json_object"},
+                temperature=0.2,
+            )
         raw = resp.choices[0].message.content or ""
     except APIError as e:
         raise CompileError(f"LLM 调用失败：{e}") from e

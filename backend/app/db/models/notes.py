@@ -23,7 +23,7 @@ from app.db.base import Base, UUIDPkMixin
 NoteStatus = Literal["active", "archived", "trash"]
 NoteViewMode = Literal["edit", "outline", "split", "read"]
 # 工作区节点类型：文档 / 数据表 / 外链 / 导入 / 画布
-NoteKind = Literal["doc", "database", "link", "import", "canvas"]
+NoteKind = Literal["doc", "database", "link", "import", "canvas", "notebook", "sheet"]
 
 
 class NoteFolder(UUIDPkMixin, Base):
@@ -108,6 +108,11 @@ class Note(UUIDPkMixin, Base):
     lock_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lock_hint: Mapped[str | None] = mapped_column(String(120), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 可选「加密存储」：正文以 Fernet 密文保存，密钥由密码派生。
+    # body_enc 非空时 body_md 应为空；移除锁时解密回 body_md。
+    body_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lock_encrypted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    lock_enc_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     kb = relationship("KnowledgeBase", back_populates="notes")
     tags: Mapped[list[NoteTag]] = relationship(secondary="note_tag_links", lazy="selectin")

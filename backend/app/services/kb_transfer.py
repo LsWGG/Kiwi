@@ -25,7 +25,6 @@ from datetime import date, datetime, timezone
 from hashlib import sha1
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import quote
 
 from sqlalchemy import Date, DateTime, Uuid, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +55,6 @@ from app.db.models import (
     StudyQuestion,
     StudyReview,
     StudySession,
-    TodoMirror,
     WebResearchLog,
     WikiLink,
     WikiLintReport,

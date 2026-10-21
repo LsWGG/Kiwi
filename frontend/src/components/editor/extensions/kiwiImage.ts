@@ -91,7 +91,14 @@ export const KiwiImage = Image.extend<KiwiImageOptions>({
           if (width > 0) {
             const json = JSON.stringify({ src, alt, title, width: Math.round(width) })
             const fence = fenceFor(json)
-            state.write(`${fence}${IMAGE_LANGUAGE}\n${json}\n${fence}`)
+            // 逐行 write：序列化器只在行首补 `state.delim`（引用块 / 列表缩进）。
+            // 一次写入含换行符的整段围栏，会让后续行丢掉 `> ` 前缀，把图片
+            // JSON 挤出引用块，重新打开时整段内容变成乱码。
+            state.write(`${fence}${IMAGE_LANGUAGE}`)
+            state.ensureNewLine()
+            state.write(json)
+            state.ensureNewLine()
+            state.write(fence)
             state.closeBlock(node)
             return
           }

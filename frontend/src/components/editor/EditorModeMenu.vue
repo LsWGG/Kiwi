@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 编辑器模式切换：Simple / Notion-like / DOCX（放在「阅读」按钮前）。 */
+/** 编辑器模式切换：标准编辑 / DOCX（放在「阅读」按钮前）。 */
 import { computed } from 'vue'
 import KiwiDropdown from '@/components/ui/KiwiDropdown.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'

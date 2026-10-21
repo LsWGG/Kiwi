@@ -74,7 +74,7 @@ async def _run_wiki_compile(
             continue
         job, source, reused = prepared
         await session.commit()
-        _schedule_note_compile(job, kb.id, source.id, reused)
+        await _schedule_note_compile(job, kb.id, source.id, reused)
         jobs += 1
 
     kb.wiki_compile_last_at = now

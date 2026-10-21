@@ -49,7 +49,9 @@ const excerpt = computed(() => {
   if (kind === 'link') {
     return String(note.props_json?.excerpt || '')
   }
-  if (kind === 'database' || kind === 'canvas' || kind === 'notebook') return ''
+  if (kind === 'database' || kind === 'canvas' || kind === 'notebook' || kind === 'sheet') {
+    return ''
+  }
   return String(note.body_md || '')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')

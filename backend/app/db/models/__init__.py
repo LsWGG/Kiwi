@@ -1,11 +1,13 @@
 """数据模型注册：供 Alembic 与业务导入。"""
 
 from app.db.models.attachment import NoteAttachment
+from app.db.models.audit import AuditLog
 from app.db.models.chat import ChatSession
 from app.db.models.collection_row import CollectionRow
 from app.db.models.embedding_config import EmbeddingConfig
 from app.db.models.import_batch import ImportBatch
 from app.db.models.ingest_job import IngestJob
+from app.db.models.job import Job
 from app.db.models.knowledge_base import KnowledgeBase
 from app.db.models.llm_config import LLMConfig
 from app.db.models.note_revision import NoteRevision
@@ -19,8 +21,6 @@ from app.db.models.notes import (
 )
 from app.db.models.notes_collection import NoteCollection
 from app.db.models.sources import Source
-from app.db.models.system_settings import SystemSettings
-from app.db.models.todo_mirror import TodoMirror
 from app.db.models.study import (
     ExamTemplate,
     LearningAnnotation,
@@ -35,11 +35,15 @@ from app.db.models.study import (
     StudySession,
     WebResearchLog,
 )
+from app.db.models.system_settings import SystemSettings
+from app.db.models.todo_mirror import TodoMirror
 from app.db.models.wiki import WikiLink, WikiLintReport, WikiPage
 
 __all__ = [
     "KnowledgeBase",
     "Source",
+    "Job",
+    "AuditLog",
     "ChatSession",
     "Note",
     "NoteFolder",

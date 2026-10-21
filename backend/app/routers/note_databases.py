@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import CollectionRow, Note, NoteCollection
 from app.db.session import get_session
+from app.routers.note_guard import require_unlocked_note
 from app.schemas.note_database import (
     CollectionContextOut,
     DatabaseOut,
@@ -19,9 +20,7 @@ from app.schemas.note_database import (
     RowOut,
     RowUpdate,
 )
-from app.services import todo_sync
-from app.routers.note_guard import require_unlocked_note
-from app.services import note_lock
+from app.services import note_lock, todo_sync
 from app.services.note_database import (
     default_views_for,
     ensure_collection,

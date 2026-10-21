@@ -14,6 +14,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+# 构建版本同时写入前端 build-info.json 与后端镜像环境变量，供设置页做一致性检查。
+KIWI_BUILD_COMMIT="${KIWI_BUILD_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+KIWI_BUILD_TIME="${KIWI_BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+export KIWI_BUILD_COMMIT KIWI_BUILD_TIME
+echo "[kiwi-deploy] 构建版本：${KIWI_BUILD_COMMIT} @ ${KIWI_BUILD_TIME}"
+
 ENV_FILE=".env.prod"
 COMPOSE_FILE="docker-compose.prod.yml"
 

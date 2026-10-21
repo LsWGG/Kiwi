@@ -32,7 +32,7 @@ from app.schemas.kb import (
     KBReorderIn,
     KBUpdate,
 )
-from app.services import kb_transfer, qdrant_store, todo_sync
+from app.services import audit, kb_transfer, qdrant_store, todo_sync
 from app.services.builtin_demo import (
     get_builtin_status,
     purge_builtin_kb,
@@ -241,6 +241,21 @@ async def import_kb(
         Path(tmp.name).unlink(missing_ok=True)
         await file.close()
 
+    await audit.record(
+        session,
+        "kb.import",
+        kb_id=kb.id,
+        target_type="kb",
+        target_id=kb.id,
+        detail={
+            "name": kb.name,
+            "filename": file.filename,
+            "stats": stats.model_dump() if hasattr(stats, "model_dump") else stats,
+        },
+        note=f"导入知识库包：{kb.name}",
+    )
+    await session.commit()
+
     return KBImportOut(
         kb=KBOut.model_validate(kb, from_attributes=True),
         stats=stats,
@@ -250,11 +265,21 @@ async def import_kb(
 @router.get("/{kb_id}/export")
 async def export_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     """导出知识库全量数据（业务表 + 原始素材 + 附件）为 ``.kiwizip``。"""
-    await _get_kb(session, kb_id)
+    kb = await _get_kb(session, kb_id)
     try:
         path, filename = await kb_transfer.build_export(session, kb_id)
     except kb_transfer.TransferError as exc:
         raise HTTPException(400, str(exc)) from exc
+    await audit.record(
+        session,
+        "kb.export",
+        kb_id=kb_id,
+        target_type="kb",
+        target_id=kb_id,
+        detail={"name": kb.name, "filename": filename, "size": Path(path).stat().st_size},
+        note=f"导出知识库：{kb.name}",
+    )
+    await session.commit()
     return FileResponse(
         path,
         media_type="application/zip",
@@ -370,6 +395,15 @@ async def delete_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_sessio
         # 内置演示库同样硬删除：数据 / 素材 / 向量全部清理，
         # 之后可在知识库页按当前随包内容重新创建。
         await purge_builtin_kb(session, kb)
+        await audit.record(
+            session,
+            "kb.delete",
+            kb_id=kb_id,
+            target_type="kb",
+            target_id=kb_id,
+            detail={"name": kb.name, "builtin": True},
+            note=f"删除内置知识库：{kb.name}",
+        )
         await session.commit()
         return
     # 级联删除库内数据，向量兜底清理
@@ -380,4 +414,13 @@ async def delete_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_sessio
     kernel_manager.purge_kb(str(kb_id))
     forget_kb(kb_id)
     await session.delete(kb)
+    await audit.record(
+        session,
+        "kb.delete",
+        kb_id=kb_id,
+        target_type="kb",
+        target_id=kb_id,
+        detail={"name": kb.name, "builtin": False},
+        note=f"删除知识库：{kb.name}",
+    )
     await session.commit()

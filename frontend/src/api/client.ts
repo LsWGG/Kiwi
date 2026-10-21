@@ -35,10 +35,26 @@ export function errorMessage(detail: unknown, fallback: string): string {
   return fallback
 }
 
-async function parseError(res: Response): Promise<Error> {
-  const body = await res.json().catch(() => null)
+async function parseError(res: Response, body: unknown): Promise<Error> {
   const detail = body && typeof body === 'object' ? (body as any).detail : null
   return new Error(errorMessage(detail, res.statusText || `请求失败（${res.status}）`))
+}
+
+/**
+ * 访问控制开启时，后端返回 401 + code=access_token_required。
+ * 通过全局事件通知 App 切换到登录页；笔记密码错误等 401 不受影响。
+ */
+async function readError(res: Response): Promise<Error> {
+  const body = await res.json().catch(() => null)
+  if (
+    res.status === 401 &&
+    body &&
+    typeof body === 'object' &&
+    (body as any).code === 'access_token_required'
+  ) {
+    window.dispatchEvent(new CustomEvent('kiwi:unauthorized'))
+  }
+  return parseError(res, body)
 }
 
 export async function request<T>(
@@ -51,7 +67,7 @@ export async function request<T>(
   headers.set('Content-Type', 'application/json')
 
   const res = await fetch(`${API_BASE}${url}`, { ...rest, headers })
-  if (!res.ok) throw await parseError(res)
+  if (!res.ok) throw await readError(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
@@ -64,7 +80,7 @@ export function upload<T>(
   const url = withKbId(path, kbId)
   return fetch(`${API_BASE}${url}`, { method: 'POST', body: formData })
     .then(async (res) => {
-      if (!res.ok) throw await parseError(res)
+      if (!res.ok) throw await readError(res)
       return res.json() as Promise<T>
     })
 }

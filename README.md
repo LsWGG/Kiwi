@@ -98,7 +98,19 @@ The frontend is built on the host and mounted read-only into nginx — the Docke
 
 `./deploy.sh` builds the backend image and runs database migrations; `./deploy.sh frontend` rebuilds the static bundle only. Rebuild `frontend/dist` and refresh the browser after frontend changes — no container rebuild is needed. Then open `http://<host>:18473`.
 
-See [docs/DEPLOY.md](docs/DEPLOY.md) for port changes, backups, upgrades, sandbox permissions, and troubleshooting. See the [changelog](docs/CHANGELOG.md) for releases.
+See [docs/DEPLOY.md](docs/DEPLOY.md) for port changes, backups, upgrades, sandbox permissions, and troubleshooting. See the [changelog](docs/CHANGELOG.md) for releases and the [roadmap](docs/ROADMAP.md) for what comes next.
+
+## Tests
+
+```bash
+# Backend: pure logic + API contract tests (real PostgreSQL / Qdrant)
+cd backend && uv run pytest -q
+
+# Frontend type check and Playwright smoke tests
+cd frontend && npm run type-check && npm run test:e2e
+```
+
+Playwright expects a backend at `http://127.0.0.1:8000` using an isolated test database with the background worker disabled (`KIWI_BACKGROUND_JOBS=false`, `KIWI_RATE_LIMIT_ENABLED=false`). Set `PW_TOKEN_BACKEND_URL` and `PW_ACCESS_TOKEN` to also run the access-control login flow. CI runs the full suite on every push and pull request.
 
 ---
 

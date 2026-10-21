@@ -54,6 +54,11 @@ const router = createRouter({
           component: () => import('@/views/settings/SystemSettingsView.vue'),
           props: { section: 'ocr' },
         },
+        {
+          path: 'settings/operations',
+          name: 'settings-operations',
+          component: () => import('@/views/settings/OperationsSettingsView.vue'),
+        },
         // 旧地址保留跳转
         { path: 'settings/system', redirect: '/settings/brand' },
         // 学习模式（阶段一核心闭环：画像→训练→掌握度→错题）

@@ -547,9 +547,13 @@ async function reindexWiki() {
     </div>
     <KiwiSkeleton v-else-if="loading" variant="stat" :cols="4" />
 
-    <!-- 学习状态 + 近期活动 -->
-    <div v-if="ov" class="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4 mb-6 animate-fade-up">
-      <div class="kiwi-card p-5">
+    <!-- 学习状态 + 近期活动：学习状态仅在进入学习模式后展示 -->
+    <div
+      v-if="ov"
+      class="grid gap-4 mb-6 animate-fade-up"
+      :class="mode.mode === 'learn' ? 'lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]' : 'grid-cols-1'"
+    >
+      <div v-if="mode.mode === 'learn'" class="kiwi-card p-5">
         <div class="flex items-center justify-between">
           <p class="text-sm font-medium text-slate-600 flex items-center gap-2">
             <KiwiIcon name="learn" :size="15" class="text-kiwi-500" />

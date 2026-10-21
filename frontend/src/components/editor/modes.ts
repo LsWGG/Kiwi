@@ -1,4 +1,4 @@
-/** 编辑器模式：按笔记类型给默认值，也可在文档头手动覆盖（存 props_json.editor_mode）。 */
+/** 编辑器模式：标准编辑（语雀式）与 DOCX 纸张排版。 */
 
 export type EditorMode = 'simple' | 'notion' | 'docx' | 'agent'
 
@@ -10,19 +10,23 @@ export interface EditorModeMeta {
 }
 
 export const EDITOR_MODES: EditorModeMeta[] = [
-  { id: 'simple', label: 'Simple', icon: 'edit', hint: '极简工具栏 + 工具栏 Agent 指令' },
-  { id: 'notion', label: 'Notion', icon: 'file', hint: '完整块编辑 + 斜杠命令' },
+  {
+    id: 'simple',
+    label: '标准编辑',
+    icon: 'edit',
+    hint: '工具栏 + 斜杠命令 + 气泡菜单',
+  },
   { id: 'docx', label: 'DOCX', icon: 'bookOpen', hint: 'A4 纸张排版，可导出 Word' },
 ]
 
-/** 模式下拉顺序：Simple → Notion-like → DOCX（Simple 置顶并作为默认）。 */
-export const EDITOR_MODE_TABS: EditorMode[] = ['simple', 'notion', 'docx']
+/** 模式下拉顺序：标准编辑（默认）→ DOCX。 */
+export const EDITOR_MODE_TABS: EditorMode[] = ['simple', 'docx']
 
 const OFFICIAL_LABELS: Record<EditorMode, string> = {
-  agent: 'Agent editor',
+  agent: '标准编辑',
   docx: 'DOCX editor',
-  notion: 'Notion-like editor',
-  simple: 'Simple editor',
+  notion: '标准编辑',
+  simple: '标准编辑',
 }
 
 export function editorModeTabLabel(mode: EditorMode): string {
@@ -35,15 +39,13 @@ export function isEditorMode(value: unknown): value is EditorMode {
   return typeof value === 'string' && VALID.has(value as EditorMode)
 }
 
-/** 默认使用 Simple 模式；用户手动选择并保存过的模式优先。 */
+/** 默认使用标准编辑；历史 Simple / Notion / Agent 模式统一归并为标准编辑。 */
 export function resolveEditorMode(
   _kind: string | null | undefined,
   props?: Record<string, unknown> | null,
 ): EditorMode {
   const saved = props?.editor_mode
-  // Agent 模式已合并进 Simple：历史数据用 Simple 打开
-  if (saved === 'agent') return 'simple'
-  if (isEditorMode(saved)) return saved
+  if (saved === 'docx') return 'docx'
   return 'simple'
 }
 

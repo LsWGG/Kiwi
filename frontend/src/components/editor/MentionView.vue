@@ -16,7 +16,15 @@ import {
   type MentionDisplay,
 } from './extensions/mentionTypes'
 
-type MentionKind = 'doc' | 'database' | 'link' | 'import' | 'canvas' | 'notebook' | 'wiki'
+type MentionKind =
+  | 'doc'
+  | 'database'
+  | 'link'
+  | 'import'
+  | 'canvas'
+  | 'notebook'
+  | 'sheet'
+  | 'wiki'
 type MentionTarget = 'note' | 'wiki'
 
 const props = defineProps<NodeViewProps>()
@@ -134,6 +142,7 @@ interface NoteCache {
   fields?: DbField[]
   rows?: DbRow[]
   notebook?: { cells?: NotebookCellLite[] }
+  sheet?: { sheets?: Array<{ cells?: Record<string, unknown> }> }
 }
 
 const cache = new Map<string, NoteCache>()
@@ -153,6 +162,7 @@ const KIND_META: Record<MentionKind, { icon: string; label: string }> = {
   import: { icon: 'fileImport', label: '导入' },
   canvas: { icon: 'pen', label: '画布' },
   notebook: { icon: 'notebook', label: 'Notebook' },
+  sheet: { icon: 'table', label: '表格' },
   wiki: { icon: 'wiki', label: 'Wiki 页面' },
 }
 const kindMeta = computed(() => KIND_META[kind.value] || KIND_META.doc)
@@ -174,6 +184,14 @@ const excerpt = computed(() => {
   }
   if (kind.value === 'canvas') {
     return '画布 · 打开笔记查看工程图 / 思维导图'
+  }
+  if (kind.value === 'sheet') {
+    const sheets = Array.isArray(detail.value?.sheet?.sheets) ? detail.value.sheet.sheets : []
+    const cells = sheets.reduce(
+      (sum, sheet) => sum + Object.keys(sheet.cells ?? {}).length,
+      0,
+    )
+    return `表格 · ${sheets.length} 张工作表 · ${cells} 个单元格`
   }
   if (kind.value === 'notebook') {
     const cells = detail.value?.notebook?.cells ?? []
@@ -305,6 +323,7 @@ async function load() {
         notebook: note.props_json?.notebook_doc as
           | { cells?: NotebookCellLite[] }
           | undefined,
+        sheet: note.props_json?.sheet as NoteCache['sheet'],
       }
       if (data.kind === 'database') {
         const [database, rows] = await Promise.all([
@@ -509,6 +528,18 @@ function onMentionClick(event: MouseEvent) {
             </div>
             <button type="button" class="kiwi-note-embed-open" @click.stop="openItem">
               打开 Notebook
+              <KiwiIcon name="arrowUpRight" :size="12" />
+            </button>
+          </div>
+        </template>
+
+        <!-- 表格：嵌入只给入口，避免把完整工作簿塞进正文 -->
+        <template v-else-if="kind === 'sheet'">
+          <div class="kiwi-note-embed-state kiwi-note-canvas-state">
+            <KiwiIcon name="table" :size="18" />
+            <span>{{ excerpt }}。请打开笔记查看与编辑。</span>
+            <button type="button" class="kiwi-note-embed-open" @click.stop="openItem">
+              打开表格
               <KiwiIcon name="arrowUpRight" :size="12" />
             </button>
           </div>

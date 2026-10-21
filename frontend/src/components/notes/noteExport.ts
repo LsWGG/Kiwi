@@ -8,6 +8,8 @@ import { downloadNoteDocx } from '@/components/editor/docx'
 import type { DbField, DbRow } from '@/stores/noteDatabase'
 import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
 import { canvasDocToSvg } from './canvas/canvasSvgExport'
+import { normalizeWorkbook } from './sheet/types'
+import { sheetToCsv, workbookToXlsxBlob } from './sheet/xlsx'
 import { normalizeDoc } from './canvas/types'
 import type { NotebookDoc } from './notebook/types'
 
@@ -53,6 +55,10 @@ const ACTIONS: Record<string, ExportAction[]> = {
   canvas: [
     { key: 'canvas-svg', label: 'SVG 矢量图', icon: 'image', ext: 'SVG' },
     { key: 'canvas-json', label: '画布源文件', icon: 'code', ext: 'JSON' },
+  ],
+  sheet: [
+    { key: 'xlsx', label: 'Excel 工作簿', icon: 'table', ext: 'XLSX' },
+    { key: 'csv', label: '当前表 CSV', icon: 'table', ext: 'CSV' },
   ],
 }
 
@@ -303,6 +309,22 @@ async function exportDatabase(note: NoteOut, kind: 'xlsx' | 'csv' | 'json') {
   downloadText(JSON.stringify(payload, null, 2), `${base}.json`, 'application/json')
 }
 
+/** 表格笔记：xlsx 导出整本工作簿（多 Sheet + 公式），csv 导出当前工作表。 */
+async function exportSheet(note: NoteOut, kind: 'xlsx' | 'csv') {
+  const workbook = normalizeWorkbook(note.props_json?.sheet)
+  const base = safeFileName(note.title)
+  if (kind === 'xlsx') {
+    const XLSX = await import('xlsx')
+    const blob = workbookToXlsxBlob(workbook, XLSX)
+    downloadBlob(blob, `${base}.xlsx`)
+    return
+  }
+  const active =
+    workbook.sheets.find((sheet) => sheet.id === workbook.active) ?? workbook.sheets[0]
+  const csv = sheetToCsv(active, workbook)
+  downloadText(csv, `${base}-${safeFileName(active?.name || 'Sheet1')}.csv`, 'text/csv')
+}
+
 async function exportNotebookFile(note: Pick<NoteSummary, 'id' | 'kb_id' | 'title'>) {
   const res = await fetch(
     `/api/notebooks/${note.id}/export?kb_id=${encodeURIComponent(note.kb_id)}`,
@@ -346,11 +368,14 @@ export async function runNoteExport(
       return
     case 'csv':
     case 'xlsx':
+      if (full.kind === 'sheet') {
+        await exportSheet(full, key)
+        return
+      }
+      await exportDatabase(full, key)
+      return
     case 'database-json':
-      await exportDatabase(
-        full,
-        key === 'csv' ? 'csv' : key === 'xlsx' ? 'xlsx' : 'json',
-      )
+      await exportDatabase(full, 'json')
       return
     case 'canvas-json':
       downloadText(

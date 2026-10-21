@@ -4,6 +4,9 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import taskLists from 'markdown-it-task-lists'
+import DOMPurify from 'dompurify'
+import { enableEmptyTaskItems } from '@/lib/markdownTaskItems'
+import { installEmojiShortcodeRule } from '@/lib/emojiShortcodes'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
@@ -35,11 +38,17 @@ const root = ref<HTMLElement | null>(null)
 const orderedListClass = computed(() => orderedListStyleClass(props.orderedListStyle))
 
 const md = new MarkdownIt({
-  html: false,
+  // 原始 HTML 表格（语雀 / Notion 粘贴或历史模板）需要按 HTML 渲染；
+  // 输出统一经 DOMPurify 清洗，脚本与事件属性不会进入 v-html。
+  html: true,
   linkify: true,
   breaks: false,
   typographer: false,
 }).use(taskLists, { enabled: true, label: true })
+// 空待办 `- [ ]` 在 markdown-it-task-lists 里需要补一个空格才会被识别。
+enableEmptyTaskItems(md)
+// GitHub 风格短代码（:frame_with_picture: 等）按 emoji 字符显示。
+installEmojiShortcodeRule(md)
 
 // 与编辑器解析保持一致：把图片后的独立图注段落折叠为图片 title。
 md.core.ruler.push('kiwi_image_caption_fold', foldImageCaptionTokens)
@@ -828,7 +837,11 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 const html = computed(() => {
   // 引用数量变化时也要重渲染（引用事件可能先于最后一个文本 chunk 到达）。
   void props.citationCount
-  return md.render(props.content || '')
+  return DOMPurify.sanitize(md.render(props.content || ''), {
+    // 内嵌网页块与链接需要保留 iframe / target。
+    ADD_TAGS: ['iframe'],
+    ADD_ATTR: ['target'],
+  })
 })
 
 // ---------- 特殊块的 DOM 增强 ----------
@@ -841,7 +854,11 @@ function decorateTaskProgressComponents(el: HTMLElement) {
     el.querySelectorAll<HTMLElement>('[data-kiwi-task-progress]'),
   )
   if (!cards.length) return
-  const lists = Array.from(el.querySelectorAll<HTMLElement>('ul.contains-task-list'))
+  // 只把顶层清单作为绑定候选；子清单属于父清单的统计范围，
+  // 否则 bind=prev 会错误地绑定到最后一个二级清单。
+  const lists = Array.from(
+    el.querySelectorAll<HTMLElement>('ul.contains-task-list, ol.contains-task-list'),
+  ).filter((list) => !list.parentElement?.closest('ul.contains-task-list, ol.contains-task-list'))
 
   for (const card of cards) {
     const bind = card.dataset.bind || 'auto'
@@ -871,9 +888,9 @@ function decorateTaskProgressComponents(el: HTMLElement) {
       continue
     }
 
-    const items = Array.from(list.children).filter((child) =>
-      child.classList.contains('task-list-item'),
-    )
+    // 递归统计多级待办：task-list-item 内可以继续嵌套任务列表，
+    // 只看直接子节点会漏掉二级 / 三级清单。
+    const items = Array.from(list.querySelectorAll('li.task-list-item'))
     const done = items.filter((item) =>
       item.querySelector('input[type="checkbox"]')?.hasAttribute('checked'),
     ).length

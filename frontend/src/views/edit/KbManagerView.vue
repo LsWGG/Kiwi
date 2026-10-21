@@ -15,6 +15,15 @@ const kbs = useKbsStore()
 const llm = useLlmStore()
 const router = useRouter()
 
+/** 首次点击切换知识库；再次点击当前卡片直接进入笔记工作区。 */
+function selectKbCard(id: string) {
+  if (kbs.currentKbId === id) {
+    router.push('/notes')
+    return
+  }
+  kbs.currentKbId = id
+}
+
 /** 系统级向量模型：线上模式下各库的本地模型选择会被忽略 */
 interface EmbeddingConfigInfo {
   provider: string
@@ -216,6 +225,8 @@ function kindIcon(kind?: NoteKind): string {
       return 'fileImport'
     case 'notebook':
       return 'notebook'
+    case 'sheet':
+      return 'table'
     default:
       return 'fileText'
   }
@@ -233,6 +244,8 @@ function kindColor(kind?: NoteKind): string {
       return 'text-emerald-500'
     case 'notebook':
       return 'text-indigo-500'
+    case 'sheet':
+      return 'text-emerald-600'
     default:
       return 'text-blue-500'
   }
@@ -785,7 +798,7 @@ async function onImportKbFile(event: Event) {
           dragClassOf(k),
         ]"
         :style="{ animationDelay: `${i * 70}ms` }"
-        @click="kbs.currentKbId = k.id"
+        @click="selectKbCard(k.id)"
         @dragover="onKbDragOver($event, k)"
         @drop="onKbDrop($event, k)"
         @dragend="resetKbDrag"

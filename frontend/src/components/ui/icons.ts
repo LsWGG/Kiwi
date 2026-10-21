@@ -138,6 +138,8 @@ const PATHS: Record<string, string[]> = {
     '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
   ],
   chevron: ['<polyline points="6 9 12 15 18 9"/>'],
+  chevronLeft: ['<polyline points="15 18 9 12 15 6"/>'],
+  clock: ['<circle cx="12" cy="12" r="9"/>', '<polyline points="12 7 12 12 15 14"/>'],
   chevronsDown: [
     '<polyline points="7 6 12 11 17 6"/>',
     '<polyline points="7 13 12 18 17 13"/>',
@@ -350,6 +352,16 @@ const PATHS: Record<string, string[]> = {
     '<line x1="21" y1="6" x2="3" y2="6"/>',
     '<line x1="15" y1="12" x2="3" y2="12"/>',
     '<line x1="17" y1="18" x2="3" y2="18"/>',
+  ],
+  alignCenter: [
+    '<line x1="21" y1="6" x2="3" y2="6"/>',
+    '<line x1="17" y1="12" x2="7" y2="12"/>',
+    '<line x1="19" y1="18" x2="5" y2="18"/>',
+  ],
+  alignRight: [
+    '<line x1="21" y1="6" x2="3" y2="6"/>',
+    '<line x1="21" y1="12" x2="9" y2="12"/>',
+    '<line x1="21" y1="18" x2="7" y2="18"/>',
   ],
   star: [
     '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',

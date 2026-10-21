@@ -2,7 +2,8 @@
  * 表情：输入 : 打开表情候选，选中后插入 emoji 节点（也可输入 :smile: 自动转换）。
  * Markdown 持久化为原生 emoji 字符，重新加载不会丢失。
  */
-import Emoji, { emojis } from '@tiptap/extension-emoji'
+import Emoji, { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
+import { installEmojiShortcodeRule } from '@/lib/emojiShortcodes'
 import { createSuggestionPopup } from './suggestionPopup'
 
 type EmojiItem = (typeof emojis)[number]
@@ -107,8 +108,16 @@ export const KiwiEmoji = Emoji.extend({
       ...this.parent?.(),
       markdown: {
         serialize(state: any, node: any) {
-          const item = emojiByName.get(node.attrs.name)
+          // 别名也要解析：Notion / 语雀 的 data-name 可能是 `frame_with_picture`
+          // 这类短代码，而本地表情库的主名是 `framed_picture`；只查主名会把
+          // 表情写成字面量短代码，重新打开就变成 `:frame_with_picture:`。
+          const item = shortcodeToEmoji(node.attrs.name, emojis)
           state.write(item?.emoji || `:${node.attrs.name}:`)
+        },
+        parse: {
+          setup(markdownit: any) {
+            installEmojiShortcodeRule(markdownit)
+          },
         },
       },
     }

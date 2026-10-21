@@ -60,6 +60,13 @@ async function submit() {
         </h2>
         <p class="mt-1 text-xs text-slate-400">这篇笔记已上锁，输入密码后查看内容</p>
         <p
+          v-if="note.encrypted"
+          class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-medium text-rose-500 ring-1 ring-rose-100"
+        >
+          <KiwiIcon name="shield" :size="11" />
+          正文已加密存储
+        </p>
+        <p
           v-if="note.lock_hint"
           class="mt-3 w-full rounded-lg bg-amber-50/80 px-3 py-2 text-left text-[11.5px] text-amber-700 ring-1 ring-amber-100"
         >

@@ -46,6 +46,7 @@ const CREATE_ITEMS = [
   { key: 'doc', label: '文档', icon: 'fileText', tone: 'text-blue-500' },
   { key: 'canvas', label: '画布', icon: 'pen', tone: 'text-violet-500' },
   { key: 'database', label: '数据表', icon: 'database', tone: 'text-kiwi-500' },
+  { key: 'sheet', label: '表格', icon: 'table', tone: 'text-emerald-600' },
   { key: 'notebook', label: 'Notebook', icon: 'notebook', tone: 'text-indigo-500' },
   { key: 'import', label: '导入', icon: 'fileImport', tone: 'text-emerald-500' },
   { key: 'link', label: '链接', icon: 'link2', tone: 'text-sky-500' },

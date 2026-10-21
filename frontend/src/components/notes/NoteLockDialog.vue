@@ -11,6 +11,7 @@ type LockTarget = {
   title?: string
   is_locked?: boolean
   lock_hint?: string | null
+  encrypted?: boolean
 }
 
 const props = defineProps<{ open: boolean; note: LockTarget | null }>()
@@ -23,10 +24,12 @@ const notes = useNotesStore()
 const password = ref('')
 const confirm = ref('')
 const hint = ref('')
+const encrypt = ref(false)
 const error = ref('')
 const busy = ref(false)
 
 const locked = computed(() => !!props.note?.is_locked)
+const encrypted = computed(() => !!props.note?.encrypted)
 const hasToken = computed(() => (props.note ? notes.hasUnlockToken(props.note.id) : false))
 const canRemoveWithoutPassword = computed(() => locked.value && hasToken.value)
 
@@ -37,6 +40,7 @@ watch(
     password.value = ''
     confirm.value = ''
     hint.value = ''
+    encrypt.value = false
     error.value = ''
     busy.value = false
   },
@@ -55,8 +59,17 @@ async function submitLock() {
   busy.value = true
   error.value = ''
   try {
-    await notes.setNoteLock(props.note.id, password.value, hint.value.trim() || null)
-    toast.success('已设置密码锁，刷新页面后需要密码才能查看')
+    await notes.setNoteLock(
+      props.note.id,
+      password.value,
+      hint.value.trim() || null,
+      encrypt.value,
+    )
+    toast.success(
+      encrypt.value
+        ? '已设置密码锁并加密正文，请妥善保管密码'
+        : '已设置密码锁，刷新页面后需要密码才能查看',
+    )
     emit('changed', true)
     emit('close')
   } catch (e: any) {
@@ -118,6 +131,16 @@ async function removeLock() {
       </div>
 
       <template v-if="locked">
+        <div
+          v-if="encrypted"
+          class="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-2.5 text-[11px] leading-relaxed text-rose-600"
+        >
+          <KiwiIcon name="shield" :size="14" class="mt-0.5 shrink-0" />
+          <span>
+            正文已加密存储，检索与版本记录均不包含明文；密码丢失后正文无法恢复。
+            移除密码锁时会先解密并恢复为明文存储。
+          </span>
+        </div>
         <p
           v-if="note.lock_hint"
           class="rounded-lg bg-amber-50/80 px-3 py-2 text-[11.5px] text-amber-700 ring-1 ring-amber-100"
@@ -182,6 +205,34 @@ async function removeLock() {
             placeholder="例如：常用设备型号"
             :disabled="busy"
           />
+        </div>
+        <label
+          class="flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors"
+          :class="encrypt ? 'border-kiwi-300 bg-kiwi-50/70' : 'border-slate-200 bg-white/60'"
+        >
+          <input
+            v-model="encrypt"
+            type="checkbox"
+            class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-kiwi-600"
+            :disabled="busy"
+          />
+          <span class="min-w-0">
+            <span class="block text-[12px] font-medium text-slate-700">加密存储正文（推荐）</span>
+            <span class="mt-0.5 block text-[10.5px] leading-relaxed text-slate-400">
+              正文以密码派生的密钥加密后写入数据库，即使直接读取数据库也无法看到内容。
+              上锁期间搜索、AI 问答与待办同步不会收录这篇笔记。
+            </span>
+          </span>
+        </label>
+        <div
+          v-if="encrypt"
+          class="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-[11px] leading-relaxed text-amber-700"
+        >
+          <KiwiIcon name="alert" :size="14" class="mt-0.5 shrink-0" />
+          <span>
+            密码丢失后正文<strong class="font-semibold">无法恢复</strong>，且将清除已有历史版本。
+            请先确认已将密码保存在安全的地方。
+          </span>
         </div>
       </template>
 

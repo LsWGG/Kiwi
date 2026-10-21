@@ -13,13 +13,46 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import KiwiToastHost from '@/components/ui/KiwiToastHost.vue'
 import ShortcutHelpDialog from '@/components/ui/ShortcutHelpDialog.vue'
+import AuthLoginView from '@/views/AuthLoginView.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const kbs = useKbsStore()
 const mode = useModeStore()
 const system = useSystemStore()
+const auth = useAuthStore()
 const route = useRoute()
 
 const shortcutsOpen = ref(false)
+const booted = ref(false)
+
+/** 登录成功后再拉取业务数据，避免访问控制开启时首屏刷出一串 401。 */
+function loadAppData() {
+  if (booted.value) return
+  booted.value = true
+  kbs.fetchKbs()
+  // 品牌信息与主题色来自后端系统设置；失败时保留内置默认值。
+  void system.fetchSettings().catch(() => undefined)
+}
+
+async function boot() {
+  await auth.check()
+  if (!auth.blocked) loadAppData()
+}
+
+async function onLoginSuccess() {
+  await auth.check()
+  if (!auth.blocked) loadAppData()
+}
+
+async function onLogout() {
+  await auth.logout()
+  booted.value = false
+}
+
+function onUnauthorized() {
+  auth.markUnauthorized()
+  booted.value = false
+}
 
 /** 输入框 / 编辑器内不抢占 `?`，保证正常输入问号。 */
 function isTypingTarget(target: EventTarget | null) {
@@ -46,6 +79,10 @@ function onShortcutKey(event: KeyboardEvent) {
  * 直接访问 /learn 时也按路由切换，避免刷新后主题与页面不一致。
  */
 const isLearn = computed(() => mode.mode === 'learn' || route.path.startsWith('/learn'))
+/** 顶栏 Logo 按模式回显：学习模式未单独上传时沿用品牌 Logo。 */
+const headerLogo = computed(() =>
+  isLearn.value ? system.learnLogoUrl : system.logoUrl,
+)
 watch(
   isLearn,
   (value) => {
@@ -89,22 +126,31 @@ function applyUiScale() {
 }
 
 onMounted(() => {
-  kbs.fetchKbs()
-  // 品牌信息与主题色来自后端系统设置；失败时保留内置默认值。
-  void system.fetchSettings().catch(() => undefined)
   applyUiScale()
   window.addEventListener('resize', applyUiScale)
   window.addEventListener('keydown', onShortcutKey)
+  window.addEventListener('kiwi:unauthorized', onUnauthorized)
+  void boot()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', applyUiScale)
   window.removeEventListener('keydown', onShortcutKey)
+  window.removeEventListener('kiwi:unauthorized', onUnauthorized)
 })
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
+  <div v-if="auth.checking" class="grid h-full place-items-center text-sm text-slate-400">
+    <span class="flex items-center gap-2">
+      <KiwiIcon name="loader" :size="16" :spin="true" />
+      正在检查访问权限…
+    </span>
+  </div>
+
+  <AuthLoginView v-else-if="auth.blocked" @success="onLoginSuccess" />
+
+  <div v-else class="h-full flex flex-col">
     <!-- 全局顶栏：渐变玻璃条 -->
     <header
       class="h-14 shrink-0 relative z-30 flex items-center gap-4 px-4 backdrop-blur-xl bg-white/55 border-b border-slate-200/60"
@@ -115,8 +161,8 @@ onBeforeUnmount(() => {
       />
       <RouterLink to="/kbs" class="flex min-w-0 items-center gap-2.5 select-none">
         <img
-          v-if="system.logoUrl"
-          :src="system.logoUrl"
+          v-if="headerLogo"
+          :src="headerLogo"
           :alt="system.appName"
           class="relative h-8 w-8 shrink-0 rounded-xl object-cover shadow-glow"
         />
@@ -131,7 +177,7 @@ onBeforeUnmount(() => {
             {{ system.appName }}
           </span>
           <p class="mt-0.5 max-w-[260px] truncate text-[10px] leading-none text-slate-400">
-            {{ isLearn ? '学习训练 · 复习' : system.appDescription }}
+            {{ isLearn ? system.learnDescription : system.appDescription }}
           </p>
         </div>
       </RouterLink>
@@ -159,6 +205,16 @@ onBeforeUnmount(() => {
       >
         <KiwiIcon name="settings" :size="17" />
       </RouterLink>
+      <button
+        v-if="auth.enabled"
+        type="button"
+        title="退出登录"
+        aria-label="退出登录"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-500"
+        @click="onLogout"
+      >
+        <KiwiIcon name="lock" :size="16" />
+      </button>
     </header>
 
     <main class="flex-1 min-h-0 flex">
@@ -177,6 +233,7 @@ onBeforeUnmount(() => {
     </main>
 
     <ShortcutHelpDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
-    <KiwiToastHost />
   </div>
+
+  <KiwiToastHost />
 </template>

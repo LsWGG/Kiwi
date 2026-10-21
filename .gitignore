@@ -18,6 +18,14 @@ dist/
 .vite/
 *.tsbuildinfo
 
+# playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+/test-results/
+/playwright-report/
+
 # runtime data (uploads / notebook kernels / generated wiki schemas)
 backend/data/
 data/

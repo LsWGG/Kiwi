@@ -68,6 +68,8 @@ const tableInput = ref<HTMLInputElement | null>(null)
 const tableFile = ref<File | null>(null)
 const tableDrag = ref(false)
 const tableHasHeader = ref(true)
+/** database=结构化数据表；sheet=Excel 风格工作簿（多 Sheet、公式、样式）。 */
+const tableTarget = ref<'database' | 'sheet'>('database')
 const tableSheet = ref('')
 const tablePreview = ref<TablePreview | null>(null)
 const tablePreviewLoading = ref(false)
@@ -166,6 +168,7 @@ function reset() {
   tableFile.value = null
   tableDrag.value = false
   tableHasHeader.value = true
+  tableTarget.value = 'database'
   tableSheet.value = ''
   tablePreview.value = null
   tablePreviewLoading.value = false
@@ -588,8 +591,14 @@ async function submitTable() {
       title: tableTitle.value,
       sheet: tableSheet.value,
       has_header: tableHasHeader.value,
+      target: tableTarget.value,
     })
-    toast.success(`已导入 ${res.row_count} 条记录到数据表`)
+    const sheetCount = Number(res.note?.props_json?.table_import?.sheet_count ?? 1)
+    toast.success(
+      tableTarget.value === 'sheet'
+        ? `已导入表格（${sheetCount} 张工作表）`
+        : `已导入 ${res.row_count} 条记录到数据表`,
+    )
     tableImporting.value = false
     emit('created', res.note)
     close()
@@ -850,6 +859,26 @@ function formatTime(value?: string | null) {
 
       <!-- 表格导入 -->
       <div v-else-if="tab === 'sheet'" class="space-y-3">
+        <div class="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11.5px]">
+          <button
+            type="button"
+            class="rounded-md px-3 py-1.5 transition-colors"
+            :class="tableTarget === 'database' ? 'bg-white text-kiwi-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            @click="tableTarget = 'database'"
+          >
+            数据表
+            <span class="ml-1 text-[10px] font-normal text-slate-400">记录 · 多视图</span>
+          </button>
+          <button
+            type="button"
+            class="rounded-md px-3 py-1.5 transition-colors"
+            :class="tableTarget === 'sheet' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            @click="tableTarget = 'sheet'"
+          >
+            Excel 表格
+            <span class="ml-1 text-[10px] font-normal text-slate-400">多 Sheet · 公式</span>
+          </button>
+        </div>
         <input
           ref="tableInput"
           type="file"
@@ -875,13 +904,21 @@ function formatTime(value?: string | null) {
             拖拽 CSV / Excel 到这里，或点击选择
           </p>
           <p class="text-[11px] text-slate-400 mt-0.5">
-            支持 .csv / .xlsx / .xls，≤20MB；会转换为数据表。导入后可在表格中勾选记录，按需生成可编辑笔记
+            <template v-if="tableTarget === 'sheet'">
+              支持 .csv / .xlsx / .xls，≤20MB；保留多工作表、公式、合并单元格、列宽与基础样式，导入后可直接像 Excel 一样编辑
+            </template>
+            <template v-else>
+              支持 .csv / .xlsx / .xls，≤20MB；会转换为数据表。导入后可在表格中勾选记录，按需生成可编辑笔记
+            </template>
           </p>
         </div>
 
         <template v-if="tableFile">
           <div class="flex flex-wrap items-center gap-4 text-[11.5px] text-slate-500">
-            <label v-if="(tablePreview?.sheets.length ?? 0) > 1" class="flex items-center gap-1.5">
+            <label
+              v-if="tableTarget === 'database' && (tablePreview?.sheets.length ?? 0) > 1"
+              class="flex items-center gap-1.5"
+            >
               工作表
               <select v-model="tableSheet" class="kiwi-input !py-1 !text-[11.5px]" @change="onTableSheetChange">
                 <option v-for="sheet in tablePreview?.sheets ?? []" :key="sheet.name" :value="sheet.name">
@@ -900,6 +937,9 @@ function formatTime(value?: string | null) {
             </label>
             <span v-if="tablePreview" class="text-slate-400 tabular-nums">
               {{ tablePreview.row_count }} 行 × {{ tablePreview.fields.length }} 列
+              <template v-if="tableTarget === 'sheet'">
+                · 共 {{ tablePreview.sheets.length }} 张工作表
+              </template>
             </span>
           </div>
 
@@ -942,7 +982,9 @@ function formatTime(value?: string | null) {
               表格行数较多，仅导入前 5000 行。
             </p>
             <div>
-              <label class="block text-[11px] font-medium text-slate-500 mb-1.5">数据表标题</label>
+              <label class="block text-[11px] font-medium text-slate-500 mb-1.5">
+                {{ tableTarget === 'sheet' ? '表格标题' : '数据表标题' }}
+              </label>
               <input v-model="tableTitle" class="kiwi-input" placeholder="默认使用文件名" />
             </div>
           </template>
@@ -1317,7 +1359,11 @@ function formatTime(value?: string | null) {
       <p class="text-[10.5px] text-slate-400">
         <template v-if="busy">正在处理，请勿关闭…</template>
         <template v-else-if="tab === 'yuque'">迁移会保留语雀的目录结构与正文顺序；附件保留原始链接。</template>
-        <template v-else-if="tab === 'sheet'">表格会转换为数据表，每行生成一条记录；导入后可在表格中勾选记录按需生成笔记。</template>
+        <template v-else-if="tab === 'sheet'">
+          {{ tableTarget === 'sheet'
+            ? '按工作簿导入，保留多 Sheet、公式、合并单元格与基础样式；导入后可直接编辑与导出。'
+            : '表格会转换为数据表，每行生成一条记录；导入后可在表格中勾选记录按需生成笔记。' }}
+        </template>
         <template v-else>导入默认仅入库；编译可在素材或 Wiki 中按需触发。</template>
       </p>
       <div class="flex gap-2">
@@ -1338,7 +1384,11 @@ function formatTime(value?: string | null) {
           @click="submitTable"
         >
           <KiwiIcon v-if="tableImporting" name="loader" :size="14" spin />
-          {{ tableImporting ? '导入中…' : `导入为数据表${tablePreview ? `（${tablePreview.row_count} 行）` : ''}` }}
+          {{ tableImporting
+            ? '导入中…'
+            : tableTarget === 'sheet'
+              ? `导入为表格${tablePreview ? `（${tablePreview.sheets.length} 张工作表）` : ''}`
+              : `导入为数据表${tablePreview ? `（${tablePreview.row_count} 行）` : ''}` }}
         </button>
         <button
           v-else-if="tab === 'url'"

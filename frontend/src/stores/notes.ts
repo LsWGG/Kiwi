@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { request, upload } from '@/api/client'
 import { useKbsStore } from './kbs'
 
-export type NoteKind = 'doc' | 'database' | 'link' | 'import' | 'canvas' | 'notebook'
+export type NoteKind = 'doc' | 'database' | 'link' | 'import' | 'canvas' | 'notebook' | 'sheet'
 
 export interface NoteOut {
   id: string
@@ -25,6 +25,8 @@ export interface NoteOut {
   is_locked?: boolean
   /** 密码提示（不含密码本身） */
   lock_hint?: string | null
+  /** 正文是否以密文存储（密码丢失不可恢复） */
+  encrypted?: boolean
   /** 本次响应是否已通过解锁令牌验证 */
   unlocked?: boolean
   created_at: string
@@ -35,6 +37,7 @@ export interface NoteLockResult {
   token: string
   expires_at: number
   is_locked: boolean
+  encrypted?: boolean
 }
 
 export interface NoteSummary {
@@ -51,6 +54,8 @@ export interface NoteSummary {
   wiki_page_id: string | null
   is_locked?: boolean
   lock_hint?: string | null
+  /** 正文是否以密文存储 */
+  encrypted?: boolean
   /** 反向链接条目附带引用上下文 */
   context?: string
   created_at?: string
@@ -379,7 +384,7 @@ export const useNotesStore = defineStore('notes', () => {
 
   async function createNote(data: {
     title: string
-    kind?: 'doc' | 'database' | 'canvas' | 'notebook'
+    kind?: 'doc' | 'database' | 'canvas' | 'notebook' | 'sheet'
     folder_id?: string | null
     parent_note_id?: string | null
     body_md?: string
@@ -650,6 +655,7 @@ export const useNotesStore = defineStore('notes', () => {
       title?: string
       sheet?: string
       has_header?: boolean
+      target?: 'database' | 'sheet'
     } = {},
   ) {
     const fd = new FormData()
@@ -658,6 +664,7 @@ export const useNotesStore = defineStore('notes', () => {
     if (opts.parent_note_id) fd.append('parent_note_id', opts.parent_note_id)
     if (opts.title?.trim()) fd.append('title', opts.title.trim())
     if (opts.sheet) fd.append('sheet', opts.sheet)
+    if (opts.target === 'sheet') fd.append('target', 'sheet')
     fd.append('has_header', opts.has_header === false ? 'false' : 'true')
     const res = await upload<TableImportResult>('/notes/import-table', fd, kbId())
     await fetchTree()
@@ -863,12 +870,17 @@ export const useNotesStore = defineStore('notes', () => {
     return result
   }
 
-  async function setNoteLock(id: string, password: string, hint: string | null = null) {
+  async function setNoteLock(
+    id: string,
+    password: string,
+    hint: string | null = null,
+    encrypt = false,
+  ) {
     const result = await request<NoteLockResult>(`/notes/${id}/lock`, {
       method: 'POST',
       kbId: kbId(),
       headers: noteHeaders(id),
-      body: JSON.stringify({ password, hint: hint || null }),
+      body: JSON.stringify({ password, hint: hint || null, encrypt }),
     })
     // 上锁响应会签发令牌，避免设置完立刻被锁在门外。
     rememberUnlockToken(id, result.token)
@@ -877,6 +889,7 @@ export const useNotesStore = defineStore('notes', () => {
         ...currentNote.value,
         is_locked: true,
         lock_hint: hint || null,
+        encrypted: !!result.encrypted,
         unlocked: true,
       }
     }
@@ -884,6 +897,7 @@ export const useNotesStore = defineStore('notes', () => {
     if (summary) {
       summary.is_locked = true
       summary.lock_hint = hint || null
+      summary.encrypted = !!result.encrypted
     }
     return result
   }
@@ -901,6 +915,7 @@ export const useNotesStore = defineStore('notes', () => {
         ...currentNote.value,
         is_locked: false,
         lock_hint: null,
+        encrypted: false,
         unlocked: false,
       }
     }
@@ -908,6 +923,7 @@ export const useNotesStore = defineStore('notes', () => {
     if (summary) {
       summary.is_locked = false
       summary.lock_hint = null
+      summary.encrypted = false
     }
   }
 

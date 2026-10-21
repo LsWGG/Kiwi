@@ -44,6 +44,7 @@ from app.schemas.wiki import (
     WikiSchemaOut,
     WikiSchemaUpdate,
 )
+from app.services import audit
 from app.services.wiki_links import WIKI_LINK_RE, extract_links, strip_code
 
 logger = logging.getLogger("kiwi.wiki")
@@ -1226,6 +1227,20 @@ async def rebuild_wiki(
     deleted_pages, cleared_annotations, cleared_reports = await _clear_wiki_content(
         session, kb
     )
+    await audit.record(
+        session,
+        "wiki.rebuild",
+        kb_id=kb_id,
+        target_type="kb",
+        target_id=kb_id,
+        detail={
+            "name": kb.name,
+            "deleted_pages": deleted_pages,
+            "cleared_annotations": cleared_annotations,
+            "cleared_reports": cleared_reports,
+        },
+        note=f"重建 Wiki：{kb.name}（清除 {deleted_pages} 页）",
+    )
     await session.commit()
 
     from app.routers.notes import _prepare_note_compile, _schedule_note_compile
@@ -1259,7 +1274,7 @@ async def rebuild_wiki(
             continue
         job, source, reused = prepared
         await session.commit()
-        _schedule_note_compile(job, kb_id, source.id, reused)
+        await _schedule_note_compile(job, kb_id, source.id, reused)
         note_jobs.append(
             {
                 "job_id": str(job.id),

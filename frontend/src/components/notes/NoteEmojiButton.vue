@@ -33,6 +33,8 @@ const iconName = computed(() => {
       return 'fileImport'
     case 'notebook':
       return 'notebook'
+    case 'sheet':
+      return 'table'
     default:
       return 'fileText'
   }
@@ -49,6 +51,8 @@ const iconClass = computed(() => {
       return 'text-emerald-500/90'
     case 'notebook':
       return 'text-indigo-500'
+    case 'sheet':
+      return 'text-emerald-600'
     default:
       return 'text-blue-500'
   }

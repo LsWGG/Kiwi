@@ -179,6 +179,15 @@ QDRANT_GRPC_PORT=16334
 | `POSTGRES_USER` / `POSTGRES_DB` | `kiwi` / `kiwi` | 数据库账号与库名 |
 | `POSTGRES_PASSWORD` | 自动生成 | 建议仅使用字母、数字、`-`、`_` |
 | `KIWI_FERNET_KEY` | 自动生成 | 模型 Key 加密密钥，必须长期保持 |
+| `KIWI_ACCESS_TOKEN` | 空 | 可选访问令牌；设置后 `/api`、`/media`、`/metrics` 需要登录 |
+| `KIWI_ACCESS_COOKIE_NAME` | `kiwi_access` | 登录 Cookie 名称 |
+| `KIWI_RATE_LIMIT_ENABLED` | `true` | 是否启用 LLM / 导入 / 代码执行接口限流 |
+| `KIWI_RATE_LIMIT_LLM_PER_MINUTE` | `20` | 每 IP 每分钟 LLM 请求上限 |
+| `KIWI_RATE_LIMIT_IMPORT_PER_MINUTE` | `10` | 每 IP 每分钟导入请求上限 |
+| `KIWI_RATE_LIMIT_CODE_PER_MINUTE` | `30` | 每 IP 每分钟代码执行请求上限 |
+| `KIWI_BACKUP_ENABLED` | `true` | 是否启用自动备份 |
+| `KIWI_BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔（小时） |
+| `KIWI_BACKUP_RETENTION_DAYS` | `14` | 备份保留天数 |
 | `PYPI_INDEX_URL` | 清华 PyPI 镜像 | 后端构建时的 Python 包源 |
 | `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` | 清华 Debian 镜像 | 后端构建时的系统包源 |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | 宿主机前端构建建议使用的 npm 源（手动 `npm config set registry`） |
@@ -203,36 +212,58 @@ QDRANT_GRPC_PORT=16334
 
 ### 备份
 
-```bash
-# 数据库
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U kiwi -d kiwi | gzip > "kiwi-db-$(date +%F).sql.gz"
+后端默认每 24 小时自动执行一次备份（`KIWI_BACKUP_ENABLED` / `KIWI_BACKUP_INTERVAL_HOURS`），
+写入数据卷的 `/app/data/backups`。也可以在 **设置 → 运维 → 自动备份** 点击「立即备份」。
 
-# 上传与 Notebook 数据
-docker run --rm \
-  -v kiwi-prod-data:/data:ro \
-  -v "$PWD":/backup \
-  alpine tar czf "/backup/kiwi-data-$(date +%F).tar.gz" -C /data .
+宿主机脚本适合纳入 crontab，或在升级 / 迁移前手动留档：
+
+```bash
+# Docker 生产栈：导出数据库 + uploads，并写入 manifest.json（含 sha256）
+./scripts/backup.sh
+
+# 宿主机直连数据库（本地开发 / 无 Docker 环境）
+./scripts/backup.sh --local
+
+# 自定义保留天数与输出目录
+BACKUP_RETENTION_DAYS=30 BACKUP_DIR=/data/kiwi-backups ./scripts/backup.sh
 ```
+
+输出结构与应用内备份一致，`manifest.json` 记录版本、提交、数据库与文件校验和：
+
+```text
+backups/kiwi-20261021-120000/
+  db.dump          # PostgreSQL custom format
+  uploads.tar.gz   # 上传附件（根目录为 uploads 内容）
+  manifest.json
+```
+
+建议把备份目录同步到另一块磁盘或对象存储；Qdrant 向量可通过 Wiki 的「重建」/「重新索引」重新生成，不必单独备份。
 
 ### 恢复
 
+> 恢复会覆盖目标数据库中的同名对象，属于不可逆操作。脚本要求 `--yes`，
+> Docker 模式会先停止 backend；本地模式请先自行停止后端进程。
+
 ```bash
-./deploy.sh down
+# Docker 生产栈：数据库 + 附件，恢复后自动启动 backend
+./scripts/restore_backup.sh backups/kiwi-20261021-120000 --with-uploads --yes
 
-gunzip -c kiwi-db-2026-10-18.sql.gz | \
-  docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T postgres \
-  psql -U kiwi -d kiwi
+# 仅数据库
+./scripts/restore_backup.sh backups/kiwi-20261021-120000 --yes
 
-docker run --rm \
-  -v kiwi-prod-data:/data \
-  -v "$PWD":/backup \
-  alpine tar xzf "/backup/kiwi-data-2026-10-18.tar.gz" -C /data
-
-./deploy.sh
+# 宿主机直连：恢复到另一个库（演练推荐）
+TARGET_DB=kiwi_restoretest KIWI_DATABASE_URL=postgresql://... \
+  ./scripts/restore_backup.sh backups/kiwi-20261021-120000 --local --yes
 ```
 
-Qdrant 向量可以在恢复数据库后通过 Wiki 的「重建」/「重新索引」重新生成，不必单独备份。
+脚本会先校验 `manifest.json` 中的 sha256，再调用 `pg_restore --clean --if-exists`。
+恢复完成后请到 Wiki 执行一次「重建 Wiki」，使 Qdrant 向量与回滚后的数据一致。
+
+**恢复演练（2026-10-21）**：在独立测试库 `kiwi_locktest` 上执行
+`backup.sh --local` → 新建空库 `kiwi_restoretest` → `restore_backup.sh --local --with-uploads`。
+恢复后 37 张表、知识库 / 笔记 / 任务 / 审计行数与 alembic 版本（`b7c1d2e3f4a5`）均与源库一致，
+示例附件字节内容一致。演练使用 PostgreSQL 16 客户端，避免 18 客户端向 16 服务端写入
+`transaction_timeout` 参数导致告警。
 
 ## 日常运维
 
@@ -370,9 +401,21 @@ nginx 已对 `/api/` 关闭 `proxy_buffering` 并把读超时放宽到 600 秒�
 
 - `.env.prod` 含数据库密码与 Fernet 密钥，权限应为 600，且已在 `.gitignore` 中忽略。
 - 默认只有 Web 端口对所有网卡开放；PostgreSQL、Qdrant、API 均绑定 `127.0.0.1`。
-- Kiwi 是单用户本地优先应用，没有内置登录体系。若要暴露到公网，请在前面加一层带认证与 TLS 的反向代理（如 Caddy Basic Auth、Authelia），不要直接开放 18473。
+- 单用户本地应用默认不启用登录。若要在家庭 / 办公内网访问，建议设置访问令牌：
+
+  ```dotenv
+  KIWI_ACCESS_TOKEN=change_me_to_a_long_random_token
+  ```
+
+  重启后浏览器首次访问会进入登录页，登录态通过 HttpOnly Cookie 保存 30 天。
+  `/api/health`、`/api/auth/*` 与前端静态资源保持公开，供健康检查与登录页使用；
+  `/api`、`/media` 与 `/metrics` 需要令牌（支持 `X-Access-Token`、Bearer 或登录 Cookie）。
+  如使用 Prometheus 抓取，请在抓取配置中携带该请求头。
+
+- 若要直接暴露到公网，仍建议在前面加一层带 TLS 与认证的反向代理（如 Caddy / Authelia），
+  访问令牌只是应用层的最低门槛，不替代 HTTPS。
 - `SYS_ADMIN` 仅用于 Notebook 沙箱创建命名空间；沙箱内部会 `--cap-drop ALL`。请把宿主机视为可信环境。
-- Fernet 密钥丢失后，已保存的模型 API Key 无法解密，需要重新填写。
+- Fernet 密钥丢失后，已保存的模型 API Key 无法解密，需要重新填写；上锁笔记的加密正文同样依赖它。
 
 ## 部署文件
 
@@ -384,5 +427,7 @@ deploy/backend.Dockerfile    后端镜像
 deploy/frontend.Dockerfile   可选：预构建 dist 的 nginx 运行时镜像
 deploy/nginx.conf            静态托管与 API / 媒体代理
 deploy/entrypoint.sh         迁移 + 启动
+scripts/backup.sh            宿主机备份（数据库 + uploads + manifest）
+scripts/restore_backup.sh    宿主机恢复（校验 + pg_restore）
 .dockerignore                构建上下文裁剪
 ```

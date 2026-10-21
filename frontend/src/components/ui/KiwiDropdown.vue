@@ -69,6 +69,9 @@ function onAnyScroll(e: Event) {
   if (!open.value) return
   const target = e.target as Node | null
   if (target && (panel.value?.contains(target) || root.value?.contains(target))) return
+  // 锚点所在的可滚动祖先（例如工具栏 overflow-x-auto）滚动时不应关闭面板：
+  // 点击触发按钮会让浏览器把它滚入视野，若此时关闭，面板会瞬开瞬关。
+  if (target && root.value && target.contains(root.value)) return
   close()
 }
 
@@ -108,7 +111,7 @@ onBeforeUnmount(() => {
         >
           <div
             ref="panel"
-            class="rounded-xl border border-slate-200/70 bg-white/95 backdrop-blur-xl shadow-lifted p-1"
+            class="rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
             :class="[width, panelClass]"
             :style="{ zoom: 'var(--ui-scale)' }"
           >

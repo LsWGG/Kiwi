@@ -9,6 +9,7 @@ const tabs = [
   { path: '/settings/embedding', label: '向量模型', icon: 'layers' },
   { path: '/settings/brand', label: '品牌', icon: 'palette' },
   { path: '/settings/ocr', label: 'OCR', icon: 'scanText' },
+  { path: '/settings/operations', label: '运维', icon: 'server' },
 ]
 </script>
 

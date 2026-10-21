@@ -7,7 +7,10 @@
  * 这里改为按节点内容大小判断，并把复杂表格（合并单元格等）降级为 HTML。
  */
 import Table from '@tiptap/extension-table'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
 import { DOMSerializer } from '@tiptap/pm/model'
+import { normalizeColor } from './textStyle'
 
 interface MarkdownState {
   inTable: boolean
@@ -20,6 +23,7 @@ interface MarkdownState {
 interface PmNode {
   type?: { name?: string }
   attrs: Record<string, unknown>
+  marks?: Array<{ type?: { name?: string } }>
   childCount: number
   content?: { content?: PmNode[]; size?: number }
   firstChild?: PmNode
@@ -34,21 +38,70 @@ function hasSpan(node: PmNode): boolean {
   return Number(node.attrs.colspan || 1) > 1 || Number(node.attrs.rowspan || 1) > 1
 }
 
+function hasTextStyle(node: PmNode): boolean {
+  if ((node.marks ?? []).some((mark) => mark.type?.name === 'textStyle')) return true
+  return childNodes(node).some(hasTextStyle)
+}
+
+function hasRichCell(cell: PmNode): boolean {
+  return (
+    hasSpan(cell) ||
+    cell.childCount > 1 ||
+    Boolean(normalizeColor(cell.attrs.background)) ||
+    hasTextStyle(cell)
+  )
+}
+
 function isMarkdownSerializable(node: PmNode): boolean {
   const rows = childNodes(node)
   const firstRow = rows[0]
   if (!firstRow) return false
   const headerInvalid = childNodes(firstRow).some(
-    (cell) => cell.type?.name !== 'tableHeader' || hasSpan(cell) || cell.childCount > 1,
+    (cell) => cell.type?.name !== 'tableHeader' || hasRichCell(cell),
   )
   if (headerInvalid) return false
   return !rows.slice(1).some((row) =>
     childNodes(row).some(
-      (cell) =>
-        cell.type?.name === 'tableHeader' || hasSpan(cell) || cell.childCount > 1,
+      (cell) => cell.type?.name === 'tableHeader' || hasRichCell(cell),
     ),
   )
 }
+
+/** 单元格底色：Markdown 表格无法表达样式，持久化为 data-bg + 行内背景色。 */
+function cellBackgroundAttribute() {
+  return {
+    default: null,
+    parseHTML: (element: HTMLElement) =>
+      normalizeColor(element.getAttribute('data-bg')) ??
+      normalizeColor(element.style.backgroundColor),
+    renderHTML: (attributes: Record<string, unknown>) => {
+      const background = normalizeColor(attributes.background)
+      if (!background) return {}
+      return {
+        'data-bg': background,
+        style: `background-color: ${background}`,
+      }
+    },
+  }
+}
+
+export const KiwiTableCell = TableCell.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      background: cellBackgroundAttribute(),
+    }
+  },
+})
+
+export const KiwiTableHeader = TableHeader.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      background: cellBackgroundAttribute(),
+    }
+  },
+})
 
 function tableHtml(editor: { schema: unknown }, node: PmNode): string {
   try {

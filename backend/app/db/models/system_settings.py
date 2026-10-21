@@ -20,10 +20,15 @@ class SystemSettings(UUIDPkMixin, Base):
         Text, default="知识编译与检索系统", nullable=False
     )
     logo_url: Mapped[str] = mapped_column(String(500), default="", nullable=False)
-    # 编辑模式与学习模式是两套视觉语言，主题色分别配置、互不影响。
+    # 编辑模式与学习模式是两套视觉语言：主题色、图标与描述分别配置。
     theme_color: Mapped[str] = mapped_column(String(20), default="#5a55c7", nullable=False)
     learn_theme_color: Mapped[str] = mapped_column(
         String(20), default="#10b981", nullable=False
+    )
+    # 学习模式 Logo；留空时沿用品牌 Logo / 内置学习标记。
+    learn_logo_url: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    learn_description: Mapped[str] = mapped_column(
+        Text, default="学习训练 · 复习", nullable=False
     )
 
     # 线上 OCR：OpenAI 兼容的视觉模型接口；关闭时回退本地 tesseract。

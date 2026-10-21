@@ -83,6 +83,11 @@ function initialView(): DocView {
 const viewMode = ref<DocView>(initialView())
 const readMode = computed(() => viewMode.value === 'read')
 const showOutline = computed(() => viewMode.value === 'outline')
+/** 阅读模式内的目录开关：不切换到「大纲」视图也能临时看目录。 */
+const readOutlineOpen = ref(false)
+const editorOutline = computed(
+  () => showOutline.value || (readMode.value && readOutlineOpen.value),
+)
 const splitMode = computed(() => viewMode.value === 'split')
 
 // 头部已经展示标题，阅读态与分屏预览不再重复渲染正文的首个同名一级标题。
@@ -1115,7 +1120,7 @@ async function copyMarkdown() {
             :text-formats="note.props_json?.text_formats"
             :ordered-list-style="orderedListStyle"
             :doc-title="title"
-            :show-outline="showOutline"
+            :show-outline="editorOutline"
             :agent-open="agentMode"
             :toolbar-host="docxToolbarExternal ? '#note-docx-toolbar-slot' : null"
             @update="onBody"
@@ -1225,6 +1230,9 @@ async function copyMarkdown() {
         v-if="readMode"
         :area-el="readingAreaRef"
         :scroller-el="readingScrollRef"
+        :outline-open="readOutlineOpen"
+        outline-available
+        @toggle-outline="readOutlineOpen = !readOutlineOpen"
         :zoom="readZoom"
         :zen="readZen"
         @update:zoom="readZoom = $event"

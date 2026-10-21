@@ -52,9 +52,13 @@ FROM python:3.12-slim-bookworm AS runtime
 
 ARG DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
 ARG DEBIAN_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+ARG KIWI_BUILD_COMMIT=""
+ARG KIWI_BUILD_TIME=""
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    KIWI_BUILD_COMMIT=${KIWI_BUILD_COMMIT} \
+    KIWI_BUILD_TIME=${KIWI_BUILD_TIME} \
     PATH="/app/.venv/bin:$PATH"
 
 # bubblewrap / prlimit 是 Notebook 沙箱的运行时依赖；字体用于图表中文渲染。
@@ -75,6 +79,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       util-linux \
       curl \
       ca-certificates \
+      postgresql-client \
       libgomp1 \
       libglib2.0-0 \
       libgl1 \

@@ -239,7 +239,7 @@ async def cancel_batch(
         .all()
     )
     for job in jobs:
-        ingest_service.cancel_job(str(job.id))
+        await ingest_service.cancel_job(str(job.id))
     await import_service.mark_closed(batch.id, error="用户取消导入")
     await session.refresh(batch)
     return ImportBatchOut.model_validate(batch, from_attributes=True)
@@ -543,7 +543,7 @@ async def ingest_events(job_id: uuid.UUID):
 
 @router.post("/{job_id}/cancel", status_code=204)
 async def cancel_job(job_id: uuid.UUID):
-    ingest_service.cancel_job(str(job_id))
+    await ingest_service.cancel_job(str(job_id))
 
 
 @router.post("/compile", response_model=dict, status_code=202)

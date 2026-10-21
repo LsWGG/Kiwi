@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 新建菜单：模板 / 文档 / 画布 / 数据表 / 导入 / 分组 / 链接。 */
+/** 新建菜单：模板 / 文档 / 画布 / 数据表 / 表格 / Notebook / 导入 / 分组 / 链接。 */
 import KiwiDropdown from '@/components/ui/KiwiDropdown.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 
@@ -8,6 +8,7 @@ const emit = defineEmits<{
   (e: 'doc'): void
   (e: 'canvas'): void
   (e: 'database'): void
+  (e: 'sheet'): void
   (e: 'notebook'): void
   (e: 'import'): void
   (e: 'folder'): void
@@ -19,6 +20,7 @@ const items = [
   { key: 'doc', label: '文档', hint: '富文本 · Markdown', icon: 'fileText', tone: 'text-blue-500' },
   { key: 'canvas', label: '画布', hint: '工程图 / 思维导图 · 模板', icon: 'pen', tone: 'text-violet-500' },
   { key: 'database', label: '数据表', hint: '表格 / 看板 / 画册 / 日历', icon: 'database', tone: 'text-kiwi-500' },
+  { key: 'sheet', label: '表格', hint: 'Excel 风格 · 多 Sheet · 公式', icon: 'table', tone: 'text-emerald-600' },
   { key: 'notebook', label: 'Notebook', hint: '代码 / 分析 · 沙箱执行', icon: 'notebook', tone: 'text-indigo-500' },
   { key: 'import', label: '导入文件', hint: '解析为可编辑文档', icon: 'fileImport', tone: 'text-emerald-500' },
   { key: 'folder', label: '分组', hint: '整理工作区条目', icon: 'folder', tone: 'text-amber-400' },
@@ -39,6 +41,9 @@ function choose(key: (typeof items)[number]['key'], close: () => void) {
       break
     case 'database':
       emit('database')
+      break
+    case 'sheet':
+      emit('sheet')
       break
     case 'notebook':
       emit('notebook')

@@ -13,6 +13,7 @@ import NoteLinkPane from '@/components/notes/panes/NoteLinkPane.vue'
 import NoteDatabasePane from '@/components/notes/panes/NoteDatabasePane.vue'
 import NoteCanvasPane from '@/components/notes/panes/NoteCanvasPane.vue'
 import NoteNotebookPane from '@/components/notes/panes/NoteNotebookPane.vue'
+import NoteSheetPane from '@/components/notes/panes/NoteSheetPane.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { toast } from '@/components/ui/toast'
@@ -148,14 +149,15 @@ function closeNote() {
   void router.replace({ name: 'notes' })
 }
 
-const CREATE_TITLES: Record<'doc' | 'canvas' | 'database' | 'notebook', string> = {
+const CREATE_TITLES: Record<'doc' | 'canvas' | 'database' | 'notebook' | 'sheet', string> = {
   doc: '无标题文档',
   canvas: '无标题画布',
   database: '无标题数据表',
   notebook: '无标题 Notebook',
+  sheet: '无标题表格',
 }
 
-async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
+async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook' | 'sheet') {
   creating.value = true
   try {
     const note = await notes.createNote({
@@ -231,6 +233,11 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
           :key="notes.currentNote.id"
           :note="notes.currentNote"
         />
+        <NoteSheetPane
+          v-else-if="notes.currentNote.kind === 'sheet'"
+          :key="notes.currentNote.id"
+          :note="notes.currentNote"
+        />
       </template>
 
       <div v-else class="flex-1 grid place-items-center px-6">
@@ -254,6 +261,10 @@ async function create(kind: 'doc' | 'canvas' | 'database' | 'notebook') {
           <button class="kiwi-btn-secondary" :disabled="creating" @click="create('notebook')">
             <KiwiIcon name="notebook" :size="14" />
             新建 Notebook
+          </button>
+          <button class="kiwi-btn-secondary" :disabled="creating" @click="create('sheet')">
+            <KiwiIcon name="table" :size="14" />
+            新建表格
           </button>
         </KiwiEmpty>
       </div>

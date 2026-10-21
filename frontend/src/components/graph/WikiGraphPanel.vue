@@ -170,12 +170,16 @@ async function load() {
   renderBusy.value = true
   graphReady.value = true
   try {
-    graph.value = await request<GraphData>(buildPath(applied.value), {
+    const data = await request<GraphData>(buildPath(applied.value), {
       kbId: kbs.currentKbId,
     })
+    graph.value = data
+    // 空图不会挂载画布，也就不会触发 ready；提前熄灭遮罩避免一直显示「布局计算中」。
+    renderBusy.value = data.nodes.length > 0
   } catch (e: any) {
     errorMsg.value = e.message
     graph.value = null
+    renderBusy.value = false
   } finally {
     graphLoading.value = false
   }
@@ -411,7 +415,7 @@ function titleOf(id: string) {
 
     <!-- 渲染中遮罩（数据已到，G6 布局未完成） -->
     <div
-      v-if="graph && graphReady && renderBusy"
+      v-if="graph && graphReady && renderBusy && viewGraph?.nodes.length"
       class="absolute inset-0 z-10 grid place-items-center bg-white/40 backdrop-blur-sm"
     >
       <div

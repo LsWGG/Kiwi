@@ -27,11 +27,7 @@ const customized = computed(() => current.value !== DEFAULT_ORDERED_LIST_STYLE)
 </script>
 
 <template>
-  <KiwiDropdown
-    width="w-60"
-    align="right"
-    panel-class="!rounded-xl !border-slate-200/90 !bg-white/98 !p-1.5 !shadow-xl !backdrop-blur"
-  >
+  <KiwiDropdown width="w-60" align="right">
     <template #trigger>
       <!-- 合并控件：箭头只负责展开「多级编号样式」，列表开关由父级按钮承担 -->
       <button

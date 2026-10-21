@@ -13,11 +13,12 @@ from hashlib import sha256
 from pathlib import Path
 
 from app.config import settings
-from app.db.models import IngestJob, KnowledgeBase, Note, Source, WikiPage
+from app.db.models import IngestJob, Job, KnowledgeBase, Note, Source, WikiPage
 from app.db.session import async_session_factory
 from app.event_hub import hub
-from app.services import qdrant_store
+from app.services import job_queue, qdrant_store
 from app.services.embedder import embed_texts_async
+from app.services.metrics import compile_job
 from app.services.parser import ParseError, parse_file
 from app.services.splitter import split_markdown
 from app.services.wiki_compiler import CompileError, compile_source
@@ -49,6 +50,34 @@ async def _update_job(job_id: str, **fields) -> None:
 
 async def _emit(job_id: str, e_type: str, payload: dict) -> None:
     await hub.publish(job_id, {"type": e_type, "payload": payload})
+
+
+async def _enqueue_ingest(
+    job_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    *,
+    mode: str,
+    source_id: uuid.UUID | None = None,
+    note_id: uuid.UUID | None = None,
+    compile_now: bool = False,
+    embed_raw: bool = True,
+) -> None:
+    """把摄入执行写入持久化队列；幂等键与 IngestJob 一一对应。"""
+    await job_queue.enqueue(
+        "ingest",
+        {
+            "ingest_job_id": str(job_id),
+            "kb_id": str(kb_id),
+            "mode": mode,
+            "source_id": str(source_id) if source_id else None,
+            "note_id": str(note_id) if note_id else None,
+            "compile_now": compile_now,
+            "embed_raw": embed_raw,
+        },
+        kb_id=kb_id,
+        ref_id=str(job_id),
+        idempotency_key=f"ingest:{job_id}",
+    )
 
 
 async def _update_import_note(
@@ -224,13 +253,13 @@ async def run_ingest(
                     db.add(job)
                     await db.commit()
                     job_id = job.id
-                    task = asyncio.create_task(
-                        _process_note_from_existing_source(
-                            str(job_id), existing_external.id, note_id
-                        ),
-                        name=f"note-import:{job_id}",
+                    await _enqueue_ingest(
+                        job_id,
+                        kb.id,
+                        mode="existing_source",
+                        source_id=existing_external.id,
+                        note_id=note_id,
                     )
-                    _running[str(job_id)] = task
                     return job_id
                 old_path = Path(existing_external.raw_path)
                 rel_path.write_bytes(file_bytes)
@@ -293,17 +322,14 @@ async def run_ingest(
                 db.add(job)
                 await db.commit()
                 job_id = job.id
-                task = asyncio.create_task(
-                    _process_ingest(
-                        str(job_id),
-                        kb.id,
-                        source_id,
-                        compile_now=compile_now,
-                        note_id=note_id,
-                    ),
-                    name=f"reingest:{job_id}",
+                await _enqueue_ingest(
+                    job_id,
+                    kb.id,
+                    mode="ingest",
+                    source_id=source_id,
+                    note_id=note_id,
+                    compile_now=compile_now,
                 )
-                _running[str(job_id)] = task
                 return job_id
 
         existed = (
@@ -325,11 +351,13 @@ async def run_ingest(
             db.add(job)
             await db.commit()
             job_id = job.id
-            task = asyncio.create_task(
-                _process_note_from_existing_source(str(job_id), existed.id, note_id),
-                name=f"note-import:{job_id}",
+            await _enqueue_ingest(
+                job_id,
+                kb.id,
+                mode="existing_source",
+                source_id=existed.id,
+                note_id=note_id,
             )
-            _running[str(job_id)] = task
             return job_id
 
         # 落盘原始素材（不可变）
@@ -368,13 +396,14 @@ async def run_ingest(
         await db.commit()
         job_id = job.id
 
-    task = asyncio.create_task(
-        _process_ingest(
-            str(job_id), kb.id, source_id, compile_now=compile_now, note_id=note_id
-        ),
-        name=f"ingest:{job_id}",
+    await _enqueue_ingest(
+        job_id,
+        kb.id,
+        mode="ingest",
+        source_id=source_id,
+        note_id=note_id,
+        compile_now=compile_now,
     )
-    _running[str(job_id)] = task
     return job_id
 
 
@@ -485,7 +514,8 @@ async def _process_ingest(
             # 入库后直接编译；批量编译时限制并发，避免同时打满 LLM 配额。
             await _emit(job_id, "compile_progress", {"status": "compiling"})
             async with _compile_semaphore:
-                result = await compile_source(uuid.UUID(job_id), source_id, kb, chunks)
+                async with compile_job():
+                    result = await compile_source(uuid.UUID(job_id), source_id, kb, chunks)
             await _update_job(
                 job_id,
                 progress=1.0,
@@ -537,7 +567,18 @@ async def _process_ingest(
         _running.pop(job_id, None)
 
 
-def cancel_job(job_id: str) -> None:
+async def cancel_job(job_id: str) -> None:
+    """取消摄入任务：同步取消持久化 Job（worker 会中断执行中的协程）。"""
+    from sqlalchemy import select
+
+    async with async_session_factory() as db:
+        durable = (
+            await db.execute(
+                select(Job).where(Job.idempotency_key == f"ingest:{job_id}")
+            )
+        ).scalar_one_or_none()
+    if durable is not None:
+        await job_queue.cancel(durable.id)
     task = _running.get(job_id)
     if task and not task.done():
         task.cancel()

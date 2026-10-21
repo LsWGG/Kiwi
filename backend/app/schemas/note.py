@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NoteKind = Literal["doc", "database", "link", "import", "canvas", "notebook"]
+NoteKind = Literal["doc", "database", "link", "import", "canvas", "notebook", "sheet"]
 
 
 class NoteFolderOut(BaseModel):
@@ -32,7 +32,7 @@ class NoteFolderUpdate(BaseModel):
 class NoteCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     body_md: str = ""
-    kind: Literal["doc", "database", "canvas", "notebook"] = "doc"
+    kind: Literal["doc", "database", "canvas", "notebook", "sheet"] = "doc"
     folder_id: uuid.UUID | None = None
     # 非空时作为该笔记的子笔记，实际分组跟随父笔记
     parent_note_id: uuid.UUID | None = None
@@ -56,10 +56,15 @@ class NoteUpdate(BaseModel):
 
 
 class NoteLockIn(BaseModel):
-    """设置 / 修改笔记密码锁。密码长度至少 4 位。"""
+    """设置 / 修改笔记密码锁。密码长度至少 4 位。
+
+    ``encrypt=True`` 时正文以密码派生密钥加密存储；密码丢失后无法恢复，
+    前端必须二次确认。已加密笔记改密时同样需要重新加密正文。
+    """
 
     password: str = Field(min_length=4, max_length=128)
     hint: str | None = Field(default=None, max_length=120)
+    encrypt: bool = False
 
 
 class NoteUnlockIn(BaseModel):
@@ -76,6 +81,7 @@ class NoteLockOut(BaseModel):
     token: str
     expires_at: int
     is_locked: bool = True
+    encrypted: bool = False
 
 
 class NoteCopyIn(BaseModel):
@@ -112,6 +118,8 @@ class NoteOut(BaseModel):
     wiki_page_id: uuid.UUID | None = None
     is_locked: bool = False
     lock_hint: str | None = None
+    # 正文是否以密文存储（密码丢失不可恢复）
+    encrypted: bool = False
     # 本次响应是否已通过 X-Note-Token 解锁（上锁笔记的正文仅在解锁时返回）
     unlocked: bool = False
     created_at: datetime

@@ -14,6 +14,8 @@ export interface TextFormatRecord {
   occurrence: number
   font?: DocxFont
   size?: number
+  /** 文字颜色 #RRGGBB */
+  color?: string
 }
 
 interface DocumentText {
@@ -66,7 +68,7 @@ function normalizeRecords(raw: unknown): TextFormatRecord[] {
     const record = item as Partial<TextFormatRecord>
     if (typeof record.text !== 'string' || !record.text) return
     const attrs = normalizeTextStyleAttrs(record as Record<string, unknown>)
-    if (!attrs.font && !attrs.size) return
+    if (!attrs.font && !attrs.size && !attrs.color) return
     const occurrence = Number(record.occurrence)
     records.push({
       text: record.text,
@@ -91,7 +93,7 @@ export function collectTextFormats(editor: Editor | null): TextFormatRecord[] {
     const mark = markType.isInSet(node.marks)
     if (!mark) return
     const attrs = normalizeTextStyleAttrs(mark.attrs)
-    if (!attrs.font && !attrs.size) return
+    if (!attrs.font && !attrs.size && !attrs.color) return
     const start = flat.nodeStarts.get(pos) ?? 0
     // 统计这段文字在它之前出现过多少次，重复内容也能正确定位
     const occurrence = countOccurrences(flat.text.slice(0, start), node.text)
@@ -136,6 +138,7 @@ export function applyTextFormats(editor: Editor | null, raw: unknown): number {
       ...(existing?.attrs ?? {}),
       ...(record.font ? { font: record.font } : {}),
       ...(record.size ? { size: record.size } : {}),
+      ...(record.color ? { color: record.color } : {}),
     })
     // 同类型 mark 的旧属性会被替换，先移除再按合并后的属性重新添加
     tr.removeMark(posFrom, end, markType)
@@ -153,25 +156,31 @@ export function applyTextFormats(editor: Editor | null, raw: unknown): number {
  */
 export function applyTextFormat(
   editor: Editor | null,
-  patch: { font?: DocxFont; size?: number },
+  patch: { font?: DocxFont; size?: number; color?: string | null },
 ): boolean {
   if (!editor) return false
   const markType = editor.schema.marks.textStyle
   if (!markType) return false
   const { state } = editor
   const { from, to, empty } = state.selection
-  if (empty) {
-    // 无选区：设置为「后续输入」的格式，不改动已有整段文字
-    const attrs = normalizeTextStyleAttrs({
-      ...editor.getAttributes('textStyle'),
-      ...patch,
-    })
-    editor.chain().focus().setMark('textStyle', attrs).run()
+  const mergedRaw: Record<string, unknown> = {
+    ...editor.getAttributes('textStyle'),
+    ...patch,
+  }
+  // color: null 表示显式清除颜色；其余字段保持不变
+  if ('color' in patch && patch.color === null) delete mergedRaw.color
+  const attrs = normalizeTextStyleAttrs(mergedRaw)
+  const chain = editor.chain().focus()
+  if (!attrs.font && !attrs.size && !attrs.color) {
+    chain.unsetMark('textStyle').run()
     return true
   }
-  if (from === to || !state.doc.textBetween(from, to, '\n', '\n').trim()) return false
-  const current = normalizeTextStyleAttrs(editor.getAttributes('textStyle'))
-  const attrs = normalizeTextStyleAttrs({ ...current, ...patch })
-  editor.chain().focus().setMark('textStyle', attrs).run()
+  if (empty) {
+    // 无选区：设置为「后续输入」的格式，不改动已有整段文字
+    chain.setMark('textStyle', attrs).run()
+    return true
+  }
+  if (!state.doc.textBetween(from, to, '\n', '\n').trim()) return false
+  chain.setMark('textStyle', attrs).run()
   return true
 }

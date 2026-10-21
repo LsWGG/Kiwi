@@ -43,6 +43,8 @@ def _out(row: SystemSettings | None) -> SystemSettingsOut:
             logo_url="",
             theme_color=system_settings.DEFAULT_THEME_COLOR,
             learn_theme_color=system_settings.DEFAULT_LEARN_THEME_COLOR,
+            learn_logo_url="",
+            learn_description=system_settings.DEFAULT_LEARN_DESCRIPTION,
             ocr_enabled=False,
             ocr_provider="openai",
             ocr_api_base="",
@@ -58,6 +60,8 @@ def _out(row: SystemSettings | None) -> SystemSettingsOut:
         logo_url=row.logo_url,
         theme_color=row.theme_color,
         learn_theme_color=row.learn_theme_color,
+        learn_logo_url=row.learn_logo_url,
+        learn_description=row.learn_description,
         ocr_enabled=bool(row.ocr_enabled),
         ocr_provider=row.ocr_provider,
         ocr_api_base=row.ocr_api_base,
@@ -93,6 +97,10 @@ async def save_system_settings(
         row.theme_color = data.theme_color.lower()
     if data.learn_theme_color is not None:
         row.learn_theme_color = data.learn_theme_color.lower()
+    if data.learn_logo_url is not None:
+        row.learn_logo_url = data.learn_logo_url.strip()
+    if data.learn_description is not None:
+        row.learn_description = data.learn_description.strip()
     if data.ocr_enabled is not None:
         row.ocr_enabled = data.ocr_enabled
     if data.ocr_provider is not None:

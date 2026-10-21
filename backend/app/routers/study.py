@@ -85,6 +85,7 @@ from app.services.study_engine import (
 from app.services.study_onboarding import complete_onboarding, onboarding_turn
 from app.services.web_research import research_question
 
+
 async def _require_learning_enabled(
     kb_id: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),

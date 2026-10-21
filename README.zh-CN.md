@@ -98,7 +98,19 @@ cd Kiwi
 
 `./deploy.sh` 负责构建后端镜像并执行数据库迁移；`./deploy.sh frontend` 只重新构建静态产物。前端改动后重新生成 `frontend/dist` 并刷新浏览器即可，无需重建容器。访问 `http://<host>:18473` 即可。
 
-端口调整、数据备份、升级、沙箱权限与排障见 [docs/DEPLOY.md](docs/DEPLOY.md)。版本演进见 [版本迭代记录](docs/CHANGELOG.md)。
+端口调整、数据备份、升级、沙箱权限与排障见 [docs/DEPLOY.md](docs/DEPLOY.md)。版本演进见 [版本迭代记录](docs/CHANGELOG.md)，后续计划见 [迭代计划](docs/ROADMAP.md)。
+
+## 测试
+
+```bash
+# 后端：纯逻辑与 API 契约测试（真实 PostgreSQL / Qdrant）
+cd backend && uv run pytest -q
+
+# 前端类型检查与 Playwright 冒烟测试
+cd frontend && npm run type-check && npm run test:e2e
+```
+
+Playwright 默认连接 `http://127.0.0.1:8000`，建议使用隔离测试库并关闭后台 worker 与限流（`KIWI_BACKGROUND_JOBS=false`、`KIWI_RATE_LIMIT_ENABLED=false`）。额外设置 `PW_TOKEN_BACKEND_URL` 与 `PW_ACCESS_TOKEN` 可运行访问令牌登录用例。CI 会在每次推送与 PR 上执行完整测试。
 
 ---
 

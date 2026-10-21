@@ -75,7 +75,9 @@ services:
         PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian}
         DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
-    image: kiwi-backend:0.1.3
+        KIWI_BUILD_COMMIT: ${KIWI_BUILD_COMMIT:-}
+        KIWI_BUILD_TIME: ${KIWI_BUILD_TIME:-}
+    image: kiwi-backend:0.2.0
     container_name: kiwi-prod-backend
     restart: unless-stopped
     init: true
@@ -92,6 +94,18 @@ services:
       KIWI_UPLOAD_DIR: /app/data/uploads
       KIWI_CORS_ORIGINS: '["${KIWI_PUBLIC_ORIGIN:-http://localhost:18473}"]'
       KIWI_LLM_TIMEOUT: ${KIWI_LLM_TIMEOUT:-600}
+      # 可选访问控制：留空不启用；设置后浏览器会先进入令牌登录页。
+      KIWI_ACCESS_TOKEN: ${KIWI_ACCESS_TOKEN:-}
+      KIWI_ACCESS_COOKIE_NAME: ${KIWI_ACCESS_COOKIE_NAME:-kiwi_access}
+      KIWI_RATE_LIMIT_ENABLED: ${KIWI_RATE_LIMIT_ENABLED:-true}
+      KIWI_RATE_LIMIT_LLM_PER_MINUTE: ${KIWI_RATE_LIMIT_LLM_PER_MINUTE:-20}
+      KIWI_RATE_LIMIT_IMPORT_PER_MINUTE: ${KIWI_RATE_LIMIT_IMPORT_PER_MINUTE:-10}
+      KIWI_RATE_LIMIT_CODE_PER_MINUTE: ${KIWI_RATE_LIMIT_CODE_PER_MINUTE:-30}
+      # 自动备份：pg_dump + uploads + manifest，目录位于持久化数据卷。
+      KIWI_BACKUP_ENABLED: ${KIWI_BACKUP_ENABLED:-true}
+      KIWI_BACKUP_INTERVAL_HOURS: ${KIWI_BACKUP_INTERVAL_HOURS:-24}
+      KIWI_BACKUP_RETENTION_DAYS: ${KIWI_BACKUP_RETENTION_DAYS:-14}
+      KIWI_BACKUP_DIR: /app/data/backups
       FASTEMBED_CACHE_PATH: /app/data/models/fastembed
       HF_HOME: /app/data/models/huggingface
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}

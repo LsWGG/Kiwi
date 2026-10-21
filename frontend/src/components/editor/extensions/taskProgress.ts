@@ -64,9 +64,15 @@ export function normalizeTaskProgressBind(value: unknown): TaskProgressBind {
 }
 
 export function taskListStats(node: ProseMirrorNode): TaskListStats {
-  const items = node.content.content.filter((child) => child.type.name === 'taskItem')
-  const done = items.filter((item) => Boolean(item.attrs.checked)).length
-  const total = items.length
+  // 递归统计多级待办：taskItem 内可以继续嵌套 taskList，
+  // 只看直接子节点会漏掉二级 / 三级清单。
+  let done = 0
+  let total = 0
+  node.descendants((child) => {
+    if (child.type.name !== 'taskItem') return
+    total += 1
+    if (child.attrs.checked) done += 1
+  })
   return {
     done,
     total,

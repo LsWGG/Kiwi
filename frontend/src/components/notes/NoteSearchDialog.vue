@@ -41,6 +41,7 @@ const KIND_OPTIONS = [
   { value: '', label: '全部类型' },
   { value: 'doc', label: '文档' },
   { value: 'database', label: '数据表' },
+  { value: 'sheet', label: '表格' },
   { value: 'canvas', label: '画布' },
   { value: 'notebook', label: 'Notebook' },
   { value: 'import', label: '导入' },
@@ -265,6 +266,17 @@ function summaryOf(item: NoteSearchItem): string {
     const edges = Array.isArray(doc?.edges) ? doc.edges.length : 0
     return `画布 · ${nodes} 个节点 · ${edges} 条连线`
   }
+  if (note.kind === 'sheet') {
+    const workbook = note.props_json?.sheet as
+      | { sheets?: Array<{ cells?: Record<string, unknown>; name?: string }> }
+      | undefined
+    const sheets = Array.isArray(workbook?.sheets) ? workbook.sheets : []
+    const cells = sheets.reduce(
+      (sum, sheet) => sum + Object.keys(sheet.cells ?? {}).length,
+      0,
+    )
+    return `表格 · ${sheets.length} 张工作表 · ${cells} 个单元格`
+  }
   if (note.kind === 'notebook') {
     const doc = note.props_json?.notebook_doc as
       | { cells?: Array<{ type?: string }> }
@@ -353,6 +365,7 @@ const KIND_LABEL: Record<string, string> = {
   import: '导入',
   link: '链接',
   notebook: 'Notebook',
+  sheet: '表格',
 }
 const KIND_ICON: Record<string, string> = {
   doc: 'fileText',
@@ -361,6 +374,7 @@ const KIND_ICON: Record<string, string> = {
   import: 'fileImport',
   link: 'link2',
   notebook: 'notebook',
+  sheet: 'table',
 }
 const KIND_TILE: Record<string, string> = {
   doc: 'border-slate-200 bg-slate-50 text-slate-500',
@@ -369,6 +383,7 @@ const KIND_TILE: Record<string, string> = {
   import: 'border-emerald-200 bg-emerald-50 text-emerald-600',
   link: 'border-amber-200 bg-amber-50 text-amber-600',
   notebook: 'border-indigo-200 bg-indigo-50 text-indigo-600',
+  sheet: 'border-emerald-200 bg-emerald-50 text-emerald-600',
 }
 const MATCH_LABEL: Record<string, string> = {
   title: '标题',

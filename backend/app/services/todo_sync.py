@@ -15,10 +15,10 @@ import asyncio
 import logging
 import re
 import uuid
-from hashlib import sha1
 from datetime import datetime, timezone
+from hashlib import sha1
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (

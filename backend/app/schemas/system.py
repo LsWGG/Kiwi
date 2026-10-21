@@ -9,6 +9,8 @@ class SystemSettingsOut(BaseModel):
     logo_url: str
     theme_color: str
     learn_theme_color: str
+    learn_logo_url: str
+    learn_description: str
     ocr_enabled: bool
     ocr_provider: str
     ocr_api_base: str
@@ -29,6 +31,8 @@ class SystemSettingsUpdate(BaseModel):
     learn_theme_color: str | None = Field(
         default=None, pattern=r"^#[0-9a-fA-F]{6}$"
     )
+    learn_logo_url: str | None = Field(default=None, max_length=500)
+    learn_description: str | None = Field(default=None, max_length=500)
     ocr_enabled: bool | None = None
     ocr_provider: str | None = Field(default=None, max_length=40)
     ocr_api_base: str | None = Field(default=None, max_length=500)

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * Kiwi 编辑器：Tiptap v2 + Markdown 双向往返。
- * 四种模式：Simple（极简）/ Notion（块编辑）/ DOCX（纸张排版）/ Agent（AI 指令栏）。
- * 四种模式共用「灰色画布 + 白色纸张」的编辑区域，模式只改变工具与页面参数。
+ * 两种模式：标准编辑（语雀式工具栏 + 斜杠命令 + 气泡菜单）/ DOCX（纸张排版）。
+ * 历史 Simple / Notion / Agent 数据统一按标准编辑打开，共用「灰色画布 + 白色纸张」。
  * 块能力：标题/列表/任务/引用/提示块/代码高亮/表格/图片/视频/附件/链接/高亮/对齐。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -18,9 +18,7 @@ import { KiwiImage } from './extensions/kiwiImage'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import TableRow from '@tiptap/extension-table-row'
-import TableHeader from '@tiptap/extension-table-header'
-import TableCell from '@tiptap/extension-table-cell'
-import TaskList from '@tiptap/extension-task-list'
+import { KiwiTaskList } from './extensions/emptyTaskList'
 import TaskItem from '@tiptap/extension-task-item'
 import DetailsSummary from '@tiptap/extension-details-summary'
 import DetailsContent from '@tiptap/extension-details-content'
@@ -29,6 +27,7 @@ import GlobalDragHandle from 'tiptap-extension-global-drag-handle'
 import { common, createLowlight } from 'lowlight'
 import { Markdown } from 'tiptap-markdown'
 import EditorToolbar from './EditorToolbar.vue'
+import EditorColorPicker from './EditorColorPicker.vue'
 import MarkdownIt from 'markdown-it'
 import TableInsertDialog from './TableInsertDialog.vue'
 import InsertEmbedDialog, { type EmbedTab } from './InsertEmbedDialog.vue'
@@ -57,7 +56,11 @@ import {
 } from './extensions/mention'
 import type { MentionWikiPage } from './extensions/mention'
 import { MENTION_DISPLAY_OPTIONS } from './extensions/mentionTypes'
-import { KiwiTable } from './extensions/table'
+import {
+  KiwiTable,
+  KiwiTableCell,
+  KiwiTableHeader,
+} from './extensions/table'
 import { createCodeBlock } from './extensions/codeBlock'
 import { CodeOutput, formatRunResult, upsertCodeOutput } from './extensions/codeOutput'
 import { buildPreviewDocument } from './extensions/preview'
@@ -76,8 +79,16 @@ import {
   KiwiParagraph,
   type ParagraphFormatPatch,
 } from './extensions/paragraphFormat'
-import { KiwiTextStyle, normalizeTextStyleAttrs } from './extensions/textStyle'
-import { applyTextFormats, collectTextFormats } from './extensions/textFormat'
+import {
+  KiwiTextStyle,
+  normalizeColor,
+  normalizeTextStyleAttrs,
+} from './extensions/textStyle'
+import {
+  applyTextFormat,
+  applyTextFormats,
+  collectTextFormats,
+} from './extensions/textFormat'
 import { orderedListStyleClass, type OrderedListStyleKey } from './orderedListStyles'
 import DocxParagraphDialog from './DocxParagraphDialog.vue'
 import type { LinkMeta } from '@/api/links'
@@ -132,7 +143,7 @@ const props = withDefaults(
   {
     readonly: false,
     noteId: null,
-    mode: 'notion',
+    mode: 'simple',
     docxPrefs: null,
     pagePrefs: null,
     orderedListStyle: null,
@@ -223,28 +234,41 @@ const chars = ref(0)
 /** 选区变化计数：工具栏激活态与表格上下文按钮随光标移动刷新 */
 const editorRevision = ref(0)
 
+/** 表格上下文菜单的底色预设（与语雀一致的低饱和色）。 */
+const TABLE_BG_COLORS = [
+  { label: '浅黄', value: '#FEF3C7' },
+  { label: '浅绿', value: '#DCFCE7' },
+  { label: '浅蓝', value: '#DBEAFE' },
+  { label: '浅粉', value: '#FCE7F3' },
+  { label: '浅紫', value: '#EDE9FE' },
+  { label: '浅灰', value: '#F1F5F9' },
+]
+
+/**
+ * 气泡菜单始终保持挂载：随只读切换卸载会与 Teleport 的锚点冲突，
+ * 导致 Vue 更新表格外的节点时丢失插入位置。只读时仅隐藏浮层。
+ */
+function shouldShowFormatBubble({ editor: ed }: { editor: Editor }): boolean {
+  return !props.readonly && !ed.isActive('table')
+}
+
+function shouldShowTableBubble({ editor: ed }: { editor: Editor }): boolean {
+  return !props.readonly && ed.isActive('table')
+}
+
 // Agent 已合并进 Simple：历史 agent 模式也按 Simple 渲染
-const simple = computed(() => props.mode === 'simple' || props.mode === 'agent')
+const simple = computed(() => props.mode !== 'docx')
 const isDocx = computed(() => props.mode === 'docx')
-const isNotion = computed(() => props.mode === 'notion')
 
 const placeholderText = computed(() => {
   if (props.readonly) return ''
-  if (simple.value) return '开始写作… 点击工具栏 Agent 唤起 AI 指令'
   if (isDocx.value) return '在 A4 纸张上开始写作…'
-  return props.placeholder
+  return '开始写作… 输入 / 插入块，选中文字呼出气泡菜单'
 })
 
 const footerHint = computed(() => {
-  switch (props.mode) {
-    case 'simple':
-    case 'agent':
-      return '简洁模式 · 点击工具栏 Agent 使用 AI 指令'
-    case 'docx':
-      return 'DOCX 模式 · 点击纸张上的页眉 / 页脚可直接编辑'
-    default:
-      return '输入 / 插入块 · 拖动左侧手柄调整块顺序'
-  }
+  if (isDocx.value) return 'DOCX 模式 · 点击纸张上的页眉 / 页脚可直接编辑'
+  return '输入 / 插入块 · 拖动左侧手柄调整块顺序 · 选中文字呼出气泡菜单'
 })
 
 // ---------- 页面偏好 ----------
@@ -1104,6 +1128,12 @@ function pickAttachment() {
   openEmbedDialog('file')
 }
 
+/** 气泡菜单文字颜色：模板内联箭头函数无法收窄 editor，统一在脚本里判空。 */
+function applyBubbleTextColor(color: string | null) {
+  if (!editor.value) return
+  applyTextFormat(editor.value, { color })
+}
+
 function openLinkDialog(ed: Editor) {
   const existing = ed.getAttributes('link').href || ''
   openEmbedDialog('link', [], existing)
@@ -1529,7 +1559,7 @@ interface FormatPainterState {
   code: boolean
   /** null 表示来源没有高亮；空字符串表示默认高亮色 */
   highlight: string | null
-  textStyle: { font?: DocxFont; size?: number }
+  textStyle: { font?: DocxFont; size?: number; color?: string }
   /** 段落排版的完整快照（未显式设置的字段为 null） */
   block: ParagraphFormatPatch
   /** 来源选区；用于避免把格式重复套回来源位置 */
@@ -1615,7 +1645,11 @@ function applyFormatPainter(ed: Editor): boolean {
       } else {
         chain.unsetHighlight()
       }
-      if (formats.textStyle.font || formats.textStyle.size) {
+      if (
+        formats.textStyle.font ||
+        formats.textStyle.size ||
+        formats.textStyle.color
+      ) {
         chain.setMark('textStyle', formats.textStyle)
       } else {
         chain.unsetMark('textStyle')
@@ -1731,9 +1765,9 @@ const editor = useEditor({
     Highlight.configure({ multicolor: true }),
     KiwiTable.configure({ resizable: true, lastColumnResizable: false }),
     TableRow,
-    TableHeader,
-    TableCell,
-    TaskList,
+    KiwiTableHeader,
+    KiwiTableCell,
+    KiwiTaskList,
     TaskItem.configure({ nested: true }),
     KiwiTaskProgress,
     createCodeBlock(lowlight),
@@ -1786,7 +1820,7 @@ const editor = useEditor({
       () => wikiPages.value,
     ),
     TrailingParagraph,
-    ...(props.mode === 'notion'
+    ...(props.mode !== 'docx'
       ? [
           GlobalDragHandle.configure({
             dragHandleWidth: 24,
@@ -1821,7 +1855,10 @@ const editor = useEditor({
         ]
       : []),
     Markdown.configure({
-      html: false,
+      // 允许原始 HTML：语雀 / Notion 粘贴的表格、带 colspan 的复杂表格
+      // 需要先按 HTML 解析成编辑器节点。解析结果仍受 ProseMirror schema
+      // 约束，未知标签和脚本会被丢弃。
+      html: true,
       tightLists: true,
       linkify: false,
       breaks: false,
@@ -2091,7 +2128,7 @@ defineExpose({
     <!-- 块拖动手柄挂到 <html> 下：body 的 4K zoom 会把 fixed 坐标再次放大，导致手柄偏移 -->
     <Teleport to="html">
       <div
-        v-if="isNotion && !readonly"
+        v-if="simple && !readonly"
         id="kiwi-drag-handle"
         class="drag-handle hide"
         aria-hidden="true"
@@ -2107,7 +2144,7 @@ defineExpose({
     />
 
     <Teleport
-      v-if="editor && !readonly && mode !== 'notion'"
+      v-if="editor && !readonly"
       :to="toolbarHost || 'body'"
       :disabled="!toolbarHost"
     >
@@ -2142,55 +2179,12 @@ defineExpose({
     />
     </Teleport>
 
-    <!-- Notion 模式：不给常驻工具栏，靠斜杠命令、气泡菜单与块拖动手柄 -->
-    <div
-      v-if="editor && !readonly && mode === 'notion'"
-      class="mb-1.5 flex items-center justify-between px-0.5 text-[10px] text-slate-400"
-    >
-      <span class="flex items-center gap-1">
-        <KiwiIcon name="grip" :size="11" />
-        悬停块左侧拖动排序 · 输入 / 插入块 · 选中文字呼出气泡菜单
-      </span>
-      <span class="flex items-center gap-0.5">
-        <!-- 页面缩放：与 Word 模式一致 -->
-        <button type="button" class="ed-bubble" title="缩小页面" @click="zoomBy(-1)">
-          <KiwiIcon name="minus" :size="12" />
-        </button>
-        <button
-          type="button"
-          class="h-6 min-w-[38px] rounded-md px-1 text-[10px] tabular-nums text-slate-500 transition-colors hover:bg-slate-100"
-          title="恢复 100%"
-          @click="docxZoom = 100"
-        >
-          {{ docxZoom }}%
-        </button>
-        <button type="button" class="ed-bubble" title="放大页面" @click="zoomBy(1)">
-          <KiwiIcon name="plus" :size="12" />
-        </button>
-        <span class="mx-1 h-3 w-px bg-slate-200" />
-        <button
-          type="button"
-          class="ed-bubble"
-          title="撤销"
-          @click="editor.chain().focus().undo().run()"
-        >
-          <KiwiIcon name="undo" :size="12" />
-        </button>
-        <button
-          type="button"
-          class="ed-bubble"
-          title="重做"
-          @click="editor.chain().focus().redo().run()"
-        >
-          <KiwiIcon name="redo" :size="12" />
-        </button>
-      </span>
-    </div>
-
     <BubbleMenu
-      v-if="editor && !readonly && (mode === 'notion' || isDocx)"
+      v-if="editor"
       :editor="editor"
+      :should-show="shouldShowFormatBubble"
       :tippy-options="{ duration: 120, placement: 'top' }"
+      :data-rev="editorRevision"
       class="flex items-center gap-0.5 rounded-xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-lifted px-1 py-1"
     >
       <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive('bold') }" @click="editor.chain().focus().toggleBold().run()">
@@ -2211,6 +2205,13 @@ defineExpose({
       <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive('highlight') }" @click="editor.chain().focus().toggleHighlight().run()">
         <KiwiIcon name="highlight" :size="13" />
       </button>
+      <EditorColorPicker
+        variant="bubble"
+        :value="normalizeColor(editor.getAttributes('textStyle').color) || '#1F2937'"
+        :active="!!normalizeColor(editor.getAttributes('textStyle').color)"
+        @select="applyBubbleTextColor"
+        @clear="applyBubbleTextColor(null)"
+      />
       <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive('link') }" @click="openLinkDialog(editor)">
         <KiwiIcon name="link2" :size="13" />
       </button>
@@ -2228,6 +2229,100 @@ defineExpose({
       >
         <KiwiIcon name="copy" :size="13" />
       </button>
+    </BubbleMenu>
+
+    <!-- 表格上下文菜单：光标在表格内时出现，行列 / 表头 / 合并 / 底色都在这里，不占常驻工具栏 -->
+    <BubbleMenu
+      v-if="editor"
+      :editor="editor"
+      :should-show="shouldShowTableBubble"
+      :tippy-options="{ duration: 120, placement: 'top-start', maxWidth: 'none' }"
+      :data-rev="editorRevision"
+      class="flex flex-col gap-1 rounded-xl border border-slate-200/80 bg-white/95 px-1.5 py-1.5 shadow-lifted backdrop-blur-xl"
+    >
+      <div class="flex items-center gap-0.5">
+        <button type="button" class="ed-bubble" title="在上方插入行" @mousedown.prevent @click="editor.chain().focus().addRowBefore().run()">
+          <KiwiIcon name="plus" :size="13" />
+        </button>
+        <button type="button" class="ed-bubble" title="在下方插入行" @mousedown.prevent @click="editor.chain().focus().addRowAfter().run()">
+          <KiwiIcon name="plus" :size="13" class="rotate-90" />
+        </button>
+        <button type="button" class="ed-bubble" title="删除当前行" @mousedown.prevent @click="editor.chain().focus().deleteRow().run()">
+          <KiwiIcon name="minus" :size="13" />
+        </button>
+        <span class="mx-0.5 h-4 w-px bg-slate-200" />
+        <button type="button" class="ed-bubble" title="在左侧插入列" @mousedown.prevent @click="editor.chain().focus().addColumnBefore().run()">
+          <KiwiIcon name="columns" :size="13" class="rotate-90" />
+        </button>
+        <button type="button" class="ed-bubble" title="在右侧插入列" @mousedown.prevent @click="editor.chain().focus().addColumnAfter().run()">
+          <KiwiIcon name="columns" :size="13" />
+        </button>
+        <button type="button" class="ed-bubble" title="删除当前列" @mousedown.prevent @click="editor.chain().focus().deleteColumn().run()">
+          <KiwiIcon name="minus" :size="13" class="rotate-90" />
+        </button>
+        <span class="mx-0.5 h-4 w-px bg-slate-200" />
+        <button type="button" class="ed-bubble" title="合并单元格" @mousedown.prevent @click="editor.chain().focus().mergeCells().run()">
+          合并
+        </button>
+        <button type="button" class="ed-bubble" title="拆分单元格" @mousedown.prevent @click="editor.chain().focus().splitCell().run()">
+          拆分
+        </button>
+        <button type="button" class="ed-bubble hover:!text-rose-600" title="删除表格" @mousedown.prevent @click="editor.chain().focus().deleteTable().run()">
+          <KiwiIcon name="trash" :size="13" />
+        </button>
+      </div>
+      <div class="flex items-center gap-0.5">
+        <button
+          type="button"
+          class="ed-bubble !w-auto px-1.5 text-[11px]"
+          :class="{ 'is-active': editor.isActive('tableHeader') }"
+          title="把首行设为表头 / 取消表头"
+          @mousedown.prevent
+          @click="editor.chain().focus().toggleHeaderRow().run()"
+        >
+          首行表头
+        </button>
+        <button
+          type="button"
+          class="ed-bubble !w-auto px-1.5 text-[11px]"
+          :class="{ 'is-active': editor.isActive('tableHeader') }"
+          title="把首列设为表头 / 取消表头"
+          @mousedown.prevent
+          @click="editor.chain().focus().toggleHeaderColumn().run()"
+        >
+          首列表头
+        </button>
+        <span class="mx-0.5 h-4 w-px bg-slate-200" />
+        <button
+          v-for="color in TABLE_BG_COLORS"
+          :key="color.value"
+          type="button"
+          class="h-5 w-5 rounded-md border border-slate-200 transition-transform hover:scale-110"
+          :style="{ background: color.value }"
+          :title="color.label"
+          @mousedown.prevent
+          @click="editor.chain().focus().setCellAttribute('background', color.value).run()"
+        />
+        <button
+          type="button"
+          class="ed-bubble"
+          title="清除单元格底色"
+          @mousedown.prevent
+          @click="editor.chain().focus().setCellAttribute('background', null).run()"
+        >
+          <KiwiIcon name="eraser" :size="13" />
+        </button>
+        <span class="mx-0.5 h-4 w-px bg-slate-200" />
+        <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive({ textAlign: 'left' }) }" title="左对齐" @mousedown.prevent @click="editor.chain().focus().setTextAlign('left').run()">
+          <span class="text-[11px] font-semibold">L</span>
+        </button>
+        <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive({ textAlign: 'center' }) }" title="居中" @mousedown.prevent @click="editor.chain().focus().setTextAlign('center').run()">
+          <span class="text-[11px] font-semibold">C</span>
+        </button>
+        <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive({ textAlign: 'right' }) }" title="右对齐" @mousedown.prevent @click="editor.chain().focus().setTextAlign('right').run()">
+          <span class="text-[11px] font-semibold">R</span>
+        </button>
+      </div>
     </BubbleMenu>
 
     <!-- 统一编辑区域：灰色画布 + 白色纸张，高度铺满剩余视口 -->

@@ -34,7 +34,9 @@ def _split_long_text(text: str) -> list[str]:
             # 找最近的句末标点
             for sep in ("。", "！", "？", "\n", "；", "．"):
                 idx = window.rfind(sep)
-                if idx >= 80 - 20:  # 至少保留 60 字
+                # 只在窗口的「末尾 20 字」内切分：既保留足够上下文，
+                # 又保证 chunk 不超过 CHUNK_SIZE。
+                if 60 <= idx < 80:
                     end = start + CHUNK_SIZE - 80 + idx + 1
                     break
         seg = text[start:end]
