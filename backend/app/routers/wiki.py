@@ -1243,7 +1243,7 @@ async def rebuild_wiki(
     )
     await session.commit()
 
-    from app.routers.notes import _prepare_note_compile, _schedule_note_compile
+    from app.routers.notes_compile import _prepare_note_compile, _schedule_note_compile
     from app.services import ingest_service, note_compiler
 
     notes = list(

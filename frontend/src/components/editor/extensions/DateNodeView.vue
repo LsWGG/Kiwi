@@ -1,32 +1,127 @@
 <script setup lang="ts">
-/** 日期胶囊：点击弹出原生日期选择器，就地修改。 */
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+/** 日期胶囊：点击在胶囊正下方弹出主题化月历，就地选择日期。 */
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import { useEditorEditable } from './useEditorEditable'
 
 const props = defineProps(nodeViewProps)
 
 const root = ref<HTMLElement | null>(null)
-const input = ref<HTMLInputElement | null>(null)
+const pop = ref<HTMLElement | null>(null)
 const editable = useEditorEditable(props.editor)
 const editing = ref(false)
 const draft = ref(String(props.node.attrs.date || ''))
 
+const POP_WIDTH = 264
+const POP_HEIGHT = 336
+
+const popStyle = ref<Record<string, string>>({})
+
+function formatDate(year: number, month: number, day: number) {
+  const m = String(month + 1).padStart(2, '0')
+  const d = String(day).padStart(2, '0')
+  return `${year}-${m}-${d}`
+}
+
+function parseDate(value: string): { year: number; month: number; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return null
+  return { year: Number(match[1]), month: Number(match[2]) - 1, day: Number(match[3]) }
+}
+
+const today = new Date()
+const viewYear = ref(today.getFullYear())
+const viewMonth = ref(today.getMonth())
+
+const selectedKey = computed(() => draft.value)
+const todayKey = formatDate(today.getFullYear(), today.getMonth(), today.getDate())
+
+const monthLabel = computed(() => `${viewYear.value} 年 ${viewMonth.value + 1} 月`)
+
+const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
+
+interface DayCell {
+  key: string
+  day: number
+  inMonth: boolean
+}
+
+const days = computed<DayCell[]>(() => {
+  const first = new Date(viewYear.value, viewMonth.value, 1)
+  // 周一为一周起点：getDay() 的周日是 0。
+  const offset = (first.getDay() + 6) % 7
+  const cells: DayCell[] = []
+  for (let index = 0; index < 42; index += 1) {
+    const date = new Date(viewYear.value, viewMonth.value, index - offset + 1)
+    cells.push({
+      key: formatDate(date.getFullYear(), date.getMonth(), date.getDate()),
+      day: date.getDate(),
+      inMonth: date.getMonth() === viewMonth.value,
+    })
+  }
+  return cells
+})
+
+function shiftMonth(delta: number) {
+  const next = new Date(viewYear.value, viewMonth.value + delta, 1)
+  viewYear.value = next.getFullYear()
+  viewMonth.value = next.getMonth()
+}
+
+function placePopover() {
+  const chip = (root.value as unknown as { $el?: HTMLElement })?.$el
+  const anchor = chip?.querySelector?.<HTMLElement>('.kiwi-date-chip') ?? chip
+  if (!anchor) return
+  const rect = anchor.getBoundingClientRect()
+  const left = Math.min(
+    Math.max(8, rect.left + rect.width / 2 - POP_WIDTH / 2),
+    window.innerWidth - POP_WIDTH - 8,
+  )
+  let top = rect.bottom + 8
+  // 下方空间不足时翻到上方，避免弹层被视口裁掉。
+  if (top + POP_HEIGHT > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - POP_HEIGHT - 8)
+  }
+  popStyle.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` }
+}
+
 function open() {
   if (!editable.value) return
   draft.value = String(props.node.attrs.date || '')
+  const parsed = parseDate(draft.value)
+  const base = parsed ?? {
+    year: today.getFullYear(),
+    month: today.getMonth(),
+    day: today.getDate(),
+  }
+  viewYear.value = base.year
+  viewMonth.value = base.month
   editing.value = true
-  void nextTick(() => input.value?.showPicker?.())
+  placePopover()
+  void nextTick(placePopover)
 }
 
-function save() {
-  if (draft.value) props.updateAttributes({ date: draft.value })
+function close() {
   editing.value = false
+}
+
+function pick(key: string) {
+  draft.value = key
+  props.updateAttributes({ date: key })
+  close()
+}
+
+function clear() {
+  draft.value = ''
+  props.updateAttributes({ date: '' })
+  close()
 }
 
 function onDocPointer(event: MouseEvent) {
   if (!editing.value) return
-  // NodeViewWrapper 的模板 ref 是组件实例而非 DOM，容器要通过编辑器查。
+  const target = event.target as Node | null
+  if (!target) return
+  if (pop.value?.contains(target)) return
   const dom = (() => {
     try {
       const pos = props.getPos()
@@ -35,14 +130,38 @@ function onDocPointer(event: MouseEvent) {
       return null
     }
   })()
-  const target = event.target as Node | null
-  if (!dom || !target || !(dom as HTMLElement).contains(target)) {
-    save()
-  }
+  if (dom && (dom as HTMLElement).contains(target)) return
+  close()
 }
 
-onMounted(() => document.addEventListener('mousedown', onDocPointer))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
+function onDocKey(event: KeyboardEvent) {
+  if (editing.value && event.key === 'Escape') close()
+}
+
+function onViewportChange() {
+  if (editing.value) placePopover()
+}
+
+watch(editing, (open) => {
+  if (open) {
+    window.addEventListener('scroll', onViewportChange, true)
+    window.addEventListener('resize', onViewportChange)
+  } else {
+    window.removeEventListener('scroll', onViewportChange, true)
+    window.removeEventListener('resize', onViewportChange)
+  }
+})
+
+onMounted(() => {
+  document.addEventListener('mousedown', onDocPointer)
+  document.addEventListener('keydown', onDocKey)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocPointer)
+  document.removeEventListener('keydown', onDocKey)
+  window.removeEventListener('scroll', onViewportChange, true)
+  window.removeEventListener('resize', onViewportChange)
+})
 </script>
 
 <template>
@@ -50,7 +169,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
     ref="root"
     as="span"
     class="kiwi-date-wrap"
-    :class="{ 'is-selected': selected, 'is-readonly': !editable }"
+    :class="{ 'is-selected': selected, 'is-readonly': !editable, 'is-open': editing }"
     data-kiwi-date-node
     contenteditable="false"
   >
@@ -61,20 +180,62 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
       @mousedown.prevent
       @click.stop="open"
     >
-      <span aria-hidden="true">📅</span>
+      <span class="kiwi-date-icon" aria-hidden="true">📅</span>
       <span>{{ node.attrs.date || '选择日期' }}</span>
     </button>
-    <span v-if="editing" class="kiwi-date-pop" @mousedown.stop>
-      <input
-        ref="input"
-        v-model="draft"
-        type="date"
-        class="kiwi-date-input"
-        @keydown.enter.prevent="save"
-        @keydown.esc.prevent="editing = false"
-      />
-      <button type="button" class="kiwi-date-ok" @mousedown.prevent @click="save">确定</button>
-    </span>
+
+    <Teleport to="body">
+      <div
+        v-if="editing"
+        ref="pop"
+        class="kiwi-date-pop"
+        :style="popStyle"
+        role="dialog"
+        aria-label="选择日期"
+        @mousedown.stop
+      >
+        <div class="kiwi-date-pop-head">
+          <button type="button" class="kiwi-date-nav" title="上个月" @click="shiftMonth(-1)">
+            ‹
+          </button>
+          <span class="kiwi-date-month">{{ monthLabel }}</span>
+          <button type="button" class="kiwi-date-nav" title="下个月" @click="shiftMonth(1)">
+            ›
+          </button>
+        </div>
+        <div class="kiwi-date-week">
+          <span v-for="weekday in WEEKDAYS" :key="weekday">{{ weekday }}</span>
+        </div>
+        <div class="kiwi-date-grid">
+          <button
+            v-for="cell in days"
+            :key="cell.key"
+            type="button"
+            class="kiwi-date-day"
+            :class="{
+              'is-outside': !cell.inMonth,
+              'is-today': cell.key === todayKey,
+              'is-selected': cell.key === selectedKey,
+            }"
+            @click="pick(cell.key)"
+          >
+            {{ cell.day }}
+          </button>
+        </div>
+        <div class="kiwi-date-pop-foot">
+          <button type="button" class="kiwi-date-quick" @click="pick(todayKey)">今天</button>
+          <button
+            v-if="node.attrs.date"
+            type="button"
+            class="kiwi-date-quick is-muted"
+            @click="clear"
+          >
+            清除
+          </button>
+          <span class="kiwi-date-hint">选择日期后立即生效</span>
+        </div>
+      </div>
+    </Teleport>
   </NodeViewWrapper>
 </template>
 
@@ -91,9 +252,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   margin: 0 2px;
   padding: 1px 7px;
   border-radius: 999px;
-  border: 1px solid rgb(190 242 100 / 0.65);
-  background: rgb(247 254 231);
-  color: rgb(63 98 18);
+  border: 1px solid rgb(var(--kiwi-400) / 0.45);
+  background: rgb(var(--kiwi-50));
+  color: rgb(var(--kiwi-700));
   font-size: 0.86em;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
@@ -101,54 +262,138 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .kiwi-date-chip:hover {
-  background: rgb(236 252 203);
-  border-color: rgb(163 230 53 / 0.8);
+  background: rgb(var(--kiwi-100));
+  border-color: rgb(var(--kiwi-400) / 0.7);
+}
+.kiwi-date-icon {
+  font-size: 0.92em;
+  line-height: 1;
 }
 .is-readonly .kiwi-date-chip {
   cursor: default;
 }
 .is-readonly .kiwi-date-chip:hover {
-  background: rgb(247 254 231);
-  border-color: rgb(190 242 100 / 0.65);
+  background: rgb(var(--kiwi-50));
+  border-color: rgb(var(--kiwi-400) / 0.45);
 }
-.is-selected .kiwi-date-chip {
-  outline: 2px solid rgb(132 204 22 / 0.55);
+.is-selected .kiwi-date-chip,
+.is-open .kiwi-date-chip {
+  outline: 2px solid rgb(var(--kiwi-400) / 0.55);
   outline-offset: 1px;
 }
+</style>
+
+<style>
+/* 弹层通过 Teleport 挂到 body，样式不能带 scoped 属性。 */
 .kiwi-date-pop {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 40;
+  position: fixed;
+  z-index: 90;
+  width: 264px;
+  padding: 10px;
+  border: 1px solid rgb(var(--kiwi-200));
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgb(15 23 42 / 0.16), 0 2px 8px rgb(15 23 42 / 0.06);
+  font-family: inherit;
+  animation: kiwi-date-pop-in 0.14s ease;
+}
+@keyframes kiwi-date-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.kiwi-date-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 2px 8px;
+}
+.kiwi-date-month {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgb(30 41 59);
+}
+.kiwi-date-nav {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: rgb(var(--kiwi-700));
+  font-size: 15px;
+  line-height: 1;
+  transition: background 0.15s ease;
+}
+.kiwi-date-nav:hover {
+  background: rgb(var(--kiwi-50));
+}
+.kiwi-date-week,
+.kiwi-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.kiwi-date-week {
+  padding-bottom: 4px;
+  font-size: 10px;
+  color: rgb(148 163 184);
+  text-align: center;
+}
+.kiwi-date-day {
+  height: 30px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgb(51 65 85);
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.kiwi-date-day:hover {
+  background: rgb(var(--kiwi-50));
+  color: rgb(var(--kiwi-700));
+}
+.kiwi-date-day.is-outside {
+  color: rgb(203 213 225);
+}
+.kiwi-date-day.is-today {
+  box-shadow: inset 0 0 0 1px rgb(var(--kiwi-300));
+}
+.kiwi-date-day.is-selected {
+  background: rgb(var(--kiwi-500));
+  color: #fff;
+  font-weight: 600;
+  box-shadow: none;
+}
+.kiwi-date-pop-foot {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px;
-  border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
-  box-shadow: 0 12px 32px rgb(15 23 42 / 0.14);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(241 245 249);
 }
-.kiwi-date-input {
-  border: 1px solid rgb(203 213 225);
-  border-radius: 8px;
-  padding: 4px 6px;
-  font-size: 12px;
-  color: rgb(51 65 85);
-  outline: none;
+.kiwi-date-quick {
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: rgb(var(--kiwi-50));
+  color: rgb(var(--kiwi-700));
+  font-size: 11px;
 }
-.kiwi-date-input:focus {
-  border-color: rgb(132 204 22);
-  box-shadow: 0 0 0 2px rgb(217 249 157 / 0.6);
+.kiwi-date-quick:hover {
+  background: rgb(var(--kiwi-100));
 }
-.kiwi-date-ok {
-  border-radius: 8px;
-  padding: 4px 10px;
-  font-size: 12px;
-  color: #fff;
-  background: rgb(101 163 13);
+.kiwi-date-quick.is-muted {
+  background: rgb(248 250 252);
+  color: rgb(100 116 139);
 }
-.kiwi-date-ok:hover {
-  background: rgb(77 124 15);
+.kiwi-date-hint {
+  margin-left: auto;
+  font-size: 10px;
+  color: rgb(148 163 184);
 }
 </style>

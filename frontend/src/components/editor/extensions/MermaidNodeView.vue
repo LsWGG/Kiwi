@@ -200,8 +200,8 @@ onBeforeUnmount(() => window.clearTimeout(timer))
 }
 .kiwi-mermaid-block.is-selected,
 .kiwi-mermaid-block.is-editing {
-  border-color: rgb(190 242 100);
-  box-shadow: 0 0 0 3px rgb(236 252 203 / 0.55);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 0 0 3px rgb(var(--kiwi-100) / 0.55);
 }
 .kiwi-mermaid-toolbar {
   display: flex;
@@ -232,8 +232,8 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   color: rgb(148 163 184);
 }
 .kiwi-mermaid-action:hover {
-  color: rgb(101 163 13);
-  background: rgb(247 254 231);
+  color: rgb(var(--kiwi-600));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-mermaid-btn {
   border-radius: 6px;
@@ -244,8 +244,8 @@ onBeforeUnmount(() => window.clearTimeout(timer))
 }
 .kiwi-mermaid-btn.is-primary {
   color: #fff;
-  border-color: rgb(101 163 13);
-  background: rgb(101 163 13);
+  border-color: rgb(var(--kiwi-600));
+  background: rgb(var(--kiwi-600));
 }
 .kiwi-mermaid-btn:hover {
   opacity: 0.86;

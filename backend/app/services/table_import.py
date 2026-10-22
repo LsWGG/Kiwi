@@ -456,7 +456,7 @@ def _workbook_from_xlsx(content: bytes) -> tuple[dict, bool]:
         raise TableImportError("Excel 文件解析失败，请确认文件未加密", 415) from exc
 
     try:
-        from openpyxl.utils import column_index_from_string
+        from openpyxl.utils import column_index_from_string, coordinate_to_tuple
     except ImportError as exc:  # pragma: no cover - 依赖缺失
         workbook.close()
         cached_book.close()
@@ -537,6 +537,19 @@ def _workbook_from_xlsx(content: bytes) -> tuple[dict, bool]:
                     continue
                 merges.append(str(merged))
 
+            # Excel 的冻结窗格保存为分隔线左上角单元格，如 "B2" 表示冻结
+            # 第 1 行和第 A 列；换算成前端的冻结数量。
+            frozen_rows = 0
+            frozen_cols = 0
+            freeze_panes = worksheet.freeze_panes
+            if freeze_panes:
+                try:
+                    freeze_row, freeze_col = coordinate_to_tuple(str(freeze_panes))
+                except (TypeError, ValueError):
+                    freeze_row, freeze_col = 1, 1
+                frozen_rows = max(0, min(freeze_row - 1, rows - 1))
+                frozen_cols = max(0, min(freeze_col - 1, cols - 1))
+
             sheet_list.append(
                 {
                     "id": uuid.uuid4().hex,
@@ -547,6 +560,8 @@ def _workbook_from_xlsx(content: bytes) -> tuple[dict, bool]:
                     "colWidths": col_widths,
                     "rowHeights": row_heights,
                     "merges": merges,
+                    "frozenRows": frozen_rows,
+                    "frozenCols": frozen_cols,
                 }
             )
     finally:

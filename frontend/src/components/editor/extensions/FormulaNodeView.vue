@@ -167,8 +167,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 }
 .kiwi-formula-block.is-selected,
 .kiwi-formula-block.is-editing {
-  border-color: rgb(190 242 100);
-  box-shadow: 0 0 0 3px rgb(236 252 203 / 0.55);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 0 0 3px rgb(var(--kiwi-100) / 0.55);
 }
 .kiwi-formula-toolbar {
   display: flex;
@@ -197,8 +197,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   color: rgb(148 163 184);
 }
 .kiwi-formula-action:hover {
-  color: rgb(101 163 13);
-  background: rgb(247 254 231);
+  color: rgb(var(--kiwi-600));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-formula-render {
   padding: 14px 16px;
@@ -227,8 +227,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 }
 .kiwi-formula-btn.is-primary {
   color: #fff;
-  border-color: rgb(101 163 13);
-  background: rgb(101 163 13);
+  border-color: rgb(var(--kiwi-600));
+  background: rgb(var(--kiwi-600));
 }
 .kiwi-formula-btn:hover {
   opacity: 0.86;

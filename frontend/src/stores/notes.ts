@@ -192,6 +192,8 @@ export interface ImportStatus {
   quality_report: Record<string, unknown>
   warnings: string[]
   body_ready: boolean
+  /** 导入时是否勾选了「使用 OCR 强制解析」 */
+  use_ocr?: boolean
 }
 
 export interface TablePreviewSheet {
@@ -563,6 +565,8 @@ export const useNotesStore = defineStore('notes', () => {
       compile_now?: boolean
       /** 只读导入：保留原始文件，仅阅读，不解析/不向量化 */
       readonly?: boolean
+      /** 使用 OCR 强制解析（PDF 文本层不可读 / 扫描件） */
+      use_ocr?: boolean
       open?: boolean
     } = {},
   ) {
@@ -576,6 +580,7 @@ export const useNotesStore = defineStore('notes', () => {
     if (opts.title?.trim()) fd.append('title', opts.title.trim())
     if (opts.compile_now) fd.append('compile_now', 'true')
     if (opts.readonly) fd.append('readonly', 'true')
+    if (opts.use_ocr) fd.append('use_ocr', 'true')
     const res = await upload<{ note: NoteOut; job_id: string | null }>(
       '/notes/import',
       fd,
@@ -618,6 +623,8 @@ export const useNotesStore = defineStore('notes', () => {
     batch_id?: string
     compile_now?: boolean
     readonly?: boolean
+    /** 使用 OCR 强制解析（PDF 文本层不可读 / 扫描件） */
+    use_ocr?: boolean
   }) {
     const res = await request<{ note: NoteOut; job_id: string | null }>('/notes/import-url', {
       method: 'POST',
@@ -630,6 +637,7 @@ export const useNotesStore = defineStore('notes', () => {
         batch_id: data.batch_id || null,
         compile_now: !!data.compile_now,
         readonly: !!data.readonly,
+        use_ocr: !!data.use_ocr,
       }),
     })
     await fetchTree()

@@ -64,6 +64,8 @@ const dragOver = ref(false)
 const input = ref<HTMLInputElement | null>(null)
 const compileNow = ref(false)
 const readonlyImport = ref(false)
+/** 强制 OCR：部分 PDF 文本层为空或乱码，勾选后即使有文本层也走 OCR。 */
+const useOcr = ref(false)
 const tableInput = ref<HTMLInputElement | null>(null)
 const tableFile = ref<File | null>(null)
 const tableDrag = ref(false)
@@ -164,6 +166,7 @@ function reset() {
   dragOver.value = false
   compileNow.value = false
   readonlyImport.value = false
+  useOcr.value = false
   tableInput.value = null
   tableFile.value = null
   tableDrag.value = false
@@ -382,6 +385,7 @@ async function submitFiles() {
           upload_id: uploadId,
           compile_now: readonlyImport.value ? false : compileNow.value,
           readonly: readonlyImport.value,
+          use_ocr: readonlyImport.value ? false : useOcr.value,
           open: false,
         })
         row.status = 'submitted'
@@ -472,6 +476,7 @@ async function submitUrls() {
           title: targets.length === 1 ? urlTitle.value.trim() : '',
           compile_now: readonlyImport.value ? false : compileNow.value,
           readonly: readonlyImport.value,
+          use_ocr: readonlyImport.value ? false : useOcr.value,
         })
         if (!firstNote.value) firstNote.value = res.note
       } catch (e: any) {
@@ -847,6 +852,18 @@ function formatTime(value?: string | null) {
             :class="readonlyImport ? 'text-slate-300' : 'text-slate-500'"
           >
             <input
+              v-model="useOcr"
+              type="checkbox"
+              class="rounded border-slate-300"
+              :disabled="readonlyImport"
+            />
+            使用 OCR 强制解析（PDF 无法读取文字时勾选）
+          </label>
+          <label
+            class="flex items-center gap-2 text-[11.5px]"
+            :class="readonlyImport ? 'text-slate-300' : 'text-slate-500'"
+          >
+            <input
               v-model="compileNow"
               type="checkbox"
               class="rounded border-slate-300"
@@ -1021,6 +1038,18 @@ function formatTime(value?: string | null) {
           <label class="flex items-center gap-2 text-[11.5px] text-slate-500">
             <input v-model="readonlyImport" type="checkbox" class="rounded border-slate-300" />
             只读导入：保留下载的原始文件，仅阅读，不解析为可编辑文档
+          </label>
+          <label
+            class="flex items-center gap-2 text-[11.5px]"
+            :class="readonlyImport ? 'text-slate-300' : 'text-slate-500'"
+          >
+            <input
+              v-model="useOcr"
+              type="checkbox"
+              class="rounded border-slate-300"
+              :disabled="readonlyImport"
+            />
+            使用 OCR 强制解析（PDF 无法读取文字时勾选）
           </label>
           <label
             class="flex items-center gap-2 text-[11.5px]"

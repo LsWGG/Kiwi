@@ -169,6 +169,49 @@ function adjustMergesInsert(
   sheet.merges = merges
 }
 
+/** 插入行列时保持冻结窗格有效：插入点在冻结区内则冻结范围一起扩张。 */
+function shiftFreezeOnInsert(
+  sheet: SheetData,
+  axis: 'row' | 'col',
+  index: number,
+  amount: number,
+) {
+  const key = axis === 'row' ? 'frozenRows' : 'frozenCols'
+  const current = sheet[key] ?? 0
+  if (current <= 0 || index >= current) return
+  const limit = Math.max(0, (axis === 'row' ? sheet.rows : sheet.cols) - 1)
+  sheet[key] = Math.max(0, Math.min(limit, current + amount))
+}
+
+/** 删除行列时保持冻结窗格有效：冻结区内的行/列被删除后同步收缩。 */
+function shiftFreezeOnDelete(
+  sheet: SheetData,
+  axis: 'row' | 'col',
+  index: number,
+  amount: number,
+) {
+  const key = axis === 'row' ? 'frozenRows' : 'frozenCols'
+  const current = sheet[key] ?? 0
+  if (current <= 0 || index >= current) return
+  sheet[key] =
+    index + amount <= current ? Math.max(0, current - amount) : Math.max(0, index)
+}
+
+/** 区域是否切开冻结边界（合并 / 粘贴时用于保持冻结区结构完整）。 */
+export function crossesFrozenBoundary(sheet: SheetData, range: CellRange): boolean {
+  const normalized = normalizedRange(range)
+  const frozenRows = sheet.frozenRows ?? 0
+  const frozenCols = sheet.frozenCols ?? 0
+  return (
+    (frozenRows > 0 &&
+      normalized.start.row < frozenRows &&
+      normalized.end.row >= frozenRows) ||
+    (frozenCols > 0 &&
+      normalized.start.col < frozenCols &&
+      normalized.end.col >= frozenCols)
+  )
+}
+
 /** 插入 / 删除列时同步移动筛选列索引，避免筛选落到错误的列。 */
 function shiftFilters(sheet: SheetData, at: number, amount: number) {
   if (!sheet.filters) return
@@ -258,6 +301,7 @@ export function insertRows(
   sheet.rowHeights = heights
   sheet.rows = Math.min(MAX_ROWS, sheet.rows + amount)
   adjustMergesInsert(sheet, 'row', at, amount)
+  shiftFreezeOnInsert(sheet, 'row', at, amount)
 }
 
 export function deleteRows(
@@ -287,6 +331,7 @@ export function deleteRows(
   }
   sheet.rowHeights = heights
   adjustMergesDelete(sheet, 'row', at, amount)
+  shiftFreezeOnDelete(sheet, 'row', at, amount)
 }
 
 export function insertCols(
@@ -320,6 +365,7 @@ export function insertCols(
   sheet.colWidths = widths
   sheet.cols = Math.min(MAX_COLS, sheet.cols + amount)
   adjustMergesInsert(sheet, 'col', at, amount)
+  shiftFreezeOnInsert(sheet, 'col', at, amount)
   shiftFilters(sheet, at, amount)
 }
 
@@ -350,6 +396,7 @@ export function deleteCols(
   }
   sheet.colWidths = widths
   adjustMergesDelete(sheet, 'col', at, amount)
+  shiftFreezeOnDelete(sheet, 'col', at, amount)
   shiftFilters(sheet, at, -amount)
 }
 
@@ -361,6 +408,8 @@ export function mergeRange(sheet: SheetData, range: CellRange): boolean {
   if (normalized.start.row === normalized.end.row && normalized.start.col === normalized.end.col) {
     return false
   }
+  // 合并区域不能切开冻结边界，否则粘性定位的合并单元格会覆盖滚动区域
+  if (crossesFrozenBoundary(sheet, normalized)) return false
   sheet.merges = sheet.merges.filter((raw) => {
     const parsed = parseRange(raw)
     if (!parsed) return false
@@ -484,6 +533,7 @@ export function pasteSnapshot(
     const start = { row: parsed.start.row + deltaRow, col: parsed.start.col + deltaCol }
     const end = { row: parsed.end.row + deltaRow, col: parsed.end.col + deltaCol }
     if (start.row < 0 || start.col < 0 || end.row >= sheet.rows || end.col >= sheet.cols) continue
+    if (crossesFrozenBoundary(sheet, { start, end })) continue
     sheet.merges.push(rangeAddress({ start, end }))
   }
   // 修正因写入目标覆盖后可能残留的越界合并
@@ -559,6 +609,8 @@ export function addSheet(workbook: SheetWorkbook, rawName?: string): SheetData {
     colWidths: {},
     rowHeights: {},
     merges: [],
+    frozenRows: 0,
+    frozenCols: 0,
   })
   workbook.sheets.push(sheet)
   workbook.active = sheet.id

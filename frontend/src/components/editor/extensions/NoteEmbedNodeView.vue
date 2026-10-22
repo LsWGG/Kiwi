@@ -157,23 +157,38 @@ onMounted(load)
   margin: 0.6rem 0;
 }
 .kiwi-note-embed-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 11px;
+  padding: 9px 11px 9px 13px;
   border-radius: 11px;
   border: 1px solid rgb(226 232 240);
-  background: linear-gradient(180deg, rgb(255 255 255), rgb(248 250 252));
+  background: linear-gradient(180deg, #fff, rgb(var(--kiwi-50) / 0.45));
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
+.kiwi-note-embed-card::before {
+  content: '';
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)), rgb(var(--kiwi-600)));
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
 .kiwi-note-embed-card:hover {
-  border-color: rgb(217 249 157);
-  box-shadow: 0 4px 14px rgb(101 163 13 / 0.08);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 6px 18px rgb(var(--kiwi-600) / 0.1);
+  transform: translateY(-1px);
+}
+.kiwi-note-embed-card:hover::before {
+  opacity: 1;
 }
 .kiwi-note-embed-block.is-selected .kiwi-note-embed-card {
-  border-color: rgb(190 242 100);
-  box-shadow: 0 0 0 3px rgb(236 252 203 / 0.55);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 0 0 3px rgb(var(--kiwi-100) / 0.55);
 }
 .kiwi-note-embed-block.is-missing .kiwi-note-embed-card {
   border-style: dashed;
@@ -202,8 +217,8 @@ onMounted(load)
   transition: color 0.15s ease, background 0.15s ease;
 }
 .kiwi-note-embed-open:hover {
-  color: rgb(101 163 13);
-  background: rgb(247 254 231);
+  color: rgb(var(--kiwi-600));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-note-embed-remove:hover {
   color: rgb(220 38 38);

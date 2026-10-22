@@ -182,7 +182,8 @@ async function openTodoSource(href: string) {
   if (!mirrorId) return
   const noteId = /[?&]note=([0-9a-fA-F-]{36})/.exec(href)?.[1]
   if (noteId) {
-    void router.push(`/notes/${noteId}`)
+    // 带上镜像 id：来源笔记打开后定位并高亮对应任务项。
+    void router.push({ path: `/notes/${noteId}`, query: { todo: mirrorId } })
     return
   }
   const kbId = kbs.currentKbId
@@ -194,6 +195,27 @@ async function openTodoSource(href: string) {
     if (data?.source_note_id) void router.push(`/notes/${data.source_note_id}`)
   } catch (e: any) {
     toast.error(e.message || '找不到来源笔记')
+  }
+}
+
+/** 点击块手柄：选中当前整块，便于复制、删除或直接开始输入。 */
+function onDragHandleClick(event: MouseEvent) {
+  const ed = editor.value
+  if (!ed || props.readonly) return
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const hit = ed.view.posAtCoords({
+    left: rect.right + 8,
+    top: rect.top + rect.height / 2,
+  })
+  if (!hit) return
+  const $pos = ed.state.doc.resolve(hit.pos)
+  if ($pos.depth < 1) return
+  try {
+    const selection = NodeSelection.create(ed.state.doc, $pos.before(1))
+    ed.view.dispatch(ed.state.tr.setSelection(selection))
+    ed.view.focus()
+  } catch {
+    // 位于文档边界或原子节点内部时忽略，不影响正常拖动。
   }
 }
 
@@ -249,7 +271,14 @@ const TABLE_BG_COLORS = [
  * 导致 Vue 更新表格外的节点时丢失插入位置。只读时仅隐藏浮层。
  */
 function shouldShowFormatBubble({ editor: ed }: { editor: Editor }): boolean {
-  return !props.readonly && !ed.isActive('table')
+  if (props.readonly || ed.isActive('table')) return false
+  // 只在选中文本时展示格式气泡；光标停在空处时不打扰阅读与输入。
+  const { selection } = ed.state
+  return (
+    selection instanceof TextSelection &&
+    !selection.empty &&
+    ed.state.doc.textBetween(selection.from, selection.to).length > 0
+  )
 }
 
 function shouldShowTableBubble({ editor: ed }: { editor: Editor }): boolean {
@@ -2132,6 +2161,7 @@ defineExpose({
         id="kiwi-drag-handle"
         class="drag-handle hide"
         aria-hidden="true"
+        @click="onDragHandleClick"
       />
     </Teleport>
     <input
@@ -2261,10 +2291,10 @@ defineExpose({
           <KiwiIcon name="minus" :size="13" class="rotate-90" />
         </button>
         <span class="mx-0.5 h-4 w-px bg-slate-200" />
-        <button type="button" class="ed-bubble" title="合并单元格" @mousedown.prevent @click="editor.chain().focus().mergeCells().run()">
+        <button type="button" class="ed-bubble !w-auto px-1.5 text-[11px]" title="合并单元格" @mousedown.prevent @click="editor.chain().focus().mergeCells().run()">
           合并
         </button>
-        <button type="button" class="ed-bubble" title="拆分单元格" @mousedown.prevent @click="editor.chain().focus().splitCell().run()">
+        <button type="button" class="ed-bubble !w-auto px-1.5 text-[11px]" title="拆分单元格" @mousedown.prevent @click="editor.chain().focus().splitCell().run()">
           拆分
         </button>
         <button type="button" class="ed-bubble hover:!text-rose-600" title="删除表格" @mousedown.prevent @click="editor.chain().focus().deleteTable().run()">
@@ -2802,7 +2832,7 @@ defineExpose({
   /* 冷灰底 + 左上紫罗兰环境光 + 右下青蓝环境光 + 细点阵，让纸张浮起来 */
   background-color: #eef1f7;
   background-image:
-    radial-gradient(900px 420px at 8% -10%, rgba(139, 140, 232, 0.16), transparent 62%),
+    radial-gradient(900px 420px at 8% -10%, rgb(var(--kiwi-500) / 0.16), transparent 62%),
     radial-gradient(820px 380px at 100% 108%, rgba(94, 183, 214, 0.09), transparent 66%),
     radial-gradient(circle at 1px 1px, rgba(100, 116, 139, 0.17) 1px, transparent 0);
   background-size: auto, auto, 18px 18px;
@@ -2842,7 +2872,7 @@ defineExpose({
   right: 16%;
   height: 2px;
   border-radius: 0 0 4px 4px;
-  background: linear-gradient(90deg, rgba(165, 166, 238, 0), rgba(139, 140, 232, 0.7), rgba(165, 166, 238, 0));
+  background: linear-gradient(90deg, rgb(var(--kiwi-400) / 0), rgb(var(--kiwi-500) / 0.7), rgb(var(--kiwi-400) / 0));
   pointer-events: none;
 }
 .editor-sheet :deep(.ProseMirror) {
@@ -2938,8 +2968,8 @@ defineExpose({
 }
 .docx-page-edit {
   @apply block min-w-0 flex-1 truncate text-[11px] text-slate-500 outline-none;
-  border-bottom: 1px dashed rgba(139, 140, 232, 0.55);
-  caret-color: #6f72dc;
+  border-bottom: 1px dashed rgb(var(--kiwi-500) / 0.55);
+  caret-color: rgb(var(--kiwi-500));
 }
 .docx-page-footer .docx-page-edit {
   @apply text-center;
@@ -3024,10 +3054,10 @@ defineExpose({
   white-space: nowrap;
 }
 .kiwi-editor :deep(.kiwi-page-break.ProseMirror-selectednode::before) {
-  border-top-color: #8b8ce8;
+  border-top-color: rgb(var(--kiwi-500));
 }
 .kiwi-editor :deep(.kiwi-page-break.ProseMirror-selectednode::after) {
-  color: #6f72dc;
+  color: rgb(var(--kiwi-500));
 }
 
 /* 通用页脚 */

@@ -39,6 +39,7 @@ export interface IngestJob {
   source_title: string | null
   source_type: string | null
   note_title: string | null
+  durable_job_id?: string | null
   touched_pages: Array<{
     id: string
     title: string

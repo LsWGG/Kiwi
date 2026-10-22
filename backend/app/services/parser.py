@@ -36,14 +36,21 @@ class ParseError(Exception):
     pass
 
 
-def parse_file(path: Path, file_type: str | None = None) -> ParsedDocument:
-    """按文件类型路由解析。"""
+def parse_file(
+    path: Path,
+    file_type: str | None = None,
+    force_ocr: bool = False,
+) -> ParsedDocument:
+    """按文件类型路由解析。
+
+    ``force_ocr`` 仅对 PDF 生效：即使文本层完整也强制走 OCR；图片本身即走 OCR。
+    """
     ft = (file_type or path.suffix.lstrip(".")).lower()
     # note：工作区笔记编译前会序列化为 Markdown 快照，按文本解析。
     if ft in ("md", "markdown", "txt", "text", "note"):
         return _parse_text(path)
     if ft == "pdf":
-        return _parse_pdf(path)
+        return _parse_pdf(path, force_ocr=force_ocr)
     if ft in IMAGE_TYPES:
         return _parse_image(path, ft)
     if ft == "docx":
@@ -193,7 +200,7 @@ def _parse_image(path: Path, file_type: str) -> ParsedDocument:
     )
 
 
-def _parse_pdf(path: Path) -> ParsedDocument:
+def _parse_pdf(path: Path, force_ocr: bool = False) -> ParsedDocument:
     try:
         import fitz  # PyMuPDF
     except ImportError as e:
@@ -204,23 +211,36 @@ def _parse_pdf(path: Path) -> ParsedDocument:
         page_count = len(pages)
     finally:
         doc.close()
-    text = "\n\n".join(pages).strip()
-    chars = len(text)
+    native_text = "\n\n".join(pages).strip()
+    text = native_text
+    chars = len(native_text)
     coverage = chars / max(page_count, 1)
     warnings: list[str] = []
     engine = "pymupdf"
     quality = "clean"
 
-    # 少于 ~30 字/页视为没有可用的文本层，尝试 OCR。
+    # 少于 ~30 字/页视为没有可用的文本层，尝试 OCR；用户勾选强制 OCR 时
+    # 即使文本层完整也优先使用 OCR 结果（部分 PDF 文本层乱码 / 不可读）。
     ocr_errors: list[str] = []
-    if coverage < 30:
+    if force_ocr or coverage < 30:
         ocr_text, ocr_engine, ocr_warnings, ocr_errors = _ocr_pdf(path)
         warnings.extend(ocr_warnings)
         if ocr_text:
             text = ocr_text
             engine = ocr_engine
             quality = "ocr_aided"
-            warnings.append("PDF 文本层不足，已使用 OCR 辅助解析")
+            warnings.append(
+                "已按用户选择强制使用 OCR 解析 PDF"
+                if force_ocr
+                else "PDF 文本层不足，已使用 OCR 辅助解析"
+            )
+        elif force_ocr and native_text:
+            # OCR 不可用或未识别出文字：保留原生文本，避免反而丢失内容。
+            if coverage < 30:
+                quality = "review"
+            warnings.append(
+                "已启用强制 OCR，但 OCR 不可用或未返回文本，已保留 PDF 原生文本层"
+            )
         else:
             quality = "review"
             warnings.append("PDF 未能提取到文本，可能为扫描件，需要人工复核")
@@ -251,6 +271,8 @@ def _parse_pdf(path: Path) -> ParsedDocument:
             "ocr": engine.startswith(("tesseract-ocr", "online-ocr")),
             "ocr_engine": engine if engine.startswith(("tesseract-ocr", "online-ocr")) else None,
             "ocr_errors": ocr_errors,
+            "force_ocr": force_ocr,
+            "warnings": warnings,
         },
     )
 
@@ -365,10 +387,17 @@ def _parse_doc(path: Path) -> ParsedDocument:
         return parsed
 
 
-def parse_bytes(data: bytes, filename: str, file_type: str | None = None) -> ParsedDocument:
+def parse_bytes(
+    data: bytes,
+    filename: str,
+    file_type: str | None = None,
+    force_ocr: bool = False,
+) -> ParsedDocument:
     """从字节流解析（上传直传，不落盘）。"""
     suffix = Path(filename).suffix or f".{file_type or 'bin'}"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
         tmp.write(data)
         tmp.flush()
-        return parse_file(Path(tmp.name), file_type or suffix.lstrip("."))
+        return parse_file(
+            Path(tmp.name), file_type or suffix.lstrip("."), force_ocr=force_ocr
+        )

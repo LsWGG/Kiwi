@@ -64,6 +64,8 @@ class IngestJobOut(BaseModel):
     source_type: str | None = None
     note_title: str | None = None
     touched_pages: list[dict] = Field(default_factory=list)
+    # 持久化队列中的任务 id，供编译页直接取消 / 重试
+    durable_job_id: uuid.UUID | None = None
 
 
 class ImportBatchOut(BaseModel):

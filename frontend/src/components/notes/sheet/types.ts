@@ -52,6 +52,10 @@ export interface SheetData {
   rowHeights: Record<string, number>
   /** 合并区域，如 `A1:C2` */
   merges: string[]
+  /** 冻结窗格：顶部冻结的数据行数（0 表示不冻结）。 */
+  frozenRows?: number
+  /** 冻结窗格：左侧冻结的数据列数（0 表示不冻结）。 */
+  frozenCols?: number
   /**
    * 列筛选：列索引（0 基，字符串键）→ 选中的显示值列表。
    * 未出现的列不筛选；数组为空表示该列没有可显示的数据。
@@ -206,6 +210,40 @@ export function clampPosition(position: CellPosition, sheet: SheetData): CellPos
   }
 }
 
+function asFrozenCount(value: unknown, max: number): number {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) return 0
+  return Math.min(Math.max(0, max), Math.floor(number))
+}
+
+/**
+ * 冻结行列数：限制在 0..rows-1 / 0..cols-1，且不切开合并单元格。
+ * 合并区域跨过冻结边界时，冻结范围收缩到合并区域起始位置之前。
+ */
+export function clampFrozenCount(
+  sheet: Pick<SheetData, 'rows' | 'cols' | 'merges'>,
+  axis: 'row' | 'col',
+  value: unknown,
+): number {
+  const limit = Math.max(0, (axis === 'row' ? sheet.rows : sheet.cols) - 1)
+  let count = asFrozenCount(value, limit)
+  let changed = true
+  while (changed && count > 0) {
+    changed = false
+    for (const raw of sheet.merges) {
+      const range = parseRange(raw)
+      if (!range) continue
+      const start = axis === 'row' ? range.start.row : range.start.col
+      const end = axis === 'row' ? range.end.row : range.end.col
+      if (start < count && end >= count) {
+        count = Math.max(0, start)
+        changed = true
+      }
+    }
+  }
+  return Math.min(count, limit)
+}
+
 /** 合并单元格的渲染索引：锚点 → 跨度；被覆盖的格子集合。 */
 export function mergeLayout(sheet: SheetData): {
   anchors: Map<string, MergeSpan>
@@ -240,6 +278,8 @@ export function makeSheet(name: string, rows = DEFAULT_ROWS, cols = DEFAULT_COLS
     colWidths: {},
     rowHeights: {},
     merges: [],
+    frozenRows: 0,
+    frozenCols: 0,
   }
 }
 
@@ -410,6 +450,9 @@ export function normalizeWorkbook(raw: unknown): SheetWorkbook {
       }
     }
 
+    const frozenRows = clampFrozenCount({ rows, cols, merges }, 'row', entry.frozenRows)
+    const frozenCols = clampFrozenCount({ rows, cols, merges }, 'col', entry.frozenCols)
+
     sheets.push({
       id,
       name,
@@ -419,6 +462,8 @@ export function normalizeWorkbook(raw: unknown): SheetWorkbook {
       colWidths,
       rowHeights,
       merges,
+      frozenRows,
+      frozenCols,
       ...(Object.keys(filters).length ? { filters } : {}),
     })
   })
@@ -443,6 +488,8 @@ export function cloneSheet(sheet: SheetData): SheetData {
     colWidths: { ...sheet.colWidths },
     rowHeights: { ...sheet.rowHeights },
     merges: [...sheet.merges],
+    frozenRows: sheet.frozenRows ?? 0,
+    frozenCols: sheet.frozenCols ?? 0,
     ...(sheet.filters ? { filters: JSON.parse(JSON.stringify(sheet.filters)) } : {}),
   }
 }

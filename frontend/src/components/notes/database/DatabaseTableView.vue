@@ -286,8 +286,8 @@ onBeforeUnmount(() => {
           <col v-if="editable" :style="{ width: `${ACTION_WIDTH}px` }" />
         </colgroup>
         <thead>
-          <tr class="sticky top-0 z-10 bg-white/90 backdrop-blur-xl">
-            <th class="sticky left-0 z-20 border-b border-slate-200/70 bg-white/90 text-center text-[10px] font-normal text-slate-300">
+          <tr class="db-head-row sticky top-0 z-10 backdrop-blur-xl">
+            <th class="db-index-head sticky left-0 z-20 border-b border-slate-200/70 text-center text-[10px] font-normal text-slate-300">
               <input
                 v-if="selectionMode"
                 ref="headCheckbox"
@@ -303,7 +303,7 @@ onBeforeUnmount(() => {
             <th
               v-for="field in visibleFields"
               :key="field.id"
-              class="relative border-b border-l border-slate-200/60 px-2.5 py-2 text-[11px] font-medium text-slate-500 whitespace-nowrap select-none"
+              class="db-head-cell relative border-b border-l border-slate-200/60 px-2.5 py-2 text-[11px] font-semibold text-slate-600 whitespace-nowrap select-none"
               :class="editable ? 'cursor-pointer hover:bg-kiwi-50/40' : ''"
               :title="editable ? '点击排序：升序 → 降序 → 取消' : undefined"
               @click="toggleSort(field)"
@@ -344,9 +344,10 @@ onBeforeUnmount(() => {
             v-for="(row, index) in displayRows"
             :key="row.id"
             class="group border-b border-slate-100 transition-colors hover:bg-kiwi-50/30"
+            :class="{ 'has-note': !!row.note_id }"
             :style="rowStyle(row)"
           >
-            <td class="relative sticky left-0 z-[1] bg-white text-center text-[10px] text-slate-300 tabular-nums select-none group-hover:bg-kiwi-50">
+            <td class="db-index-cell relative sticky left-0 z-[1] text-center text-[10px] text-slate-300 tabular-nums select-none group-hover:bg-kiwi-50">
               <input
                 v-if="selectionMode"
                 type="checkbox"
@@ -356,6 +357,9 @@ onBeforeUnmount(() => {
                 @change="emit('toggle-select', row.id)"
               />
               <template v-else>{{ index + 1 }}</template>
+              <span v-if="row.note_id" class="db-note-mark" title="该记录已生成笔记">
+                <KiwiIcon name="bookOpen" :size="9" />
+              </span>
               <span
                 v-if="editable"
                 class="db-row-resizer"
@@ -436,10 +440,10 @@ onBeforeUnmount(() => {
       <button
         v-if="editable"
         type="button"
-        class="sticky left-0 flex items-center gap-1.5 px-3 py-2 text-[11.5px] text-slate-400 transition-colors hover:text-kiwi-600"
+        class="db-add-row sticky left-0 flex items-center gap-1.5 px-3 py-2 text-[11.5px] font-medium text-slate-400 transition-colors hover:text-kiwi-700"
         @click="emit('create-row')"
       >
-        <KiwiIcon name="plus" :size="13" />
+        <span class="db-add-icon"><KiwiIcon name="plus" :size="12" /></span>
         新建记录
       </button>
     </div>
@@ -449,6 +453,63 @@ onBeforeUnmount(() => {
 <style scoped>
 .is-readonly .db-cell-clip {
   min-height: 30px;
+}
+/* 数据表视觉：表头淡主题色，集合记录行左侧高亮 + 小书标。 */
+.db-head-row {
+  background: linear-gradient(90deg, rgb(var(--kiwi-50) / 0.9), #fff 55%);
+}
+.db-index-head {
+  background: rgb(var(--kiwi-50) / 0.9);
+}
+.db-head-cell {
+  background: transparent;
+}
+.db-head-cell:hover {
+  background: rgb(var(--kiwi-50) / 0.55);
+}
+.db-index-cell {
+  background: #fff;
+}
+.has-note .db-index-cell {
+  background: linear-gradient(90deg, rgb(var(--kiwi-100) / 0.9), #fff 78%);
+}
+.has-note .db-index-cell::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)), rgb(var(--kiwi-600)));
+}
+.has-note:hover .db-index-cell {
+  background: rgb(var(--kiwi-100));
+}
+.db-note-mark {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  color: rgb(var(--kiwi-500));
+  opacity: 0.85;
+}
+.db-add-row {
+  background: linear-gradient(90deg, rgb(var(--kiwi-50) / 0.6), transparent 80%);
+}
+.db-add-icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px dashed rgb(var(--kiwi-300));
+  border-radius: 5px;
+  color: rgb(var(--kiwi-500));
+  transition: background 0.15s ease;
+}
+.db-add-row:hover .db-add-icon {
+  background: #fff;
+  border-style: solid;
 }
 .db-col-resizer {
   position: absolute;
@@ -479,7 +540,7 @@ th:hover .db-col-resizer::after {
 .db-col-resizer:active::after {
   width: 2px;
   left: 2.5px;
-  background: #818cf8;
+  background: rgb(var(--kiwi-400));
   opacity: 1;
 }
 .db-row-resizer {
@@ -499,7 +560,7 @@ th:hover .db-col-resizer::after {
   bottom: 2px;
   height: 2px;
   border-radius: 2px;
-  background: #a5b4fc;
+  background: rgb(var(--kiwi-300));
   opacity: 0;
   transition: opacity 0.12s ease;
 }

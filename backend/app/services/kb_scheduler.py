@@ -44,7 +44,7 @@ async def _run_wiki_compile(
 ) -> dict:
     """把更新过的笔记送入编译流水线；必须在独立 session 中调用。"""
     # 延迟导入，避免 routers.notes ↔ services 的循环依赖。
-    from app.routers.notes import _prepare_note_compile, _schedule_note_compile
+    from app.routers.notes_compile import _prepare_note_compile, _schedule_note_compile
 
     last = _aware(kb.wiki_compile_last_at)
     stmt = select(Note).where(Note.kb_id == kb.id, Note.status == "active")

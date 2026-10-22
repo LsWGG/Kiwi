@@ -352,8 +352,8 @@ onBeforeUnmount(() => {
 }
 .kiwi-gallery-block.is-selected,
 .kiwi-gallery-block.is-drag {
-  border-color: rgb(190 242 100);
-  box-shadow: 0 0 0 3px rgb(236 252 203 / 0.55);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 0 0 3px rgb(var(--kiwi-100) / 0.55);
 }
 .kiwi-gallery-toolbar {
   display: flex;
@@ -409,8 +409,8 @@ onBeforeUnmount(() => {
   color: rgb(148 163 184);
 }
 .kiwi-gallery-action:hover {
-  color: rgb(101 163 13);
-  background: rgb(247 254 231);
+  color: rgb(var(--kiwi-600));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-gallery-action.is-danger:hover {
   color: rgb(220 38 38);
@@ -428,7 +428,7 @@ onBeforeUnmount(() => {
   transition: background 0.15s ease;
 }
 .kiwi-gallery-empty:hover {
-  background: rgb(247 254 231 / 0.7);
+  background: rgb(var(--kiwi-50) / 0.7);
 }
 .kiwi-gallery-empty-icon {
   display: grid;
@@ -437,8 +437,8 @@ onBeforeUnmount(() => {
   height: 42px;
   margin-bottom: 2px;
   border-radius: 12px;
-  background: rgb(236 252 203);
-  color: rgb(101 163 13);
+  background: rgb(var(--kiwi-100));
+  color: rgb(var(--kiwi-600));
 }
 .kiwi-gallery-grid {
   display: grid;
@@ -546,8 +546,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.06);
 }
 .kiwi-gallery-arrow:hover {
-  color: rgb(101 163 13);
-  border-color: rgb(217 249 157);
+  color: rgb(var(--kiwi-600));
+  border-color: rgb(var(--kiwi-200));
 }
 .kiwi-lightbox {
   position: fixed;

@@ -315,12 +315,12 @@ body.kiwi-tree-dragging * {
   font-variant-numeric: tabular-nums;
 }
 .kiwi-editor .ProseMirror blockquote {
-  border-left: 3px solid #c7d2fe;
+  border-left: 3px solid rgb(var(--kiwi-300));
   padding-left: 1rem;
   color: #64748b;
 }
 .kiwi-editor .ProseMirror code {
-  background: #eef2ff;
+  background: rgb(var(--kiwi-50));
   color: #4c46a6;
   border-radius: 5px;
   padding: 1px 5px;
@@ -525,9 +525,9 @@ body.kiwi-tree-dragging * {
   cursor: pointer;
 }
 .kiwi-editor .ProseMirror .code-preview-action:hover {
-  color: #4338ca;
-  border-color: #c7d2fe;
-  background: #eef2ff;
+  color: rgb(var(--kiwi-700));
+  border-color: rgb(var(--kiwi-300));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-editor .ProseMirror .code-preview-frame {
   display: block;
@@ -644,7 +644,7 @@ body.kiwi-tree-dragging * {
   padding: 0 2px;
 }
 .kiwi-editor .ProseMirror a {
-  color: #5a55c7;
+  color: rgb(var(--kiwi-600));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -660,7 +660,7 @@ body.kiwi-tree-dragging * {
   margin: 0.5rem 0;
 }
 .kiwi-editor .ProseMirror img.ProseMirror-selectednode {
-  outline: 2px solid #8b8ce8;
+  outline: 2px solid rgb(var(--kiwi-500));
   outline-offset: 2px;
 }
 .kiwi-editor .ProseMirror table {
@@ -717,7 +717,7 @@ body.kiwi-tree-dragging * {
   margin: 0;
 }
 .kiwi-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
-  accent-color: #6f72dc;
+  accent-color: rgb(var(--kiwi-500));
 }
 
 /* ---------- 正文排版观感 ----------
@@ -727,13 +727,13 @@ body.kiwi-tree-dragging * {
  */
 .kiwi-editor .ProseMirror {
   color: #263143;
-  caret-color: #5a55c7;
+  caret-color: rgb(var(--kiwi-600));
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 .kiwi-editor .ProseMirror ::selection {
-  background: rgba(139, 140, 232, 0.26);
+  background: rgb(var(--kiwi-500) / 0.24);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror {
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
@@ -777,7 +777,7 @@ body.kiwi-tree-dragging * {
   bottom: 0.3em;
   width: 3px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #a5a6ee 0%, #5a55c7 100%);
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)) 0%, rgb(var(--kiwi-600)) 100%);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h3 {
   font-size: 1.12rem;
@@ -790,7 +790,7 @@ body.kiwi-tree-dragging * {
   border-left: 0;
   border-radius: 0 10px 10px 0;
   padding: 0.62rem 1rem 0.62rem 1.05rem;
-  background: linear-gradient(90deg, rgba(111, 114, 220, 0.075), rgba(111, 114, 220, 0.022) 58%, transparent);
+  background: linear-gradient(90deg, rgb(var(--kiwi-500) / 0.08), rgb(var(--kiwi-500) / 0.022) 58%, transparent);
   color: #4b5a72;
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote::before {
@@ -801,7 +801,7 @@ body.kiwi-tree-dragging * {
   bottom: 0;
   width: 3px;
   border-radius: 3px;
-  background: linear-gradient(180deg, #b3b4f0, #6f72dc);
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)), rgb(var(--kiwi-600)));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote > * + * {
   margin-top: 0.55em;
@@ -809,7 +809,7 @@ body.kiwi-tree-dragging * {
 
 /* 列表：项目符号取主题紫，有序列表编号更克制 */
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ul > li::marker {
-  color: #8b8ce8;
+  color: rgb(var(--kiwi-500));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li::marker {
   color: #7c89a0;
@@ -820,9 +820,9 @@ body.kiwi-tree-dragging * {
 
 /* 行内元素 */
 .kiwi-editor .ProseMirror code {
-  border: 1px solid rgba(111, 114, 220, 0.16);
-  background: linear-gradient(180deg, #f5f5ff, #eef0ff);
-  color: #4b46a4;
+  border: 1px solid rgb(var(--kiwi-500) / 0.16);
+  background: linear-gradient(180deg, rgb(var(--kiwi-50)), rgb(var(--kiwi-100) / 0.7));
+  color: rgb(var(--kiwi-700));
   border-radius: 5px;
   padding: 0.06em 0.36em;
 }
@@ -832,14 +832,14 @@ body.kiwi-tree-dragging * {
   font-size: inherit;
 }
 .kiwi-editor .ProseMirror a {
-  color: #564fc4;
-  text-decoration-color: rgba(111, 114, 220, 0.38);
+  color: rgb(var(--kiwi-600));
+  text-decoration-color: rgb(var(--kiwi-500) / 0.38);
   text-decoration-thickness: 1px;
   text-underline-offset: 2.5px;
   transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 .kiwi-editor .ProseMirror a:hover {
-  color: #403aa8;
+  color: rgb(var(--kiwi-800));
   text-decoration-color: currentColor;
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror mark {
@@ -853,7 +853,7 @@ body.kiwi-tree-dragging * {
   margin: 2.1rem auto;
   max-width: 78%;
   border: 0;
-  background: linear-gradient(90deg, transparent, #d5dbe6 18%, #b7b9e9 50%, #d5dbe6 82%, transparent);
+  background: linear-gradient(90deg, transparent, #d5dbe6 18%, rgb(var(--kiwi-300)) 50%, #d5dbe6 82%, transparent);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror img {
   border-radius: 14px;
@@ -896,13 +896,13 @@ body.kiwi-tree-dragging * {
 
 /* ---------- 待办进度组件（可插入 / 可配置） ---------- */
 .kiwi-task-progress-card {
-  /* 默认与任务清单勾选框同色（accent-color: #6f72dc），保证配色一致 */
-  --tp-a: #6f72dc;
-  --tp-b: #6f72dc;
-  --tp-soft: #f1f2fd;
-  --tp-ink: #4a4dba;
-  --tp-border: rgba(111, 114, 220, 0.2);
-  --tp-ring: rgba(111, 114, 220, 0.14);
+  /* 进度条固定跟随系统主题色，不再提供独立配色。 */
+  --tp-a: rgb(var(--kiwi-500));
+  --tp-b: rgb(var(--kiwi-400));
+  --tp-soft: rgb(var(--kiwi-50));
+  --tp-ink: rgb(var(--kiwi-700));
+  --tp-border: rgb(var(--kiwi-500) / 0.2);
+  --tp-ring: rgb(var(--kiwi-500) / 0.14);
   margin: 0.55rem 0;
   padding: 9px 12px 10px;
   border: 1px solid var(--tp-border);
@@ -914,20 +914,6 @@ body.kiwi-tree-dragging * {
   border-color: var(--tp-a);
   box-shadow: 0 0 0 3px var(--tp-ring);
 }
-.kiwi-task-progress-card.tone-indigo,
-.kiwi-task-progress-swatch.tone-indigo { --tp-a: #6f72dc; --tp-b: #6f72dc; --tp-soft: #f1f2fd; --tp-ink: #4a4dba; --tp-border: rgba(111, 114, 220, 0.2); --tp-ring: rgba(111, 114, 220, 0.14); }
-.kiwi-task-progress-card.tone-violet,
-.kiwi-task-progress-swatch.tone-violet { --tp-a: #7c3aed; --tp-b: #a78bfa; --tp-soft: #f5f3ff; --tp-ink: #6d28d9; --tp-border: rgba(124, 58, 237, 0.18); --tp-ring: rgba(124, 58, 237, 0.13); }
-.kiwi-task-progress-card.tone-green,
-.kiwi-task-progress-swatch.tone-green { --tp-a: #16a34a; --tp-b: #4ade80; --tp-soft: #f0fdf4; --tp-ink: #15803d; --tp-border: rgba(22, 163, 74, 0.18); --tp-ring: rgba(22, 163, 74, 0.13); }
-.kiwi-task-progress-card.tone-blue,
-.kiwi-task-progress-swatch.tone-blue { --tp-a: #2563eb; --tp-b: #60a5fa; --tp-soft: #eff6ff; --tp-ink: #1d4ed8; --tp-border: rgba(37, 99, 235, 0.18); --tp-ring: rgba(37, 99, 235, 0.13); }
-.kiwi-task-progress-card.tone-amber,
-.kiwi-task-progress-swatch.tone-amber { --tp-a: #d97706; --tp-b: #fbbf24; --tp-soft: #fffbeb; --tp-ink: #b45309; --tp-border: rgba(217, 119, 6, 0.2); --tp-ring: rgba(217, 119, 6, 0.13); }
-.kiwi-task-progress-card.tone-rose,
-.kiwi-task-progress-swatch.tone-rose { --tp-a: #e11d48; --tp-b: #fb7185; --tp-soft: #fff1f2; --tp-ink: #be123c; --tp-border: rgba(225, 29, 72, 0.18); --tp-ring: rgba(225, 29, 72, 0.13); }
-.kiwi-task-progress-card.tone-slate,
-.kiwi-task-progress-swatch.tone-slate { --tp-a: #475569; --tp-b: #94a3b8; --tp-soft: #f8fafc; --tp-ink: #334155; --tp-border: rgba(71, 85, 105, 0.18); --tp-ring: rgba(71, 85, 105, 0.12); }
 .kiwi-task-progress-head {
   display: flex;
   align-items: center;
@@ -1070,34 +1056,6 @@ body.kiwi-tree-dragging * {
 .kiwi-task-progress-check input {
   accent-color: var(--tp-a);
 }
-.kiwi-task-progress-colors {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.kiwi-task-progress-swatch {
-  --tp-a: #6f72dc;
-  --tp-b: #6f72dc;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
-}
-.kiwi-task-progress-swatch > span {
-  display: block;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--tp-a), var(--tp-b));
-}
-.kiwi-task-progress-swatch.is-active {
-  border-color: var(--tp-a);
-}
 .markdown-view .kiwi-task-progress-empty[hidden] {
   display: none;
 }
@@ -1130,10 +1088,10 @@ body.kiwi-tree-dragging * {
 .kiwi-editor .ProseMirror .callout-block {
   position: relative;
   padding: 0.85rem 1rem 0.85rem 3rem;
-  border: 1px solid rgba(199, 210, 254, 0.8);
-  border-left: 3px solid #8b8ce8;
+  border: 1px solid rgb(var(--kiwi-200) / 0.9);
+  border-left: 3px solid rgb(var(--kiwi-500));
   border-radius: 12px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #f4f6ff 100%);
+  background: linear-gradient(135deg, rgb(var(--kiwi-50)) 0%, rgb(var(--kiwi-100) / 0.55) 100%);
 }
 .kiwi-editor .ProseMirror .callout-block::before {
   content: attr(data-emoji);
@@ -1162,7 +1120,7 @@ body.kiwi-tree-dragging * {
   margin: 0;
 }
 .kiwi-editor .ProseMirror .video-block.ProseMirror-selectednode {
-  outline: 2px solid #8b8ce8;
+  outline: 2px solid rgb(var(--kiwi-500));
   outline-offset: 2px;
 }
 
@@ -1335,7 +1293,7 @@ body.kiwi-tree-dragging * {
 }
 .kiwi-note-card-arrow {
   flex: 0 0 auto;
-  color: #a5b4fc;
+  color: rgb(var(--kiwi-300));
 }
 
 /* 嵌入：标题栏 + 正文预览，独占一行 */
@@ -1429,7 +1387,7 @@ body.kiwi-tree-dragging * {
   margin-left: auto;
   padding: 2px 4px;
   border-radius: 6px;
-  color: #6366f1;
+  color: rgb(var(--kiwi-500));
   font-size: 10.5px;
   transition: background 0.15s ease;
 }
@@ -1502,7 +1460,7 @@ body.kiwi-tree-dragging * {
 }
 .kiwi-mention-link-url {
   overflow: hidden;
-  color: #4f46e5;
+  color: rgb(var(--kiwi-600));
   font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1518,11 +1476,11 @@ body.kiwi-tree-dragging * {
   align-items: center;
   gap: 3px;
   padding: 3px 7px;
-  border: 1px solid #e0e7ff;
+  border: 1px solid rgb(var(--kiwi-200));
   border-radius: 7px;
-  color: #4f46e5;
+  color: rgb(var(--kiwi-600));
   font-size: 10.5px;
-  background: #f5f7ff;
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-note-canvas-state {
   display: flex;
@@ -1533,8 +1491,8 @@ body.kiwi-tree-dragging * {
 .kiwi-note-canvas-state .kiwi-note-embed-open {
   margin-left: 0;
   padding: 3px 8px;
-  border: 1px solid #e0e7ff;
-  background: #f5f7ff;
+  border: 1px solid rgb(var(--kiwi-200));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-editor .ProseMirror .kiwi-emoji {
   font-style: normal;
@@ -1612,7 +1570,7 @@ body.kiwi-tree-dragging * {
   color: #94a3b8;
 }
 .kiwi-suggest-icon[data-kind='wiki'] {
-  color: #6366f1;
+  color: rgb(var(--kiwi-500));
 }
 .kiwi-suggest-sub {
   margin-left: auto;
@@ -1818,7 +1776,7 @@ body.kiwi-tree-dragging * {
 .prose-wiki .task-list-item-checkbox {
   flex: 0 0 auto;
   margin: 0;
-  accent-color: #6f72dc;
+  accent-color: rgb(var(--kiwi-500));
 }
 .prose-wiki table {
   width: 100%;
@@ -1933,4 +1891,63 @@ body.kiwi-tree-dragging * {
   gap: 3px;
   color: #64748b;
   white-space: nowrap;
+}
+
+/* ---------- 分栏组件 ---------- */
+/* 编辑器与阅读态共用一套视觉：淡主题底 + 虚线分栏卡，顶部标签说明分栏数量。 */
+.kiwi-editor .kiwi-columns,
+.markdown-view .md-columns {
+  position: relative;
+  padding: 18px 10px 10px;
+  border: 1px solid rgb(var(--kiwi-200));
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgb(var(--kiwi-50) / 0.7), rgb(var(--kiwi-50) / 0.3)),
+    #fff;
+}
+.kiwi-editor .kiwi-columns::before,
+.markdown-view .md-columns::before {
+  content: "分栏";
+  position: absolute;
+  top: -9px;
+  left: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgb(var(--kiwi-500));
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  letter-spacing: 0.06em;
+  box-shadow: 0 1px 3px rgb(var(--kiwi-500) / 0.3);
+  /* 栏数标签只在悬停 / 选中时出现，避免常驻遮挡正文。 */
+  opacity: 0;
+  transform: translateY(1px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.kiwi-editor .kiwi-columns:hover::before,
+.kiwi-editor .kiwi-columns:focus-within::before,
+.kiwi-editor .kiwi-columns.ProseMirror-selectednode::before,
+.markdown-view .md-columns:hover::before {
+  opacity: 1;
+  transform: translateY(0);
+}
+.kiwi-editor .kiwi-columns::before {
+  content: "分栏 · " attr(data-kiwi-columns) " 栏";
+}
+.kiwi-editor .kiwi-columns > .kiwi-column,
+.markdown-view .md-columns > .md-column {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px dashed rgb(var(--kiwi-200));
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.78);
+}
+.kiwi-editor .kiwi-columns > .kiwi-column:focus-within {
+  border-color: rgb(var(--kiwi-300));
+  background: #fff;
+}
+.kiwi-editor .kiwi-columns.ProseMirror-selectednode {
+  outline: 2px solid rgb(var(--kiwi-400));
+  outline-offset: 2px;
 }

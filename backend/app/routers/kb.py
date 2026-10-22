@@ -346,6 +346,18 @@ async def get_todo_source(
     mirror = await session.get(TodoMirror, todo_id)
     if mirror is None or mirror.kb_id != kb_id:
         raise HTTPException(404, "待办不存在")
+    # 任务项在正文中的序号（0 起）：前端据此滚动到对应复选框，
+    # 不依赖展示文本，避免任务里含有颜色/字号等内联标记时匹配失败。
+    task_index = -1
+    if mirror.source_kind == "task":
+        source_note = await session.get(Note, mirror.source_note_id)
+        if source_note is not None:
+            for index, (ref, _text, _checked) in enumerate(
+                todo_sync.task_items(source_note.body_md or "")
+            ):
+                if ref == mirror.source_ref:
+                    task_index = index
+                    break
     return {
         "id": str(mirror.id),
         "source_note_id": str(mirror.source_note_id),
@@ -354,6 +366,7 @@ async def get_todo_source(
         "source_text": mirror.source_text,
         "title": mirror.title,
         "status": mirror.status,
+        "task_index": task_index,
     }
 
 

@@ -754,6 +754,93 @@ watch(
   { immediate: true },
 )
 
+/* ---------- 待办跳转：从「待办汇总」定位并高亮来源任务 ---------- */
+let todoSeq = 0
+let todoRetry: number | null = null
+let todoFlashTimer: number | null = null
+
+function flashTodoTarget(target: HTMLElement) {
+  const root = paneRef.value
+  root
+    ?.querySelectorAll('.kiwi-cite-flash')
+    .forEach((el) => el.classList.remove('kiwi-cite-flash'))
+  target.classList.add('kiwi-cite-flash')
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  if (todoFlashTimer !== null) window.clearTimeout(todoFlashTimer)
+  todoFlashTimer = window.setTimeout(() => {
+    target.classList.remove('kiwi-cite-flash')
+    todoFlashTimer = null
+  }, 2300)
+}
+
+async function locateTodo(todoId: string) {
+  const kbId = kbs.currentKbId
+  if (!kbId) return
+  const seq = ++todoSeq
+  if (todoRetry !== null) {
+    window.clearTimeout(todoRetry)
+    todoRetry = null
+  }
+  try {
+    const data = await request<{
+      source_note_id: string
+      source_kind: string
+      source_ref: string
+      source_text: string
+      task_index: number
+    }>(`/kbs/${kbId}/todos/${todoId}`)
+    if (seq !== todoSeq) return
+    // 镜像可能已随来源改动而归属别的笔记：以服务端结果为准重新跳转一次。
+    if (data.source_note_id !== props.note.id) {
+      void router.replace({
+        path: `/notes/${data.source_note_id}`,
+        query: { todo: todoId, t: String(Date.now()) },
+      })
+      return
+    }
+    if (data.source_kind === 'database_row' && data.source_ref.startsWith('row:')) {
+      void router.replace({
+        path: `/notes/${data.source_note_id}`,
+        query: { row: data.source_ref.slice(4) },
+      })
+      return
+    }
+    if (data.task_index < 0) return
+    const attemptScroll = (attempt = 0) => {
+      if (seq !== todoSeq) return
+      const items = Array.from(
+        paneRef.value?.querySelectorAll<HTMLElement>(
+          'li[data-type="taskItem"], li.task-list-item',
+        ) || [],
+      )
+      const target = items[data.task_index]
+      if (!target) {
+        // 编辑器 / 只读渲染尚未完成时短暂重试，避免跳转落空。
+        if (attempt < 26) {
+          todoRetry = window.setTimeout(() => {
+            todoRetry = null
+            attemptScroll(attempt + 1)
+          }, 150)
+        }
+        return
+      }
+      flashTodoTarget(target)
+    }
+    void nextTick(() => attemptScroll())
+  } catch (e: any) {
+    if (seq === todoSeq) toast.error(e.message || '找不到来源任务')
+  }
+}
+
+watch(
+  () => [route.query.todo, route.query.t, props.note.id],
+  () => {
+    const todo = route.query.todo
+    if (typeof todo === 'string' && todo) void locateTodo(todo)
+  },
+  { immediate: true },
+)
+
 onMounted(loadBacklinks)
 
 /** 一键复制为 Markdown：优先取编辑器序列化结果，阅读态回落到已保存正文。 */
@@ -1159,7 +1246,7 @@ async function copyMarkdown() {
                   @keydown.enter.prevent="focusBody"
                 />
               </div>
-              <p class="mt-2.5 flex items-center gap-1.5 text-[11px] text-slate-400">
+              <p class="mt-2.5 mb-4 flex items-center gap-1.5 text-[11px] text-slate-400">
                 <span
                   class="h-1.5 w-1.5 shrink-0 rounded-full bg-gradient-to-br from-kiwi-300 to-kiwi-500"
                   aria-hidden="true"

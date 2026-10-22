@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     ImportBatch,
     IngestJob,
+    Job,
     KnowledgeBase,
     Note,
     NoteFolder,
@@ -463,9 +464,21 @@ async def _jobs_out(session: AsyncSession, jobs: list[IngestJob]) -> list[Ingest
             ).scalars()
         }
 
+    # 关联持久化队列任务：编译页可以就地取消 / 重试，不必跳到运维页。
+    durable: dict[str, Job] = {}
+    keys = [f"compile:{job.id}" for job in jobs] + [f"ingest:{job.id}" for job in jobs]
+    for row in (
+        await session.execute(select(Job).where(Job.idempotency_key.in_(keys)))
+    ).scalars():
+        if row.idempotency_key:
+            durable[row.idempotency_key] = row
+
     out: list[IngestJobOut] = []
     for job in jobs:
         item = IngestJobOut.model_validate(job, from_attributes=True)
+        linked = durable.get(f"compile:{job.id}") or durable.get(f"ingest:{job.id}")
+        if linked is not None:
+            item.durable_job_id = linked.id
         source = sources.get(job.source_id)
         if source is not None:
             item.source_title = source.title

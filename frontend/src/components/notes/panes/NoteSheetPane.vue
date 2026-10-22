@@ -31,6 +31,7 @@ import {
   MAX_ROWS,
   MIN_COL_WIDTH,
   cellAddress,
+  clampFrozenCount,
   clampPosition,
   columnLabel,
   mergeLayout,
@@ -53,6 +54,7 @@ import {
   clearRangeAll,
   clearStyleKeys,
   copyRange,
+  crossesFrozenBoundary,
   deleteCols,
   deleteRows,
   duplicateSheet,
@@ -105,6 +107,66 @@ const activeSheet = computed<SheetData>(() => {
 const results = computed(() => evaluateWorkbook(workbook.value))
 const layout = computed(() => mergeLayout(activeSheet.value))
 
+// ---------- 冻结窗格 ----------
+// 表头 / 行号列宽度与高度与模板中的 sticky 表头保持一致。
+const COL_HEADER_HEIGHT = 28
+const ROW_HEADER_WIDTH = 46
+
+function frozenCount(value: number | undefined, limit: number): number {
+  const number = Number(value ?? 0)
+  if (!Number.isFinite(number) || number <= 0) return 0
+  return Math.min(Math.max(0, limit), Math.floor(number))
+}
+const frozenRows = computed(() =>
+  frozenCount(activeSheet.value.frozenRows, Math.max(0, activeSheet.value.rows - 1)),
+)
+const frozenCols = computed(() =>
+  frozenCount(activeSheet.value.frozenCols, Math.max(0, activeSheet.value.cols - 1)),
+)
+const hasFrozenPanes = computed(() => frozenRows.value > 0 || frozenCols.value > 0)
+
+/** 每行/每列冻结后的累计偏移（包含表头与行号列）。 */
+const frozenRowOffsets = computed(() => {
+  const offsets: number[] = []
+  let top = COL_HEADER_HEIGHT
+  for (let row = 0; row < frozenRows.value; row += 1) {
+    offsets.push(top)
+    top += rowHeight(row)
+  }
+  return offsets
+})
+const frozenColOffsets = computed(() => {
+  const offsets: number[] = []
+  let left = ROW_HEADER_WIDTH
+  for (let col = 0; col < frozenCols.value; col += 1) {
+    offsets.push(left)
+    left += columnWidth(col)
+  }
+  return offsets
+})
+const frozenRowsHeight = computed(() => {
+  const count = frozenRows.value
+  if (!count) return 0
+  return frozenRowOffsets.value[count - 1] + rowHeight(count - 1) - COL_HEADER_HEIGHT
+})
+const frozenColsWidth = computed(() => {
+  const count = frozenCols.value
+  if (!count) return 0
+  return frozenColOffsets.value[count - 1] + columnWidth(count - 1) - ROW_HEADER_WIDTH
+})
+
+function frozenRowStyle(row: number): Record<string, string> {
+  const top = frozenRowOffsets.value[row]
+  return row < frozenRows.value && top !== undefined ? { top: `${top}px` } : {}
+}
+function frozenColStyle(col: number): Record<string, string> {
+  const left = frozenColOffsets.value[col]
+  return col < frozenCols.value && left !== undefined ? { left: `${left}px` } : {}
+}
+function frozenCellStyle(row: number, col: number): Record<string, string> {
+  return { ...frozenRowStyle(row), ...frozenColStyle(col) }
+}
+
 const gridEl = ref<HTMLElement | null>(null)
 
 const anchor = ref<CellPosition>({ row: 0, col: 0 })
@@ -153,13 +215,21 @@ const usedBounds = computed(() => {
 const renderRows = computed(() =>
   Math.min(
     activeSheet.value.rows,
-    Math.max(visibleRows.value, Math.min(usedBounds.value.maxRow + 16, 600)),
+    Math.max(
+      visibleRows.value,
+      Math.min(usedBounds.value.maxRow + 16, 600),
+      frozenRows.value,
+    ),
   ),
 )
 const renderCols = computed(() =>
   Math.min(
     activeSheet.value.cols,
-    Math.max(visibleCols.value, Math.min(usedBounds.value.maxCol + 8, 80)),
+    Math.max(
+      visibleCols.value,
+      Math.min(usedBounds.value.maxCol + 8, 80),
+      frozenCols.value,
+    ),
   ),
 )
 const hiddenRows = computed(() => activeSheet.value.rows - renderRows.value)
@@ -192,9 +262,11 @@ function displayValueAt(row: number, col: number): string {
   return formatSheetValue(result?.value ?? cell?.cached ?? null, cell?.s?.fmt)
 }
 
-/** 当前列被筛选后隐藏的行（首行始终显示）。 */
+/** 当前列被筛选后隐藏的行（首行与冻结行始终显示）。 */
 function rowHidden(row: number): boolean {
   if (row <= 0) return false
+  // 冻结行必须保持可见，否则冻结区会因筛选出现空洞
+  if (row < frozenRows.value) return false
   const filters = activeSheet.value.filters
   if (!filters) return false
   for (const [key, values] of Object.entries(filters)) {
@@ -732,9 +804,27 @@ function setFocus(position: CellPosition, extend = false) {
 }
 
 function scrollCellIntoView(position: CellPosition) {
+  const grid = gridEl.value
+  if (!grid) return
   const address = cellAddress(position.row, position.col)
-  const cell = gridEl.value?.querySelector<HTMLElement>(`[data-sheet-cell="${address}"]`)
-  cell?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  const cell = grid.querySelector<HTMLElement>(`[data-sheet-cell="${address}"]`)
+  if (!cell) return
+  const rowFrozen = position.row < frozenRows.value
+  const colFrozen = position.col < frozenCols.value
+  if (rowFrozen && colFrozen) return
+  const gridRect = grid.getBoundingClientRect()
+  const rect = cell.getBoundingClientRect()
+  // 冻结行列会遮住普通单元格，按冻结后的可视边界滚动，避免 sticky 元素被 scrollIntoView 拉回原位。
+  if (!rowFrozen) {
+    const top = gridRect.top + COL_HEADER_HEIGHT + frozenRowsHeight.value
+    if (rect.top < top) grid.scrollTop -= top - rect.top
+    else if (rect.bottom > gridRect.bottom) grid.scrollTop += rect.bottom - gridRect.bottom
+  }
+  if (!colFrozen) {
+    const left = gridRect.left + ROW_HEADER_WIDTH + frozenColsWidth.value
+    if (rect.left < left) grid.scrollLeft -= left - rect.left
+    else if (rect.right > gridRect.right) grid.scrollLeft += rect.right - gridRect.right
+  }
 }
 
 function nextVisibleRow(row: number, direction: 1 | -1): number {
@@ -1107,6 +1197,43 @@ function clearSelectionAll() {
   withHistory(() => clearRangeAll(activeSheet.value, selection.value))
 }
 
+// ---------- 冻结窗格操作 ----------
+
+function setFrozenPanes(rows: number, cols: number) {
+  const sheet = activeSheet.value
+  const nextRows = clampFrozenCount(sheet, 'row', rows)
+  const nextCols = clampFrozenCount(sheet, 'col', cols)
+  const clamped = nextRows !== rows || nextCols !== cols
+  if (nextRows === (sheet.frozenRows ?? 0) && nextCols === (sheet.frozenCols ?? 0)) {
+    if (clamped) toast.info('冻结范围已按合并单元格或表格边界自动调整')
+    return
+  }
+  withHistory(() => {
+    sheet.frozenRows = nextRows
+    sheet.frozenCols = nextCols
+    // 确保冻结区在本轮渲染窗口内
+    visibleRows.value = Math.max(visibleRows.value, Math.min(nextRows + 20, sheet.rows))
+    visibleCols.value = Math.max(visibleCols.value, Math.min(nextCols + 6, sheet.cols))
+  })
+  if (clamped) toast.info('冻结范围已按合并单元格或表格边界自动调整')
+}
+
+function freezeToRow(index: number) {
+  setFrozenPanes(index + 1, frozenCols.value)
+}
+
+function freezeToCol(index: number) {
+  setFrozenPanes(frozenRows.value, index + 1)
+}
+
+function freezeToCell(row: number, col: number) {
+  setFrozenPanes(row + 1, col + 1)
+}
+
+function clearFrozenPanes() {
+  setFrozenPanes(0, 0)
+}
+
 function toggleMerge() {
   const sheet = activeSheet.value
   if (rangeHasMerge(sheet, selection.value)) {
@@ -1115,6 +1242,10 @@ function toggleMerge() {
   }
   if (selectionLabel.value === cellAddress(focus.value.row, focus.value.col)) {
     toast.info('请先选择多个单元格')
+    return
+  }
+  if (crossesFrozenBoundary(sheet, selection.value)) {
+    toast.info('合并区域不能跨越冻结边界，请先取消冻结')
     return
   }
   withHistory(() => mergeRange(sheet, selection.value))
@@ -1474,6 +1605,16 @@ function contextAction(action: () => void) {
   action()
 }
 
+function contextFreeze() {
+  const menu = contextMenu.value
+  if (!menu) return
+  contextAction(() => freezeToCell(menu.row, menu.col))
+}
+
+function contextUnfreeze() {
+  contextAction(clearFrozenPanes)
+}
+
 // ---------- 表头右键菜单 ----------
 
 const headerMenu = ref<{
@@ -1566,6 +1707,19 @@ function headerAutofit() {
   if (!menu || menu.kind !== 'col') return
   closeHeaderMenu()
   autofitCol(menu.index)
+}
+
+function headerFreeze() {
+  const menu = headerMenu.value
+  if (!menu) return
+  closeHeaderMenu()
+  if (menu.kind === 'col') freezeToCol(menu.index)
+  else freezeToRow(menu.index)
+}
+
+function headerUnfreeze() {
+  closeHeaderMenu()
+  clearFrozenPanes()
 }
 
 function loadMoreRows() {
@@ -1800,7 +1954,11 @@ watch(
               v-for="col in renderCols"
               :key="`head-${col}`"
               class="col-head"
-              :class="{ 'is-active': selection.start.col <= col - 1 && selection.end.col >= col - 1 }"
+              :class="{
+                'is-active': selection.start.col <= col - 1 && selection.end.col >= col - 1,
+                'is-frozen-col': col - 1 < frozenCols,
+              }"
+              :style="frozenColStyle(col - 1)"
               :title="`${columnLabel(col - 1)} 列 · 点击选择整列，右键更多操作`"
               @click="selectColumn(col - 1, $event.shiftKey)"
               @contextmenu.prevent="openHeaderMenu($event, 'col', col - 1)"
@@ -1846,7 +2004,11 @@ watch(
           >
             <th
               class="row-head"
-              :class="{ 'is-active': selection.start.row <= row - 1 && selection.end.row >= row - 1 }"
+              :class="{
+                'is-active': selection.start.row <= row - 1 && selection.end.row >= row - 1,
+                'is-frozen-row': row - 1 < frozenRows,
+              }"
+              :style="frozenRowStyle(row - 1)"
               :title="`第 ${row} 行 · 点击选择整行，右键更多操作`"
               @click="selectRow(row - 1, $event.shiftKey)"
               @contextmenu.prevent="openHeaderMenu($event, 'row', row - 1)"
@@ -1869,10 +2031,13 @@ watch(
                   'is-selected': isCellSelected(row - 1, col - 1),
                   'is-active': activeAddress === cellAddress(row - 1, col - 1),
                   'is-error': cellIsError(cellAddress(row - 1, col - 1)),
+                  'is-frozen-row': row - 1 < frozenRows,
+                  'is-frozen-col': col - 1 < frozenCols,
                 }"
                 :style="{
                   ...cellStyle(cellAddress(row - 1, col - 1)),
                   textAlign: cellAlign(cellAddress(row - 1, col - 1)),
+                  ...frozenCellStyle(row - 1, col - 1),
                 }"
                 @mousedown="onCellMouseDown(row - 1, col - 1, $event)"
                 @mouseenter="onCellMouseEnter(row - 1, col - 1)"
@@ -1927,6 +2092,13 @@ watch(
       </span>
       <span v-if="selectionStats.sampled" class="status-item text-slate-400">抽样统计</span>
       <div class="flex-1" />
+      <span
+        v-if="hasFrozenPanes"
+        class="status-item text-slate-400"
+        title="右键行号或列标题可调整 / 取消冻结"
+      >
+        冻结 {{ frozenRows }} 行 · {{ frozenCols }} 列
+      </span>
       <button
         v-if="hasActiveFilters"
         type="button"
@@ -2047,6 +2219,18 @@ watch(
             </button>
             <button type="button" class="ctx-row" @click="contextAction(clearSelectionAll)">
               删除单元格
+            </button>
+            <div class="ctx-sep" />
+            <button type="button" class="ctx-row" @click="contextFreeze">
+              冻结至当前单元格
+            </button>
+            <button
+              type="button"
+              class="ctx-row"
+              :disabled="!hasFrozenPanes"
+              @click="contextUnfreeze"
+            >
+              取消冻结窗格
             </button>
             <div class="ctx-sep" />
             <button type="button" class="ctx-row" @click="contextAction(() => copySelection(false))">
@@ -2202,6 +2386,18 @@ watch(
             </button>
             <button type="button" class="ctx-row" @click="headerDelete">
               删除此{{ headerMenu.kind === 'col' ? '列' : '行' }}
+            </button>
+            <div class="ctx-sep" />
+            <button type="button" class="ctx-row" @click="headerFreeze">
+              {{ headerMenu.kind === 'col' ? '冻结至此列' : '冻结至此行' }}
+            </button>
+            <button
+              type="button"
+              class="ctx-row"
+              :disabled="!hasFrozenPanes"
+              @click="headerUnfreeze"
+            >
+              取消冻结
             </button>
             <template v-if="headerMenu.kind === 'col'">
               <div class="ctx-sep" />
@@ -2382,7 +2578,7 @@ watch(
   position: sticky;
   left: 0;
   top: 0;
-  z-index: 5;
+  z-index: 9;
   width: 46px;
   min-width: 46px;
   background: #f8fafc;
@@ -2391,7 +2587,7 @@ watch(
 .col-head {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: 6;
   height: 28px;
   padding: 0 12px;
   background: #f8fafc;
@@ -2447,7 +2643,7 @@ watch(
 .row-head {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 5;
   width: 46px;
   min-width: 46px;
   background: #f8fafc;
@@ -2462,6 +2658,13 @@ watch(
 .row-head.is-active {
   background: #e0f2fe;
   color: #0369a1;
+}
+/* 冻结的行号 / 列标需要压在普通表头之上（滚动时不能被后渲染的表头盖住）。 */
+.row-head.is-frozen-row {
+  z-index: 7;
+}
+.col-head.is-frozen-col {
+  z-index: 8;
 }
 .col-resize {
   position: absolute;
@@ -2509,10 +2712,20 @@ watch(
 .sheet-cell.is-active {
   outline: 2px solid #0ea5e9;
   outline-offset: -2px;
-  z-index: 1;
+  z-index: 2;
 }
 .sheet-cell.is-error {
   color: #dc2626;
+}
+/* 冻结数据单元格：单轴 sticky 用 3，行列交叉处用 4，均在表头之下、活动单元格之上。 */
+.sheet-cell.is-frozen-row,
+.sheet-cell.is-frozen-col {
+  position: sticky;
+  z-index: 3;
+  background-color: #fff;
+}
+.sheet-cell.is-frozen-row.is-frozen-col {
+  z-index: 4;
 }
 .cell-text {
   display: block;

@@ -8,15 +8,11 @@ import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { useEditorEditable } from './useEditorEditable'
 import {
-  TASK_PROGRESS_COLORS,
-  TASK_PROGRESS_COLOR_LABELS,
   findBoundTaskList,
   normalizeTaskProgressBind,
-  normalizeTaskProgressColor,
   starterTaskListContent,
   taskListStats,
   type TaskProgressBind,
-  type TaskProgressColor,
 } from './taskProgress'
 
 const props = defineProps(nodeViewProps)
@@ -33,9 +29,6 @@ onBeforeUnmount(() => props.editor.off('transaction', bump))
 const label = computed(() => String(props.node.attrs.label || '待办进度'))
 const showCount = computed(() => props.node.attrs.showCount !== false)
 const showPercent = computed(() => props.node.attrs.showPercent !== false)
-const color = computed<TaskProgressColor>(() =>
-  normalizeTaskProgressColor(props.node.attrs.color),
-)
 const bind = computed<TaskProgressBind>(() =>
   normalizeTaskProgressBind(props.node.attrs.bind),
 )
@@ -75,10 +68,6 @@ function setBind(event: Event) {
   update({ bind: normalizeTaskProgressBind((event.target as HTMLSelectElement).value) })
 }
 
-function setColor(next: TaskProgressColor) {
-  update({ color: next })
-}
-
 function insertStarterList() {
   const pos = props.getPos()
   if (typeof pos !== 'number') return
@@ -98,7 +87,7 @@ function remove() {
   <NodeViewWrapper
     as="div"
     class="kiwi-task-progress-card"
-    :class="[`tone-${color}`, { 'is-selected': selected, 'is-empty': !stats }]"
+    :class="{ 'is-selected': selected, 'is-empty': !stats }"
     contenteditable="false"
     data-kiwi-task-progress-card="true"
     :data-task-done="stats?.done ?? 0"
@@ -212,25 +201,6 @@ function remove() {
           <option value="next">下方清单</option>
           <option value="prev">上方清单</option>
         </select>
-      </div>
-
-      <div class="kiwi-task-progress-field">
-        <span class="kiwi-task-progress-field-label">配色</span>
-        <div class="kiwi-task-progress-colors">
-          <button
-            v-for="tone in TASK_PROGRESS_COLORS"
-            :key="tone"
-            type="button"
-            class="kiwi-task-progress-swatch"
-            :class="[`tone-${tone}`, { 'is-active': tone === color }]"
-            :title="TASK_PROGRESS_COLOR_LABELS[tone]"
-            :aria-label="TASK_PROGRESS_COLOR_LABELS[tone]"
-            @mousedown.prevent
-            @click.stop="setColor(tone)"
-          >
-            <span />
-          </button>
-        </div>
       </div>
     </div>
   </NodeViewWrapper>

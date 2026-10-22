@@ -11,6 +11,7 @@ import ipaddress
 import re
 import socket
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
@@ -26,6 +27,50 @@ HTML_TYPES = ("text/html", "application/xhtml+xml")
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 # 198.18.0.0/15 为基准测试保留段，常被本地透明代理用作 fake-IP，不可路由到内网
 _BENCHMARK_NET = ipaddress.ip_network("198.18.0.0/15")
+_SITE_ICON_REL = {"icon", "shortcut", "apple-touch-icon", "apple-touch-icon-precomposed"}
+
+
+class _IconLinkParser(HTMLParser):
+    """收集 <link rel="icon">，按声明尺寸挑出最适合卡片磁贴的一张。"""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.icons: list[tuple[int, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "link":
+            return
+        data = {key.lower(): (value or "") for key, value in attrs}
+        rels = {token.lower() for token in data.get("rel", "").split()}
+        if not rels & _SITE_ICON_REL:
+            return
+        href = data.get("href", "").strip()
+        if not href:
+            return
+        weight = 0
+        if "svg" in data.get("type", "").lower():
+            weight = 512
+        for token in data.get("sizes", "").lower().split():
+            width = token.split("x", 1)[0]
+            if width.isdigit():
+                weight = max(weight, int(width))
+        self.icons.append((weight, href))
+
+
+def _favicon_from_html(html: str, base_url: str) -> str:
+    """解析页面声明的站点图标；相对地址按最终 URL 补全。"""
+    parser = _IconLinkParser()
+    try:
+        parser.feed(html)
+    except Exception:  # noqa: BLE001 - 畸形 HTML 不影响主流程
+        return ""
+    if not parser.icons:
+        return ""
+    _, href = max(parser.icons, key=lambda item: item[0])
+    icon = urljoin(base_url, href)
+    # 只接受 http(s) 图标，避免把 data: / javascript: 等地址写进卡片。
+    return icon if urlparse(icon).scheme in ("http", "https") else ""
+
 
 
 class LinkFetchError(Exception):
@@ -215,9 +260,13 @@ async def fetch_meta(raw_url: str) -> LinkMetaResult:
     url = normalize_url(raw_url)
     site = _site_of(url)
     host = urlparse(url).hostname or ""
-    favicon = f"https://{host}/favicon.ico" if host else ""
+    fallback_icon = f"https://{host}/favicon.ico" if host else ""
     try:
         final_url, html = await _fetch_html(url)
+        final_host = urlparse(final_url).hostname or host
+        favicon = _favicon_from_html(html, final_url) or (
+            f"https://{final_host}/favicon.ico" if final_host else ""
+        )
         title = ""
         excerpt = ""
         try:
@@ -252,7 +301,7 @@ async def fetch_meta(raw_url: str) -> LinkMetaResult:
             title=site or url,
             site=site,
             excerpt="",
-            favicon=favicon,
+            favicon=fallback_icon,
             fetch_status="failed",
             error=str(e),
         )
@@ -262,9 +311,14 @@ async def fetch_and_extract(raw_url: str) -> LinkFetchResult:
     """抓取并解析链接；任何失败都返回降级结果而非抛错（URL 非法除外）。"""
     url = normalize_url(raw_url)
     site = _site_of(url)
-    favicon = f"https://{urlparse(url).hostname}/favicon.ico" if urlparse(url).hostname else ""
+    host = urlparse(url).hostname or ""
+    fallback_icon = f"https://{host}/favicon.ico" if host else ""
     try:
         final_url, html = await _fetch_html(url)
+        final_host = urlparse(final_url).hostname or host
+        favicon = _favicon_from_html(html, final_url) or (
+            f"https://{final_host}/favicon.ico" if final_host else ""
+        )
         title, markdown, site, excerpt = _extract(html, final_url)
         if markdown:
             return LinkFetchResult(
@@ -298,7 +352,7 @@ async def fetch_and_extract(raw_url: str) -> LinkFetchResult:
             markdown="",
             site=site,
             excerpt="",
-            favicon=favicon,
+            favicon=fallback_icon,
             fetch_status="failed",
             error=str(e),
         )

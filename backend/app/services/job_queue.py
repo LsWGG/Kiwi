@@ -170,6 +170,30 @@ async def _heartbeat(job_id: uuid.UUID, stop: asyncio.Event) -> None:
                 await db.commit()
 
 
+async def _sync_ingest_job(payload: dict, *, error: str) -> None:
+    """持久化任务结束时同步业务任务状态。
+
+    编译 / 摄入在 ``ingest_jobs`` 另有一条进度记录；若只把 ``jobs`` 置为失败，
+    编译页会一直停在「排队中」。这里按 payload 中的任务 id 回写，保证两处一致。
+    """
+    from app.db.models import IngestJob
+
+    raw = payload.get("ingest_job_id") or payload.get("job_id")
+    if not raw:
+        return
+    try:
+        job_id = uuid.UUID(str(raw))
+    except (TypeError, ValueError):
+        return
+    async with async_session_factory() as db:
+        row = await db.get(IngestJob, job_id)
+        if row is None or row.status not in ("pending", "running"):
+            return
+        row.status = "failed"
+        row.error = (error or "任务未完成")[:2000]
+        await db.commit()
+
+
 async def _finish(
     job_id: uuid.UUID,
     *,
@@ -196,7 +220,11 @@ async def _finish(
             job.progress = 1.0 if status == "succeeded" else job.progress
         elif status == "pending" and retry_in is not None:
             job.run_after = _now() + timedelta(seconds=max(1.0, retry_in))
+        payload = dict(job.payload or {})
+        final_error = error or message or ""
         await db.commit()
+    if status in ("failed", "cancelled"):
+        await _sync_ingest_job(payload, error=final_error)
 
 
 async def _run_job(job_id: uuid.UUID) -> None:
@@ -365,8 +393,12 @@ async def cancel(job_id: uuid.UUID) -> Job | None:
         elif job.status == "running":
             job.cancel_requested = True
             job.message = "取消请求已提交"
+        cancelled_now = job.status == "cancelled"
+        payload = dict(job.payload or {})
         await db.commit()
         await db.refresh(job)
+    if cancelled_now:
+        await _sync_ingest_job(payload, error="已取消")
     task = _running_tasks.get(job_id)
     if task is not None and not task.done():
         task.cancel()

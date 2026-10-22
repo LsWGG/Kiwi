@@ -68,7 +68,7 @@ const JOB_KIND: Record<string, string> = {
 
 const JOB_STATUS: Record<JobStatus, { label: string; tone: string; dot: string }> = {
   pending: {
-    label: '等待中',
+    label: '排队中',
     tone: 'bg-slate-100 text-slate-500 ring-slate-200/70',
     dot: 'bg-slate-400',
   },
@@ -107,7 +107,7 @@ const AUDIT_ACTION: Record<string, string> = {
 
 const STATUS_OPTIONS: Array<{ value: '' | JobStatus; label: string }> = [
   { value: '', label: '全部状态' },
-  { value: 'pending', label: '等待中' },
+  { value: 'pending', label: '排队中' },
   { value: 'running', label: '运行中' },
   { value: 'succeeded', label: '已完成' },
   { value: 'failed', label: '失败' },

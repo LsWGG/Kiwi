@@ -167,6 +167,21 @@ const link = computed<Partial<LinkMeta>>(
   () => (props.note.props_json?.link as Partial<LinkMeta>) ?? {},
 )
 const failed = computed(() => link.value.fetch_status === 'failed')
+/* 图标磁贴优先用站点 logo；没有记录时尝试根目录 favicon，失败再回退默认图标。 */
+const faviconSrc = computed(() => {
+  const saved = String(link.value.favicon ?? '').trim()
+  if (/^https?:\/\//i.test(saved)) return saved
+  try {
+    const parsed = new URL(link.value.final_url || link.value.url || '')
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+    return `${parsed.origin}/favicon.ico`
+  } catch {
+    return ''
+  }
+})
+watch(faviconSrc, () => {
+  faviconBroken.value = false
+})
 const hasBody = computed(() => !!body.value.trim())
 
 let lastSentTitle = ''
@@ -492,8 +507,8 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
                 <div class="flex items-start gap-3">
                   <div class="w-9 h-9 shrink-0 rounded-xl bg-white border border-slate-200/70 grid place-items-center overflow-hidden">
                     <img
-                      v-if="link.favicon && !faviconBroken"
-                      :src="link.favicon"
+                      v-if="faviconSrc && !faviconBroken"
+                      :src="faviconSrc"
                       class="w-5 h-5"
                       alt=""
                       referrerpolicy="no-referrer"

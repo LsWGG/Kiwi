@@ -61,6 +61,7 @@ async def _enqueue_ingest(
     note_id: uuid.UUID | None = None,
     compile_now: bool = False,
     embed_raw: bool = True,
+    use_ocr: bool = False,
 ) -> None:
     """把摄入执行写入持久化队列；幂等键与 IngestJob 一一对应。"""
     await job_queue.enqueue(
@@ -73,6 +74,7 @@ async def _enqueue_ingest(
             "note_id": str(note_id) if note_id else None,
             "compile_now": compile_now,
             "embed_raw": embed_raw,
+            "use_ocr": use_ocr,
         },
         kb_id=kb_id,
         ref_id=str(job_id),
@@ -129,7 +131,11 @@ async def _update_import_note(
 
 
 async def _process_note_from_existing_source(
-    job_id: str, source_id: uuid.UUID, note_id: uuid.UUID
+    job_id: str,
+    source_id: uuid.UUID,
+    note_id: uuid.UUID,
+    *,
+    use_ocr: bool = False,
 ) -> None:
     """重复文件：复用已有 Source，只解析并填充笔记，不重复向量化。"""
     from sqlalchemy import select, update
@@ -149,7 +155,9 @@ async def _process_note_from_existing_source(
             source_type = source.type
             raw_path = source.raw_path
 
-        parsed = await asyncio.to_thread(parse_file, Path(raw_path), source_type)
+        parsed = await asyncio.to_thread(
+            parse_file, Path(raw_path), source_type, force_ocr=use_ocr
+        )
         await _update_import_note(
             note_id,
             source_id=source_id,
@@ -196,6 +204,7 @@ async def run_ingest(
     scan_detail: str = "",
     source_type: str | None = None,
     title: str | None = None,
+    use_ocr: bool = False,
 ) -> uuid.UUID:
     """启动后台 ingest 任务并返回 job_id。
 
@@ -259,6 +268,7 @@ async def run_ingest(
                         mode="existing_source",
                         source_id=existing_external.id,
                         note_id=note_id,
+                        use_ocr=use_ocr,
                     )
                     return job_id
                 old_path = Path(existing_external.raw_path)
@@ -329,6 +339,7 @@ async def run_ingest(
                     source_id=source_id,
                     note_id=note_id,
                     compile_now=compile_now,
+                    use_ocr=use_ocr,
                 )
                 return job_id
 
@@ -357,6 +368,7 @@ async def run_ingest(
                 mode="existing_source",
                 source_id=existed.id,
                 note_id=note_id,
+                use_ocr=use_ocr,
             )
             return job_id
 
@@ -403,6 +415,7 @@ async def run_ingest(
         source_id=source_id,
         note_id=note_id,
         compile_now=compile_now,
+        use_ocr=use_ocr,
     )
     return job_id
 
@@ -414,6 +427,7 @@ async def _process_ingest(
     compile_now: bool,
     note_id: uuid.UUID | None = None,
     embed_raw: bool = True,
+    use_ocr: bool = False,
 ) -> None:
     """执行摄入流水线。"""
 
@@ -443,7 +457,9 @@ async def _process_ingest(
             ).scalar_one()
 
         await _emit(job_id, "parse_progress", {"status": "starting"})
-        parsed = await asyncio.to_thread(parse_file, Path(source.raw_path), source.type)
+        parsed = await asyncio.to_thread(
+            parse_file, Path(source.raw_path), source.type, force_ocr=use_ocr
+        )
         await _update_job(job_id, progress=0.2)
         if note_id is not None:
             # 解析完先落正文，前端可立即阅读，向量化在后台继续

@@ -45,6 +45,10 @@ const password = ref('')
 const passwordError = ref('')
 /** PDF.js 解析失败时，可退回浏览器内置阅读器。 */
 const native = ref(false)
+/** 回退原因提示：告诉用户为什么不是默认的 PDF.js 阅读器。 */
+const nativeNote = ref('')
+/** 代理 / NAS 常不支持 Range 请求（PDF.js 默认分片拉取，会 504），失败后先关闭分片重试。 */
+const noRangeMode = ref(false)
 const passwordEl = ref<HTMLInputElement | null>(null)
 
 let task: PDFDocumentLoadingTask | null = null
@@ -107,7 +111,7 @@ function cancelPassword() {
 }
 
 /** 浏览器内置阅读器：某些 PDF.js 不支持的格式（如 XFA 表单）由浏览器处理。 */
-function openNative() {
+function openNative(note = '') {
   generation += 1
   clearWatchdog()
   passwordUpdate = null
@@ -120,11 +124,19 @@ function openNative() {
   loading.value = false
   error.value = ''
   native.value = true
+  nativeNote.value = note
 }
 
 function retry() {
   native.value = false
+  nativeNote.value = ''
+  noRangeMode.value = false
   void load()
+}
+
+/** 网络 / 代理类错误：先关分片重试，再退回浏览器内置阅读器。 */
+function isTransportError(message: string) {
+  return /server response|\b5\d\d\b|network|fetch|timeout|aborted|超时|网络/i.test(message)
 }
 
 function openInNewTab() {
@@ -148,8 +160,9 @@ const pixelRatio = computed(() =>
 
 const pages = computed(() => Array.from({ length: pageCount.value }, (_, i) => i + 1))
 
-async function load() {
+async function load(noRange = noRangeMode.value) {
   const run = ++generation
+  noRangeMode.value = noRange
   loading.value = true
   error.value = ''
   pageCount.value = 0
@@ -177,6 +190,10 @@ async function load() {
       wasmUrl: '/pdfjs/wasm/',
       iccUrl: '/pdfjs/iccs/',
       useWasm: true,
+      // 关闭 Range / 流式拉取时只发一次普通 GET，兼容不支持分片的反向代理。
+      disableRange: noRange,
+      disableStream: noRange,
+      disableAutoFetch: noRange,
     })
     task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
       if (run !== generation) return
@@ -213,7 +230,22 @@ async function load() {
   } catch (e: any) {
     if (run !== generation) return
     if (needPassword.value) return
-    fail(e?.message || 'PDF 加载失败')
+    const message = String(e?.message || 'PDF 加载失败')
+    if (isTransportError(message)) {
+      if (!noRange) {
+        // 代理返回 504 等：用普通 GET 再试一次，避免 PDF.js 分片请求被拦截。
+        if (task) {
+          void task.destroy().catch(() => undefined)
+          task = null
+        }
+        void load(true)
+        return
+      }
+      // 普通 GET 仍失败时静默退回浏览器内置阅读器；直连地址通常可以正常显示。
+      openNative('PDF.js 直连失败，已切换为浏览器内置阅读器')
+      return
+    }
+    fail(message)
   }
 }
 
@@ -308,7 +340,7 @@ onBeforeUnmount(() => {
         </p>
         <div class="mt-4 flex flex-wrap justify-center gap-2">
           <button class="kiwi-btn-secondary !px-3 !py-1.5 !text-[11px]" @click="retry">重试</button>
-          <button class="kiwi-btn-secondary !px-3 !py-1.5 !text-[11px]" @click="openNative">
+          <button class="kiwi-btn-secondary !px-3 !py-1.5 !text-[11px]" @click="openNative()">
             内置阅读器
           </button>
           <button class="kiwi-btn-primary !px-3 !py-1.5 !text-[11px]" @click="openInNewTab">
@@ -318,13 +350,23 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <iframe
-      v-else-if="native"
-      :src="url"
-      title="PDF 预览"
-      class="w-full border-0 bg-white"
-      :class="embedded ? 'h-[70vh] min-h-[480px]' : 'h-full'"
-    />
+    <div v-else-if="native" class="flex h-full min-h-[420px] flex-col">
+      <div
+        v-if="nativeNote"
+        class="flex shrink-0 items-center justify-between gap-2 border-b border-amber-100 bg-amber-50/80 px-3 py-1.5 text-[10.5px] text-amber-700"
+      >
+        <span class="truncate">{{ nativeNote }}</span>
+        <button type="button" class="shrink-0 underline decoration-amber-300 underline-offset-2" @click="retry">
+          重试 PDF.js
+        </button>
+      </div>
+      <iframe
+        :src="url"
+        title="PDF 预览"
+        class="w-full flex-1 border-0 bg-white"
+        :class="embedded ? 'h-[70vh] min-h-[480px]' : 'h-full'"
+      />
+    </div>
 
     <div v-else-if="doc" class="pdf-pages">
       <PdfPageCanvas

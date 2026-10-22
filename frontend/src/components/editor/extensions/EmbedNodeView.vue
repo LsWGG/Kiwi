@@ -21,6 +21,23 @@ const attrs = computed(() => props.node.attrs as Record<string, any>)
 const isLink = computed(() => attrs.value.kind === 'link')
 const url = computed(() => String(attrs.value.url ?? ''))
 const title = computed(() => String(attrs.value.title ?? attrs.value.filename ?? url.value))
+/* 站点图标：优先用抓取到的 favicon；旧数据缺图标时尝试站点根目录，加载失败再回退默认图标。 */
+const faviconFailed = ref(false)
+const faviconSrc = computed(() => {
+  const saved = String(attrs.value.favicon ?? '').trim()
+  if (/^https?:\/\//i.test(saved)) return saved
+  if (!isLink.value) return ''
+  try {
+    const parsed = new URL(url.value)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+    return `${parsed.origin}/favicon.ico`
+  } catch {
+    return ''
+  }
+})
+watch(faviconSrc, () => {
+  faviconFailed.value = false
+})
 const filename = computed(() => String(attrs.value.filename ?? attrs.value.title ?? url.value.split('/').pop() ?? ''))
 const contentType = computed(() => String(attrs.value.contentType ?? ''))
 const size = computed(() => Number(attrs.value.size) || 0)
@@ -215,14 +232,6 @@ function removeNode() {
   view.dispatch(state.tr.delete(pos, pos + node.nodeSize))
 }
 
-function hideBrokenIcon(event: Event) {
-  const el = event.target as HTMLElement | null
-  // 隐藏整个图标框，避免加载失败后留下空白方块
-  const box = el?.closest('.embed-favicon') as HTMLElement | null
-  if (box) box.style.display = 'none'
-  else if (el) el.style.display = 'none'
-}
-
 function openExternal(event: MouseEvent) {
   if (!isLink.value) return
   // 编辑器内普通点击不拦截，显式在新窗口打开，避免被编辑器选区逻辑吞掉
@@ -247,7 +256,13 @@ function openExternal(event: MouseEvent) {
           @mousedown.stop
         >
           <span class="embed-title-favicon">
-            <img v-if="attrs.favicon" :src="attrs.favicon" alt="" @error="hideBrokenIcon" />
+            <img
+              v-if="faviconSrc && !faviconFailed"
+              :src="faviconSrc"
+              alt=""
+              referrerpolicy="no-referrer"
+              @error="faviconFailed = true"
+            />
             <KiwiIcon v-else name="link2" :size="13" class="text-sky-500" />
           </span>
           <span class="embed-title-text">{{ title }}</span>
@@ -275,7 +290,13 @@ function openExternal(event: MouseEvent) {
       >
         <div class="embed-web-bar">
           <span class="embed-web-favicon">
-            <img v-if="attrs.favicon" :src="attrs.favicon" alt="" @error="hideBrokenIcon" />
+            <img
+              v-if="faviconSrc && !faviconFailed"
+              :src="faviconSrc"
+              alt=""
+              referrerpolicy="no-referrer"
+              @error="faviconFailed = true"
+            />
             <KiwiIcon v-else name="globe" :size="13" class="text-sky-500" />
           </span>
           <a
@@ -337,7 +358,13 @@ function openExternal(event: MouseEvent) {
           @mousedown.stop
         >
           <span class="embed-favicon">
-            <img v-if="attrs.favicon" :src="attrs.favicon" alt="" @error="hideBrokenIcon" />
+            <img
+              v-if="faviconSrc && !faviconFailed"
+              :src="faviconSrc"
+              alt=""
+              referrerpolicy="no-referrer"
+              @error="faviconFailed = true"
+            />
             <KiwiIcon v-else name="link2" :size="16" class="text-sky-500" />
           </span>
           <span class="min-w-0 flex-1">
@@ -398,10 +425,10 @@ function openExternal(event: MouseEvent) {
         :style="draftHeight ? { height: `${draftHeight}px` } : undefined"
       >
         <div class="embed-file-bar">
-          <span class="flex min-w-0 items-center gap-1.5 text-[11.5px] text-slate-500">
-            <KiwiIcon name="paperclip" :size="12" class="shrink-0 text-slate-400" />
-            <span class="truncate font-medium text-slate-600">{{ filename }}</span>
-            <span v-if="sizeLabel(size)" class="shrink-0 text-[10.5px] text-slate-400">{{ sizeLabel(size) }}</span>
+          <span class="flex min-w-0 items-center gap-2 text-[11.5px] text-slate-500">
+            <span class="embed-file-icon"><KiwiIcon name="paperclip" :size="13" /></span>
+            <span class="truncate font-semibold text-slate-700">{{ filename }}</span>
+            <span v-if="sizeLabel(size)" class="embed-file-size">{{ sizeLabel(size) }}</span>
           </span>
           <span class="flex shrink-0 items-center gap-0.5">
             <button type="button" class="embed-action" title="以标题超链接展示" @mousedown.prevent @click="setDisplay('title')">
@@ -499,10 +526,10 @@ function openExternal(event: MouseEvent) {
   @apply relative;
 }
 .embed-title-link {
-  @apply flex items-center gap-2 rounded-lg border border-slate-200/70 bg-white px-2.5 py-1.5 no-underline transition-colors hover:border-kiwi-300 hover:bg-kiwi-50/40;
+  @apply flex items-center gap-2 rounded-lg border border-slate-200/70 bg-gradient-to-r from-kiwi-50/70 via-white to-white px-2.5 py-1.5 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all hover:border-kiwi-300 hover:shadow-[0_4px_14px_-8px_rgba(15,23,42,0.25)];
 }
 .embed-title-favicon {
-  @apply grid h-5 w-5 shrink-0 place-items-center overflow-hidden rounded;
+  @apply grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-md border border-kiwi-100 bg-white text-kiwi-600;
 }
 .embed-title-favicon img {
   @apply h-4 w-4 object-contain;
@@ -522,7 +549,7 @@ function openExternal(event: MouseEvent) {
   flex: 0 0 auto;
 }
 .embed-web-bar {
-  @apply flex items-center gap-2 border-b border-slate-200/70 bg-slate-50/70 px-2.5 py-1.5;
+  @apply flex items-center gap-2 border-b border-slate-200/70 bg-gradient-to-r from-kiwi-50/70 via-white to-white px-2.5 py-1.5;
 }
 .embed-web-favicon {
   @apply grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-md border border-slate-200/70 bg-white;
@@ -537,22 +564,34 @@ function openExternal(event: MouseEvent) {
   @apply border-t border-slate-100 px-3 py-1 text-[10.5px] text-slate-400;
 }
 .embed-link-card {
-  @apply flex items-start gap-3 rounded-xl border border-slate-200/80 bg-white px-3.5 py-3 no-underline transition-colors hover:border-kiwi-300 hover:bg-kiwi-50/40;
+  @apply relative flex items-start gap-3 overflow-hidden rounded-xl border border-slate-200/80 bg-white px-3.5 py-3 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:-translate-y-px hover:border-kiwi-300 hover:shadow-[0_10px_26px_-16px_rgba(15,23,42,0.4)];
+}
+.embed-link-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)), rgb(var(--kiwi-600)));
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.embed-link-card:hover::before {
+  opacity: 1;
 }
 .embed-favicon {
-  @apply mt-0.5 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-slate-200/70 bg-slate-50;
+  @apply mt-0.5 grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-kiwi-100 bg-gradient-to-br from-kiwi-50 to-white;
 }
 .embed-favicon img {
   @apply h-5 w-5 object-contain;
 }
 .embed-link-title {
-  @apply block truncate text-[13.5px] font-medium text-slate-700;
+  @apply block truncate text-[13px] font-semibold text-slate-800;
 }
 .embed-link-site {
-  @apply mt-0.5 block truncate text-[11px] text-slate-400;
+  @apply mt-1 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-kiwi-50 px-1.5 py-px text-[10.5px] font-medium text-kiwi-700;
 }
 .embed-link-excerpt {
-  @apply mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-slate-500;
+  @apply mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-slate-500;
 }
 .embed-file {
   @apply relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white;
@@ -614,7 +653,13 @@ function openExternal(event: MouseEvent) {
   pointer-events: none;
 }
 .embed-file-bar {
-  @apply flex h-9 items-center justify-between gap-2 border-b border-slate-200/70 bg-slate-50/70 px-2.5;
+  @apply flex h-10 items-center justify-between gap-2 border-b border-slate-200/70 bg-gradient-to-r from-kiwi-50/70 via-white to-white px-2.5;
+}
+.embed-file-icon {
+  @apply grid h-6 w-6 shrink-0 place-items-center rounded-md border border-kiwi-100 bg-white text-kiwi-500;
+}
+.embed-file-size {
+  @apply shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[10px] tabular-nums text-slate-400;
 }
 .embed-action {
   @apply grid h-6 w-6 place-items-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-kiwi-600;
@@ -627,7 +672,7 @@ function openExternal(event: MouseEvent) {
   @apply hover:bg-slate-100;
 }
 .embed-file-body {
-  @apply flex justify-center bg-slate-50/40;
+  @apply flex justify-center bg-kiwi-50/30;
 }
 .embed-file-body.is-image,
 .embed-file-body.is-video {

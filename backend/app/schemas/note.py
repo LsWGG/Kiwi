@@ -223,6 +223,8 @@ class RemoteFileImportIn(BaseModel):
     compile_now: bool = False
     batch_id: uuid.UUID | None = None
     readonly: bool = False
+    # 即使 PDF 文本层可用也强制走 OCR（部分扫描版 PDF 文本层为空 / 乱码）
+    use_ocr: bool = False
 
 
 class NoteImportStartOut(BaseModel):
@@ -277,6 +279,8 @@ class NoteImportStatusOut(BaseModel):
     quality_report: dict = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     body_ready: bool = False
+    # 用户在导入时是否勾选了强制 OCR
+    use_ocr: bool = False
 
 
 class NoteAssistIn(BaseModel):

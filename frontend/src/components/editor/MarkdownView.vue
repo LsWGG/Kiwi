@@ -241,8 +241,17 @@ function embedHtml(content: string): string {
   const site = escapeHtml(String(data.site || ''))
   const excerpt = escapeHtml(String(data.excerpt || ''))
   const faviconRaw = String(data.favicon || '')
-  const favicon = /^https?:\/\//i.test(faviconRaw)
-    ? `<img src="${escapeAttr(faviconRaw)}" alt="" loading="lazy" />`
+  let faviconSrc = /^https?:\/\//i.test(faviconRaw) ? faviconRaw : ''
+  if (!faviconSrc) {
+    // 旧卡片没有保存图标：先尝试站点根目录的 favicon，加载失败由装饰逻辑回退默认图标。
+    try {
+      faviconSrc = `${new URL(url).origin}/favicon.ico`
+    } catch {
+      faviconSrc = ''
+    }
+  }
+  const favicon = faviconSrc
+    ? `<span class="md-embed-glyph">▤</span><img src="${escapeAttr(faviconSrc)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
     : '<span class="md-embed-glyph">▤</span>'
   const kind = data.kind === 'link' || !data.kind ? 'link' : 'file'
   const display =
@@ -717,16 +726,11 @@ function taskProgressCardHtml(content: string): string {
     data = {}
   }
   const label = escapeHtml(String(data.label || '待办进度').slice(0, 80))
-  const color = ['indigo', 'violet', 'green', 'blue', 'amber', 'rose', 'slate'].includes(
-    String(data.color),
-  )
-    ? String(data.color)
-    : 'indigo'
   const bind = ['auto', 'next', 'prev'].includes(String(data.bind))
     ? String(data.bind)
     : 'auto'
   return (
-    `<div class="kiwi-task-progress-card tone-${color}" data-kiwi-task-progress="true"` +
+    `<div class="kiwi-task-progress-card" data-kiwi-task-progress="true"` +
     ` data-label="${label}" data-bind="${bind}"` +
     ` data-show-count="${data.showCount !== false}" data-show-percent="${data.showPercent !== false}">` +
     `<div class="kiwi-task-progress-head">` +
@@ -811,8 +815,10 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   // 待办收件箱的来源链接：带 ?note= 时直接还原为来源笔记的站内地址。
   if (href.startsWith('kiwi://todo/')) {
     const noteId = /[?&]note=([0-9a-fA-F-]{36})/.exec(href)?.[1]
+    const todoId = /^kiwi:\/\/todo\/([0-9a-fA-F-]{36})/.exec(href)?.[1]
     if (noteId) {
-      tokens[idx].attrSet('href', `/notes/${noteId}`)
+      const query = todoId ? `?todo=${todoId}` : ''
+      tokens[idx].attrSet('href', `/notes/${noteId}${query}`)
       tokens[idx].attrSet('class', 'md-todo-source')
     }
     return defaultLinkOpen(tokens, idx, options, env, self)
@@ -1073,6 +1079,18 @@ async function renderMermaids(el: HTMLElement) {
   }
 }
 
+/** 链接卡片图标：站点 logo 加载失败时露出底层的默认图标。 */
+function decorateFavicons(el: HTMLElement) {
+  for (const img of el.querySelectorAll<HTMLImageElement>('.md-embed-favicon img')) {
+    if (img.dataset.kiwiFaviconBound === '1') continue
+    img.dataset.kiwiFaviconBound = '1'
+    const markBroken = () => img.classList.add('is-broken')
+    img.addEventListener('error', markBroken)
+    // 装饰在渲染后执行，图片可能已经失败，补一次状态检查。
+    if (img.complete && img.naturalWidth === 0) markBroken()
+  }
+}
+
 let decorateTimer: number | undefined
 let renderSeq = 0
 async function decorate() {
@@ -1084,6 +1102,7 @@ async function decorate() {
   decorateCallouts(el)
   decorateTaskProgressComponents(el)
   decorateDates(el)
+  decorateFavicons(el)
   renderFormulas(el)
   try {
     await renderMermaids(el)
@@ -1372,8 +1391,8 @@ function onClick(event: MouseEvent) {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .markdown-view .md-note-card:hover {
-  border-color: rgb(217 249 157);
-  box-shadow: 0 4px 14px rgb(101 163 13 / 0.08);
+  border-color: rgb(var(--kiwi-200));
+  box-shadow: 0 4px 14px rgb(var(--kiwi-600) / 0.08);
 }
 .markdown-view .md-note-card-icon {
   display: grid;
@@ -1381,8 +1400,8 @@ function onClick(event: MouseEvent) {
   width: 32px;
   height: 32px;
   border-radius: 9px;
-  background: rgb(236 252 203);
-  color: rgb(101 163 13);
+  background: rgb(var(--kiwi-100));
+  color: rgb(var(--kiwi-600));
   font-size: 14px;
 }
 .markdown-view .md-note-card-body {
@@ -1509,8 +1528,8 @@ function onClick(event: MouseEvent) {
   opacity: 0.45;
 }
 .markdown-view .md-calendar-day.is-today {
-  background: rgb(247 254 231 / 0.65);
-  box-shadow: inset 0 0 0 1px rgb(190 242 100 / 0.9);
+  background: rgb(var(--kiwi-50) / 0.65);
+  box-shadow: inset 0 0 0 1px rgb(var(--kiwi-300) / 0.9);
 }
 .markdown-view .md-calendar-daynum {
   font-size: 10px;
@@ -1609,7 +1628,7 @@ function onClick(event: MouseEvent) {
   border-bottom: 0;
 }
 .markdown-view .md-datatable td a {
-  color: rgb(77 124 15);
+  color: rgb(var(--kiwi-700));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -1653,7 +1672,7 @@ function onClick(event: MouseEvent) {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #6f72dc, #8a8cf0);
+  background: linear-gradient(90deg, rgb(var(--kiwi-500)), rgb(var(--kiwi-400)));
 }
 .markdown-view .md-db-progress.is-complete .md-db-progress-track i {
   background: linear-gradient(90deg, #34a06b, #4cbf83);
@@ -1734,7 +1753,7 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-db-gallery-cover {
   height: 64px;
-  background: linear-gradient(135deg, rgb(236 252 203), rgb(224 242 254));
+  background: linear-gradient(135deg, rgb(var(--kiwi-100)), rgb(224 242 254));
 }
 .markdown-view .md-db-gallery-card img {
   display: block;
@@ -1785,6 +1804,7 @@ function onClick(event: MouseEvent) {
   transform: translateY(-1px);
 }
 .markdown-view .md-embed-favicon {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1798,9 +1818,20 @@ function onClick(event: MouseEvent) {
   overflow: hidden;
 }
 .markdown-view .md-embed-favicon img {
+  position: absolute;
+  inset: 0;
   width: 16px;
   height: 16px;
+  margin: auto;
+  /* 图片完整覆盖默认图标；加载失败时移除，露出底层 glyph。 */
+  background: rgb(240 249 255);
   object-fit: contain;
+}
+.markdown-view .md-embed-favicon img.is-broken {
+  display: none;
+}
+.markdown-view .md-embed-glyph {
+  line-height: 1;
 }
 .markdown-view .md-embed-body {
   display: flex;
@@ -1922,8 +1953,8 @@ function onClick(event: MouseEvent) {
   align-items: center;
   padding: 1px 7px;
   border-radius: 999px;
-  border: 1px solid rgb(190 242 100 / 0.65);
-  background: rgb(247 254 231);
+  border: 1px solid rgb(var(--kiwi-300) / 0.65);
+  background: rgb(var(--kiwi-50));
   color: rgb(63 98 18);
   font-size: 0.86em;
   line-height: 1.5;
@@ -1936,9 +1967,9 @@ function onClick(event: MouseEvent) {
   padding: 11px 13px;
   border-radius: 11px;
   /* 与编辑器内的提示块保持一致：淡紫底色 + 主题紫左侧强调 */
-  border: 1px solid rgba(199, 210, 254, 0.8);
-  border-left: 3px solid #8b8ce8;
-  background: linear-gradient(135deg, #f8f9ff 0%, #f4f6ff 100%);
+  border: 1px solid rgb(var(--kiwi-200) / 0.9);
+  border-left: 3px solid rgb(var(--kiwi-500));
+  background: linear-gradient(135deg, rgb(var(--kiwi-50)) 0%, rgb(var(--kiwi-100) / 0.55) 100%);
 }
 .markdown-view .md-callout-icon {
   flex: 0 0 auto;

@@ -230,9 +230,7 @@ def _render_hub(open_items: list[TodoMirror], done_items: list[TodoMirror]) -> s
     # 标题由笔记头部展示，正文不再重复一级标题（编辑态会重复显示）。
     lines = [
         "> 由 Kiwi 自动汇总当前知识库中的全部待办。勾选后会同步回来源笔记或数据表；",
-        "> 来源中完成后也会在此更新。点击来源标题可回到原始位置。",
-        "",
-        "## 待办",
+        "> 来源中完成后也会在此更新。点击「定位」可回到原始任务。",
         "",
     ]
     # 链接同时带上来源笔记 id：点击标题可直接跳回来源，
@@ -240,16 +238,36 @@ def _render_hub(open_items: list[TodoMirror], done_items: list[TodoMirror]) -> s
     def link(item: TodoMirror) -> str:
         return f"[{item.title}](kiwi://todo/{item.id}?note={item.source_note_id})"
 
+    def groups(items: list[TodoMirror]) -> list[list[TodoMirror]]:
+        """按来源笔记聚合，同组内保持稳定顺序。"""
+        grouped: dict[uuid.UUID, list[TodoMirror]] = {}
+        for item in items:
+            grouped.setdefault(item.source_note_id, []).append(item)
+        return sorted(
+            grouped.values(),
+            key=lambda group: (
+                (group[0].title or "").lower(),
+                group[0].source_text.lower(),
+            ),
+        )
+
+    def section(heading: str, items: list[TodoMirror], checked: bool) -> None:
+        mark = "x" if checked else " "
+        lines.extend([f"## {heading}", ""])
+        for group in groups(items):
+            label = group[0].title or "未命名笔记"
+            lines.append(f"### {label}（{len(group)}）")
+            lines.append("")
+            for item in group:
+                lines.append(f"- [{mark}] {item.source_text} · {link(item)}")
+            lines.append("")
+
     if open_items:
-        for item in open_items:
-            lines.append(f"- [ ] {item.source_text} · {link(item)}")
+        section("待办", open_items, False)
     else:
-        lines.append("_暂无待办，去笔记里添加任务或更新数据表状态吧。_")
+        lines.extend(["_暂无待办，去笔记里添加任务或更新数据表状态吧。_", ""])
     if done_items:
-        lines += ["", "## 近期完成", ""]
-        for item in done_items:
-            lines.append(f"- [x] {item.source_text} · {link(item)}")
-    lines.append("")
+        section("近期完成", done_items, True)
     return "\n".join(lines)
 
 

@@ -85,8 +85,8 @@ function setTitle(event: Event) {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .kiwi-datatable-block.is-selected {
-  border-color: rgb(190 242 100);
-  box-shadow: 0 0 0 3px rgb(236 252 203 / 0.55);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 0 0 3px rgb(var(--kiwi-100) / 0.55);
 }
 /* 阅读模式：去掉组件外框，直接聚焦数据内容 */
 .kiwi-datatable-block.is-readonly {

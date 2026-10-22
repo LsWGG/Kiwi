@@ -17,6 +17,21 @@ from app.services.job_queue import JobFailed, register_job
 logger = logging.getLogger("kiwi.jobs.handlers")
 
 
+async def _fail_ingest_job(job_id: str, error: str) -> None:
+    """把未完成的业务任务标记为失败，避免编译页永远显示「排队中」。"""
+    try:
+        row_id = uuid.UUID(job_id)
+    except (TypeError, ValueError):
+        return
+    async with async_session_factory() as db:
+        row = await db.get(IngestJob, row_id)
+        if row is None or row.status not in ("pending", "running"):
+            return
+        row.status = "failed"
+        row.error = error[:2000]
+        await db.commit()
+
+
 async def _load_ingest_job(job_id: str) -> tuple[IngestJob | None, str, str]:
     async with async_session_factory() as db:
         row = await db.get(IngestJob, uuid.UUID(job_id))
@@ -32,23 +47,31 @@ async def run_ingest_job(job: Job, payload: dict) -> dict:
 
     ingest_job_id = str(payload["ingest_job_id"])
     mode = str(payload.get("mode") or "ingest")
-    if mode == "existing_source":
-        await ingest_service._process_note_from_existing_source(
-            ingest_job_id,
-            uuid.UUID(str(payload["source_id"])),
-            uuid.UUID(str(payload["note_id"])),
-        )
-    else:
-        await ingest_service._process_ingest(
-            ingest_job_id,
-            uuid.UUID(str(payload["kb_id"])),
-            uuid.UUID(str(payload["source_id"])),
-            compile_now=bool(payload.get("compile_now")),
-            note_id=(
-                uuid.UUID(str(payload["note_id"])) if payload.get("note_id") else None
-            ),
-            embed_raw=bool(payload.get("embed_raw", True)),
-        )
+    use_ocr = bool(payload.get("use_ocr"))
+    try:
+        if mode == "existing_source":
+            await ingest_service._process_note_from_existing_source(
+                ingest_job_id,
+                uuid.UUID(str(payload["source_id"])),
+                uuid.UUID(str(payload["note_id"])),
+                use_ocr=use_ocr,
+            )
+        else:
+            await ingest_service._process_ingest(
+                ingest_job_id,
+                uuid.UUID(str(payload["kb_id"])),
+                uuid.UUID(str(payload["source_id"])),
+                compile_now=bool(payload.get("compile_now")),
+                note_id=(
+                    uuid.UUID(str(payload["note_id"])) if payload.get("note_id") else None
+                ),
+                embed_raw=bool(payload.get("embed_raw", True)),
+                use_ocr=use_ocr,
+            )
+    except Exception as exc:
+        # 业务任务记录不能停在「排队中」；交由持久化队列决定是否重试。
+        await _fail_ingest_job(ingest_job_id, str(exc) or exc.__class__.__name__)
+        raise
     row, status, error = await _load_ingest_job(ingest_job_id)
     if row is None:
         raise JobFailed("摄入任务记录已不存在")
@@ -60,21 +83,25 @@ async def run_ingest_job(job: Job, payload: dict) -> dict:
 @register_job("note_compile")
 async def run_note_compile_job(job: Job, payload: dict) -> dict:
     """笔记 → Wiki 编译；复用已有向量时只编译不重复嵌入。"""
-    from app.routers.notes import _link_note_compiled_page
+    from app.routers.notes_compile import _link_note_compiled_page
     from app.services import ingest_service
 
     ingest_job_id = str(payload["job_id"])
     kb_id = uuid.UUID(str(payload["kb_id"]))
     source_id = uuid.UUID(str(payload["source_id"]))
     note_id = uuid.UUID(str(payload["note_id"])) if payload.get("note_id") else None
-    await ingest_service._process_ingest(
-        ingest_job_id,
-        kb_id,
-        source_id,
-        compile_now=True,
-        note_id=None,
-        embed_raw=not bool(payload.get("reused")),
-    )
+    try:
+        await ingest_service._process_ingest(
+            ingest_job_id,
+            kb_id,
+            source_id,
+            compile_now=True,
+            note_id=None,
+            embed_raw=not bool(payload.get("reused")),
+        )
+    except Exception as exc:
+        await _fail_ingest_job(ingest_job_id, str(exc) or exc.__class__.__name__)
+        raise
     row, status, error = await _load_ingest_job(ingest_job_id)
     if row is None:
         raise JobFailed("编译任务记录已不存在")

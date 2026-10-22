@@ -15,6 +15,7 @@ import {
   type IngestJob,
   type SourceItem,
 } from '@/api/sources'
+import { cancelJob, retryJob } from '@/api/operations'
 import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
 import type { ImportBatch, ImportBatchReport, NoteSummary } from '@/stores/notes'
@@ -1065,7 +1066,7 @@ const JOB_STATUS_META: Record<
     progress: 'running',
   },
   running: {
-    label: '执行中',
+    label: '运行中',
     cls: 'border-kiwi-200 bg-kiwi-50 text-kiwi-700',
     progress: 'running',
   },
@@ -1196,6 +1197,41 @@ function closeJob() {
   stopJobPolling()
   jobDetail.value = null
   jobLoading.value = false
+}
+
+const jobActionId = ref<string | null>(null)
+
+/** 编译页直接管理任务：失败可重试，排队 / 执行中可取消。 */
+async function retryCompileJob(job: IngestJob) {
+  if (!job.durable_job_id || jobActionId.value) return
+  jobActionId.value = job.durable_job_id
+  try {
+    await retryJob(job.durable_job_id)
+    toast.success('已重新提交编译任务')
+    boostPolling()
+    await load(true)
+    await refreshJobDetail(job.id)
+  } catch (e: any) {
+    toast.error(e.message || '重试任务失败')
+  } finally {
+    jobActionId.value = null
+  }
+}
+
+async function cancelCompileJob(job: IngestJob) {
+  if (!job.durable_job_id || jobActionId.value) return
+  jobActionId.value = job.durable_job_id
+  try {
+    await cancelJob(job.durable_job_id)
+    toast.success('已提交取消请求')
+    boostPolling()
+    await load(true)
+    await refreshJobDetail(job.id)
+  } catch (e: any) {
+    toast.error(e.message || '取消任务失败')
+  } finally {
+    jobActionId.value = null
+  }
 }
 
 // 「用时」本地秒表：仅在进行中的详情弹窗打开时运行，避免整页无谓重渲染。
@@ -2222,6 +2258,26 @@ async function compileAllNotes() {
           </button>
           <span v-else />
           <div class="flex items-center gap-2">
+            <button
+              v-if="jobDetail.durable_job_id && (jobDetail.status === 'pending' || jobDetail.status === 'running')"
+              type="button"
+              class="kiwi-btn-secondary !text-[11.5px]"
+              :disabled="!!jobActionId"
+              @click="cancelCompileJob(jobDetail)"
+            >
+              <KiwiIcon name="close" :size="12" />
+              取消任务
+            </button>
+            <button
+              v-if="jobDetail.durable_job_id && jobDetail.status === 'failed'"
+              type="button"
+              class="kiwi-btn-primary !text-[11.5px]"
+              :disabled="!!jobActionId"
+              @click="retryCompileJob(jobDetail)"
+            >
+              <KiwiIcon name="refresh" :size="12" />
+              重试编译
+            </button>
             <button
               type="button"
               class="kiwi-btn-secondary !text-[11.5px]"

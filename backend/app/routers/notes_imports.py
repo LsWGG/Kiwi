@@ -121,6 +121,7 @@ async def import_file(
     title: str | None = Form(None),
     compile_now: bool = Form(False),
     readonly: bool = Form(False),
+    use_ocr: bool = Form(False),
     session: AsyncSession = Depends(get_session),
 ):
     """导入文件 → 创建导入笔记 + 后台解析。
@@ -179,6 +180,7 @@ async def import_file(
             compile_now=compile_now,
             batch_id=batch_id,
             readonly=readonly,
+            use_ocr=use_ocr,
             inspection=inspection,
         )
     finally:
@@ -298,11 +300,13 @@ async def _start_import(
     import_meta: dict | None = None,
     provider: str = "upload",
     readonly: bool = False,
+    use_ocr: bool = False,
 ) -> NoteImportStartOut:
     """创建导入笔记并启动后台解析（文件上传与线上文件共用）。
 
     ``readonly=True`` 时跳过解析与向量化：原始文件作为附件保留，笔记只提供
-    阅读与下载，不转成可编辑文档。
+    阅读与下载，不转成可编辑文档。``use_ocr`` 要求 PDF 即使有文本层也走 OCR，
+    只读导入不解析，因此忽略该参数。
     """
     kb_id = kb.id
     user_title = (title or "").strip()
@@ -346,6 +350,7 @@ async def _start_import(
                 "scan_status": inspection.scan_status,
                 "scan_detail": inspection.scan_detail,
                 "warnings": inspection.warnings,
+                "use_ocr": use_ocr,
                 **(import_meta or {}),
             }
         },
@@ -380,6 +385,7 @@ async def _start_import(
             scan_detail=inspection.scan_detail,
             source_type=inspection.source_type,
             title=note.title,
+            use_ocr=use_ocr,
         )
         job = await session.get(IngestJob, job_id)
         await import_service.record_item(
@@ -449,6 +455,7 @@ async def import_remote_file(
         compile_now=payload.compile_now,
         batch_id=payload.batch_id,
         readonly=payload.readonly,
+        use_ocr=payload.use_ocr,
         inspection=inspection,
         import_meta={
             "remote_url": remote.url,
@@ -693,6 +700,7 @@ async def import_status(
         warnings=((source.quality_report or {}).get("warnings") if source else None)
         or list(imp.get("warnings") or []),
         body_ready=bool((note.body_md or "").strip()),
+        use_ocr=bool(imp.get("use_ocr")),
     )
 
 
