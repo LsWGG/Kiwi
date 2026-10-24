@@ -6,7 +6,15 @@
  * 窗口结构参考「贴一贴」：外层按视口坐标定位，内层按 --ui-scale 放大；
  * 位置、尺寸与组件状态由 pluginWindows store 持久化。
  */
-import { computed, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onErrorCaptured,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { usePluginWindowsStore, type PluginFloatWindow } from '@/stores/pluginWindows'
 import { usePluginsStore } from '@/stores/plugins'
@@ -18,6 +26,10 @@ const pluginWindows = usePluginWindowsStore()
 const plugins = usePluginsStore()
 const renderError = ref('')
 const windowEl = ref<HTMLElement | null>(null)
+const headerEl = ref<HTMLElement | null>(null)
+const bodyEl = ref<HTMLElement | null>(null)
+/** 插件组件的自然内容尺寸包装层，用于把浮窗高度贴合内容。 */
+const contentEl = ref<HTMLElement | null>(null)
 
 const entry = computed(() =>
   plugins.getComponentBlock(props.win.pluginKey, props.win.blockType),
@@ -53,6 +65,65 @@ const { onDragStart, onResizeStart } = useFloatingWindowDrag({
       h: props.win.h,
     }),
 })
+
+/**
+ * 内容自适应高度：插件区块本身没有固定高度，窗口默认高度容易留下大片空白
+ * 或截出滚动条。这里测出「头部 + 内容」的自然高度并同步到 store。
+ *
+ * 用户手动缩放过高度后只允许继续加高（内容变多时不出现滚动条），
+ * 不再自动压回去；正在拖动缩放手柄时暂停测量，避免和指针位置打架。
+ */
+let fitObserver: ResizeObserver | null = null
+let fitRaf = 0
+let resizing = false
+let userSized = false
+
+function measureContentHeight(): number {
+  const winEl = windowEl.value
+  const header = headerEl.value
+  const body = bodyEl.value
+  const content = contentEl.value
+  if (!winEl || !header || !body || !content) return 0
+  const style = getComputedStyle(body)
+  const padY =
+    (Number.parseFloat(style.paddingTop) || 0) +
+    (Number.parseFloat(style.paddingBottom) || 0)
+  // offset* 不受 --ui-scale 的 zoom 放大影响，可直接与 win.h 比较。
+  const borderY = winEl.offsetHeight - winEl.clientHeight
+  return Math.ceil(header.offsetHeight + content.offsetHeight + padY + borderY)
+}
+
+function applyFit() {
+  fitRaf = 0
+  if (resizing) return
+  const desired = measureContentHeight()
+  if (!desired) return
+  const current = props.win.h
+  if (Math.abs(desired - current) < 1) return
+  if (desired < current && userSized) return
+  pluginWindows.updateBounds(props.win.id, { h: desired })
+}
+
+function scheduleFit() {
+  if (fitRaf) return
+  fitRaf = requestAnimationFrame(applyFit)
+}
+
+/** 拖动缩放期间暂停自动高度；松手后只补足内容需要的高度。 */
+function handleResizeStart(event: PointerEvent) {
+  if (event.button !== 0) return
+  resizing = true
+  userSized = true
+  onResizeStart(event)
+  const stop = () => {
+    resizing = false
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    void nextTick(scheduleFit)
+  }
+  window.addEventListener('pointerup', stop)
+  window.addEventListener('pointercancel', stop)
+}
 
 /** 从其他浮窗后面升到最前时给一个回弹，提示当前操作的是哪个窗口。 */
 function pulseWindow() {
@@ -103,7 +174,27 @@ watch(
   },
 )
 
-onMounted(requestRuntime)
+// 插件运行时异步注册区块，组件挂载 / 报错切换后都重新贴合一次高度。
+watch([entry, loadError, () => plugins.runtimeLoading], async () => {
+  await nextTick()
+  scheduleFit()
+})
+
+onMounted(() => {
+  requestRuntime()
+  if (typeof ResizeObserver !== 'undefined' && contentEl.value) {
+    fitObserver = new ResizeObserver(scheduleFit)
+    fitObserver.observe(contentEl.value)
+  }
+  void nextTick(scheduleFit)
+})
+
+onBeforeUnmount(() => {
+  fitObserver?.disconnect()
+  fitObserver = null
+  if (fitRaf) cancelAnimationFrame(fitRaf)
+  fitRaf = 0
+})
 </script>
 
 <template>
@@ -120,6 +211,7 @@ onMounted(requestRuntime)
       :aria-label="`置顶组件：${win.title}`"
     >
       <header
+        ref="headerEl"
         class="flex shrink-0 cursor-grab items-center gap-2 border-b border-slate-100 bg-gradient-to-b from-slate-50/90 to-white px-3 py-2 active:cursor-grabbing"
         @pointerdown="onDragStart"
       >
@@ -140,22 +232,24 @@ onMounted(requestRuntime)
         </button>
       </header>
 
-      <div class="min-h-0 flex-1 overflow-auto p-2.5">
-        <component
-          :is="entry.component"
-          v-if="entry && !renderError"
-          :block-props="win.props"
-          :readonly="false"
-          :selected="false"
-          :update-props="updateProps"
-          :delete-block="() => {}"
-        />
-        <div v-else class="plugin-float-fallback">
-          <KiwiIcon :name="loadError ? 'alert' : 'puzzle'" :size="18" />
-          <p class="plugin-float-fallback-title">{{ win.title }}</p>
-          <p class="plugin-float-fallback-message" :class="{ 'is-error': !!loadError }">
-            {{ message }}
-          </p>
+      <div ref="bodyEl" class="plugin-float-body min-h-0 flex-1 overflow-auto p-2.5">
+        <div ref="contentEl" class="plugin-float-content">
+          <component
+            :is="entry.component"
+            v-if="entry && !renderError"
+            :block-props="win.props"
+            :readonly="false"
+            :selected="false"
+            :update-props="updateProps"
+            :delete-block="() => {}"
+          />
+          <div v-else class="plugin-float-fallback">
+            <KiwiIcon :name="loadError ? 'alert' : 'puzzle'" :size="18" />
+            <p class="plugin-float-fallback-title">{{ win.title }}</p>
+            <p class="plugin-float-fallback-message" :class="{ 'is-error': !!loadError }">
+              {{ message }}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -163,7 +257,7 @@ onMounted(requestRuntime)
       <span
         class="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
         title="拖动调整大小"
-        @pointerdown="onResizeStart"
+        @pointerdown="handleResizeStart"
       >
         <svg viewBox="0 0 16 16" class="h-4 w-4 text-slate-300" aria-hidden="true">
           <path
@@ -231,6 +325,10 @@ onMounted(requestRuntime)
   .plugin-float-anchor::after {
     display: none;
   }
+}
+/* flow-root 让包装层高度包含子元素外边距，测量结果不会少算几像素。 */
+.plugin-float-content {
+  display: flow-root;
 }
 .plugin-float-icon-button {
   display: grid;
