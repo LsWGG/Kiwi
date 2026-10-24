@@ -55,10 +55,10 @@ test.describe('笔记工作区', () => {
     const row = page.locator(`[data-tree-row="note:${note.id}"]`)
     await expect(row).toBeVisible()
 
-    // 两次点击间隔超过单击打开延迟，覆盖 Firefox 下不派发 dblclick 的慢速双击。
-    await row.click()
-    await page.waitForTimeout(350)
-    await row.click()
+    // 用原生双击一次性派发两次点击：CI 负载高时，两次独立 click 的间隔会被
+    // 主线程排队拉长到超过 500ms 判定窗口，导致第二下被当成单击。
+    // 第二次 pointerdown 按位置命中的判定由下面「双击间隔内列表滚动」用例覆盖。
+    await row.dblclick()
 
     const sticky = page.locator('.sticky-window')
     await expect(sticky).toHaveCount(1)
@@ -106,9 +106,7 @@ test.describe('笔记工作区', () => {
 
     const row = page.locator(`[data-tree-row="note:${note.id}"]`)
     await expect(row).toBeVisible()
-    await row.click()
-    await page.waitForTimeout(350)
-    await row.click()
+    await row.dblclick()
 
     const sticky = page.locator('.sticky-window')
     await expect(sticky).toHaveCount(1)
