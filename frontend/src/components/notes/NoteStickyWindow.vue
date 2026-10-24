@@ -16,6 +16,12 @@ import NoteStickyPreview from '@/components/notes/NoteStickyPreview.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { toast } from '@/components/ui/toast'
 import { useFloatingWindowDrag } from '@/composables/useFloatingWindowDrag'
+import {
+  playWorkspaceExpand,
+  revealWhenPageEnters,
+  WORKSPACE_EXPAND_DURATION,
+  type WorkspaceExpandHandle,
+} from '@/utils/workspaceExpand'
 
 const props = defineProps<{ win: StickyWindow }>()
 
@@ -31,9 +37,10 @@ const draft = ref('')
 const editing = ref(false)
 const saving = ref(false)
 const dirty = ref(false)
-/** 点击「在主窗口打开」时先放大淡出，再切换路由。 */
+/** 点击「在主窗口打开」时卡片淡出，底板从身后铺开成主窗口。 */
 const expanding = ref(false)
 const windowEl = ref<HTMLElement | null>(null)
+let closeTimer: number | null = null
 
 /** 从其他便签后面升到最前时给一个回弹，让「当前操作的是哪一张」更明确。 */
 function pulseWindow() {
@@ -199,17 +206,56 @@ async function close() {
   sticky.close(props.win.id)
 }
 
-async function openInWorkspace() {
+function openInWorkspace() {
   if (expanding.value) return
   // 便签可能属于另一个知识库，先切过去再打开，避免主窗口找不到笔记。
   if (kbs.currentKbId !== props.win.kbId) kbs.currentKbId = props.win.kbId
-  expanding.value = true
-  // 让卡片先放大淡出（与开启时的弹入动画呼应），再切到主窗口。
-  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    await new Promise((resolve) => window.setTimeout(resolve, 160))
+
+  // 先把未保存内容发出去：PATCH 会早于主窗口的 getNote 到达服务端，
+  // 避免切换后短暂读到旧正文。此时便签仍在，保存失败也不会丢失窗口。
+  void save(true)
+
+  // 便签里已经载入了这篇笔记，先交给工作区：主窗口挂载时即可直接渲染正文，
+  // 不再先显示「加载中」，展开表面的淡出与真实内容同步完成。
+  if (note.value && note.value.id === props.win.noteId && note.value.kb_id === props.win.kbId) {
+    notes.currentNote = dirty.value ? { ...note.value, body_md: draft.value } : note.value
   }
-  void close()
-  void router.push({ name: 'notes', params: { id: props.win.noteId } })
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const card = windowEl.value
+  const samePage = router.currentRoute.value.name === 'notes'
+  let handle: WorkspaceExpandHandle | null = null
+  if (!reduced && card) {
+    const target = document.querySelector<HTMLElement>('[data-kiwi-main-content]')
+    const to = target?.getBoundingClientRect()
+    // 先克隆卡片接管画面，再把原卡片隐藏：切换过程始终是同一张卡片在变大，
+    // 不会出现“卡片先淡出、白色空板再铺开”的断层。
+    if (to) handle = playWorkspaceExpand({ card, to, zIndex: props.win.z + 1 })
+  }
+  expanding.value = true
+
+  // 立即切换路由，让表面展开时目标页面已经在身后渲染；表面的形变只动
+  // transform / opacity，路由挂载占用主线程时也不会卡住。
+  // 便签延后到表面淡出结束再移除，避免动画被组件卸载打断。
+  const navigation = router.push({ name: 'notes', params: { id: props.win.noteId } })
+  if (handle) {
+    if (samePage) {
+      // 同一路由不触发页面过渡，导航确认后直接交还画面。
+      void navigation.then(() => requestAnimationFrame(() => handle?.reveal()))
+    } else {
+      // 等新页面真正开始进场（含懒加载路由组件）再淡出表面，
+      // 避免表面消失后露出空白或旧页面。
+      revealWhenPageEnters(handle)
+    }
+  }
+  if (reduced) {
+    void close()
+    return
+  }
+  closeTimer = window.setTimeout(() => {
+    closeTimer = null
+    void close()
+  }, handle ? WORKSPACE_EXPAND_DURATION + 40 : 200)
 }
 
 // ---------- 拖动 / 缩放 ----------
@@ -231,6 +277,7 @@ watch(() => props.win.noteId, load)
 
 onBeforeUnmount(() => {
   if (saveTimer !== null) window.clearTimeout(saveTimer)
+  if (closeTimer !== null) window.clearTimeout(closeTimer)
   void save(true)
 })
 </script>
@@ -458,11 +505,14 @@ onBeforeUnmount(() => {
       0 0 40px 20px rgb(var(--kiwi-300) / 0);
   }
 }
-/* 切换主窗口前：卡片放大淡出，避免瞬间消失。 */
+/* 切换主窗口：克隆表面已经覆盖卡片并开始放大，原卡片立即退场，
+   避免展开过程中在克隆边缘露出第二张卡。 */
 .sticky-window.is-expanding {
   animation: none;
-  transform: scale(1.12);
   opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .sticky-window {

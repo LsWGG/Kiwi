@@ -263,8 +263,8 @@ onBeforeUnmount(() => {
       <SideNav v-if="mode.mode === 'edit'" />
       <LearnSideNav v-else />
 
-      <!-- 主内容：路由过渡 -->
-      <div class="flex-1 min-w-0 overflow-y-auto">
+      <!-- 主内容：路由过渡；「贴一贴」打开主窗口时以该区域为展开目标 -->
+      <div class="flex-1 min-w-0 overflow-y-auto" data-kiwi-main-content>
         <RouterView v-slot="{ Component }">
           <Transition name="page" mode="out-in">
             <component :is="Component" :key="route.name" />

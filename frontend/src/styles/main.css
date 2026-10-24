@@ -236,6 +236,20 @@ body.kiwi-tree-dragging * {
   transform: translateY(-6px);
   filter: blur(2px);
 }
+/* 「贴一贴」展开到主窗口期间：旧页面快速离场，新页面挂载后直接以完整状态
+   出现在展开表面之下。交接完全交给表面的淡出，避免“白色表面 + 模糊淡入”
+   叠成两层过渡、露出一段空白纸面。 */
+html.kiwi-sticky-expanding .page-leave-active {
+  transition-duration: 0.08s;
+}
+html.kiwi-sticky-expanding .page-enter-active {
+  transition: none;
+}
+html.kiwi-sticky-expanding .page-enter-from {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
 
 /* ---------- 页面容器：宽屏自适应，避免 4K 左右大段空白 ---------- */
 .page-wrap {
