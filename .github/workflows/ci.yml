@@ -154,6 +154,7 @@ jobs:
           for (const suite of report.suites ?? []) walk(suite)
           const body = failed.length ? failed.map((title) => `- ${title}`).join('\n') : '- 未解析到失败用例'
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Playwright 失败用例\n\n${body}\n`)
+          for (const title of failed) console.log(`::error title=Playwright failure::${title}`)
           EOF
       - name: Upload Playwright report
         if: failure()
