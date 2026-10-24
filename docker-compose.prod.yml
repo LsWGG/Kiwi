@@ -75,6 +75,8 @@ services:
         PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian}
         DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
+        # PostgreSQL 16 客户端（pg_dump 必须与服务端同大版本）。
+        PGDG_MIRROR: ${PGDG_MIRROR:-https://mirrors.aliyun.com/postgresql/repos/apt}
         KIWI_BUILD_COMMIT: ${KIWI_BUILD_COMMIT:-}
         KIWI_BUILD_TIME: ${KIWI_BUILD_TIME:-}
     image: kiwi-backend:1.0.0
@@ -108,6 +110,8 @@ services:
       KIWI_BACKUP_INTERVAL_HOURS: ${KIWI_BACKUP_INTERVAL_HOURS:-24}
       KIWI_BACKUP_RETENTION_DAYS: ${KIWI_BACKUP_RETENTION_DAYS:-14}
       KIWI_BACKUP_DIR: /app/data/backups
+      # 后台任务与审计日志保留天数；0 表示不自动清理。
+      KIWI_OPS_RETENTION_DAYS: ${KIWI_OPS_RETENTION_DAYS:-14}
       FASTEMBED_CACHE_PATH: /app/data/models/fastembed
       HF_HOME: /app/data/models/huggingface
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
@@ -188,6 +192,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+    logging: *default-logging
+
+  cloudflared:
+    # 可选的 Cloudflare Tunnel（token 模式），仅在 `--profile cloudflare` 时启动。
+    # 由 deploy.sh 向导或 `./deploy.sh cloudflare` 自动管理，也可手动启动：
+    #   docker compose --env-file .env.prod -f docker-compose.prod.yml \
+    #     --profile cloudflare up -d cloudflared
+    # 在 Cloudflare Zero Trust 中把公网 Hostname 的 Service 指向
+    # http://frontend:80，并且只放行 /share/、/api/share/、/assets/、/favicon。
+    # Token 从 Zero Trust → Networks → Tunnels 获取，写入 .env.prod。
+    image: cloudflare/cloudflared:latest
+    container_name: kiwi-prod-cloudflared
+    restart: unless-stopped
+    profiles: ["cloudflare"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      TZ: ${TZ:-Asia/Shanghai}
+    depends_on:
+      frontend:
+        condition: service_healthy
     logging: *default-logging
 
 volumes:

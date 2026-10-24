@@ -97,7 +97,7 @@ The frontend is built on the host and mounted read-only into nginx — the Docke
 ./deploy.sh
 ```
 
-`./deploy.sh` builds the backend image and runs database migrations; `./deploy.sh frontend` rebuilds the static bundle only. Rebuild `frontend/dist` and refresh the browser after frontend changes — no container rebuild is needed. Then open `http://<host>:18473`.
+`./deploy.sh` starts a step-by-step wizard (browser origin, access token, frontend rebuild, backup, and optional Cloudflare Tunnel), then builds the backend image and runs database migrations. Use `./deploy.sh --yes` for non-interactive deployments, `./deploy.sh frontend` to rebuild the static bundle only, and `./deploy.sh cloudflare` to configure public read-only sharing. Rebuild `frontend/dist` and refresh the browser after frontend changes — no container rebuild is needed. Then open `http://<host>:18473`.
 
 See [docs/DEPLOY.md](docs/DEPLOY.md) for port changes, backups, upgrades, sandbox permissions, and troubleshooting. See the [changelog](docs/CHANGELOG.md) for releases and the [roadmap](docs/ROADMAP.md) for what comes next.
 

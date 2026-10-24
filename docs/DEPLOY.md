@@ -41,18 +41,25 @@ frontend (nginx)
 ```bash
 git clone https://github.com/LsWGG/Kiwi.git
 cd Kiwi
-(cd frontend && npm ci && npm run build)
 ./deploy.sh
 ```
 
-`frontend/dist` 不存在时 `./deploy.sh` 也会自动在宿主机构建一次；也可以随时单独执行 `./deploy.sh frontend`。
+首次执行会进入**渐进式交互向导**，只询问当前部署需要的项：
 
-首次执行会：
+1. 浏览器访问地址（局域网默认填本机 IP，回车即可）；
+2. 是否启用访问令牌（非 localhost 默认建议启用，可自动生成）；
+3. 是否启用 Cloudflare Tunnel 公网只读分享（可选，见下文）；
+4. 是否重新构建前端、是否在部署前备份（已有数据时）。
+
+确认摘要后脚本会：
 
 1. 从 `.env.prod.example` 生成 `.env.prod`（权限 600）；
 2. 生成随机的 PostgreSQL 密码与 Fernet 密钥；
-3. 构建后端镜像，并以 `nginx:1.27-alpine` 挂载 `frontend/dist` 启动四个容器；
-4. 自动执行数据库迁移，并注入内置演示知识库。
+3. 在宿主机构建 `frontend/dist`（不存在或选择重建时）；
+4. 构建后端镜像，并以 `nginx:1.27-alpine` 挂载 `frontend/dist` 启动容器；
+5. 自动执行数据库迁移，并注入内置演示知识库。
+
+无终端或自动化部署使用 `./deploy.sh --yes`，直接读取 `.env.prod` 现有配置；也可在任何时候单独执行 `./deploy.sh frontend` 重建前端。
 
 访问：
 
@@ -64,12 +71,14 @@ cd Kiwi
 
 ### 手动准备环境
 
-若不使用脚本自动生成：
+若不使用向导自动生成：
 
 ```bash
 cp .env.prod.example .env.prod
 chmod 600 .env.prod
 # 编辑 KIWI_PUBLIC_ORIGIN、POSTGRES_PASSWORD、KIWI_FERNET_KEY
+# 可选：KIWI_ACCESS_TOKEN、KIWI_CLOUDFLARE_ENABLED、
+#       CLOUDFLARE_TUNNEL_TOKEN、KIWI_PUBLIC_BASE_URL
 ```
 
 生成 Fernet 密钥：
@@ -100,6 +109,8 @@ npm config set registry https://registry.npmmirror.com
 PYPI_INDEX_URL=https://pypi.org/simple
 DEBIAN_MIRROR=http://deb.debian.org/debian
 DEBIAN_SECURITY_MIRROR=http://security.debian.org/debian-security
+# PostgreSQL 16 客户端（pg_dump）源；海外网络可改为官方地址
+PGDG_MIRROR=https://mirrors.aliyun.com/postgresql/repos/apt
 NPM_REGISTRY=https://registry.npmjs.org
 HF_ENDPOINT=https://huggingface.co
 ```
@@ -172,21 +183,69 @@ QDRANT_GRPC_PORT=16334
 如果已有托管在 Cloudflare 的域名，可以用 Named Tunnel 把**分享页和公开分享 API** 暴露到公网，
 其余路径（笔记工作区、登录后的 API、媒体目录）继续只在内网可用。
 
-> 只需要分享页上网、不需要固定域名时，也可以临时用 Quick Tunnel（`cloudflared tunnel --url http://127.0.0.1:18473`），
-> 但每次重启地址都会变，不适合长期分享。
+部署脚本内置了 token 模式的 `cloudflared` 容器（Compose profile `cloudflare`），
+NAS / Docker 部署无需在宿主机安装 systemd 服务，推荐使用方式 A。
 
-### 1. 创建 Tunnel
+### 方式 A：内置 cloudflared 容器（推荐）
 
-在装有 `cloudflared` 的宿主机上（与 `docker compose` 同一台机器）：
+先在 Cloudflare Zero Trust → **Networks → Tunnels** 创建 Named Tunnel，
+复制 Tunnel Token（不要复制 credentials JSON），并为分享域名添加一条 CNAME
+（`cloudflared tunnel route dns` 或 Zero Trust 面板自动创建）。
+
+然后在 Kiwi 目录执行：
+
+```bash
+./deploy.sh cloudflare
+```
+
+向导会询问：
+
+1. Tunnel Token（输入时不回显）；
+2. 公网分享域名（如 `https://share.example.com`，只填协议 + 域名）。
+
+脚本会写入 `.env.prod`、启动 `kiwi-prod-cloudflared`，并重建 backend 让新分享域名生效。
+之后在 Zero Trust → 你的 Tunnel → **Public Hostname** 添加四条规则，Service 均填
+`http://frontend:80`（cloudflared 与 nginx 在同一 Compose 网络）：
+
+| Hostname | Path | Service |
+|---|---|---|
+| `share.example.com` | `/share/` | `http://frontend:80` |
+| `share.example.com` | `/api/share/` | `http://frontend:80` |
+| `share.example.com` | `/assets/` | `http://frontend:80` |
+| `share.example.com` | `/favicon` | `http://frontend:80` |
+
+其余路径由 Cloudflare 返回 404。也可以只把整站指向 `http://frontend:80`，但这样公网能访问
+工作区登录页；即使启用了 `KIWI_ACCESS_TOKEN`，也建议保留路径白名单。
+
+非交互环境可直接传入配置（Token 与域名会写入 `.env.prod`）：
+
+```bash
+CLOUDFLARE_TUNNEL_TOKEN='<token>' \
+KIWI_PUBLIC_BASE_URL='https://share.example.com' \
+./deploy.sh cloudflare
+```
+
+常用命令：
+
+```bash
+./deploy.sh cloudflare status   # 查看开关、域名与容器状态
+./deploy.sh cloudflare off      # 停止隧道（保留 Token 与域名）
+./deploy.sh logs cloudflared    # 查看隧道日志
+```
+
+也可以在 `./deploy.sh` 向导的「Cloudflare Tunnel 公网分享」一步选择启用；选择「否」
+并确认停止后，`cloudflared` 容器会被停止，公网链接立即不可访问。
+
+### 方式 B：宿主机安装 cloudflared（不使用 Docker 运行隧道）
+
+若宿主机已安装 `cloudflared` 并希望由 systemd 管理：
 
 ```bash
 # 安装：https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-cloudflared tunnel login                 # 浏览器里选中你的域名
-cloudflared tunnel create kiwi-share     # 记下输出的 Tunnel ID
+cloudflared tunnel login
+cloudflared tunnel create kiwi-share     # 记下 Tunnel ID
 cloudflared tunnel route dns kiwi-share share.example.com
 ```
-
-### 2. 只放行分享所需路径
 
 复制示例配置并按注释替换 Tunnel ID 与域名：
 
@@ -196,7 +255,7 @@ sudo cp deploy/cloudflared.example.yml /etc/cloudflared/config.yml
 sudo vi /etc/cloudflared/config.yml
 ```
 
-核心是 ingress 的路径白名单：
+核心是 ingress 的路径白名单（宿主机模式回源到 `127.0.0.1:18473`）：
 
 ```yaml
 ingress:
@@ -222,22 +281,13 @@ sudo systemctl enable --now cloudflared
 sudo systemctl status cloudflared
 ```
 
-### 3. 配置分享域名
+同样需要在 `.env.prod` 中填写 `KIWI_PUBLIC_BASE_URL`（方式 A 的向导会自动写入），
+然后执行 `./deploy.sh update` 让 backend 重新读取环境变量。
 
-在 `.env.prod` 中填写公开地址，并重建/重启后端让环境变量生效：
+### 分享域名与安全说明
 
-```dotenv
-KIWI_PUBLIC_BASE_URL=https://share.example.com
-```
-
-```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend
-```
-
-之后在笔记「分享」里创建的链接会直接是 `https://share.example.com/share/<token>`，
-复制出去即可用；不配置时退回当前浏览器访问地址（内网创建就是内网链接）。
-
-说明：
+`KIWI_PUBLIC_BASE_URL` 决定创建分享链接时使用的公网地址；不配置时退回当前浏览器访问地址
+（内网创建就是内网链接）。方式 A 的向导会自动设置；手动修改后执行 `./deploy.sh update` 即可生效。
 
 - 分享页与公开 API 同源，无需修改 `KIWI_PUBLIC_ORIGIN`（CORS 只影响工作区）。
 - 已启用 `KIWI_ACCESS_TOKEN` 时，`/api/share/` 仍在公开白名单内，访客无需登录；
@@ -245,10 +295,15 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend
   配置 Bypass 策略，否则匿名访客会先被 Access 登录页拦下。
 - 分享内容本身仍受有效期、访问密码、撤销控制；上锁笔记不能创建分享。
 - 媒体链接带短时签名，过期后刷新分享页即可重新获取；请勿把单个图片地址另行外传。
+- 公网 Hostname 只放行上述四个路径后，`/`、`/api/notes`、`/api/health` 等均应返回 404；
+  验证：`curl -I https://share.example.com/`。
 - **国内访问**：Cloudflare 免费版的中国大陆流量通常回源到香港/新加坡/日本等节点，
   延迟和稳定性不及境内直连。若分享对象主要在国内，可改用 Tailscale Funnel
   或境内服务器的 frp / nginx 反代，配置方式相同（只需放行上述四个路径并设置
   `KIWI_PUBLIC_BASE_URL`）。
+
+> 只需要分享页上网、不需要固定域名时，也可以临时用 Quick Tunnel
+> （`cloudflared tunnel --url http://127.0.0.1:18473`），但每次重启地址都会变，不适合长期分享。
 
 ## 语音转写（可选）
 
@@ -289,6 +344,8 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend
 | `KIWI_ACCESS_TOKEN` | 空 | 可选访问令牌；设置后 `/api`、`/media`、`/metrics` 需要登录 |
 | `KIWI_ACCESS_COOKIE_NAME` | `kiwi_access` | 登录 Cookie 名称 |
 | `KIWI_PUBLIC_BASE_URL` | 空 | 公网分享域名（如 `https://share.example.com`）；留空时分享链接使用当前访问地址 |
+| `KIWI_CLOUDFLARE_ENABLED` | `false` | 是否启用内置 `cloudflared` 容器（Compose profile `cloudflare`） |
+| `CLOUDFLARE_TUNNEL_TOKEN` | 空 | Cloudflare Named Tunnel 的 Token；启用隧道时必填 |
 | `KIWI_PUSH_CONTACT` | `mailto:admin@example.com` | Web Push 联系地址，需以 `mailto:` 或 `https:` 开头 |
 | `KIWI_WHISPER_ENABLED` | `true` | 是否启用本地语音转写 |
 | `KIWI_WHISPER_MODEL` | `small` | faster-whisper 模型（tiny / base / small / medium / large-v3） |
@@ -305,6 +362,8 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend
 | `KIWI_BACKUP_ENABLED` | `true` | 是否启用自动备份 |
 | `KIWI_BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔（小时） |
 | `KIWI_BACKUP_RETENTION_DAYS` | `14` | 备份保留天数 |
+| `KIWI_OPS_RETENTION_DAYS` | `14` | 后台任务与审计日志保留天数；`0` 关闭自动清理 |
+| `PGDG_MIRROR` | 阿里云 PGDG 镜像 | 后端镜像安装 `postgresql-client-16` 的 apt 源 |
 | `PYPI_INDEX_URL` | 清华 PyPI 镜像 | 后端构建时的 Python 包源 |
 | `DEBIAN_MIRROR` / `DEBIAN_SECURITY_MIRROR` | 清华 Debian 镜像 | 后端构建时的系统包源 |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | 宿主机前端构建建议使用的 npm 源（手动 `npm config set registry`） |
@@ -331,6 +390,11 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend
 
 后端默认每 24 小时自动执行一次备份（`KIWI_BACKUP_ENABLED` / `KIWI_BACKUP_INTERVAL_HOURS`），
 写入数据卷的 `/app/data/backups`。也可以在 **设置 → 运维 → 自动备份** 点击「立即备份」。
+
+后端镜像安装的是 PostgreSQL 16 客户端（`pg_dump`），必须与服务端大版本一致。
+升级后需要重新构建镜像（`./deploy.sh build && ./deploy.sh update`，或直接执行完整的
+`./deploy.sh`）；仅执行 `./deploy.sh update` 不会更新镜像内的系统包。若数据库服务端
+更换了大版本，需同步调整 Compose 的 PostgreSQL 镜像与 Dockerfile 中的客户端版本。
 
 宿主机脚本适合纳入 crontab，或在升级 / 迁移前手动留档：
 
@@ -390,6 +454,8 @@ TARGET_DB=kiwi_restoretest KIWI_DATABASE_URL=postgresql://... \
 ./deploy.sh logs frontend
 ./deploy.sh restart            # 重启全部服务
 ./deploy.sh down               # 停止，保留数据卷
+./deploy.sh cloudflare status  # 公网隧道状态（启用后）
+./deploy.sh cloudflare off     # 停止公网隧道
 ```
 
 升级：
@@ -397,7 +463,7 @@ TARGET_DB=kiwi_restoretest KIWI_DATABASE_URL=postgresql://... \
 ```bash
 git pull
 
-# 仅后端代码变化：重启 backend 即可，无需打包
+# 仅后端代码变化：按最新源码与环境变量重建 backend，无需打包
 ./deploy.sh update
 
 # 仅前端代码变化：重新生成 dist，nginx 直接读取新文件
@@ -407,7 +473,10 @@ git pull
 ./deploy.sh
 ```
 
-生产 Compose 把 `backend/app`、`backend/alembic` 与 `backend/alembic.ini` 以只读方式挂载进容器，镜像内的虚拟环境与系统依赖保持不变。`./deploy.sh update` 重启 backend 时会重新执行入口脚本，数据库迁移仍会自动应用，数据卷不受影响。只有依赖变化时才需要重新构建镜像。
+自动化或没有交互终端时使用 `./deploy.sh --yes`；它会直接采用 `.env.prod` 中的配置，
+不会询问、不会自动备份，也不会重新构建已存在的 `frontend/dist`。
+
+生产 Compose 把 `backend/app`、`backend/alembic` 与 `backend/alembic.ini` 以只读方式挂载进容器，镜像内的虚拟环境与系统依赖保持不变。`./deploy.sh update` 会重建 backend 容器（而不是仅重启），因此 `.env.prod` 中的环境变量变更也会生效，同时重新执行入口脚本、自动应用数据库迁移，数据卷不受影响。只有依赖变化时才需要重新构建镜像。
 
 ## 排障
 
@@ -512,7 +581,9 @@ nginx 已对 `/api/` 关闭 `proxy_buffering` 并把读超时放宽到 600 秒�
 
 ### 端口被占用
 
-修改 `.env.prod` 中对应端口并重新 `./deploy.sh`。只有 Web 端口对外监听，冲突通常发生在 18473。
+`./deploy.sh` 在交互模式下会自动检测 18473 是否被其他程序占用，并询问新的 Web 端口；
+非交互部署可修改 `.env.prod` 中 `KIWI_HTTP_PORT` 后重新执行 `./deploy.sh --yes`。
+只有 Web 端口对外监听，冲突通常发生在 18473。
 
 ## 安全说明
 

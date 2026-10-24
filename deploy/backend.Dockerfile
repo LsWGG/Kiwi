@@ -52,6 +52,9 @@ FROM python:3.12-slim-bookworm AS runtime
 
 ARG DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
 ARG DEBIAN_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+# 备份使用 pg_dump，客户端必须与服务端同大版本（Compose 固定 postgres:16）。
+# Debian bookworm 自带的是 PostgreSQL 15 客户端，因此从 PGDG 安装 16。
+ARG PGDG_MIRROR=https://mirrors.aliyun.com/postgresql/repos/apt
 ARG KIWI_BUILD_COMMIT=""
 ARG KIWI_BUILD_TIME=""
 
@@ -74,19 +77,26 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         "$f"; \
     done; \
     apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    install -d /usr/share/postgresql-common/pgdg; \
+    curl -fsSL "${PGDG_MIRROR}/ACCC4CF8.asc" \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] ${PGDG_MIRROR} bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
     apt-get install -y --no-install-recommends \
       bubblewrap \
       util-linux \
-      curl \
-      ca-certificates \
-      postgresql-client \
+      postgresql-client-16 \
       libgomp1 \
       libglib2.0-0 \
       libgl1 \
       libxml2 \
       libxslt1.1 \
       fonts-noto-cjk \
-      media-types
+      media-types; \
+    pg_dump --version; \
+    pg_dump --version | grep -q ' 16\.'
 
 # 保留 uv / uvx：Notebook 的 %uv / uv pip 与独立虚拟环境需要它。
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv

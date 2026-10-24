@@ -1,5 +1,9 @@
 # Kiwi 公网只读分享网关（Cloudflare Named Tunnel 示例）
 #
+# 注意：推荐使用 deploy.sh 内置的 cloudflared 容器（./deploy.sh cloudflare），
+# 此时公网 Hostname 的 Service 应填 http://frontend:80，不需要本文件。
+# 本文件仅用于「宿主机安装 cloudflared + systemd」的方式。
+#
 # 用法：
 #   1. kiwi.example.com 已托管在 Cloudflare；
 #   2. cloudflared tunnel login
