@@ -295,6 +295,21 @@ function shouldShowTableBubble({ editor: ed }: { editor: Editor }): boolean {
   return !props.readonly && ed.isActive('table')
 }
 
+/**
+ * Tiptap 气泡由 tippy 定位，默认挂在 body 下。body 带 --ui-scale 的 zoom，
+ * tippy 写入的布局坐标会被再放大一次，4K 下气泡偏离选区且重叠正文。
+ * 改挂到未缩放的 <html>，再给气泡本体补上 zoom，位置按视口坐标即正确。
+ */
+function bubbleTippyOptions(placement: 'top' | 'top-start') {
+  return {
+    duration: 120,
+    placement,
+    appendTo: () => document.documentElement,
+    // tippy 默认 350px 上限按未缩放内容估算，zoom 后会把气泡裁窄。
+    maxWidth: 'none',
+  }
+}
+
 // Agent 已合并进 Simple：历史 agent 模式也按 Simple 渲染
 const simple = computed(() => props.mode !== 'docx')
 const isDocx = computed(() => props.mode === 'docx')
@@ -2264,8 +2279,9 @@ defineExpose({
       v-if="editor"
       :editor="editor"
       :should-show="shouldShowFormatBubble"
-      :tippy-options="{ duration: 120, placement: 'top' }"
+      :tippy-options="bubbleTippyOptions('top')"
       :data-rev="editorRevision"
+      :style="{ zoom: 'var(--ui-scale)' }"
       class="flex items-center gap-0.5 rounded-xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-lifted px-1 py-1"
     >
       <button type="button" class="ed-bubble" :class="{ 'is-active': editor.isActive('bold') }" @click="editor.chain().focus().toggleBold().run()">
@@ -2317,8 +2333,9 @@ defineExpose({
       v-if="editor"
       :editor="editor"
       :should-show="shouldShowTableBubble"
-      :tippy-options="{ duration: 120, placement: 'top-start', maxWidth: 'none' }"
+      :tippy-options="bubbleTippyOptions('top-start')"
       :data-rev="editorRevision"
+      :style="{ zoom: 'var(--ui-scale)' }"
       class="flex flex-col gap-1 rounded-xl border border-slate-200/80 bg-white/95 px-1.5 py-1.5 shadow-lifted backdrop-blur-xl"
     >
       <div class="flex items-center gap-0.5">

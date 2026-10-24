@@ -5,12 +5,14 @@ import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import NoteTagEditor from './NoteTagEditor.vue'
 import { tagChipClass } from './tagPalette'
+import { uiScaleForWidth } from '@/utils/uiScale'
 
 const props = defineProps<{ note: NoteOut | NoteSummary }>()
 
 const notes = useNotesStore()
 const trigger = ref<HTMLButtonElement | null>(null)
 const measure = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
 const open = ref(false)
 const pos = ref({ left: '0px', top: '0px' })
 const visibleTags = ref<string[]>([])
@@ -65,11 +67,21 @@ function place() {
   if (!open.value) return
   const rect = trigger.value?.getBoundingClientRect()
   if (!rect) return
-  const width = 264
-  pos.value = {
-    left: `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`,
-    top: `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 300))}px`,
+  const scale = uiScaleForWidth(window.innerWidth)
+  const placeAt = (width: number, height: number) => {
+    pos.value = {
+      left: `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`,
+      top: `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - height - 8))}px`,
+    }
   }
+  // 首帧先用估算尺寸落位；面板挂载后 nextTick 再按真实视觉尺寸收紧，
+  // 大屏 --ui-scale 放大后也不会从右侧 / 底部溢出。
+  placeAt(264 * scale, 300 * scale)
+  void nextTick(() => {
+    if (!open.value) return
+    const panel = panelEl.value?.getBoundingClientRect()
+    if (panel) placeAt(panel.width, panel.height)
+  })
 }
 
 watch(open, (value) => {
@@ -98,14 +110,19 @@ watch(open, (value) => {
   else window.removeEventListener('keydown', onKey)
 })
 
+function onResize() {
+  scheduleFit()
+  place()
+}
+
 onMounted(() => {
-  window.addEventListener('resize', scheduleFit)
+  window.addEventListener('resize', onResize)
   scheduleFit()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
-  window.removeEventListener('resize', scheduleFit)
+  window.removeEventListener('resize', onResize)
   cancelAnimationFrame(frame)
 })
 </script>
@@ -151,38 +168,43 @@ onBeforeUnmount(() => {
     </span>
   </button>
 
-  <Teleport to="body">
+  <!-- 与表情面板 / 右键菜单一致：外层挂到 <html> 用视口坐标，内层单独按 --ui-scale 缩放。
+       若放在 body 里，body 的 zoom 会把 left/top 再放大一次，大屏上弹层会整体跑出屏幕。 -->
+  <Teleport to="html">
     <div
       v-if="open"
       class="fixed inset-0 z-[95]"
       @mousedown="close"
       @contextmenu.prevent="close"
     >
-      <div
-        class="absolute w-[264px] rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-lifted backdrop-blur-xl animate-scale-in"
-        :style="pos"
-        @mousedown.stop
-      >
-        <div class="mb-2 flex items-center justify-between">
-          <p class="text-[11.5px] font-medium text-slate-600">
-            笔记标签
-            <span v-if="tags.length" class="ml-1 text-[10px] font-normal text-slate-400">
-              {{ tags.length }} 个
-            </span>
-          </p>
-          <button
-            type="button"
-            class="rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600"
-            @click="close"
-          >
-            <KiwiIcon name="close" :size="11" />
-          </button>
+      <div class="absolute" :style="pos">
+        <div
+          ref="panelEl"
+          class="w-[264px] rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-lifted backdrop-blur-xl animate-scale-in"
+          :style="{ zoom: 'var(--ui-scale)' }"
+          @mousedown.stop
+        >
+          <div class="mb-2 flex items-center justify-between">
+            <p class="text-[11.5px] font-medium text-slate-600">
+              笔记标签
+              <span v-if="tags.length" class="ml-1 text-[10px] font-normal text-slate-400">
+                {{ tags.length }} 个
+              </span>
+            </p>
+            <button
+              type="button"
+              class="rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600"
+              @click="close"
+            >
+              <KiwiIcon name="close" :size="11" />
+            </button>
+          </div>
+          <NoteTagEditor
+            :note-id="note.id"
+            :tags="tags"
+            @updated="place"
+          />
         </div>
-        <NoteTagEditor
-          :note-id="note.id"
-          :tags="tags"
-          @updated="place"
-        />
       </div>
     </div>
   </Teleport>

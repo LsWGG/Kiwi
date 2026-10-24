@@ -17,6 +17,12 @@ const POP_HEIGHT = 336
 
 const popStyle = ref<Record<string, string>>({})
 
+function uiScale(): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')
+  const value = Number.parseFloat(raw)
+  return Number.isFinite(value) && value > 0 ? value : 1
+}
+
 function formatDate(year: number, month: number, day: number) {
   const m = String(month + 1).padStart(2, '0')
   const d = String(day).padStart(2, '0')
@@ -73,14 +79,18 @@ function placePopover() {
   const anchor = chip?.querySelector?.<HTMLElement>('.kiwi-date-chip') ?? chip
   if (!anchor) return
   const rect = anchor.getBoundingClientRect()
+  // 面板内部按 --ui-scale 缩放，视口占位也要换算成缩放后的尺寸。
+  const scale = uiScale()
+  const width = POP_WIDTH * scale
+  const height = POP_HEIGHT * scale
   const left = Math.min(
-    Math.max(8, rect.left + rect.width / 2 - POP_WIDTH / 2),
-    window.innerWidth - POP_WIDTH - 8,
+    Math.max(8, rect.left + rect.width / 2 - width / 2),
+    window.innerWidth - width - 8,
   )
   let top = rect.bottom + 8
   // 下方空间不足时翻到上方，避免弹层被视口裁掉。
-  if (top + POP_HEIGHT > window.innerHeight - 8) {
-    top = Math.max(8, rect.top - POP_HEIGHT - 8)
+  if (top + height > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - height - 8)
   }
   popStyle.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` }
 }
@@ -184,16 +194,17 @@ onBeforeUnmount(() => {
       <span>{{ node.attrs.date || '选择日期' }}</span>
     </button>
 
-    <Teleport to="body">
-      <div
-        v-if="editing"
-        ref="pop"
-        class="kiwi-date-pop"
-        :style="popStyle"
-        role="dialog"
-        aria-label="选择日期"
-        @mousedown.stop
-      >
+    <Teleport to="html">
+      <!-- 外层固定在视口坐标（<html> 不受 body zoom 影响），内层单独缩放 -->
+      <div v-if="editing" class="kiwi-date-anchor" :style="popStyle">
+        <div
+          ref="pop"
+          class="kiwi-date-pop"
+          :style="{ zoom: 'var(--ui-scale)' }"
+          role="dialog"
+          aria-label="选择日期"
+          @mousedown.stop
+        >
         <div class="kiwi-date-pop-head">
           <button type="button" class="kiwi-date-nav" title="上个月" @click="shiftMonth(-1)">
             ‹
@@ -233,6 +244,7 @@ onBeforeUnmount(() => {
             清除
           </button>
           <span class="kiwi-date-hint">选择日期后立即生效</span>
+        </div>
         </div>
       </div>
     </Teleport>
@@ -284,10 +296,15 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-/* 弹层通过 Teleport 挂到 body，样式不能带 scoped 属性。 */
-.kiwi-date-pop {
+/* 弹层通过 Teleport 挂到 <html>，样式不能带 scoped 属性。 */
+.kiwi-date-anchor {
   position: fixed;
   z-index: 90;
+  width: 0;
+  height: 0;
+}
+.kiwi-date-pop {
+  position: relative;
   width: 264px;
   padding: 10px;
   border: 1px solid rgb(var(--kiwi-200));
