@@ -62,7 +62,13 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   retries: isCI ? 1 : 0,
-  reporter: isCI ? [['list'], ['html', { open: 'never' }]] : [['list']],
+  reporter: isCI
+    ? [
+        ['list'],
+        ['html', { open: 'never' }],
+        ['json', { outputFile: 'test-results/results.json' }],
+      ]
+    : [['list']],
   use: {
     baseURL,
     trace: 'retain-on-failure',

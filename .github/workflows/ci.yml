@@ -131,6 +131,30 @@ jobs:
           PW_TOKEN_BACKEND_URL: http://127.0.0.1:8012
           PW_ACCESS_TOKEN: smoke-token-123
         run: npm run test:e2e
+      - name: Summarize Playwright failures
+        if: failure()
+        working-directory: frontend
+        run: |
+          node - <<'EOF'
+          const fs = require('fs')
+          const file = 'test-results/results.json'
+          if (!fs.existsSync(file)) process.exit(0)
+          const report = JSON.parse(fs.readFileSync(file, 'utf8'))
+          const failed = []
+          const walk = (suite, trail = []) => {
+            for (const spec of suite.specs ?? []) {
+              const results = (spec.tests ?? []).flatMap((test) => test.results ?? [])
+              const last = results.at(-1)
+              if (last && last.status !== 'passed' && last.status !== 'skipped') {
+                failed.push([...trail, spec.title].join(' › '))
+              }
+            }
+            for (const child of suite.suites ?? []) walk(child, [...trail, child.title])
+          }
+          for (const suite of report.suites ?? []) walk(suite)
+          const body = failed.length ? failed.map((title) => `- ${title}`).join('\n') : '- 未解析到失败用例'
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Playwright 失败用例\n\n${body}\n`)
+          EOF
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
