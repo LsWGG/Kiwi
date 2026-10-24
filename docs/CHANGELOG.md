@@ -8,6 +8,7 @@
 
 - `deploy.sh` 改为渐进式交互向导：按需询问访问地址、访问令牌、端口冲突、前端构建、部署前备份与 Cloudflare 隧道；`--yes` 保留非交互部署。
 - 生产 Compose 新增可选 `cloudflared` 服务（`cloudflare` profile），可用 `./deploy.sh cloudflare` 一键配置、启动和停止公网只读分享。
+- `./deploy.sh cloudflare` 支持用 Cloudflare API Token 自动创建隧道、写入路径白名单 ingress 并添加 DNS 解析，只需填写分享域名；配置前会校验域名格式、所属区域与解析冲突，API Token 不写入 `.env.prod`。
 - `./deploy.sh update` 改为重建 backend 容器，使 `.env.prod` 中的环境变量变更立即生效。
 - 运维页的后台任务与审计日志改为服务端分页；已结束的任务与审计记录默认只保留近 14 天，可通过 `KIWI_OPS_RETENTION_DAYS` 调整或关闭。
 - 置顶组件插件浮窗按内容自动调整高度，打开时不再出现内部滚动条；手动缩放后仍可保持自定义高度。

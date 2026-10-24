@@ -31,6 +31,7 @@ frontend (nginx)
 - 启用 BuildKit（后端 Dockerfile 使用缓存挂载；建议安装 `docker-buildx-plugin`）
 - 建议 4 核 / 8 GB 内存 / 10 GB 可用磁盘
 - 构建前端需要 Node.js 20+ 与 npm（仅宿主机使用）
+- 使用 Cloudflare API 自动创建隧道时需要 `curl` 与 `jq`（`apt install jq`）
 - 首次摄入文档时需要联网下载嵌入模型（约数百 MB）
 - 若当前用户无 Docker 权限：将用户加入 `docker` 组，或以 `sudo` 运行部署脚本
 
@@ -188,23 +189,63 @@ NAS / Docker 部署无需在宿主机安装 systemd 服务，推荐使用方式 
 
 ### 方式 A：内置 cloudflared 容器（推荐）
 
-先在 Cloudflare Zero Trust → **Networks → Tunnels** 创建 Named Tunnel，
-复制 Tunnel Token（不要复制 credentials JSON），并为分享域名添加一条 CNAME
-（`cloudflared tunnel route dns` 或 Zero Trust 面板自动创建）。
+#### A1. API 自动创建（推荐，只需要域名）
 
-然后在 Kiwi 目录执行：
+在 [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens) 创建
+**Custom Token**，权限如下（Account / Zone Resources 选择域名所在的账户与区域）：
+
+- 账户 → **Cloudflare Tunnel** → 编辑；
+- 区域 → **DNS** → 编辑；
+- 区域 → **Zone** → 读取。
+
+然后执行：
 
 ```bash
 ./deploy.sh cloudflare
 ```
 
-向导会询问：
+选择 `1`（自动创建），粘贴 API Token，再填写分享域名（如 `share.example.com`，
+`https://` 可省略）。
+脚本会在动手前完成校验：
 
-1. Tunnel Token（输入时不回显）；
-2. 公网分享域名（如 `https://share.example.com`，只填协议 + 域名）。
+- 校验 Token 有效且状态为 active；
+- 校验域名格式：可直接填域名并自动补全 `https://`；不接受路径、端口、IP、`localhost`、
+  通配符与下划线；
+- 逐级查找域名所属的 Cloudflare 区域，域名必须已托管到该账户；
+- 检查现有解析：已有 A / AAAA / 其他 CNAME 时拒绝覆盖；指向其他隧道的 CNAME 也会拒绝，
+  避免抢占现有服务。
 
-脚本会写入 `.env.prod`、启动 `kiwi-prod-cloudflared`，并重建 backend 让新分享域名生效。
-之后在 Zero Trust → 你的 Tunnel → **Public Hostname** 添加四条规则，Service 均填
+通过后脚本会：
+
+1. 创建或复用远程管理隧道 `kiwi-<域名（点替换为连字符）>`；
+2. 写入只放行 `/share/`、`/api/share/`、`/assets/`、`/favicon` 的 ingress；
+3. 添加或复用 `CNAME <隧道 ID>.cfargotunnel.com`（开启代理）；
+4. 只把**隧道 Token** 与分享域名写入 `.env.prod`，API Token 不会落盘；
+5. 启动 `kiwi-prod-cloudflared` 并重建 backend，让分享域名立即生效。
+
+域名是区域根域名时会额外确认；解析冲突时不会创建任何资源。
+
+非交互环境可传入 API Token 与域名（API Token 只从环境变量读取，不写入 `.env.prod`）：
+
+```bash
+CLOUDFLARE_API_TOKEN='<api-token>' \
+KIWI_PUBLIC_BASE_URL='https://share.example.com' \
+./deploy.sh cloudflare
+```
+
+API Token 不保存在服务器上，每次更换域名或重建隧道时需要重新输入；仅在已有隧道上
+启动 / 停止分享时不需要。重新执行向导并选择「保留现有配置」即可跳过。
+
+#### A2. 手动创建 Tunnel Token
+
+如果你已在 Zero Trust → **Networks → Tunnels** 创建 Named Tunnel，也可以手动配置：
+
+1. 执行 `./deploy.sh cloudflare`，选择 `2`（手动 Token）；
+2. 粘贴 Tunnel Token（不要复制 credentials JSON，输入时不回显）；
+3. 填写公网分享域名（`https://` 可省略）。
+
+脚本会写入 `.env.prod`、启动 `kiwi-prod-cloudflared`，并重建 backend。
+之后需在 Zero Trust → 你的 Tunnel → **Public Hostname** 添加四条规则，Service 均填
 `http://frontend:80`（cloudflared 与 nginx 在同一 Compose 网络）：
 
 | Hostname | Path | Service |
@@ -217,7 +258,7 @@ NAS / Docker 部署无需在宿主机安装 systemd 服务，推荐使用方式 
 其余路径由 Cloudflare 返回 404。也可以只把整站指向 `http://frontend:80`，但这样公网能访问
 工作区登录页；即使启用了 `KIWI_ACCESS_TOKEN`，也建议保留路径白名单。
 
-非交互环境可直接传入配置（Token 与域名会写入 `.env.prod`）：
+非交互环境也可直接传入 Tunnel Token（会写入 `.env.prod`）：
 
 ```bash
 CLOUDFLARE_TUNNEL_TOKEN='<token>' \

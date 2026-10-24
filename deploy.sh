@@ -7,7 +7,7 @@
 #   ./deploy.sh --yes           非交互部署（使用 .env.prod 中已有配置）
 #   ./deploy.sh update          按最新源码与环境变量重建 backend 容器
 #   ./deploy.sh frontend        仅构建前端（宿主机 npm run build）
-#   ./deploy.sh cloudflare      配置并启动 Cloudflare Tunnel（询问 Token / 域名）
+#   ./deploy.sh cloudflare      配置并启动 Cloudflare Tunnel（API 自动创建或填写 Token）
 #   ./deploy.sh cloudflare off  停止公网隧道
 #   ./deploy.sh cloudflare status
 #   ./deploy.sh ps              查看状态
@@ -50,7 +50,7 @@ Kiwi Docker 生产部署脚本
   ./deploy.sh --yes           非交互部署，直接使用 .env.prod 现有配置
   ./deploy.sh update          重建 backend 容器，加载新代码与环境变量
   ./deploy.sh frontend        仅构建前端
-  ./deploy.sh cloudflare      配置并启动 Cloudflare Tunnel
+  ./deploy.sh cloudflare      配置并启动 Cloudflare Tunnel（推荐；可按提示自动创建）
   ./deploy.sh cloudflare off  停止公网隧道
   ./deploy.sh cloudflare status
   ./deploy.sh ps              查看状态
@@ -339,7 +339,385 @@ prompt_new_access_token() {
   echo "  访问令牌已写入 $ENV_FILE（KIWI_ACCESS_TOKEN）。"
 }
 
-configure_cloudflare() {
+# ---- Cloudflare API 自动配置 ----
+#
+# 用户只需在 Cloudflare 创建一次 API Token（Cloudflare Tunnel / DNS / Zone 权限），
+# 脚本负责创建隧道、写入路径白名单 ingress、添加 DNS 解析，并仅把「隧道 Token」
+# 与分享域名落盘。API Token 只存在于本次进程，不写入 .env.prod。
+
+CF_API_BASE="https://api.cloudflare.com/client/v4"
+CF_INGRESS_PATH='^/(share/|api/share/|assets/|favicon)'
+CF_API_TOKEN=""
+CF_LAST_ERROR=""
+CF_LAST_STAGE=""
+CF_HOST=""
+CF_ZONE_ID=""
+CF_ZONE_NAME=""
+CF_ACCOUNT_ID=""
+CF_TUNNEL_ID=""
+CF_TUNNEL_NAME=""
+CF_TUNNEL_TOKEN=""
+CF_DNS_STATE=""
+CF_DNS_ID=""
+CF_DNS_CONTENT=""
+CF_DNS_PROXIED=""
+
+require_cf_api_tools() {
+  command -v curl >/dev/null 2>&1 || die "自动配置 Cloudflare 需要 curl，请先安装。"
+  command -v jq >/dev/null 2>&1 || die "自动配置 Cloudflare 需要 jq，请先安装（Debian/Ubuntu：apt install jq）。"
+}
+
+cf_api() {
+  local method="$1" path="$2" body="${3:-}"
+  local args=(-sS --max-time 30 -X "$method"
+    -H "Authorization: Bearer ${CF_API_TOKEN}"
+    -H 'Content-Type: application/json')
+  if [ -n "$body" ]; then
+    args+=(--data "$body")
+  fi
+  curl "${args[@]}" "${CF_API_BASE}${path}"
+}
+
+cf_ok() {
+  printf '%s' "$1" | jq -e '.success == true' >/dev/null 2>&1
+}
+
+cf_error() {
+  local message
+  message="$(printf '%s' "$1" | jq -r '
+    if ((.errors // []) | length) == 0 then "Cloudflare API 返回失败（无错误详情）"
+    else (.errors | map((.code | tostring) + " " + (.message // "")) | join("；"))
+    end
+  ' 2>/dev/null)" || message=""
+  printf '%s' "${message:-无法解析 Cloudflare API 响应}"
+}
+
+cf_verify_token() {
+  local res
+  CF_LAST_ERROR=""
+  CF_LAST_STAGE=token
+  res="$(cf_api GET /user/tokens/verify)" || {
+    CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+    CF_LAST_STAGE=network
+    return 1
+  }
+  if ! cf_ok "$res"; then
+    CF_LAST_ERROR="$(cf_error "$res")"
+    return 1
+  fi
+  if [ "$(printf '%s' "$res" | jq -r '.result.status // ""')" != "active" ]; then
+    CF_LAST_ERROR="API Token 状态不是 active，请重新创建。"
+    return 1
+  fi
+  return 0
+}
+
+# 校验公网主机名：必须带点、顶级域为字母、每段符合 DNS 标签规则。
+# 不接受 IP、localhost、通配符、下划线与内网保留后缀。
+valid_share_host() {
+  local host
+  host="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  host="${host%.}"
+  [ -n "$host" ] && [ "${#host}" -le 253 ] || return 1
+  [[ "$host" == *.* ]] || return 1
+  [[ "$host" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || return 1
+  case "$host" in
+    localhost|*.localhost|*.local|*.internal|*.lan|*.home.arpa) return 1 ;;
+  esac
+  # 顶级域必须是字母，从而排除 1.2.3.4 与纯数字后缀。
+  [[ "${host##*.}" =~ ^[a-z]{2,}$ ]] || return 1
+  return 0
+}
+
+# 从用户输入解析出规范主机名；失败时把原因写入 CF_LAST_ERROR。
+# 可直接填域名（自动补 https://），因为 Cloudflare 公网 Hostname 只提供 HTTPS。
+cloudflare_resolve_host() {
+  local input="${1%/}" base host
+  CF_LAST_ERROR=""
+  if [ -z "$input" ]; then
+    CF_LAST_ERROR="请填写公网分享域名，例如 share.example.com。"
+    return 1
+  fi
+  case "$input" in
+    [Hh][Tt][Tt][Pp][Ss]://*) base="https://${input#*://}" ;;
+    [Hh][Tt][Tt][Pp]://*) base="https://${input#*://}" ;;
+    *://*)
+      CF_LAST_ERROR="只支持 https://，或直接填写域名（例如 share.example.com）。"
+      return 1
+      ;;
+    *) base="https://${input}" ;;
+  esac
+  if ! valid_public_base "$base"; then
+    if [[ "$base" =~ [^!-~] ]]; then
+      CF_LAST_ERROR="域名包含非 ASCII 字符，请改用 punycode 形式（xn-- 开头）。"
+    else
+      CF_LAST_ERROR="域名格式不正确：只填域名（例如 share.example.com），不要带路径或参数。"
+    fi
+    return 1
+  fi
+  host="$(url_host "$base")"
+  case "$host" in
+    *:*)
+      CF_LAST_ERROR="Cloudflare Tunnel 域名不能带端口，请填写 https://share.example.com 这种形式。"
+      return 1
+      ;;
+  esac
+  host="${host%.}"
+  host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+  if ! valid_share_host "$host"; then
+    CF_LAST_ERROR="「${host}」不是有效的公网主机名：请填写完整子域名（如 share.example.com），不能是 IP、localhost、通配符或含下划线。"
+    return 1
+  fi
+  CF_HOST="$host"
+  return 0
+}
+
+# 逐级去掉子域，找到该主机名所属的 Cloudflare 区域。
+cf_find_zone() {
+  local host="$1" candidate res
+  CF_ZONE_ID=""
+  CF_ZONE_NAME=""
+  CF_ACCOUNT_ID=""
+  CF_LAST_STAGE=domain
+  candidate="$host"
+  while :; do
+    res="$(cf_api GET "/zones?name=${candidate}&per_page=1")" || {
+      CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+      CF_LAST_STAGE=network
+      return 1
+    }
+    if ! cf_ok "$res"; then
+      CF_LAST_ERROR="查询域名区域失败：$(cf_error "$res")。请确认 Token 拥有「区域 → Zone → 读取」权限。"
+      CF_LAST_STAGE=api
+      return 1
+    fi
+    if [ "$(printf '%s' "$res" | jq -r '.result | length')" -gt 0 ]; then
+      CF_ZONE_ID="$(printf '%s' "$res" | jq -r '.result[0].id')"
+      CF_ZONE_NAME="$(printf '%s' "$res" | jq -r '.result[0].name')"
+      CF_ACCOUNT_ID="$(printf '%s' "$res" | jq -r '.result[0].account.id // ""')"
+      if [ -z "$CF_ACCOUNT_ID" ]; then
+        CF_LAST_ERROR="无法从区域信息中读取 Account ID，请确认 Token 权限。"
+        return 1
+      fi
+      return 0
+    fi
+    case "$candidate" in
+      *.*) candidate="${candidate#*.}" ;;
+      *) break ;;
+    esac
+  done
+  CF_LAST_ERROR="$host 不在当前 Cloudflare 账号的任何区域下。请确认域名已托管到 Cloudflare，且 Token 有权限访问该区域。"
+  return 1
+}
+
+# 只读检查现有解析：none（可创建）/ tunnel（已有隧道 CNAME）/ 冲突（返回 2）。
+cf_dns_check() {
+  local zid="$1" host="$2" res count type content proxied
+  CF_DNS_STATE=""
+  CF_DNS_ID=""
+  CF_DNS_CONTENT=""
+  CF_DNS_PROXIED=""
+  CF_LAST_STAGE=dns
+  res="$(cf_api GET "/zones/${zid}/dns_records?name=${host}&per_page=100")" || {
+    CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+    CF_LAST_STAGE=network
+    return 1
+  }
+  if ! cf_ok "$res"; then
+    CF_LAST_ERROR="读取 DNS 解析失败：$(cf_error "$res")。请确认 Token 拥有「区域 → DNS → 编辑」权限。"
+    CF_LAST_STAGE=api
+    return 1
+  fi
+  count="$(printf '%s' "$res" | jq -r '.result | length')"
+  if [ "$count" = 0 ]; then
+    CF_DNS_STATE=none
+    return 0
+  fi
+  type="$(printf '%s' "$res" | jq -r '.result[0].type')"
+  content="$(printf '%s' "$res" | jq -r '.result[0].content')"
+  proxied="$(printf '%s' "$res" | jq -r '.result[0].proxied')"
+  if [ "$count" = 1 ] && [ "$type" = CNAME ] && [[ "$content" == *.cfargotunnel.com ]]; then
+    CF_DNS_STATE=tunnel
+    CF_DNS_ID="$(printf '%s' "$res" | jq -r '.result[0].id')"
+    CF_DNS_CONTENT="$content"
+    CF_DNS_PROXIED="$proxied"
+    return 0
+  fi
+  CF_LAST_ERROR="$host 已存在 ${type} 解析（${content}），继续会覆盖现有服务；请改用其他子域名。"
+  return 2
+}
+
+cf_tunnel_name() {
+  local name
+  name="kiwi-$(printf '%s' "$1" | tr '.' '-')"
+  printf '%s' "${name:0:60}"
+}
+
+cf_find_tunnel() {
+  local aid="$1" name="$2" res tid config_src
+  CF_TUNNEL_ID=""
+  CF_TUNNEL_NAME="$name"
+  res="$(cf_api GET "/accounts/${aid}/cfd_tunnel?name=${name}&is_deleted=false&per_page=100")" || {
+    CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+    return 1
+  }
+  if ! cf_ok "$res"; then
+    CF_LAST_ERROR="查询隧道失败：$(cf_error "$res")。请确认 Token 拥有「账户 → Cloudflare Tunnel → 编辑」权限。"
+    return 1
+  fi
+  tid="$(printf '%s' "$res" | jq -r --arg n "$name" '.result[] | select(.name == $n) | .id' | head -n 1)"
+  if [ -n "$tid" ]; then
+    config_src="$(printf '%s' "$res" | jq -r --arg n "$name" '.result[] | select(.name == $n) | (.config_src // "")' | head -n 1)"
+    case "$config_src" in
+      cloudflare|"") ;;
+      *)
+        CF_LAST_ERROR="已存在同名隧道 ${name}，但由本地配置文件管理，无法自动写入 ingress。请删除该隧道或换一个分享域名。"
+        return 1
+        ;;
+    esac
+    CF_TUNNEL_ID="$tid"
+  fi
+  return 0
+}
+
+cf_create_tunnel() {
+  local aid="$1" name="$2" res
+  res="$(cf_api POST "/accounts/${aid}/cfd_tunnel" \
+    "$(jq -n --arg name "$name" '{name: $name, config_src: "cloudflare"}')")" || {
+    CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+    return 1
+  }
+  if ! cf_ok "$res"; then
+    CF_LAST_ERROR="创建隧道失败：$(cf_error "$res")"
+    return 1
+  fi
+  CF_TUNNEL_ID="$(printf '%s' "$res" | jq -r '.result.id // ""')"
+  if [ -z "$CF_TUNNEL_ID" ]; then
+    CF_LAST_ERROR="创建隧道成功但没有返回隧道 ID，请到 Zero Trust 面板检查。"
+    return 1
+  fi
+  return 0
+}
+
+cf_ensure_dns() {
+  local zid="$1" host="$2" tid="$3" target res existing_lc target_lc
+  target="${tid}.cfargotunnel.com"
+  target_lc="$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')"
+  case "$CF_DNS_STATE" in
+    none)
+      res="$(cf_api POST "/zones/${zid}/dns_records" \
+        "$(jq -n --arg host "$host" --arg target "$target" \
+          '{type: "CNAME", proxied: true, name: $host, content: $target}')")" || {
+        CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+        return 1
+      }
+      if ! cf_ok "$res"; then
+        CF_LAST_ERROR="添加 DNS 解析失败：$(cf_error "$res")"
+        return 1
+      fi
+      ;;
+    tunnel)
+      existing_lc="$(printf '%s' "$CF_DNS_CONTENT" | tr '[:upper:]' '[:lower:]')"
+      if [ "$existing_lc" != "$target_lc" ]; then
+        CF_LAST_ERROR="$host 已指向其他隧道（${CF_DNS_CONTENT}），为避免影响现有服务，请改用其他子域名。"
+        return 2
+      fi
+      if [ "$CF_DNS_PROXIED" = true ]; then
+        return 0
+      fi
+      # 指向本隧道但未开启代理：修正为 proxied，否则公网无法访问。
+      res="$(cf_api PUT "/zones/${zid}/dns_records/${CF_DNS_ID}" \
+        "$(jq -n --arg host "$host" --arg target "$target" \
+          '{type: "CNAME", proxied: true, name: $host, content: $target}')")" || {
+        CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+        return 1
+      }
+      if ! cf_ok "$res"; then
+        CF_LAST_ERROR="更新 DNS 解析失败：$(cf_error "$res")"
+        return 1
+      fi
+      ;;
+    *)
+      CF_LAST_ERROR="DNS 状态未知，请重新运行配置。"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+cf_configure_tunnel() {
+  local aid="$1" tid="$2" host="$3" res
+  res="$(cf_api PUT "/accounts/${aid}/cfd_tunnel/${tid}/configurations" \
+    "$(jq -n --arg host "$host" --arg path "$CF_INGRESS_PATH" '{
+      config: {
+        ingress: [
+          {hostname: $host, path: $path, service: "http://frontend:80"},
+          {service: "http_status:404"}
+        ]
+      }
+    }')")" || {
+    CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+    return 1
+  }
+  if ! cf_ok "$res"; then
+    CF_LAST_ERROR="写入隧道 ingress 失败：$(cf_error "$res")"
+    return 1
+  fi
+  return 0
+}
+
+cf_tunnel_token() {
+  local aid="$1" tid="$2" res
+  res="$(cf_api GET "/accounts/${aid}/cfd_tunnel/${tid}/token")" || {
+    CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
+    return 1
+  }
+  if ! cf_ok "$res"; then
+    CF_LAST_ERROR="获取隧道 Token 失败：$(cf_error "$res")"
+    return 1
+  fi
+  CF_TUNNEL_TOKEN="$(printf '%s' "$res" | jq -r '.result // ""')"
+  if [ -z "$CF_TUNNEL_TOKEN" ] || [ "$CF_TUNNEL_TOKEN" = null ]; then
+    CF_LAST_ERROR="Cloudflare 返回的隧道 Token 为空。"
+    return 1
+  fi
+  return 0
+}
+
+# 前置校验（Token / 区域 / DNS 冲突）通过后，创建资源并只落盘隧道 Token 与域名。
+cloudflare_provision_resources() {
+  local host="$1" base="https://$1"
+  CF_TUNNEL_NAME="$(cf_tunnel_name "$host")"
+  if [ -z "$CF_DNS_STATE" ]; then
+    cf_dns_check "$CF_ZONE_ID" "$host" || die "$CF_LAST_ERROR"
+  fi
+  cf_find_tunnel "$CF_ACCOUNT_ID" "$CF_TUNNEL_NAME" || die "$CF_LAST_ERROR"
+  if [ -n "$CF_TUNNEL_ID" ]; then
+    # 复用已有隧道：解析必须指向本隧道（或尚不存在）。
+    cf_ensure_dns "$CF_ZONE_ID" "$host" "$CF_TUNNEL_ID" || die "$CF_LAST_ERROR"
+  elif [ "$CF_DNS_STATE" = none ]; then
+    # 先确认域名没有解析，再创建隧道，避免校验失败后留下空隧道。
+    cf_create_tunnel "$CF_ACCOUNT_ID" "$CF_TUNNEL_NAME" || die "$CF_LAST_ERROR"
+    cf_ensure_dns "$CF_ZONE_ID" "$host" "$CF_TUNNEL_ID" || die "$CF_LAST_ERROR"
+  else
+    die "$host 已指向其他隧道（${CF_DNS_CONTENT}），为避免影响现有服务，请改用其他子域名。"
+  fi
+  cf_configure_tunnel "$CF_ACCOUNT_ID" "$CF_TUNNEL_ID" "$host" || die "$CF_LAST_ERROR"
+  cf_tunnel_token "$CF_ACCOUNT_ID" "$CF_TUNNEL_ID" || die "$CF_LAST_ERROR"
+
+  env_set CLOUDFLARE_TUNNEL_TOKEN "$CF_TUNNEL_TOKEN"
+  CLOUDFLARE_TUNNEL_TOKEN="$CF_TUNNEL_TOKEN"
+  env_set KIWI_PUBLIC_BASE_URL "$base"
+  KIWI_PUBLIC_BASE_URL="$base"
+  # 配置完成后不再在内存中保留 API Token。
+  CF_API_TOKEN=""
+
+  echo "  Cloudflare 隧道已就绪：${CF_TUNNEL_NAME}（${CF_TUNNEL_ID}）"
+  echo "  公网分享域名：${base}"
+  echo "  ingress 只放行 /share/、/api/share/、/assets/、/favicon，其余路径返回 404。"
+}
+
+configure_cloudflare_manual() {
   local token base default_base
   token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
   if [ -n "$token" ]; then
@@ -368,7 +746,7 @@ configure_cloudflare() {
   CLOUDFLARE_TUNNEL_TOKEN="$token"
 
   default_base="${KIWI_PUBLIC_BASE_URL:-}"
-  echo "公网分享链接会使用这个域名，只填协议 + 域名，例如 https://share.example.com。" >&2
+  echo "公网分享链接会使用这个域名，可直接填域名（如 share.example.com），会自动使用 https。" >&2
   while :; do
     base="$(ask '公网分享域名' "$default_base")"
     base="${base%/}"
@@ -376,11 +754,127 @@ configure_cloudflare() {
       echo "  启用隧道时必须填写公网域名，用于生成分享链接。" >&2
       continue
     fi
-    if valid_public_base "$base"; then break; fi
-    echo "  需要 https:// 开头，且不要带路径、参数。" >&2
+    if cloudflare_resolve_host "$base"; then break; fi
+    echo "  $CF_LAST_ERROR" >&2
   done
+  base="https://${CF_HOST}"
   env_set KIWI_PUBLIC_BASE_URL "$base"
   KIWI_PUBLIC_BASE_URL="$base"
+}
+
+configure_cloudflare_api() {
+  local base default_base dns_status
+  require_cf_api_tools
+  echo
+  echo "自动创建需要 Cloudflare API Token（只用于本次配置，不会写入 $ENV_FILE）。"
+  echo "创建入口：https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom token"
+  echo "所需权限：账户 → Cloudflare Tunnel → 编辑；区域 → DNS → 编辑；区域 → Zone → 读取"
+  while :; do
+    CF_API_TOKEN="$(ask_secret 'Cloudflare API Token')"
+    if [ -z "$CF_API_TOKEN" ]; then
+      echo "  Token 不能为空。" >&2
+      continue
+    fi
+    if ! valid_cf_token "$CF_API_TOKEN"; then
+      echo "  Token 含有不支持字符，请重新复制。" >&2
+      continue
+    fi
+    if cf_verify_token; then
+      echo "  API Token 校验通过。"
+      break
+    fi
+    echo "  校验失败：$CF_LAST_ERROR" >&2
+    if ! ask_yes_no "重新输入 API Token？" y; then
+      die "Cloudflare API Token 校验失败：$CF_LAST_ERROR"
+    fi
+  done
+
+  default_base="${KIWI_PUBLIC_BASE_URL:-}"
+  echo "公网分享链接会使用这个域名，可直接填域名（如 share.example.com），会自动使用 https。" >&2
+  while :; do
+    base="$(ask '公网分享域名' "$default_base")"
+    base="${base%/}"
+    if [ -z "$base" ]; then
+      echo "  启用隧道时必须填写公网域名，用于生成分享链接。" >&2
+      continue
+    fi
+    if ! cloudflare_resolve_host "$base"; then
+      echo "  $CF_LAST_ERROR" >&2
+      continue
+    fi
+
+    if ! cf_find_zone "$CF_HOST"; then
+      echo "  $CF_LAST_ERROR" >&2
+      # 只有「域名不在账号下」才值得重填；权限 / 网络错误重填域名没有意义。
+      if [ "$CF_LAST_STAGE" = domain ] && ask_yes_no "重新填写分享域名？" y; then
+        continue
+      fi
+      die "$CF_LAST_ERROR"
+    fi
+    echo "  域名属于 Cloudflare 区域 ${CF_ZONE_NAME}。"
+
+    if [ "$CF_HOST" = "$CF_ZONE_NAME" ]; then
+      if ! ask_yes_no "「${CF_HOST}」是区域根域名，根域名解析将指向 Kiwi 分享隧道，确认使用？" n; then
+        continue
+      fi
+    fi
+
+    dns_status=0
+    cf_dns_check "$CF_ZONE_ID" "$CF_HOST" || dns_status=$?
+    if [ "$dns_status" -eq 0 ]; then
+      break
+    fi
+    echo "  $CF_LAST_ERROR" >&2
+    if [ "$dns_status" -eq 2 ]; then
+      # 解析冲突只能换域名，清空默认值，避免回车又提交同一个域名。
+      default_base=""
+      continue
+    fi
+    # 权限 / 网络错误换域名无法解决，直接给出可操作的错误。
+    die "$CF_LAST_ERROR"
+  done
+
+  echo
+  echo "  将创建/复用隧道 $(cf_tunnel_name "$CF_HOST")，并添加解析 ${CF_HOST} → <隧道>.cfargotunnel.com。"
+  if ! ask_yes_no "确认写入 Cloudflare？" y; then
+    die "已取消 Cloudflare 配置，未创建任何资源。"
+  fi
+  cloudflare_provision_resources "$CF_HOST"
+}
+
+configure_cloudflare() {
+  local mode
+  if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ] && [ -n "${KIWI_PUBLIC_BASE_URL:-}" ]; then
+    echo "当前 Cloudflare 配置：${KIWI_PUBLIC_BASE_URL}" >&2
+    if ask_yes_no "保留现有配置？" y; then
+      return
+    fi
+  fi
+  echo "Cloudflare Tunnel 配置方式：" >&2
+  echo "  1) 自动创建（推荐）：提供 API Token，脚本创建隧道、写入路径白名单并添加 DNS 解析" >&2
+  echo "  2) 手动 Token：你已在 Zero Trust 创建隧道，只需填写 Tunnel Token" >&2
+  while :; do
+    mode="$(ask '选择' '1')"
+    case "$mode" in
+      1) configure_cloudflare_api; return ;;
+      2) configure_cloudflare_manual; return ;;
+      *) echo "  请输入 1 或 2。" >&2 ;;
+    esac
+  done
+}
+
+# 非交互模式：CLOUDFLARE_API_TOKEN + KIWI_PUBLIC_BASE_URL 自动创建资源。
+auto_configure_cloudflare() {
+  require_cf_api_tools
+  CF_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
+  [ -n "$CF_API_TOKEN" ] || die "未提供 CLOUDFLARE_API_TOKEN。"
+  valid_cf_token "$CF_API_TOKEN" || die "CLOUDFLARE_API_TOKEN 含有不支持字符。"
+  [ -n "${KIWI_PUBLIC_BASE_URL:-}" ] || die "自动创建还需要 KIWI_PUBLIC_BASE_URL，例如 https://share.example.com。"
+  cloudflare_resolve_host "$KIWI_PUBLIC_BASE_URL" || die "$CF_LAST_ERROR"
+  cf_verify_token || die "Cloudflare API Token 校验失败：$CF_LAST_ERROR"
+  cf_find_zone "$CF_HOST" || die "$CF_LAST_ERROR"
+  cf_dns_check "$CF_ZONE_ID" "$CF_HOST" || die "$CF_LAST_ERROR"
+  cloudflare_provision_resources "$CF_HOST"
 }
 
 wizard_up() {
@@ -606,16 +1100,13 @@ print_summary() {
 }
 
 print_cloudflare_hints() {
-  local host="${KIWI_PUBLIC_BASE_URL#*://}"
-  host="${host%%/*}"
   echo
   echo "[kiwi-deploy] Cloudflare Tunnel 已启动（cloudflared 容器）"
-  echo "  在 Cloudflare Zero Trust → Networks → Tunnels → 你的隧道 → Public Hostname 添加："
-  echo "    ${host:-<分享域名>}  /share/      →  http://frontend:80"
-  echo "    ${host:-<分享域名>}  /api/share/  →  http://frontend:80"
-  echo "    ${host:-<分享域名>}  /assets/     →  http://frontend:80"
-  echo "    ${host:-<分享域名>}  /favicon     →  http://frontend:80"
-  echo "  其余路径默认 404；修改 Token / 域名可重新运行 ./deploy.sh cloudflare。"
+  echo "  公网分享域名  ${KIWI_PUBLIC_BASE_URL:-（未配置）}"
+  echo "  隧道只放行 /share/、/api/share/、/assets/、/favicon，其余路径返回 404。"
+  echo "  自动创建模式已通过 API 写入 ingress；手动 Token 模式请在 Zero Trust → Networks"
+  echo "  → Tunnels → 你的隧道 → Public Hostname 中按上述路径指向 http://frontend:80。"
+  echo "  修改域名或隧道可重新运行 ./deploy.sh cloudflare。"
   echo "  查看隧道日志：./deploy.sh logs cloudflared"
 }
 
@@ -682,12 +1173,25 @@ run_up() {
 
 run_cloudflare() {
   local sub="enable"
+  local env_api_token="${CLOUDFLARE_API_TOKEN:-}"
+  local env_tunnel_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+  local env_public_base="${KIWI_PUBLIC_BASE_URL:-}"
   if [ "${#ARGS[@]}" -gt 0 ]; then
     sub="${ARGS[0]}"
   fi
 
   ensure_env
   load_env
+  # 命令行环境变量优先于 .env.prod，便于非交互地切换域名、Token 或改用 API 自动创建。
+  if [ -n "$env_api_token" ]; then
+    CLOUDFLARE_API_TOKEN="$env_api_token"
+  fi
+  if [ -n "$env_tunnel_token" ]; then
+    CLOUDFLARE_TUNNEL_TOKEN="$env_tunnel_token"
+  fi
+  if [ -n "$env_public_base" ]; then
+    KIWI_PUBLIC_BASE_URL="$env_public_base"
+  fi
 
   case "$sub" in
     off|disable|stop)
@@ -705,14 +1209,17 @@ run_cloudflare() {
     enable|on)
       if is_interactive; then
         configure_cloudflare
+      elif [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+        # API Token 已提供：自动创建 / 复用隧道并写入 ingress 与 DNS。
+        auto_configure_cloudflare
       else
-        [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ] || die "未配置 CLOUDFLARE_TUNNEL_TOKEN；请先在 $ENV_FILE 中填写，或在交互终端运行 ./deploy.sh cloudflare。"
+        [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ] || die "未配置 Cloudflare：请设置 CLOUDFLARE_API_TOKEN + KIWI_PUBLIC_BASE_URL（自动创建），或在 $ENV_FILE 中填写 CLOUDFLARE_TUNNEL_TOKEN（手动隧道）。"
         valid_cf_token "$CLOUDFLARE_TUNNEL_TOKEN" || die "CLOUDFLARE_TUNNEL_TOKEN 含有不支持字符，请重新复制。"
-        [ -n "${KIWI_PUBLIC_BASE_URL:-}" ] || die "未配置 KIWI_PUBLIC_BASE_URL；请先在 $ENV_FILE 中填写公网分享域名。"
-        valid_public_base "$KIWI_PUBLIC_BASE_URL" || die "KIWI_PUBLIC_BASE_URL 必须是 https:// 域名（不含路径、参数），例如 https://share.example.com。"
+        [ -n "${KIWI_PUBLIC_BASE_URL:-}" ] || die "未配置 KIWI_PUBLIC_BASE_URL；请设置公网分享域名，例如 https://share.example.com。"
+        cloudflare_resolve_host "$KIWI_PUBLIC_BASE_URL" || die "$CF_LAST_ERROR"
         # 非交互模式也把本次提供的配置落盘，后续 up / status 才能复用。
         env_set CLOUDFLARE_TUNNEL_TOKEN "$CLOUDFLARE_TUNNEL_TOKEN"
-        env_set KIWI_PUBLIC_BASE_URL "$KIWI_PUBLIC_BASE_URL"
+        env_set KIWI_PUBLIC_BASE_URL "https://${CF_HOST}"
       fi
       env_set KIWI_CLOUDFLARE_ENABLED true
       KIWI_CLOUDFLARE_ENABLED=true

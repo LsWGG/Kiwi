@@ -199,9 +199,10 @@ services:
     # 由 deploy.sh 向导或 `./deploy.sh cloudflare` 自动管理，也可手动启动：
     #   docker compose --env-file .env.prod -f docker-compose.prod.yml \
     #     --profile cloudflare up -d cloudflared
-    # 在 Cloudflare Zero Trust 中把公网 Hostname 的 Service 指向
-    # http://frontend:80，并且只放行 /share/、/api/share/、/assets/、/favicon。
-    # Token 从 Zero Trust → Networks → Tunnels 获取，写入 .env.prod。
+    # deploy.sh 的自动模式会通过 Cloudflare API 创建隧道并写入 ingress：
+    # 只放行 /share/、/api/share/、/assets/、/favicon，Service 指向 http://frontend:80；
+    # 手动模式需在 Zero Trust 的 Public Hostname 中按同样规则配置。
+    # 隧道 Token 写入 .env.prod（API Token 不会落盘）。
     image: cloudflare/cloudflared:latest
     container_name: kiwi-prod-cloudflared
     restart: unless-stopped
