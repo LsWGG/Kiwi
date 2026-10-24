@@ -76,6 +76,8 @@ jobs:
       KIWI_DATABASE_URL: postgresql+asyncpg://kiwi:kiwi@localhost:5432/kiwi_test
       KIWI_QDRANT_URL: http://localhost:6333
       KIWI_BACKGROUND_JOBS: "false"
+      # 导入任务保持排队，便于冒烟用例稳定断言进度状态。
+      KIWI_JOB_WORKER_ENABLED: "false"
       KIWI_RATE_LIMIT_ENABLED: "false"
       KIWI_FERNET_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
     steps:
