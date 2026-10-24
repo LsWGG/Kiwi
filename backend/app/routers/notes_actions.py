@@ -27,6 +27,7 @@ from app.routers.notes_shared import (
     _next_note_sort,
     _now_iso,
     _rebuild_links,
+    _record_tree_tombstones,
     _reload_tags,
     _require_unlocked,
     _sync_note_tags,
@@ -363,6 +364,13 @@ async def transfer_note(
         update(IngestJob).where(IngestJob.note_id == note.id).values(kb_id=target.id)
     )
     await _rebuild_links(session, target.id, note)
+    # 原知识库的目录树里这条记录已不存在：写墓碑供增量刷新移除。
+    moved_ids = [note.id]
+    if coll is not None:
+        moved_ids.extend(
+            child.id for child in await _collection_child_notes(session, note)
+        )
+    await _record_tree_tombstones(session, kb_id, note_ids=moved_ids)
     await audit.record(
         session,
         "note.transfer",

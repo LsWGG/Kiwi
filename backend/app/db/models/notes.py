@@ -43,6 +43,26 @@ class NoteFolder(UUIDPkMixin, Base):
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class NoteTreeTombstone(UUIDPkMixin, Base):
+    """目录树删除墓碑：供 `/api/notes/tree?since=` 增量刷新识别已删除节点。
+
+    笔记移入回收站 / 归档时可直接通过 `updated_at` + `status` 判断；
+    分组与永久删除的笔记没有可查询的残留行，因此单独记录并保留若干天。
+    """
+
+    __tablename__ = "note_tree_tombstones"
+    __table_args__ = (
+        Index("ix_note_tree_tombstones_kb_created", "kb_id", "created_at"),
+        Index("ix_note_tree_tombstones_item", "kb_id", "item_type", "item_id"),
+    )
+
+    kb_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
+    )
+    item_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    item_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+
+
 class NoteTag(UUIDPkMixin, Base):
     """笔记标签，支持嵌套。"""
 

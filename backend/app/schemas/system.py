@@ -18,6 +18,14 @@ class SystemSettingsOut(BaseModel):
     has_ocr_api_key: bool = False
     ocr_timeout: float
     ocr_language: str
+    # 语音转写：provider = auto / local / feishu
+    transcribe_provider: str = "auto"
+    feishu_app_id: str = ""
+    feishu_folder_token: str = ""
+    feishu_redirect_uri: str = ""
+    has_feishu_app_secret: bool = False
+    has_feishu_user_token: bool = False
+    has_feishu_refresh_token: bool = False
     source: str = "default"
 
 
@@ -41,6 +49,16 @@ class SystemSettingsUpdate(BaseModel):
     ocr_api_key: str | None = None
     ocr_timeout: float | None = Field(default=None, ge=5, le=600)
     ocr_language: str | None = Field(default=None, max_length=40)
+    transcribe_provider: str | None = Field(
+        default=None, pattern="^(auto|local|feishu)$"
+    )
+    feishu_app_id: str | None = Field(default=None, max_length=100)
+    # None 保留已保存密钥；空字符串清除。
+    feishu_app_secret: str | None = None
+    feishu_user_token: str | None = None
+    feishu_refresh_token: str | None = None
+    feishu_folder_token: str | None = Field(default=None, max_length=200)
+    feishu_redirect_uri: str | None = Field(default=None, max_length=500)
 
 
 class OcrTestIn(BaseModel):

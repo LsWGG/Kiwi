@@ -107,25 +107,54 @@ def ensure_collections(client: QdrantClient | None = None) -> None:
         _ensure_named(client, name, EMBED_DIM)
 
 
-def _kb_filter(kb_id: uuid.UUID | list[uuid.UUID]) -> models.Filter:
-    """构造 kb_id 过滤条件。"""
+def _scope_filter(
+    kb_id: uuid.UUID | list[uuid.UUID],
+    note_ids: list[uuid.UUID | str] | None = None,
+    note_kinds: list[str] | None = None,
+) -> models.Filter:
+    """构造租户 + 笔记过滤条件；过滤强制发生在检索边界内。"""
+    must: list[models.Condition] = []
     if isinstance(kb_id, list):
-        return models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="kb_id",
-                    match=models.MatchAny(any=[str(k) for k in kb_id]),
-                )
-            ]
+        must.append(
+            models.FieldCondition(
+                key="kb_id",
+                match=models.MatchAny(any=[str(k) for k in kb_id]),
+            )
         )
-    return models.Filter(
-        must=[
+    else:
+        must.append(
             models.FieldCondition(
                 key="kb_id",
                 match=models.MatchValue(value=str(kb_id)),
             )
-        ]
-    )
+        )
+    if note_ids is not None:
+        if not note_ids:
+            # 空集合表示「没有任何可检索笔记」，用永不命中的过滤表达。
+            must.append(
+                models.FieldCondition(
+                    key="note_id", match=models.MatchValue(value="__none__")
+                )
+            )
+        else:
+            must.append(
+                models.FieldCondition(
+                    key="note_id",
+                    match=models.MatchAny(any=[str(n) for n in note_ids]),
+                )
+            )
+    if note_kinds:
+        must.append(
+            models.FieldCondition(
+                key="kind", match=models.MatchAny(any=list(note_kinds))
+            )
+        )
+    return models.Filter(must=must)
+
+
+def _kb_filter(kb_id: uuid.UUID | list[uuid.UUID]) -> models.Filter:
+    """构造 kb_id 过滤条件。"""
+    return _scope_filter(kb_id)
 
 
 def kb_filter(kb_id: uuid.UUID | list[uuid.UUID]) -> models.Filter:
@@ -250,8 +279,10 @@ def search(
     kb_id: uuid.UUID | list[uuid.UUID],
     limit: int = 10,
     score_threshold: float | None = None,
+    note_ids: list[uuid.UUID | str] | None = None,
+    note_kinds: list[str] | None = None,
 ) -> list[dict]:
-    """检索，kb 过滤强制注入检索边界。返回 [{payload, score}]。"""
+    """检索，kb / 笔记过滤强制注入检索边界。返回 [{payload, score, id}]。"""
     client = get_client()
     if not vector:
         return []
@@ -260,7 +291,7 @@ def search(
     res = client.query_points(
         collection_name=collection,
         query=models.NearestQuery(nearest=vector),
-        query_filter=_kb_filter(kb_id),
+        query_filter=_scope_filter(kb_id, note_ids=note_ids, note_kinds=note_kinds),
         limit=limit,
         score_threshold=score_threshold,
         with_payload=True,
@@ -273,6 +304,42 @@ def search(
         }
         for hit in res.points
     ]
+
+
+def scroll_points(
+    collection: str,
+    kb_id: uuid.UUID | list[uuid.UUID],
+    limit: int = 8000,
+    note_ids: list[uuid.UUID | str] | None = None,
+    note_kinds: list[str] | None = None,
+) -> list[dict]:
+    """按过滤条件读取 payload，供 BM25 词法召回使用。
+
+    个人知识库的规模有限，一次查询最多读取 ``limit`` 条分块；超过上限时
+    按 Qdrant 默认顺序截断，仍由后续 RRF 与向量召回兜底。
+    """
+    client = get_client()
+    if not client.collection_exists(collection) or limit <= 0:
+        return []
+    out: list[dict] = []
+    offset = None
+    page_size = min(500, limit)
+    scroll_filter = _scope_filter(kb_id, note_ids=note_ids, note_kinds=note_kinds)
+    while len(out) < limit:
+        points, offset = client.scroll(
+            collection_name=collection,
+            scroll_filter=scroll_filter,
+            limit=min(page_size, limit - len(out)),
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        out.extend(
+            {"payload": p.payload or {}, "id": str(p.id)} for p in points
+        )
+        if offset is None or not points:
+            break
+    return out
 
 
 def scroll_chunks(
@@ -336,6 +403,18 @@ def delete_wiki_page(
             )
         ),
     )
+
+
+def delete_wiki_vectors(kb_id: uuid.UUID) -> None:
+    """删除某知识库在所有 embedding 模型 wiki collection 中的页面向量。"""
+    client = get_client()
+    for col in list_vector_collections():
+        if not (col == WIKI_COLLECTION or col.startswith(_MODEL_PREFIX_WIKI)):
+            continue
+        client.delete(
+            collection_name=col,
+            points_selector=models.FilterSelector(filter=_kb_filter(kb_id)),
+        )
 
 
 def count_collection(name: str) -> int:

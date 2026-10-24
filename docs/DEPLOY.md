@@ -166,6 +166,113 @@ QDRANT_GRPC_PORT=16334
 
 若 18473 被占用，改成任意空闲端口（例如 `28473`），并同步修改 `KIWI_PUBLIC_ORIGIN`。
 
+## 公网只读分享（Cloudflare Tunnel）
+
+笔记的「只读分享链接」默认生成 `http://<内网地址>:18473/share/<token>`，只能在局域网打开。
+如果已有托管在 Cloudflare 的域名，可以用 Named Tunnel 把**分享页和公开分享 API** 暴露到公网，
+其余路径（笔记工作区、登录后的 API、媒体目录）继续只在内网可用。
+
+> 只需要分享页上网、不需要固定域名时，也可以临时用 Quick Tunnel（`cloudflared tunnel --url http://127.0.0.1:18473`），
+> 但每次重启地址都会变，不适合长期分享。
+
+### 1. 创建 Tunnel
+
+在装有 `cloudflared` 的宿主机上（与 `docker compose` 同一台机器）：
+
+```bash
+# 安装：https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+cloudflared tunnel login                 # 浏览器里选中你的域名
+cloudflared tunnel create kiwi-share     # 记下输出的 Tunnel ID
+cloudflared tunnel route dns kiwi-share share.example.com
+```
+
+### 2. 只放行分享所需路径
+
+复制示例配置并按注释替换 Tunnel ID 与域名：
+
+```bash
+sudo mkdir -p /etc/cloudflared
+sudo cp deploy/cloudflared.example.yml /etc/cloudflared/config.yml
+sudo vi /etc/cloudflared/config.yml
+```
+
+核心是 ingress 的路径白名单：
+
+```yaml
+ingress:
+  - hostname: share.example.com
+    path: ^/(share/|api/share/|assets/|favicon)
+    service: http://127.0.0.1:18473
+  - hostname: share.example.com
+    service: http_status:404
+  - service: http_status:404
+```
+
+- `/share/<token>`：分享页 SPA；
+- `/api/share/`：公开分享内容与签名媒体（图片、附件）；
+- `/assets/`、`/favicon`：前端静态资源。
+
+其余请求直接 404，公网看不到工作区页面，也拿不到 `/api/notes` 等登录态接口。
+
+安装为系统服务并启动：
+
+```bash
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared
+sudo systemctl status cloudflared
+```
+
+### 3. 配置分享域名
+
+在 `.env.prod` 中填写公开地址，并重建/重启后端让环境变量生效：
+
+```dotenv
+KIWI_PUBLIC_BASE_URL=https://share.example.com
+```
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend
+```
+
+之后在笔记「分享」里创建的链接会直接是 `https://share.example.com/share/<token>`，
+复制出去即可用；不配置时退回当前浏览器访问地址（内网创建就是内网链接）。
+
+说明：
+
+- 分享页与公开 API 同源，无需修改 `KIWI_PUBLIC_ORIGIN`（CORS 只影响工作区）。
+- 已启用 `KIWI_ACCESS_TOKEN` 时，`/api/share/` 仍在公开白名单内，访客无需登录；
+  但如果页面经过 Cloudflare Access 保护，需要为该主机名的 `/share/` 与 `/api/share/`
+  配置 Bypass 策略，否则匿名访客会先被 Access 登录页拦下。
+- 分享内容本身仍受有效期、访问密码、撤销控制；上锁笔记不能创建分享。
+- 媒体链接带短时签名，过期后刷新分享页即可重新获取；请勿把单个图片地址另行外传。
+- **国内访问**：Cloudflare 免费版的中国大陆流量通常回源到香港/新加坡/日本等节点，
+  延迟和稳定性不及境内直连。若分享对象主要在国内，可改用 Tailscale Funnel
+  或境内服务器的 frp / nginx 反代，配置方式相同（只需放行上述四个路径并设置
+  `KIWI_PUBLIC_BASE_URL`）。
+
+## 语音转写（可选）
+
+笔记工作区「新建 → 语音转写」使用本地 faster-whisper，无需外部 API：
+
+- 首次转写会把模型下载到 `KIWI_WHISPER_MODEL_DIR`（默认 `data/models/whisper`），
+  `small` 约 500MB。Docker 部署请把该目录挂载为持久卷，避免重建容器后重复下载。
+- 纯 CPU 即可运行；有 GPU 时可设 `KIWI_WHISPER_DEVICE=cuda`、
+  `KIWI_WHISPER_COMPUTE_TYPE=float16`。
+- 音频先保存为临时文件，转写完成后立即删除；任务走持久化队列，需要启用 worker。
+- `KIWI_WHISPER_LANGUAGE=auto` 自动识别语言，也可固定为 `zh` / `en` 等。
+
+## Web Push 提醒（可选）
+
+学习模式「提醒设置」可开启到期复习 / 待办提醒与每周学习报告推送：
+
+- 浏览器推送要求页面通过 **HTTPS** 访问（`localhost` 除外）；用 Cloudflare Tunnel、
+  Tailscale Funnel 或 nginx 反代暴露主站后即可订阅。
+- VAPID 密钥在首次访问提醒设置时自动生成，私钥以 `KIWI_FERNET_KEY` 加密存入数据库。
+  更换 `KIWI_FERNET_KEY` 后旧私钥无法解密，需要清空 `system_settings` 中的
+  `push_vapid_*` 字段并重新订阅。
+- 提醒由后端调度器每 60 秒检查一次，需要 `KIWI_BACKGROUND_JOBS=true`。
+- `KIWI_PUSH_CONTACT` 填写 `mailto:` 地址，作为 VAPID 联系信息。
+
 ## 配置项
 
 | 变量 | 默认值 | 说明 |
@@ -181,10 +288,20 @@ QDRANT_GRPC_PORT=16334
 | `KIWI_FERNET_KEY` | 自动生成 | 模型 Key 加密密钥，必须长期保持 |
 | `KIWI_ACCESS_TOKEN` | 空 | 可选访问令牌；设置后 `/api`、`/media`、`/metrics` 需要登录 |
 | `KIWI_ACCESS_COOKIE_NAME` | `kiwi_access` | 登录 Cookie 名称 |
+| `KIWI_PUBLIC_BASE_URL` | 空 | 公网分享域名（如 `https://share.example.com`）；留空时分享链接使用当前访问地址 |
+| `KIWI_PUSH_CONTACT` | `mailto:admin@example.com` | Web Push 联系地址，需以 `mailto:` 或 `https:` 开头 |
+| `KIWI_WHISPER_ENABLED` | `true` | 是否启用本地语音转写 |
+| `KIWI_WHISPER_MODEL` | `small` | faster-whisper 模型（tiny / base / small / medium / large-v3） |
+| `KIWI_WHISPER_DEVICE` | `cpu` | 转写设备（`cpu` / `cuda`） |
+| `KIWI_WHISPER_COMPUTE_TYPE` | `int8` | 计算精度；CPU 建议 `int8`，GPU 可用 `float16` |
+| `KIWI_WHISPER_LANGUAGE` | `auto` | 默认识别语言，`auto` 为自动检测 |
+| `KIWI_WHISPER_MODEL_DIR` | `data/models/whisper` | 模型下载目录，Docker 部署需持久化 |
 | `KIWI_RATE_LIMIT_ENABLED` | `true` | 是否启用 LLM / 导入 / 代码执行接口限流 |
 | `KIWI_RATE_LIMIT_LLM_PER_MINUTE` | `20` | 每 IP 每分钟 LLM 请求上限 |
 | `KIWI_RATE_LIMIT_IMPORT_PER_MINUTE` | `10` | 每 IP 每分钟导入请求上限 |
 | `KIWI_RATE_LIMIT_CODE_PER_MINUTE` | `30` | 每 IP 每分钟代码执行请求上限 |
+| `KIWI_BACKGROUND_JOBS` | `true` | 是否启动演示库种子、笔记索引巡检、定时编译与自动备份；本地实例直连共享库时建议设为 `false` |
+| `KIWI_JOB_WORKER_ENABLED` | `true` | 是否消费持久化任务队列（导入 / 编译）；独立于 `KIWI_BACKGROUND_JOBS`，设为 `false` 时任务只会排队 |
 | `KIWI_BACKUP_ENABLED` | `true` | 是否启用自动备份 |
 | `KIWI_BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔（小时） |
 | `KIWI_BACKUP_RETENTION_DAYS` | `14` | 备份保留天数 |

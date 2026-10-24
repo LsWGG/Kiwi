@@ -23,6 +23,7 @@ from app.routers.notes_shared import (
     _note_descendant_ids,
     _now_iso,
     _purge_expired_trash,
+    _record_tree_tombstones,
     _reload_tags,
     _set_lifecycle,
 )
@@ -95,9 +96,12 @@ async def empty_trash(
 ):
     trashed = (
         await session.execute(
-            select(Note.title).where(Note.kb_id == kb_id, Note.status == "trash")
+            select(Note.id, Note.title).where(Note.kb_id == kb_id, Note.status == "trash")
         )
-    ).scalars().all()
+    ).all()
+    await _record_tree_tombstones(
+        session, kb_id, note_ids=[row.id for row in trashed]
+    )
     await session.execute(
         delete(Note)
         .where(Note.kb_id == kb_id, Note.status == "trash")
@@ -109,7 +113,7 @@ async def empty_trash(
         kb_id=kb_id,
         target_type="kb",
         target_id=kb_id,
-        detail={"count": len(trashed), "titles": list(trashed)[:20]},
+        detail={"count": len(trashed), "titles": [row.title for row in trashed][:20]},
         note=f"清空回收站（{len(trashed)} 篇）",
     )
     await session.commit()
@@ -179,6 +183,7 @@ async def permanently_delete_note(
     if note.status != "trash":
         raise HTTPException(400, "只有回收站中的笔记可以永久删除")
     # 数据表集合 / 行 / 附件由外键级联；导入/链接的 Source 保留
+    deleted_ids = [note.id]
     if note.kind == "database":
         coll = (
             await session.execute(
@@ -201,8 +206,10 @@ async def permanently_delete_note(
             for child_id in child_ids:
                 child = await session.get(Note, child_id)
                 if child is not None and child.id != note.id:
+                    deleted_ids.append(child.id)
                     await session.delete(child)
     detail = {"title": note.title, "kind": note.kind, "mode": "permanent"}
+    await _record_tree_tombstones(session, kb_id, note_ids=deleted_ids)
     await session.delete(note)
     await audit.record(
         session,

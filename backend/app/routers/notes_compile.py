@@ -32,6 +32,11 @@ from app.services import (
     job_queue,
     note_compiler,
 )
+from app.services.compile_eligibility import (
+    note_compile_eligible,
+    note_compile_skip_label,
+)
+from app.services.compile_status import reconcile_ingest_jobs
 from app.services.note_indexer import ensure_notes_indexed
 
 logger = logging.getLogger("kiwi.notes.compile")
@@ -47,11 +52,17 @@ async def _prepare_note_compile(
 
     - 同一笔记始终复用同一个 Source（external_id = note:<id>），不随正文变化堆积素材；
     - 正文未变化时跳过 raw 向量化；内容变化时重新嵌入后编译；
-    - 已有进行中的编译任务时返回 None（单篇接口会转成 409）。
+    - 已有进行中的编译任务时返回 None（单篇接口会转成 409）；
+    - 待办汇总 / 只读导入材料 / 数据表行笔记不参与编译。
     """
+    if not note_compile_eligible(note):
+        return None
     body = (await note_compiler.build_note_compile_markdown(session, note)).strip()
     if not body:
         return None
+
+    # 先对齐旧版的悬空任务，避免队列早已失败却一直挡住重新编译。
+    await reconcile_ingest_jobs(session, kb_id, note_id=note.id)
 
     running = (
         await session.execute(
@@ -280,6 +291,9 @@ async def compile_all_notes(
     if kb is None:
         raise HTTPException(404, "知识库不存在")
 
+    if await reconcile_ingest_jobs(session, kb_id):
+        await session.commit()
+
     notes = list(
         (
             await session.execute(
@@ -295,13 +309,8 @@ async def compile_all_notes(
         .scalars()
         .all()
     )
-    # 数据表行笔记随所属数据表一起编译；自动维护的待办收件箱不属于知识正文。
-    candidates = [
-        note
-        for note in notes
-        if not (note.props_json or {}).get("collection_row_id")
-        and not (note.props_json or {}).get("todo_hub")
-    ]
+    # 数据表行笔记随所属数据表编译；待办汇总与只读导入材料不属于知识正文。
+    candidates = [note for note in notes if note_compile_eligible(note)]
     jobs: list[dict] = []
     empty = 0
     busy = 0
@@ -369,6 +378,10 @@ async def compile_note(
     if kb is None:
         raise HTTPException(404, "知识库不存在")
 
+    skip_label = note_compile_skip_label(note)
+    if skip_label:
+        raise HTTPException(400, skip_label)
+
     prepared = await _prepare_note_compile(session, kb_id, note)
     if prepared is None:
         body = (await note_compiler.build_note_compile_markdown(session, note)).strip()
@@ -389,6 +402,8 @@ async def note_compile_status(
     note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ):
     await _get_note(session, kb_id, note_id)
+    if await reconcile_ingest_jobs(session, kb_id, note_id=note_id):
+        await session.commit()
     job = (
         await session.execute(
             select(IngestJob)

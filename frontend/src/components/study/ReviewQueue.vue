@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // ReviewQueue：今日到期复习队列（间隔复习调度）。
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useStudyStore, type ReviewItem } from '@/stores/study'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
+import KiwiDropdown from '@/components/ui/KiwiDropdown.vue'
+import { toast } from '@/components/ui/toast'
 
 const emit = defineEmits<{ (e: 'start', mode: 'drill' | 'review'): void }>()
 
@@ -46,6 +48,63 @@ function pct(v: number) {
   return Math.round(v * 100)
 }
 
+const exporting = ref(false)
+const importing = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+const EXPORT_GROUPS = [
+  { value: 'none' as const, label: '导出为单牌组' },
+  { value: 'type' as const, label: '按题型拆分子牌组' },
+  { value: 'topic' as const, label: '按知识点拆分子牌组' },
+]
+
+function pickAnkiFile() {
+  if (!importing.value) fileInput.value?.click()
+}
+
+async function onAnkiFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  importing.value = true
+  try {
+    const result = await study.importAnki(file)
+    if (result.imported) {
+      toast.success(
+        `已导入 ${result.imported} 道题${result.skipped ? `，跳过 ${result.skipped} 道重复题` : ''}`,
+      )
+    } else {
+      toast.info(`没有新题目，${result.skipped} 道题已在题库中`)
+    }
+  } catch (e: any) {
+    toast.error(e.message || '导入 Anki 牌组失败')
+  } finally {
+    importing.value = false
+  }
+}
+
+async function exportAnki(groupBy: 'none' | 'type' | 'topic' = 'none') {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const { blob, filename, count } = await study.exportAnki(groupBy)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    toast.success(`已导出 ${count || ''} 道题到 Anki 牌组`)
+  } catch (e: any) {
+    toast.error(e.message || '导出 Anki 牌组失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 onMounted(() => {
   study.loadDueReviews()
 })
@@ -67,9 +126,55 @@ onMounted(() => {
           </p>
         </div>
       </div>
-      <button class="kiwi-btn-ghost !p-1.5" title="刷新" @click="study.loadDueReviews()">
-        <KiwiIcon name="refresh" :size="15" />
-      </button>
+      <div class="flex items-center gap-1">
+        <KiwiDropdown align="right" width="w-44">
+          <template #trigger="{ open }">
+            <button
+              class="kiwi-btn-ghost !px-2 !py-1 text-[11px] disabled:opacity-50"
+              :class="open ? 'text-kiwi-700 bg-kiwi-50' : ''"
+              title="导出 Anki 牌组（含题干、答案与解析）"
+              :disabled="exporting"
+            >
+              <KiwiIcon name="fileExport" :size="13" :spin="exporting" />
+              Anki
+              <KiwiIcon name="chevron" :size="11" />
+            </button>
+          </template>
+          <template #default="{ close }">
+            <button
+              v-for="option in EXPORT_GROUPS"
+              :key="option.value"
+              type="button"
+              class="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-slate-600 hover:bg-kiwi-50 disabled:opacity-40"
+              :disabled="exporting"
+              @click="close(); exportAnki(option.value)"
+            >
+              <KiwiIcon name="fileExport" :size="12" class="text-slate-400" />
+              {{ option.label }}
+            </button>
+            <div class="my-1 border-t border-slate-100" />
+            <button
+              type="button"
+              class="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] text-slate-600 hover:bg-kiwi-50 disabled:opacity-40"
+              :disabled="importing"
+              @click="close(); pickAnkiFile()"
+            >
+              <KiwiIcon :name="importing ? 'loader' : 'fileImport'" :size="12" :spin="importing" class="text-slate-400" />
+              {{ importing ? '导入中…' : '导入 Anki 牌组…' }}
+            </button>
+          </template>
+        </KiwiDropdown>
+        <input
+          ref="fileInput"
+          type="file"
+          accept=".apkg,.colpkg"
+          class="hidden"
+          @change="onAnkiFile"
+        />
+        <button class="kiwi-btn-ghost !p-1.5" title="刷新" @click="study.loadDueReviews()">
+          <KiwiIcon name="refresh" :size="15" />
+        </button>
+      </div>
     </div>
 
     <!-- 加载中 -->

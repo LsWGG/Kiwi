@@ -18,6 +18,7 @@ import {
   type WikiLinkTarget,
 } from '@/lib/wikiMarkdown'
 import { toast } from '@/components/ui/toast'
+import { useCitationAnchor } from '@/composables/useCitationAnchor'
 
 interface WikiSource {
   id: string
@@ -106,6 +107,8 @@ const error = ref('')
 const annotationsLoading = ref(false)
 const indexLoading = ref(false)
 const treeOpen = ref(false)
+const articleRef = ref<HTMLElement | null>(null)
+useCitationAnchor(articleRef)
 
 const readOnly = computed(() => mode.mode === 'learn')
 // 学习批注属于学习数据：学习模式可写，编辑模式只读（README 14.1 边界）
@@ -481,7 +484,7 @@ const tabCounts = computed(() => ({
       </aside>
 
       <!-- 正文 -->
-      <article class="kiwi-card p-6 md:p-9 min-w-0 animate-fade-up">
+      <article ref="articleRef" class="kiwi-card p-6 md:p-9 min-w-0 animate-fade-up">
         <div class="flex items-start gap-3">
           <div class="min-w-0 flex-1">
             <input

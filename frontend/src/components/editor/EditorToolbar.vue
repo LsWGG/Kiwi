@@ -8,6 +8,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Editor } from '@tiptap/core'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import { useExtensionsStore } from '@/stores/extensions'
+import { usePluginsStore, type PluginBlock } from '@/stores/plugins'
 import {
   CODE_LANGUAGES,
   CODE_THEMES,
@@ -80,6 +82,8 @@ const emit = defineEmits<{
   (e: 'emoji'): void
   /** 插入扩展组件：date / formula / mermaid / gallery / columns2 / columns3 / note */
   (e: 'component', key: string): void
+  /** 插入已启用第三方插件的区块 */
+  (e: 'plugin-block', block: PluginBlock): void
   (e: 'docx-prefs', prefs: DocxPrefs): void
   (e: 'page-break'): void
   (e: 'word-preview'): void
@@ -149,6 +153,9 @@ function toggleComponentMenu() {
     cancelAnimationFrame(componentMenuFrame)
     return
   }
+  // 首次失败或设置页刚改完状态时，打开菜单再拉一次清单。
+  void extensions.ensure().catch(() => {})
+  void pluginsStore.ensureBlocks()
   const anchor = componentMenuAnchor()
   // 先让「+」完整进入工具栏可视区，再按最终位置展开菜单。
   anchor?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
@@ -157,21 +164,20 @@ function toggleComponentMenu() {
   void nextTick(positionComponentMenu)
 }
 
-const COMPONENTS = [
-  { key: 'date', label: '日期', hint: '可点击修改的日期胶囊', icon: 'calendar' },
-  { key: 'formula', label: '公式', hint: 'KaTeX 数学公式', icon: 'hash' },
-  { key: 'mermaid', label: '文本绘图', hint: 'Mermaid 流程图 / 时序图', icon: 'graph' },
-  { key: 'gallery', label: '图册', hint: '多图网格 / 滑动展示', icon: 'gallery' },
-  { key: 'columns2', label: '分栏卡片 · 2 栏', hint: '左右并排的富文本', icon: 'columns' },
-  { key: 'columns3', label: '分栏卡片 · 3 栏', hint: '三栏并排的富文本', icon: 'columns' },
-  { key: 'calendar', label: '日历', hint: '月视图，可为日期添加安排', icon: 'calendar' },
-  { key: 'datatable', label: '数据表', hint: '可增删行列，支持批量粘贴', icon: 'table' },
-  { key: 'taskProgress', label: '待办进度', hint: '绑定附近任务清单，实时统计完成度', icon: 'checkSquare' },
-]
+// 扩展组件清单由后端统一下发，设置页启停后工具栏菜单同步过滤。
+const extensions = useExtensionsStore()
+const components = computed(() => extensions.enabledItems)
+const pluginsStore = usePluginsStore()
+const pluginBlocks = computed(() => pluginsStore.blocks)
 
 function pickComponent(key: string) {
   componentMenuOpen.value = false
   emit('component', key)
+}
+
+function pickPluginBlock(block: PluginBlock) {
+  componentMenuOpen.value = false
+  emit('plugin-block', block)
 }
 
 function onComponentOutside(event: MouseEvent) {
@@ -188,6 +194,9 @@ function onComponentViewportChange() {
 }
 
 onMounted(() => {
+  // 失败不阻塞编辑；下一次打开菜单仍会重试。
+  void extensions.ensure().catch(() => {})
+  void pluginsStore.ensureBlocks()
   document.addEventListener('mousedown', onComponentOutside)
   window.addEventListener('resize', onComponentViewportChange)
   window.addEventListener('scroll', onComponentViewportChange, true)
@@ -669,7 +678,7 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
         <button
           type="button"
           :class="[btn, componentMenuOpen ? activeBtn : '']"
-          title="插入组件：日期 / 公式 / 绘图 / 图册 / 分栏 / 日历 / 数据表 / 待办进度"
+          title="插入组件：内置扩展组件与第三方插件区块"
           @mousedown.prevent
           @click="toggleComponentMenu"
         >
@@ -689,14 +698,26 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
             >
               <div
                 ref="componentMenuEl"
-                class="w-60 rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
+                class="max-h-[70vh] w-60 overflow-y-auto rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
                 :style="{ zoom: 'var(--ui-scale)' }"
               >
                 <p class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">
                   扩展组件
                 </p>
+                <p
+                  v-if="!components.length && !pluginBlocks.length"
+                  class="px-2 pb-2 pt-1 text-[11px] leading-relaxed text-slate-400"
+                >
+                  扩展组件已全部停用，可在「设置 → 插件与区块」中开启。
+                </p>
+                <p
+                  v-else-if="!components.length"
+                  class="px-2 pb-2 pt-1 text-[11px] leading-relaxed text-slate-400"
+                >
+                  内置扩展组件已全部停用。
+                </p>
                 <button
-                  v-for="item in COMPONENTS"
+                  v-for="item in components"
                   :key="item.key"
                   type="button"
                   class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-kiwi-50"
@@ -711,6 +732,31 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
                     <span class="block truncate text-[10px] text-slate-400">{{ item.hint }}</span>
                   </span>
                 </button>
+
+                <template v-if="pluginBlocks.length">
+                  <div class="mx-2 my-1 border-t border-slate-200/70" />
+                  <p class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                    插件区块
+                  </p>
+                  <button
+                    v-for="block in pluginBlocks"
+                    :key="block.key"
+                    type="button"
+                    class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-kiwi-50"
+                    @mousedown.prevent
+                    @click="pickPluginBlock(block)"
+                  >
+                    <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-500">
+                      <KiwiIcon :name="block.icon || 'puzzle'" :size="13" />
+                    </span>
+                    <span class="min-w-0">
+                      <span class="block text-[12px] font-medium text-slate-700">{{ block.label }}</span>
+                      <span class="block truncate text-[10px] text-slate-400">
+                        {{ block.plugin_name }} · {{ block.category }}
+                      </span>
+                    </span>
+                  </button>
+                </template>
               </div>
             </div>
           </Transition>

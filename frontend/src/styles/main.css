@@ -1084,6 +1084,54 @@ body.kiwi-tree-dragging * {
   12%, 62% { background-color: #fef08a; box-shadow: 0 0 0 3px #fef08a; }
 }
 
+/* 搜索结果跳转：正文关键词高亮。
+   编辑器内用 ProseMirror 装饰（.kiwi-search-hit），只读渲染等场景仍走
+   CSS Custom Highlight API。颜色写死：Firefox 不在 ::highlight() 里解析 var()。 */
+.kiwi-search-hit {
+  background-color: rgb(253 230 138 / 0.9);
+  color: rgb(120 53 15);
+  border-radius: 2px;
+  text-decoration: underline;
+  text-decoration-color: rgb(245 158 11);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+  box-decoration-break: clone;
+}
+
+::highlight(kiwi-search-hit) {
+  background-color: rgb(253 230 138 / 0.9);
+  color: rgb(120 53 15);
+  text-decoration: underline;
+  text-decoration-color: rgb(245 158 11);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+/* 页内查找：全部命中用浅暖黄，当前项再用主题橙强调，便于在长文里扫读。 */
+.kiwi-search-hit.kiwi-search-hit-active {
+  background-color: rgb(251 191 36 / 0.95);
+  color: rgb(69 26 3);
+  box-shadow: 0 0 0 2px rgb(251 191 36 / 0.45);
+}
+
+::highlight(kiwi-note-find) {
+  background-color: rgb(253 230 138 / 0.85);
+  color: rgb(120 53 15);
+  text-decoration: underline;
+  text-decoration-color: rgb(245 158 11);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+::highlight(kiwi-note-find-active) {
+  background-color: rgb(251 191 36);
+  color: rgb(69 26 3);
+  text-decoration: underline;
+  text-decoration-color: rgb(217 119 6);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
 /* ---------- Notion 块：提示块 / 视频 / 拖动手柄 ---------- */
 .kiwi-editor .ProseMirror .callout-block {
   position: relative;
@@ -1778,6 +1826,11 @@ body.kiwi-tree-dragging * {
   margin: 0;
   accent-color: rgb(var(--kiwi-500));
 }
+/* 设置页内置组件预览：待办可勾选，进度卡实时联动。 */
+.markdown-view.is-interactive li.task-list-item > label,
+.markdown-view.is-interactive .task-list-item-checkbox:not(:disabled) {
+  cursor: pointer;
+}
 .prose-wiki table {
   width: 100%;
   border-collapse: collapse;
@@ -1950,4 +2003,67 @@ body.kiwi-tree-dragging * {
 .kiwi-editor .kiwi-columns.ProseMirror-selectednode {
   outline: 2px solid rgb(var(--kiwi-400));
   outline-offset: 2px;
+}
+
+/* 问答引用跳转后的段落高亮：只绘制、不修改正文 DOM。 */
+::highlight(kiwi-citation) {
+  background-color: rgb(250 204 21 / 0.5);
+  color: inherit;
+  text-decoration: underline 2px rgb(234 179 8 / 0.75);
+  text-underline-offset: 3px;
+}
+
+/* ---------- 组件插件区块 ---------- */
+/* 公开分享页不执行第三方脚本，读态占位与工作区加载失败态保持一致。 */
+.markdown-view .md-plugin-block {
+  margin: 0.9rem 0;
+}
+/* 组件块对齐：插件照常拿到整行宽度，只用自动外边距移动组件自身，
+   避免 shrink-to-fit 容器让 `width: min(100%, …)` 退化成 min-content。 */
+.markdown-view .md-plugin-block[data-align='center'] > * {
+  margin-left: auto;
+  margin-right: auto;
+}
+.markdown-view .md-plugin-block[data-align='right'] > * {
+  margin-left: auto;
+  margin-right: 0;
+}
+.markdown-view .md-plugin-block > * {
+  max-width: 100%;
+}
+.markdown-view .md-plugin-placeholder {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed rgb(203 213 225);
+  border-radius: 12px;
+  background: rgb(248 250 252 / 0.8);
+}
+.markdown-view .md-plugin-placeholder-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgb(241 245 249);
+  color: rgb(100 116 139);
+  flex-shrink: 0;
+}
+.markdown-view .md-plugin-placeholder-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.markdown-view .md-plugin-placeholder-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(51 65 85);
+}
+.markdown-view .md-plugin-placeholder code {
+  padding: 0;
+  background: transparent;
+  font-size: 10px;
+  color: rgb(148 163 184);
 }

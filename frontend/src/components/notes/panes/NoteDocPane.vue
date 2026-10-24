@@ -28,6 +28,9 @@ import NoteTagButton from '@/components/notes/NoteTagButton.vue'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
 import { useSyncedScroll } from '@/composables/useSyncedScroll'
+import { useCitationAnchor } from '@/composables/useCitationAnchor'
+import { useFindHighlight } from '@/composables/useFindHighlight'
+import { useNoteFindStore } from '@/stores/noteFind'
 import { stripLeadingTitleHeading } from '@/lib/wikiMarkdown'
 import {
   resolveDocxPrefs,
@@ -113,6 +116,10 @@ function setView(mode: DocView) {
 
 const backlinks = ref<NoteSummary[]>([])
 const editorRef = ref<InstanceType<typeof KiwiEditor> | null>(null)
+const noteFind = useNoteFindStore()
+
+// 页内查找：正文命中交给编辑器装饰，查找条负责计数与滚动。
+useFindHighlight(editorRef, () => props.note.id, () => props.note.body_md)
 
 // ---------- 历史版本 ----------
 const historyOpen = ref(false)
@@ -222,6 +229,7 @@ const readZoom = ref(1)
 const readZen = ref(false)
 
 useSyncedScroll(readingScrollRef, previewScrollRef, splitMode)
+useCitationAnchor(readingScrollRef)
 
 // ---------- 编辑器模式 ----------
 const modeOverride = ref<EditorMode | null>(null)
@@ -649,6 +657,9 @@ onBeforeUnmount(() => {
   previewResizeObserver?.disconnect()
   if (prefsPreviewTimer !== null) window.clearTimeout(prefsPreviewTimer)
   clearCiteTimers()
+  searchSeq += 1
+  if (searchRetry !== null) window.clearTimeout(searchRetry)
+  releaseSearchHighlight()
 })
 
 // 自动保存完成后刷新预览，保证预览与正文同步
@@ -750,6 +761,216 @@ watch(
   () => {
     const mention = route.query.mention
     if (typeof mention === 'string' && mention) locateMention(mention)
+  },
+  { immediate: true },
+)
+
+/* ---------- 搜索结果跳转：定位关键词并高亮命中位置 ---------- */
+const SEARCH_HIGHLIGHT = 'kiwi-search-hit'
+const SEARCH_HIGHLIGHT_MS = 4200
+let searchSeq = 0
+let searchRetry: number | null = null
+let searchFlashTimer: number | null = null
+let searchKeepAlive: number | null = null
+let searchScrollRetry: number | null = null
+let searchTerm = ''
+let searchSelectionUsed = false
+
+type HighlightRegistry = {
+  set: (name: string, highlight: unknown) => void
+  delete: (name: string) => void
+}
+type HighlightCtor = new (...ranges: Range[]) => unknown
+
+/** CSS Custom Highlight API；旧浏览器返回 null，走原生选区降级。 */
+function highlightRegistry(): HighlightRegistry | null {
+  const css = window.CSS as unknown as { highlights?: HighlightRegistry } | undefined
+  const HighlightImpl = (window as unknown as { Highlight?: HighlightCtor }).Highlight
+  return css?.highlights && HighlightImpl ? css.highlights : null
+}
+
+function releaseSearchHighlight() {
+  if (searchFlashTimer !== null) {
+    window.clearTimeout(searchFlashTimer)
+    searchFlashTimer = null
+  }
+  if (searchKeepAlive !== null) {
+    window.clearInterval(searchKeepAlive)
+    searchKeepAlive = null
+  }
+  if (searchScrollRetry !== null) {
+    window.clearTimeout(searchScrollRetry)
+    searchScrollRetry = null
+  }
+  searchTerm = ''
+  highlightRegistry()?.delete(SEARCH_HIGHLIGHT)
+  editorRef.value?.clearSearchHighlight()
+  if (searchSelectionUsed) {
+    window.getSelection()?.removeAllRanges()
+    searchSelectionUsed = false
+  }
+}
+
+function scheduleSearchClear() {
+  if (searchFlashTimer !== null) window.clearTimeout(searchFlashTimer)
+  searchFlashTimer = window.setTimeout(releaseSearchHighlight, SEARCH_HIGHLIGHT_MS)
+}
+
+/**
+ * 编辑器挂载晚于路由切换时，装饰节点会先出现在尚未连接的编辑器 DOM 里；
+ * 因此从实时面板重新查询，等节点真正插入页面后再滚动。
+ */
+function scrollToSearchHit(attempt = 0) {
+  if (searchScrollRetry !== null) {
+    window.clearTimeout(searchScrollRetry)
+    searchScrollRetry = null
+  }
+  const hit = paneRef.value?.querySelector<HTMLElement>('.kiwi-search-hit')
+  if (hit) {
+    hit.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    return
+  }
+  if (attempt >= 20) return
+  searchScrollRetry = window.setTimeout(() => {
+    searchScrollRetry = null
+    scrollToSearchHit(attempt + 1)
+  }, 80)
+}
+
+/** 正文中查找关键词：先按完整搜索词匹配，没有再逐个词匹配。 */
+function findTermRanges(root: HTMLElement, raw: string): Range[] {
+  const keyword = raw.trim()
+  const candidates = [keyword, ...keyword.split(/\s+/)].filter(
+    (term, index, list) => !!term && list.indexOf(term) === index,
+  )
+  const nodes: Text[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = (node as Text).parentElement
+      if (!parent) return NodeFilter.FILTER_REJECT
+      // 提及、分页符等自定义节点内部不是可读正文。
+      if (parent.closest('[contenteditable="false"], .kiwi-page-break, script, style')) {
+        return NodeFilter.FILTER_REJECT
+      }
+      return node.nodeValue?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+    },
+  })
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text)
+
+  for (const term of candidates) {
+    const needle = term.toLocaleLowerCase()
+    const ranges: Range[] = []
+    for (const node of nodes) {
+      const haystack = (node.nodeValue || '').toLocaleLowerCase()
+      let from = 0
+      while (ranges.length < 200) {
+        const index = haystack.indexOf(needle, from)
+        if (index < 0) break
+        const range = document.createRange()
+        range.setStart(node, index)
+        range.setEnd(node, index + term.length)
+        ranges.push(range)
+        from = index + needle.length
+      }
+      if (ranges.length >= 200) break
+    }
+    if (ranges.length) return ranges
+  }
+  return []
+}
+
+function applySearchHighlight(ranges: Range[], keyword: string) {
+  const first = ranges[0]
+  first.startContainer.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const registry = highlightRegistry()
+  const HighlightImpl = (window as unknown as { Highlight?: HighlightCtor }).Highlight
+  if (registry && HighlightImpl) {
+    registry.set(SEARCH_HIGHLIGHT, new HighlightImpl(...ranges))
+    // 编辑器异步重渲染会替换文本节点，旧的 Range 随之折叠；持续按当前正文重算，
+    // 保证高亮在整个展示窗口内都看得见。
+    searchTerm = keyword
+    if (searchKeepAlive !== null) window.clearInterval(searchKeepAlive)
+    searchKeepAlive = window.setInterval(() => {
+      if (!searchTerm) return
+      const root = paneRef.value?.querySelector<HTMLElement>('.kiwi-editor .ProseMirror')
+      if (!root) return
+      const next = findTermRanges(root, searchTerm)
+      if (next.length) highlightRegistry()?.set(SEARCH_HIGHLIGHT, new HighlightImpl(...next))
+    }, 350)
+  } else {
+    // 不支持 Highlight API 时至少用原生选区标出第一处。
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(first)
+    searchSelectionUsed = true
+  }
+  scheduleSearchClear()
+}
+
+function locateSearchTerm(raw: string, attempt = 0) {
+  const keyword = raw.trim()
+  if (!keyword) return
+  const seq = ++searchSeq
+  if (searchRetry !== null) {
+    window.clearTimeout(searchRetry)
+    searchRetry = null
+  }
+  const retry = () => {
+    if (attempt >= 26) return
+    searchRetry = window.setTimeout(() => {
+      searchRetry = null
+      locateSearchTerm(keyword, attempt + 1)
+    }, 150)
+  }
+  void nextTick(() => {
+    if (seq !== searchSeq) return
+    // 编辑器内优先走 ProseMirror 装饰：Firefox 对 contenteditable 里的
+    // CSS Custom Highlight 不绘制，装饰节点则稳定可见。
+    if (editorRef.value?.highlightSearchTerm(keyword)) {
+      searchTerm = ''
+      searchSelectionUsed = false
+      scheduleSearchClear()
+      scrollToSearchHit()
+      return
+    }
+    const root = paneRef.value?.querySelector<HTMLElement>('.kiwi-editor .ProseMirror')
+    if (!root) {
+      retry()
+      return
+    }
+    const ranges = findTermRanges(root, keyword)
+    if (ranges.length) {
+      applySearchHighlight(ranges, keyword)
+      return
+    }
+    // 正文未命中时若标题包含关键词，选中标题里的对应片段。
+    const needle = keyword.toLocaleLowerCase()
+    const titleText = (title.value || '').toLocaleLowerCase()
+    if (titleText.includes(needle)) {
+      const input = paneRef.value?.querySelector<HTMLInputElement>(
+        'input[placeholder="无标题文档"]',
+      )
+      if (input) {
+        const at = input.value.toLocaleLowerCase().indexOf(needle)
+        if (at >= 0) {
+          input.focus()
+          input.setSelectionRange(at, at + keyword.length)
+        }
+      }
+    }
+    // 编辑器 / 只读渲染尚未完成时短暂重试，避免跳转落空。
+    retry()
+  })
+}
+
+watch(
+  () => [route.query.hl, route.query.t, props.note.id],
+  () => {
+    // 页内查找打开时由它接管高亮，避免两套关键词互相覆盖。
+    if (noteFind.open) return
+    const keyword = route.query.hl
+    if (typeof keyword === 'string' && keyword) locateSearchTerm(keyword)
+    else releaseSearchHighlight()
   },
   { immediate: true },
 )
@@ -875,7 +1096,7 @@ async function copyMarkdown() {
 
 <template>
   <div ref="paneRef" class="h-full flex flex-col">
-    <header class="shrink-0 h-11 flex items-center gap-2 px-4 border-b border-slate-200/50 bg-white/40">
+    <header class="shrink-0 h-11 flex items-center gap-2 px-4 border-b border-slate-200/50 bg-white/40 max-md:gap-1.5 max-md:overflow-x-auto max-md:px-2">
       <NoteTitleBreadcrumb
         v-model:title="title"
         :note-id="note.id"
@@ -998,7 +1219,7 @@ async function copyMarkdown() {
           :disabled="exporting"
           @click="exportDocx"
         >
-          <KiwiIcon :name="exporting ? 'loader' : 'download'" :size="13" :spin="exporting" />
+          <KiwiIcon :name="exporting ? 'loader' : 'fileExport'" :size="13" :spin="exporting" />
           Word
         </button>
         <button
@@ -1112,7 +1333,7 @@ async function copyMarkdown() {
         </div>
         <div
           v-else
-          class="mx-auto flex min-h-full w-full max-w-[1480px] flex-col px-6"
+          class="mx-auto flex min-h-full w-full max-w-[1480px] flex-col px-6 max-md:px-1.5"
           :class="readMode ? 'pt-6 pb-28' : docxToolbarExternal ? 'pt-0 pb-6' : 'py-6'"
           :style="readMode ? { zoom: readZoom } : undefined"
         >
@@ -1262,6 +1483,7 @@ async function copyMarkdown() {
       <div
         v-if="sourceOpen && !readonlyImport && !readMode && viewMode !== 'split'"
         class="flex min-h-0 w-[48%] min-w-[320px] shrink-0 flex-col border-l border-slate-200/70"
+        data-find-skip
       >
         <OriginalFileViewer
           :note-id="note.id"
@@ -1276,6 +1498,7 @@ async function copyMarkdown() {
       <div
         v-if="viewMode === 'split'"
         class="flex min-h-0 w-[46%] min-w-[320px] shrink-0 flex-col border-l border-slate-200/70 bg-white/60"
+        data-find-skip
       >
         <div
           class="flex shrink-0 items-center gap-1.5 border-b border-slate-200/60 px-4 py-2 text-[10.5px] text-slate-400"
@@ -1288,7 +1511,11 @@ async function copyMarkdown() {
           <h1 class="mb-3 text-[24px] leading-tight font-semibold text-slate-800">
             {{ title || '无标题文档' }}
           </h1>
-          <MarkdownView :content="previewBody" :ordered-list-style="orderedListStyle" />
+          <MarkdownView
+            :content="previewBody"
+            :ordered-list-style="orderedListStyle"
+            plugins
+          />
         </div>
       </div>
 
@@ -1297,6 +1524,7 @@ async function copyMarkdown() {
         v-if="wordPreview && !readMode && viewMode !== 'split' && editorMode === 'docx'"
         class="flex min-h-0 w-[47%] min-w-[360px] shrink-0 pb-6 pr-6"
         :style="{ paddingTop: `${previewTop}px` }"
+        data-find-skip
       >
         <WordPreview
           ref="wordPreviewRef"
@@ -1344,6 +1572,7 @@ async function copyMarkdown() {
       <div
         v-if="agentMode"
         class="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center bg-gradient-to-t from-slate-50/90 via-slate-50/55 to-transparent px-6 pb-4 pt-12"
+        data-find-skip
       >
         <div class="pointer-events-auto w-full max-w-2xl">
           <NoteAgentPanel

@@ -163,6 +163,29 @@ class NoteBacklinkOut(NoteSummary):
 class NoteTreeOut(BaseModel):
     folders: list[NoteFolderOut]
     notes: list[NoteSummary]
+    # 增量刷新：只返回 since 之后变化的节点与已删除 ID
+    incremental: bool = False
+    # 本次响应对应的服务端时间，客户端下次作为 since 传回
+    server_time: datetime | None = None
+    deleted_note_ids: list[uuid.UUID] = Field(default_factory=list)
+    deleted_folder_ids: list[uuid.UUID] = Field(default_factory=list)
+    # 懒加载模式：仅返回根级 / 置顶笔记，子节点通过 /tree/children 拉取
+    lazy: bool = False
+    # 知识库活跃笔记总数（懒加载时前端仍能展示真实计数）
+    total_notes: int | None = None
+
+
+class NoteTreeChildrenOut(BaseModel):
+    notes: list[NoteSummary]
+    # 命中上限时前端提示「仅显示前 N 条」
+    truncated: bool = False
+
+
+class NoteTreeLocationOut(BaseModel):
+    """深链定位：笔记摘要 + 需要展开的祖先分组 / 父笔记。"""
+
+    note: NoteSummary
+    ancestor_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class ReorderIn(BaseModel):
@@ -303,11 +326,12 @@ class NoteAssistIn(BaseModel):
 class NoteAssistReference(BaseModel):
     """「基于知识库解释」引用的条目。"""
 
-    kind: Literal["wiki", "source"]
+    kind: Literal["wiki", "note", "source"]
     title: str
     quote: str = ""
     score: float = 0.0
     wiki_page_id: uuid.UUID | None = None
+    note_id: uuid.UUID | None = None
     source_id: uuid.UUID | None = None
 
 
@@ -405,6 +429,24 @@ class RelatedNoteItem(BaseModel):
     note: NoteSummary
     score: float
     reasons: list[str] = Field(default_factory=list)
+    # 正文已存在双向链接；前端据此决定是否还能给出「复制引用」建议。
+    linked: bool = False
+    # 正文二元组 Jaccard 相似度（0-1），用于展示内容关联强度。
+    similarity: float = 0.0
+    # 内容高度重合，可能是同一份笔记的副本。
+    duplicate: bool = False
+
+
+class NoteTagSuggestion(BaseModel):
+    name: str
+    # existing = 复用语料库已有标签；ai = 大模型新建议
+    source: str = "existing"
+    evidence: str = ""
+
+
+class NoteTagSuggestionsOut(BaseModel):
+    tags: list[NoteTagSuggestion] = Field(default_factory=list)
+    ai_error: str | None = None
 
 
 # ---------- 生命周期 / 编译 / Wiki 关联 / 学习要点 ----------
@@ -472,3 +514,48 @@ class QuickCaptureIn(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     folder_id: uuid.UUID | None = None
 
+
+
+class NoteShareCreate(BaseModel):
+    """创建只读分享：有效期 1 小时 ~ 30 天，可选访问密码。"""
+
+    expires_in_hours: int = Field(default=168, ge=1, le=720)
+    password: str | None = Field(default=None, min_length=4, max_length=128)
+
+
+class NoteShareOut(BaseModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    token: str
+    # 前端拼接站点域名后得到完整分享地址
+    path: str
+    # 配置了 KIWI_PUBLIC_BASE_URL 时直接返回公网完整地址
+    url: str | None = None
+    expires_at: datetime
+    has_password: bool
+    view_count: int
+    last_viewed_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    active: bool
+
+
+class SharedNoteOut(BaseModel):
+    """公开分享页内容：不含上锁 / 加密笔记正文。
+
+    ``payload`` 按笔记类型携带只读的结构化内容：数据表字段/行、表格工作簿、
+    画布文档、Notebook 单元格、链接元数据。文档类笔记只需 ``body_md``。
+    """
+
+    title: str
+    body_md: str
+    kind: str
+    updated_at: datetime
+    expires_at: datetime
+    has_password: bool
+    # 阅读态与工作区保持一致：展示笔记 emoji 与页面偏好（纸宽 / 底色 / 字号）
+    emoji: str | None = None
+    page_prefs: dict | None = None
+    # 供前端在正文中替换图片地址后校验 / 调试
+    media_expires_at: int
+    payload: dict | None = None

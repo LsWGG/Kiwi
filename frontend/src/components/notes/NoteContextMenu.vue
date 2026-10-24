@@ -22,10 +22,14 @@ const emit = defineEmits<{
   (e: 'pin'): void
   (e: 'new-folder'): void
   (e: 'copy'): void
+  (e: 'sticky'): void
+  (e: 'move-folder'): void
   (e: 'move-kb'): void
   (e: 'emoji'): void
   (e: 'tags'): void
+  (e: 'mindmap'): void
   (e: 'lock'): void
+  (e: 'share'): void
   (e: 'archive'): void
   (e: 'export', key: string): void
   (e: 'delete'): void
@@ -127,6 +131,11 @@ function scheduleHideCreate() {
 }
 
 const isFolder = computed(() => props.row?.type === 'folder')
+/** 仅有标题层级的文档 / 导入笔记可以转成思维导图。 */
+const canMindMap = computed(() => {
+  const kind = props.row?.note?.kind
+  return !isFolder.value && (kind === 'doc' || kind === 'import' || kind === 'link')
+})
 /** 「收件箱」始终置顶，无需再切换。 */
 const isInbox = computed(() => isFolder.value && !!props.row?.inbox)
 const pinned = computed(() =>
@@ -134,6 +143,8 @@ const pinned = computed(() =>
     ? !!props.row?.folder?.pinned
     : !!props.row?.note?.props_json?.pinned,
 )
+/** 上锁笔记的正文不可读，分享入口保持可见但禁用。 */
+const locked = computed(() => !isFolder.value && !!props.row?.note?.is_locked)
 /** 多选时只保留批量删除，避免对整组选择展示单项操作。 */
 const batch = computed(() => !isFolder.value && props.selectionCount > 1)
 /** 笔记下的新建目标是「子笔记」，分组层级才允许继续建子分组。 */
@@ -194,6 +205,15 @@ const createTitle = computed(() =>
             {{ pinned ? '取消置顶' : '置顶' }}
           </button>
           <button
+            v-if="!isInbox"
+            type="button"
+            class="menu-row"
+            @click="emit('move-folder'); emit('close')"
+          >
+            <KiwiIcon name="folder" :size="14" />
+            移动到分组
+          </button>
+          <button
             ref="createTriggerEl"
             type="button"
             class="menu-row"
@@ -238,10 +258,39 @@ const createTitle = computed(() =>
             <button
               type="button"
               class="menu-row"
+              :class="locked ? 'opacity-40' : ''"
+              :disabled="locked"
+              :title="locked ? '上锁笔记需先移除密码锁' : '生成无需登录的只读链接'"
+              @click="emit('share'); emit('close')"
+            >
+              <KiwiIcon name="link2" :size="14" />
+              只读分享链接
+            </button>
+            <button
+              type="button"
+              class="menu-row"
               @click="emit('copy'); emit('close')"
             >
               <KiwiIcon name="copy" :size="14" />
               复制
+            </button>
+            <button
+              type="button"
+              class="menu-row"
+              title="以独立便签浮窗置顶展示，可同时打开多篇"
+              @click="emit('sticky'); emit('close')"
+            >
+              <KiwiIcon name="layers" :size="14" />
+              贴一贴（浮窗）
+            </button>
+            <button
+              v-if="canMindMap"
+              type="button"
+              class="menu-row"
+              @click="emit('mindmap'); emit('close')"
+            >
+              <KiwiIcon name="graph" :size="14" />
+              生成思维导图
             </button>
             <button
               type="button"

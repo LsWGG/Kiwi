@@ -52,6 +52,13 @@ def _out(row: SystemSettings | None) -> SystemSettingsOut:
             has_ocr_api_key=False,
             ocr_timeout=120.0,
             ocr_language="auto",
+            transcribe_provider="auto",
+            feishu_app_id="",
+            feishu_folder_token="",
+            feishu_redirect_uri="",
+            has_feishu_app_secret=False,
+            has_feishu_user_token=False,
+            has_feishu_refresh_token=False,
             source="default",
         )
     return SystemSettingsOut(
@@ -69,6 +76,13 @@ def _out(row: SystemSettings | None) -> SystemSettingsOut:
         has_ocr_api_key=bool(row.ocr_encrypted_api_key),
         ocr_timeout=row.ocr_timeout,
         ocr_language=row.ocr_language,
+        transcribe_provider=row.transcribe_provider or "auto",
+        feishu_app_id=row.feishu_app_id or "",
+        feishu_folder_token=row.feishu_folder_token or "",
+        feishu_redirect_uri=row.feishu_redirect_uri or "",
+        has_feishu_app_secret=bool(row.feishu_app_secret_encrypted),
+        has_feishu_user_token=bool(row.feishu_user_token_encrypted),
+        has_feishu_refresh_token=bool(row.feishu_refresh_token_encrypted),
         source="saved",
     )
 
@@ -114,6 +128,27 @@ async def save_system_settings(
     if data.ocr_language is not None:
         row.ocr_language = data.ocr_language.strip() or "auto"
 
+    # --- 语音转写 / 飞书妙记 ---
+    if data.transcribe_provider is not None:
+        row.transcribe_provider = data.transcribe_provider
+    if data.feishu_app_id is not None:
+        row.feishu_app_id = data.feishu_app_id.strip()
+    if data.feishu_folder_token is not None:
+        row.feishu_folder_token = data.feishu_folder_token.strip()
+    if data.feishu_redirect_uri is not None:
+        row.feishu_redirect_uri = data.feishu_redirect_uri.strip()
+    for value, attr in (
+        (data.feishu_app_secret, "feishu_app_secret_encrypted"),
+        (data.feishu_user_token, "feishu_user_token_encrypted"),
+        (data.feishu_refresh_token, "feishu_refresh_token_encrypted"),
+    ):
+        if value is None:
+            continue
+        try:
+            setattr(row, attr, LLMCrypto.encrypt(value) if value else "")
+        except CryptoError as exc:
+            raise HTTPException(500, str(exc)) from exc
+
     if row.ocr_enabled and (
         not row.ocr_api_base or not row.ocr_api_model
     ):
@@ -128,6 +163,16 @@ async def save_system_settings(
             )
         except CryptoError as exc:
             raise HTTPException(500, str(exc)) from exc
+
+    # 强制线上时必须有应用凭据或已粘贴的用户令牌；扫码授权前允许先保存 App ID / Secret。
+    if row.transcribe_provider == "feishu" and not (
+        row.feishu_user_token_encrypted
+        or (row.feishu_app_id and row.feishu_app_secret_encrypted)
+    ):
+        raise HTTPException(
+            400,
+            "启用飞书妙记前请填写并保存应用 App ID / App Secret，或粘贴用户访问令牌",
+        )
 
     await session.commit()
     await session.refresh(row)

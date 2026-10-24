@@ -7,6 +7,7 @@
  * - 工具栏 / 右键菜单提供行列、合并、格式与数字格式；主编辑器工具栏不插入表格操作
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useNotesStore, type NoteOut } from '@/stores/notes'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
@@ -73,6 +74,7 @@ import {
 } from '@/components/notes/sheet/ops'
 const props = defineProps<{ note: NoteOut }>()
 const notes = useNotesStore()
+const route = useRoute()
 
 const title = ref(props.note.title)
 const workbook = ref<SheetWorkbook>(
@@ -1741,15 +1743,127 @@ function addCols(count = 5) {
   })
 }
 
+// ---------- 搜索结果定位 ----------
+// 搜索命中表格单元格时，路由带上 `hl`；这里切到命中所在工作表、选中并滚动到
+// 第一个命中，同时把全部命中单元格短暂标黄。
+const SEARCH_HIGHLIGHT_MS = 4200
+const searchHits = ref<Set<string>>(new Set())
+const searchSheetIds = ref<Set<string>>(new Set())
+let searchTimer: number | null = null
+
+function clearSearchHits() {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  searchHits.value = new Set()
+  searchSheetIds.value = new Set()
+}
+
+/** 单元格参与搜索匹配的文本：显示值、原始值与公式。 */
+function cellSearchText(sheet: SheetData, address: string): string {
+  const cell = sheet.cells[address]
+  const result = results.value.get(`${sheet.id}!${address}`)
+  const shown = result?.error
+    ? result.error
+    : formatSheetValue(
+        result?.value ?? cell?.cached ?? cell?.v ?? null,
+        cell?.s?.fmt,
+      )
+  const raw =
+    cell?.v === null || cell?.v === undefined
+      ? ''
+      : typeof cell.v === 'boolean'
+        ? cell.v
+          ? 'TRUE'
+          : 'FALSE'
+        : String(cell.v)
+  return [shown, raw, cell?.f || ''].filter(Boolean).join('\n')
+}
+
+function locateSearchTerm(raw: string) {
+  const keyword = raw.trim().toLocaleLowerCase()
+  if (!keyword) return
+  const terms = [keyword, ...keyword.split(/\s+/)].filter(
+    (term, index, list) => !!term && list.indexOf(term) === index,
+  )
+  const hits = new Set<string>()
+  const sheetHits = new Set<string>()
+  let best: {
+    priority: number
+    sheetId: string
+    row: number
+    col: number
+  } | null = null
+  let nameHit: string | null = null
+
+  for (const sheet of workbook.value.sheets) {
+    if (terms.some((term) => sheet.name.toLocaleLowerCase().includes(term))) {
+      sheetHits.add(sheet.id)
+      nameHit ??= sheet.id
+    }
+    const addresses = Object.keys(sheet.cells)
+      .map((address) => ({ address, position: parseAddress(address) }))
+      .filter((item) => item.position)
+      .sort(
+        (a, b) =>
+          a.position!.row - b.position!.row || a.position!.col - b.position!.col,
+      )
+    for (const { address, position } of addresses) {
+      const text = cellSearchText(sheet, address).toLocaleLowerCase()
+      if (!text || !terms.some((term) => text.includes(term))) continue
+      hits.add(`${sheet.id}!${address}`)
+      // 完整短语命中优先于拆词命中；同优先级保留最靠前的一格。
+      const priority = text.includes(keyword) ? 2 : 1
+      if (!best || priority > best.priority) {
+        best = {
+          priority,
+          sheetId: sheet.id,
+          row: position!.row,
+          col: position!.col,
+        }
+      }
+    }
+  }
+
+  const targetSheet =
+    best?.sheetId ?? nameHit ?? null
+  if (!targetSheet) return
+  if (workbook.value.active !== targetSheet) workbook.value.active = targetSheet
+  if (best) setFocus({ row: best.row, col: best.col })
+  searchHits.value = hits
+  searchSheetIds.value = sheetHits
+  if (searchTimer !== null) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(clearSearchHits, SEARCH_HIGHLIGHT_MS)
+}
+
+function applySearchQuery() {
+  const keyword = route.query.hl
+  if (typeof keyword === 'string' && keyword.trim()) {
+    locateSearchTerm(keyword)
+  } else {
+    clearSearchHits()
+  }
+}
+
+watch(
+  () => [route.query.hl, route.query.t, props.note.id],
+  () => {
+    void nextTick(applySearchQuery)
+  },
+)
+
 // ---------- 生命周期 ----------
 
 onMounted(() => {
   window.addEventListener('mouseup', stopDragging)
+  void nextTick(applySearchQuery)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('mouseup', stopDragging)
   resizeCleanup?.()
+  clearSearchHits()
 })
 
 // 外部切换笔记时重载
@@ -2031,6 +2145,9 @@ watch(
                   'is-selected': isCellSelected(row - 1, col - 1),
                   'is-active': activeAddress === cellAddress(row - 1, col - 1),
                   'is-error': cellIsError(cellAddress(row - 1, col - 1)),
+                  'is-search-hit': searchHits.has(
+                    `${activeSheet.id}!${cellAddress(row - 1, col - 1)}`,
+                  ),
                   'is-frozen-row': row - 1 < frozenRows,
                   'is-frozen-col': col - 1 < frozenCols,
                 }"
@@ -2126,7 +2243,10 @@ watch(
           v-for="(sheet, index) in workbook.sheets"
           :key="sheet.id"
           class="sheet-tab"
-          :class="{ 'is-active': sheet.id === workbook.active }"
+          :class="{
+            'is-active': sheet.id === workbook.active,
+            'is-search-hit': searchSheetIds.has(sheet.id),
+          }"
           draggable="true"
           :data-sheet-tab="sheet.name"
           @click="selectSheet(sheet.id)"
@@ -2717,6 +2837,13 @@ watch(
 .sheet-cell.is-error {
   color: #dc2626;
 }
+/* 搜索命中：在内联单元格格式之上再铺一层暖色，并加描边保证可见。 */
+.sheet-cell.is-search-hit {
+  background-image: linear-gradient(rgb(253 230 138 / 0.85), rgb(253 230 138 / 0.85));
+  box-shadow: inset 0 0 0 2px rgb(245 158 11);
+  color: #78350f;
+  z-index: 2;
+}
 /* 冻结数据单元格：单轴 sticky 用 3，行列交叉处用 4，均在表头之下、活动单元格之上。 */
 .sheet-cell.is-frozen-row,
 .sheet-cell.is-frozen-col {
@@ -2854,6 +2981,12 @@ watch(
   border-color: rgb(186 230 253);
   color: #0369a1;
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+/* 搜索命中的工作表页签短暂标黄，提示命中位于其他工作表。 */
+.sheet-tab.is-search-hit {
+  background: rgb(253 230 138 / 0.55);
+  border-color: rgb(245 158 11 / 0.55);
+  color: #92400e;
 }
 .tab-rename {
   width: 92px;

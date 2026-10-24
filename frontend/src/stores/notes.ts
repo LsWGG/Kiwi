@@ -102,6 +102,24 @@ export interface RelatedNoteItem {
   note: NoteSummary
   score: number
   reasons: string[]
+  /** 正文已存在双向链接，无需再给出引用建议。 */
+  linked?: boolean
+  /** 正文二元组 Jaccard 相似度（0-1）。 */
+  similarity?: number
+  /** 内容高度重合，可能是同一份笔记的副本。 */
+  duplicate?: boolean
+}
+
+export interface NoteTagSuggestion {
+  name: string
+  /** existing = 正文命中已有标签；ai = 大模型推荐 */
+  source: string
+  evidence: string
+}
+
+export interface NoteTagSuggestions {
+  tags: NoteTagSuggestion[]
+  ai_error: string | null
 }
 
 export interface NoteRevisionSummary {
@@ -176,6 +194,27 @@ export interface NoteFolder {
 export interface NoteTree {
   folders: NoteFolder[]
   notes: NoteSummary[]
+  /** 增量刷新响应：仅含变化节点与删除 ID */
+  incremental?: boolean
+  /** 下次增量刷新可作为 since 传回 */
+  server_time?: string | null
+  /** 知识库活跃笔记总数 */
+  total_notes?: number | null
+  deleted_note_ids?: string[]
+  deleted_folder_ids?: string[]
+  /** 懒加载模式：notes 仅含根级 / 置顶节点 */
+  lazy?: boolean
+}
+
+export interface NoteTreeChildren {
+  notes: NoteSummary[]
+  truncated: boolean
+}
+
+export interface NoteTreeLocation {
+  note: NoteSummary
+  /** 从根到父节点的分组 / 父笔记 ID */
+  ancestor_ids: string[]
 }
 
 export interface ImportStatus {
@@ -317,6 +356,13 @@ export const useNotesStore = defineStore('notes', () => {
   }
   const loading = ref(false)
   const treeLoading = ref(false)
+  // 目录树增量 / 懒加载状态
+  const treeServerTime = ref<string | null>(null)
+  const treeVersion = ref(0)
+  const loadedParents = ref<Set<string>>(new Set())
+  const treeTruncated = ref(false)
+  const treeTotal = ref(0)
+  let treeKbId: string | null = null
   const importStatus = ref<ImportStatus | null>(null)
   const importNoteId = ref<string | null>(null)
   const tags = ref<NoteTag[]>([])
@@ -356,19 +402,121 @@ export const useNotesStore = defineStore('notes', () => {
     else notes.value.push(summary)
   }
 
-  async function fetchTree() {
-    if (!kbId()) {
+  function mergeTreeRows(tree: NoteTree) {
+    const folderMap = new Map(folders.value.map((f) => [f.id, f]))
+    for (const id of tree.deleted_folder_ids || []) folderMap.delete(id)
+    for (const folder of tree.folders) folderMap.set(folder.id, folder)
+    folders.value = [...folderMap.values()]
+
+    const noteMap = new Map(notes.value.map((n) => [n.id, n]))
+    for (const id of tree.deleted_note_ids || []) noteMap.delete(id)
+    for (const note of tree.notes) noteMap.set(note.id, note)
+    notes.value = [...noteMap.values()]
+  }
+
+  /**
+   * 拉取目录树。
+   *
+   * 首次 / 切换知识库时请求根级数据（lazy=1），子节点由 `ensureTreeChildren`
+   * 按展开状态分批加载；已有游标时默认走 `?since=` 增量刷新，只合并变化节点。
+   * `full` 强制全量（根级）刷新，用于需要重建本地状态的场景。
+   */
+  async function fetchTree(opts: { full?: boolean } = {}) {
+    const kb = kbId()
+    if (!kb) {
       folders.value = []
       notes.value = []
+      loadedParents.value = new Set()
+      treeServerTime.value = null
+      treeTotal.value = 0
+      treeKbId = null
       return
     }
+    if (treeKbId !== kb) {
+      treeServerTime.value = null
+      loadedParents.value = new Set()
+      treeTruncated.value = false
+      treeKbId = kb
+    }
+    const incremental = !opts.full && !!treeServerTime.value
     treeLoading.value = true
     try {
-      const tree = await request<NoteTree>('/notes/tree', { kbId: kbId() })
-      folders.value = tree.folders
-      notes.value = tree.notes
+      const query = incremental
+        ? `?since=${encodeURIComponent(treeServerTime.value!)}&lazy=1`
+        : '?lazy=1'
+      const tree = await request<NoteTree>(`/notes/tree${query}`, { kbId: kb })
+      if (tree.incremental) {
+        mergeTreeRows(tree)
+      } else {
+        folders.value = tree.folders
+        notes.value = tree.notes
+        loadedParents.value = new Set()
+        treeTruncated.value = false
+      }
+      treeServerTime.value = tree.server_time ?? null
+      if (typeof tree.total_notes === 'number') treeTotal.value = tree.total_notes
+      treeVersion.value += 1
+    } catch (err) {
+      if (!incremental) throw err
+      // 游标失效或服务端异常时退回全量根级刷新，避免目录一直停留在旧数据。
+      treeServerTime.value = null
+      await fetchTree({ full: true })
     } finally {
       treeLoading.value = false
+    }
+  }
+
+  /** 按需加载已展开节点的直接子笔记（已加载过的节点跳过）。 */
+  async function ensureTreeChildren(ids: string[]) {
+    const kb = kbId()
+    if (!kb || !ids.length) return
+    const pending = [...new Set(ids)].filter((id) => !loadedParents.value.has(id))
+    if (!pending.length) return
+    const marked = new Set(loadedParents.value)
+    for (const id of pending) marked.add(id)
+    loadedParents.value = marked
+    try {
+      for (let i = 0; i < pending.length; i += 100) {
+        const chunk = pending.slice(i, i + 100)
+        const result = await request<NoteTreeChildren>(
+          `/notes/tree/children?ids=${encodeURIComponent(chunk.join(','))}`,
+          { kbId: kb },
+        )
+        mergeTreeRows({ folders: [], notes: result.notes })
+        if (result.truncated) treeTruncated.value = true
+      }
+    } catch (err) {
+      // 失败后允许下次展开重试。
+      const retry = new Set(loadedParents.value)
+      for (const id of pending) retry.delete(id)
+      loadedParents.value = retry
+      throw err
+    }
+  }
+
+  /** 懒加载下标题搜索需覆盖未加载节点，因此走服务端。 */
+  async function searchTree(q: string): Promise<NoteSummary[]> {
+    const kb = kbId()
+    const keyword = q.trim()
+    if (!kb || !keyword) return []
+    return request<NoteSummary[]>(
+      `/notes/tree/search?q=${encodeURIComponent(keyword)}`,
+      { kbId: kb },
+    )
+  }
+
+  /** 深链定位：返回笔记及其祖先节点，用于展开懒加载目录路径。 */
+  async function locateTreeNote(id: string): Promise<NoteTreeLocation | null> {
+    const kb = kbId()
+    if (!kb) return null
+    try {
+      const located = await request<NoteTreeLocation>(`/notes/tree/node/${id}`, {
+        kbId: kb,
+      })
+      mergeTreeRows({ folders: [], notes: [located.note] })
+      return located
+    } catch {
+      return null
     }
   }
 
@@ -390,6 +538,7 @@ export const useNotesStore = defineStore('notes', () => {
     folder_id?: string | null
     parent_note_id?: string | null
     body_md?: string
+    props_json?: Record<string, unknown>
     tags?: string[]
   }) {
     const note = await request<NoteOut>('/notes', {
@@ -401,6 +550,7 @@ export const useNotesStore = defineStore('notes', () => {
         folder_id: data.folder_id ?? null,
         parent_note_id: data.parent_note_id ?? null,
         body_md: data.body_md ?? '',
+        props_json: data.props_json ?? {},
         tags: data.tags ?? [],
       }),
     })
@@ -822,6 +972,14 @@ export const useNotesStore = defineStore('notes', () => {
 
   async function getRelated(id: string) {
     return request<RelatedNoteItem[]>(`/notes/related/${id}`, { kbId: kbId() })
+  }
+
+  /** 推荐标签；ai=true 时额外请求大模型新建议（未配置时返回 ai_error）。 */
+  async function getTagSuggestions(id: string, ai = false) {
+    return request<NoteTagSuggestions>(
+      `/notes/${id}/tag-suggestions${ai ? '?ai=1' : ''}`,
+      { kbId: kbId(), headers: noteHeaders(id) },
+    )
   }
 
   // ---------- 历史版本 ----------
@@ -1261,7 +1419,15 @@ export const useNotesStore = defineStore('notes', () => {
     archived,
     trash,
     fetchTree,
+    ensureTreeChildren,
+    searchTree,
+    locateTreeNote,
+    treeServerTime,
+    treeVersion,
+    treeTruncated,
+    treeTotal,
     getNote,
+    upsertSummary,
     createNote,
     updateNote,
     moveNote,
@@ -1291,6 +1457,7 @@ export const useNotesStore = defineStore('notes', () => {
     refreshLink,
     getBacklinks,
     getRelated,
+    getTagSuggestions,
     fetchRevisions,
     getRevision,
     createRevision,
@@ -1300,6 +1467,7 @@ export const useNotesStore = defineStore('notes', () => {
     setNoteLock,
     removeNoteLock,
     hasUnlockToken,
+    rememberUnlockToken,
     noteHeaders,
     fetchTags,
     createTag,

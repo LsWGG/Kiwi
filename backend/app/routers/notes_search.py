@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import (
+    CollectionRow,
     Note,
+    NoteCollection,
     NoteFolder,
     NoteLink,
     NoteTag,
@@ -44,6 +46,7 @@ logger = logging.getLogger("kiwi.notes.search")
 router = APIRouter()
 
 # ---- 快速捕获 ----
+
 
 @router.post("/quick-capture", response_model=NoteOut, status_code=201)
 async def quick_capture(
@@ -96,6 +99,53 @@ async def quick_capture(
 
 # ---- 搜索 / 相关笔记 / 图谱 ----
 
+
+def _structured_content(note: Note) -> str:
+    """表格 / 画布 / Notebook 的可检索正文：这类笔记的内容在 props_json 里。"""
+    props = note.props_json or {}
+    parts: list[str] = []
+    sheet = props.get("sheet")
+    if isinstance(sheet, dict):
+        for item in sheet.get("sheets") or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "")
+            if name:
+                parts.append(name)
+            cells = item.get("cells")
+            if isinstance(cells, dict):
+                values = [
+                    str(cell.get("v"))
+                    for cell in cells.values()
+                    if isinstance(cell, dict) and cell.get("v") not in (None, "")
+                ]
+                if values:
+                    parts.append(" ".join(values))
+    canvas = props.get("canvas_doc")
+    if isinstance(canvas, dict):
+        for node in canvas.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            data = node.get("data") if isinstance(node.get("data"), dict) else {}
+            text = (
+                data.get("label")
+                or data.get("text")
+                or data.get("title")
+                or node.get("label")
+                or node.get("text")
+            )
+            if text:
+                parts.append(str(text))
+    notebook = props.get("notebook_doc")
+    if isinstance(notebook, dict):
+        for cell in notebook.get("cells") or []:
+            if isinstance(cell, dict):
+                source = str(cell.get("source") or "").strip()
+                if source:
+                    parts.append(source)
+    return "\n".join(parts)[:40000]
+
+
 @router.get("/search", response_model=NoteSearchOut)
 async def search_notes(
     kb_id: uuid.UUID,
@@ -139,15 +189,10 @@ async def search_notes(
 
     if folder_id is not None:
         folders = (
-            (
-                await session.execute(
-                    select(NoteFolder.id, NoteFolder.parent_id).where(
-                        NoteFolder.kb_id == kb_id
-                    )
-                )
+            await session.execute(
+                select(NoteFolder.id, NoteFolder.parent_id).where(NoteFolder.kb_id == kb_id)
             )
-            .all()
-        )
+        ).all()
         children: dict[uuid.UUID | None, list[uuid.UUID]] = {}
         for row in folders:
             children.setdefault(row.parent_id, []).append(row.id)
@@ -198,6 +243,21 @@ async def search_notes(
                 )
             ).scalars()
         )
+        # 数据表记录不在正文里，单独按行数据匹配到所属数据表笔记。
+        term_row_note_ids = set(
+            (
+                await session.execute(
+                    select(NoteCollection.note_id)
+                    .join(CollectionRow, CollectionRow.collection_id == NoteCollection.id)
+                    .where(
+                        NoteCollection.kb_id == kb_id,
+                        NoteCollection.note_id.is_not(None),
+                        cast(CollectionRow.data, Text).ilike(pattern),
+                    )
+                    .limit(2000)
+                )
+            ).scalars()
+        )
         conditions = [
             Note.title.ilike(pattern),
             Note.body_md.ilike(pattern),
@@ -205,12 +265,41 @@ async def search_notes(
             Note.tags.any(NoteTag.name.ilike(pattern)),
         ]
         if term_wiki_ids:
-            conditions.append(Note.wiki_page_id.in_(term_wiki_ids))
+            # wiki_page_id 是读取 props_json 的 Python property，不能直接拼 SQL；
+            # 这里按 JSONB 文本值匹配关联页面。
+            conditions.append(
+                Note.props_json["wiki_page_id"].astext.in_(
+                    [str(page_id) for page_id in term_wiki_ids]
+                )
+            )
         if term_source_ids:
             conditions.append(Note.source_id.in_(term_source_ids))
+        if term_row_note_ids:
+            conditions.append(Note.id.in_(term_row_note_ids))
         stmt = stmt.where(or_(*conditions))
 
     rows = (await session.execute(stmt.limit(2000))).scalars().all()
+
+    # 数据表记录文本，供评分与摘要使用。
+    database_ids = [note.id for note in rows if note.kind == "database"]
+    row_text_map: dict[uuid.UUID, str] = {}
+    if database_ids:
+        buckets: dict[uuid.UUID, list[str]] = {}
+        row_pairs = (
+            await session.execute(
+                select(NoteCollection.note_id, CollectionRow.data)
+                .join(CollectionRow, CollectionRow.collection_id == NoteCollection.id)
+                .where(NoteCollection.note_id.in_(database_ids))
+                .order_by(CollectionRow.sort_order, CollectionRow.created_at)
+            )
+        ).all()
+        for note_id, data in row_pairs:
+            if not isinstance(data, dict):
+                continue
+            text = " | ".join(str(value) for value in data.values() if value not in (None, ""))
+            if text:
+                buckets.setdefault(note_id, []).append(text)
+        row_text_map = {note_id: "\n".join(texts)[:40000] for note_id, texts in buckets.items()}
 
     # 关联内容用于评分与摘要（命中关联 Wiki / 素材时也能给出上下文）
     page_ids = {n.wiki_page_id for n in rows if n.wiki_page_id}
@@ -246,6 +335,10 @@ async def search_notes(
         tag_names = [t.name for t in note.tags]
         tag_lower = [t.lower() for t in tag_names]
         props_text = str(note.props_json or {}).lower()
+        extra_text = (
+            row_text_map.get(note.id, "") if note.kind == "database" else _structured_content(note)
+        )
+        extra_lower = extra_text.lower()
         for term in terms:
             tl = term.lower()
             if tl == title_lower:
@@ -263,6 +356,9 @@ async def search_notes(
             if tl in props_text:
                 score += 1
                 matched.append("meta")
+            if tl in extra_lower:
+                score += 2 + min(extra_lower.count(tl), 5) * 0.2
+                matched.append("content")
             if note.wiki_page_id:
                 page = page_map.get(note.wiki_page_id)
                 if page and tl in f"{page[0]}\n{page[1]}".lower():
@@ -278,7 +374,13 @@ async def search_notes(
         if not terms:
             score = 1.0
         matched_set = set(matched)
-        snippet = _snippet(note.body_md or note.title, terms)
+        body_matches = any(term.lower() in body_lower for term in terms)
+        content_matches = any(term.lower() in extra_lower for term in terms)
+        snippet_source = note.body_md or ""
+        # 结构化内容命中而正文没有命中时，摘要展示表格 / 记录 / 画布里的原文。
+        if content_matches and not body_matches:
+            snippet_source = extra_text
+        snippet = _snippet(snippet_source or note.title, terms)
         if matched_set == {"wiki"} and note.wiki_page_id in page_map:
             page = page_map[note.wiki_page_id]
             snippet = _snippet(page[1] or page[0], terms)
@@ -322,8 +424,7 @@ async def related_notes(
         .all()
     )
     linked_ids = {
-        link.to_note_id if link.from_note_id == note_id else link.from_note_id
-        for link in links
+        link.to_note_id if link.from_note_id == note_id else link.from_note_id for link in links
     }
 
     candidate_ids: set[uuid.UUID] = set(linked_ids)
@@ -382,37 +483,55 @@ async def related_notes(
         .scalars()
         .all()
     )
-    source_grams = _bigrams(source.body_md or "") if len(source.body_md or "") > 20 else set()
-    results: list[tuple[float, Note, list[str]]] = []
+    source_body = source.body_md or ""
+    source_grams = _bigrams(source_body) if len(source_body) > 20 else set()
+    source_lower = source_body.lower()
+    results: list[tuple[float, Note, list[str], float, bool]] = []
     for candidate in candidates:
         reasons: list[str] = []
         score = 0.0
+        linked = candidate.id in linked_ids
+        similarity = 0.0
+        duplicate = False
         shared = source_tags & {t.name for t in candidate.tags}
         if shared:
             score += 3 * len(shared)
             reasons.append("共享标签：" + "、".join(sorted(shared)[:3]))
-        if candidate.id in linked_ids:
+        if linked:
             score += 2.5
             reasons.append("双向链接")
         if source_grams:
             grams = _bigrams(candidate.body_md or "")
             if grams:
                 overlap = len(source_grams & grams)
-                if overlap >= 5:
-                    similarity = overlap / max(1, len(source_grams | grams))
-                    if similarity > 0.02:
-                        score += similarity * 12
-                        reasons.append(f"内容相似度 {round(similarity * 100)}%")
+                similarity = overlap / max(1, len(source_grams | grams))
+                containment = overlap / max(1, min(len(source_grams), len(grams)))
+                if overlap >= 5 and similarity > 0.02:
+                    score += similarity * 12
+                    reasons.append(f"内容相似度 {round(similarity * 100)}%")
+                # 两份笔记的词汇高度重合，很可能是一份副本；已链接的不再提示重复。
+                if not linked and containment >= 0.7 and min(len(source_grams), len(grams)) >= 30:
+                    duplicate = True
+                    score += 4
+                    reasons.append(f"可能重复：内容重合 {round(containment * 100)}%")
+        title = (candidate.title or "").strip()
+        # 正文以纯文本提到标题时，顺手建议补成 [[双向链接]]。
+        if not linked and len(title) >= 2 and title.lower() in source_lower:
+            score += 2
+            reasons.append("正文提及标题")
         if score > 0 and reasons:
-            results.append((score, candidate, reasons))
+            results.append((score, candidate, reasons, round(similarity, 4), duplicate))
     results.sort(key=lambda item: (-item[0], -item[1].updated_at.timestamp()))
     return [
         RelatedNoteItem(
             note=NoteSummary.model_validate(note, from_attributes=True),
             score=round(score, 3),
             reasons=reasons,
+            linked=note.id in linked_ids,
+            similarity=similarity,
+            duplicate=duplicate,
         )
-        for score, note, reasons in results[:12]
+        for score, note, reasons, similarity, duplicate in results[:12]
     ]
 
 
@@ -470,9 +589,7 @@ async def note_graph(
 
     if include_wiki:
         pages = (
-            (await session.execute(select(WikiPage).where(WikiPage.kb_id == kb_id)))
-            .scalars()
-            .all()
+            (await session.execute(select(WikiPage).where(WikiPage.kb_id == kb_id))).scalars().all()
         )
         page_ids = {p.id for p in pages}
         nodes.extend(
@@ -496,5 +613,3 @@ async def note_graph(
                     }
                 )
     return {"nodes": nodes, "edges": edges}
-
-

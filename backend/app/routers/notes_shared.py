@@ -20,6 +20,7 @@ from app.db.models import (
     NoteRevision,
     NoteTag,
     NoteTagLink,
+    NoteTreeTombstone,
     WikiPage,
 )
 from app.schemas.note import (
@@ -36,6 +37,8 @@ LINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
 NOTE_MENTION_RE = re.compile(r"\]\(kiwi://note/([0-9a-fA-F-]{36})(?:\?[^)]*)?\)")
 WIKI_MENTION_RE = re.compile(r"\]\(kiwi://wiki/([0-9a-fA-F-]{36})(?:\?[^)]*)?\)")
 TRASH_RETENTION_DAYS = 30
+# 目录树删除墓碑保留天数：客户端超过该时长未刷新时需做一次全量同步。
+TREE_TOMBSTONE_RETENTION_DAYS = 7
 # 自动历史版本：2 分钟内的连续编辑合并为一个检查点，单篇最多保留 100 个版本。
 REVISION_COALESCE_SECONDS = 120
 REVISION_MAX_PER_NOTE = 100
@@ -204,6 +207,20 @@ async def _collection_child_notes(session: AsyncSession, note: Note) -> list[Not
     )
 
 
+async def _record_tree_tombstones(
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    *,
+    note_ids: list[uuid.UUID] | None = None,
+    folder_ids: list[uuid.UUID] | None = None,
+) -> None:
+    """记录目录树删除墓碑（不提交），供增量刷新返回已删除节点。"""
+    for note_id in note_ids or []:
+        session.add(NoteTreeTombstone(kb_id=kb_id, item_type="note", item_id=note_id))
+    for folder_id in folder_ids or []:
+        session.add(NoteTreeTombstone(kb_id=kb_id, item_type="folder", item_id=folder_id))
+
+
 async def _purge_expired_trash(session: AsyncSession, kb_id: uuid.UUID) -> None:
     """惰性清理超过 30 天的回收站笔记（单用户本地应用，无需常驻定时器）。"""
     cutoff = datetime.now(timezone.utc) - timedelta(days=TRASH_RETENTION_DAYS)
@@ -228,7 +245,18 @@ async def _purge_expired_trash(session: AsyncSession, kb_id: uuid.UUID) -> None:
         if trashed_at < cutoff:
             expired.append(note.id)
     if expired:
+        await _record_tree_tombstones(session, kb_id, note_ids=expired)
         await session.execute(delete(Note).where(Note.id.in_(expired)))
+        await session.commit()
+    # 墓碑只需覆盖增量同步窗口；顺手清理过期记录。
+    tombstone_cutoff = datetime.now(timezone.utc) - timedelta(days=TREE_TOMBSTONE_RETENTION_DAYS)
+    stale = await session.execute(
+        delete(NoteTreeTombstone).where(
+            NoteTreeTombstone.kb_id == kb_id,
+            NoteTreeTombstone.created_at < tombstone_cutoff,
+        )
+    )
+    if stale.rowcount:
         await session.commit()
 
 
@@ -282,6 +310,9 @@ async def _sync_note_tags(
     await session.execute(delete(NoteTagLink).where(NoteTagLink.note_id == note.id))
     for tag_id in tag_ids:
         session.add(NoteTagLink(note_id=note.id, tag_id=tag_id))
+    # 标签存于关联表，不会自动更新 notes.updated_at；显式触碰以便
+    # `/tree?since=` 增量刷新能把这篇笔记的标签变化带到客户端。
+    note.updated_at = datetime.now(timezone.utc)
     await session.flush()
 
 

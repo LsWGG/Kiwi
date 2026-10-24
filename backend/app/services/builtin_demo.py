@@ -295,7 +295,8 @@ async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | No
         slug=await _unique_slug(session),
         description=(
             "系统内置的 Kiwi 上手指南：以「三周搭建团队知识库」为示例主线，"
-            "演示笔记、画布、数据表、Notebook、导入、外链、Wiki、知识图谱、"
+            "覆盖笔记、表格、画布、数据表、Notebook、导入、外链、语音转写、"
+            "贴一贴、组件插件、只读分享、问答、待办汇总、导出、Wiki、知识图谱、"
             "学习模式与仿真考试。内容即操作说明，可自由修改；删除后可在知识库页重新创建。"
         ),
         pinned=True,

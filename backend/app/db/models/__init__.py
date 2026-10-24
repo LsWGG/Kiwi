@@ -11,6 +11,7 @@ from app.db.models.job import Job
 from app.db.models.knowledge_base import KnowledgeBase
 from app.db.models.llm_config import LLMConfig
 from app.db.models.note_revision import NoteRevision
+from app.db.models.note_share import NoteShare
 from app.db.models.notes import (
     Note,
     NoteFolder,
@@ -18,8 +19,11 @@ from app.db.models.notes import (
     NoteTag,
     NoteTagLink,
     NoteTemplate,
+    NoteTreeTombstone,
 )
 from app.db.models.notes_collection import NoteCollection
+from app.db.models.plugin import Plugin
+from app.db.models.push import PushSubscription
 from app.db.models.sources import Source
 from app.db.models.study import (
     ExamTemplate,
@@ -50,10 +54,14 @@ __all__ = [
     "NoteTag",
     "NoteTagLink",
     "NoteTemplate",
+    "NoteTreeTombstone",
     "NoteLink",
     "NoteRevision",
+    "NoteShare",
     "NoteCollection",
     "SystemSettings",
+    "PushSubscription",
+    "Plugin",
     "TodoMirror",
     "CollectionRow",
     "NoteAttachment",

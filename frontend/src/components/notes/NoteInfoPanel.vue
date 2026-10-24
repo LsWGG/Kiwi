@@ -10,13 +10,16 @@ import {
   type NoteSummary,
   type NoteStudyPoint,
   type NoteCompileStatus,
+  type NoteTagSuggestion,
   type RelatedNoteItem,
 } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import DatabaseCell from '@/components/notes/database/DatabaseCell.vue'
+import NoteShareDialog from '@/components/notes/NoteShareDialog.vue'
 import type { DbField } from '@/stores/noteDatabase'
 import { toast } from '@/components/ui/toast'
+import { noteCompileSkipLabel } from '@/utils/noteCompile'
 
 const props = defineProps<{ note: NoteOut; open: boolean }>()
 const emit = defineEmits<{
@@ -46,6 +49,14 @@ const backlinks = ref<NoteSummary[]>([])
 const related = ref<RelatedNoteItem[]>([])
 const loadingRelated = ref(false)
 
+const tagSuggestions = ref<NoteTagSuggestion[]>([])
+const loadingTagSuggestions = ref(false)
+const aiTagLoading = ref(false)
+let suggestionSeq = 0
+const suggestedTags = computed(() =>
+  tagSuggestions.value.filter((item) => !localTags.value.includes(item.name)),
+)
+
 const wikiPages = ref<Array<{ id: string; title: string; slug: string; page_type: string }>>([])
 const wikiId = ref<string>('')
 const wikiLoading = ref(false)
@@ -71,9 +82,12 @@ const isCollectionRow = computed(() => !!props.note.props_json?.collection_row_i
 const compileStatus = ref<NoteCompileStatus | null>(null)
 const compiling = ref(false)
 let compileTimer: number | null = null
+/** 待办汇总 / 只读导入材料 / 数据表行笔记不参与编译。 */
+const compileSkipLabel = computed(() => noteCompileSkipLabel(props.note))
 
 const templateName = ref('')
 const savingTemplate = ref(false)
+const shareOpen = ref(false)
 
 const folderName = computed(
   () => notes.folders.find((f) => f.id === props.note.folder_id)?.name || '根目录',
@@ -135,6 +149,38 @@ async function loadRelated() {
     related.value = rel
   } finally {
     loadingRelated.value = false
+  }
+}
+
+/** 本地匹配默认加载；点击「AI 推荐」时再请求模型，失败只提示不阻断。 */
+async function loadTagSuggestions(ai = false) {
+  const seq = ++suggestionSeq
+  if (ai) aiTagLoading.value = true
+  else loadingTagSuggestions.value = true
+  try {
+    const res = await notes.getTagSuggestions(props.note.id, ai)
+    if (seq !== suggestionSeq) return
+    tagSuggestions.value = res.tags
+    if (ai && res.ai_error) toast.error(res.ai_error)
+  } catch (e: any) {
+    if (seq !== suggestionSeq) return
+    if (ai) toast.error(e.message || '获取标签建议失败')
+    else tagSuggestions.value = []
+  } finally {
+    if (seq === suggestionSeq) {
+      if (ai) aiTagLoading.value = false
+      else loadingTagSuggestions.value = false
+    }
+  }
+}
+
+async function copyMention(item: RelatedNoteItem) {
+  const text = `[[${item.note.title}]]`
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(`已复制 ${text}，粘贴到正文即可建立双链`)
+  } catch {
+    toast.error(`复制失败，请手动输入 ${text}`)
   }
 }
 
@@ -370,7 +416,12 @@ function reset() {
   compileStatus.value = null
   compiling.value = false
   templateName.value = ''
+  shareOpen.value = false
   loadingRelated.value = false
+  tagSuggestions.value = []
+  loadingTagSuggestions.value = false
+  aiTagLoading.value = false
+  suggestionSeq += 1
   collectionContext.value = null
   collectionLoading.value = false
   collectionSaving.value = false
@@ -383,6 +434,7 @@ watch(
     reset()
     if (props.open) {
       void loadRelated()
+      void loadTagSuggestions()
       void loadWiki()
       void loadPoints()
       void loadCollectionContext()
@@ -400,6 +452,7 @@ watch(
     }
     syncTags()
     void loadRelated()
+    void loadTagSuggestions()
     void loadWiki()
     void loadPoints()
     void loadCollectionContext()
@@ -416,7 +469,7 @@ onBeforeUnmount(stopCompilePolling)
 <template>
   <aside
     v-if="open"
-    class="w-[300px] shrink-0 h-full border-l border-slate-200/60 bg-white/55 backdrop-blur-xl overflow-y-auto"
+    class="note-info-panel w-[300px] shrink-0 h-full border-l border-slate-200/60 bg-white/55 backdrop-blur-xl overflow-y-auto"
   >
     <div class="sticky top-0 z-10 flex items-center gap-2 px-4 h-11 bg-white/85 backdrop-blur border-b border-slate-200/50">
       <KiwiIcon name="fileText" :size="14" class="text-kiwi-500" />
@@ -498,7 +551,23 @@ onBeforeUnmount(stopCompilePolling)
       <section>
         <div class="flex items-center justify-between mb-1.5">
           <h4 class="info-title !mb-0">标签</h4>
-          <span v-if="savingTags" class="text-[10px] text-slate-400">保存中…</span>
+          <div class="flex items-center gap-2">
+            <span v-if="savingTags" class="text-[10px] text-slate-400">保存中…</span>
+            <button
+              type="button"
+              class="inline-flex items-center gap-0.5 text-[10px] text-kiwi-600 transition-colors hover:text-kiwi-700 disabled:opacity-50"
+              :disabled="aiTagLoading"
+              title="让大模型根据正文推荐标签"
+              @click="loadTagSuggestions(true)"
+            >
+              <KiwiIcon
+                :name="aiTagLoading ? 'loader' : 'sparkle'"
+                :size="10"
+                :spin="aiTagLoading"
+              />
+              {{ aiTagLoading ? '分析中…' : 'AI 推荐' }}
+            </button>
+          </div>
         </div>
         <div class="flex flex-wrap gap-1 mb-1.5">
           <span
@@ -523,6 +592,28 @@ onBeforeUnmount(stopCompilePolling)
         <datalist id="note-tag-options">
           <option v-for="tag in notes.tags" :key="tag.id" :value="tag.name" />
         </datalist>
+        <div v-if="suggestedTags.length || loadingTagSuggestions" class="mt-2">
+          <p class="mb-1 text-[9.5px] text-slate-400">
+            {{ loadingTagSuggestions ? '匹配已有标签…' : '推荐标签，点击添加' }}
+          </p>
+          <div v-if="suggestedTags.length" class="flex flex-wrap gap-1">
+            <button
+              v-for="tag in suggestedTags"
+              :key="tag.name"
+              type="button"
+              class="inline-flex items-center gap-0.5 rounded-md border border-dashed border-kiwi-200 bg-white/70 px-1.5 py-0.5 text-[10px] text-kiwi-700 transition-colors hover:border-kiwi-300 hover:bg-kiwi-50/70"
+              :title="tag.evidence"
+              @click="addTag(tag.name)"
+            >
+              <KiwiIcon name="plus" :size="8" />
+              {{ tag.name }}
+              <span
+                v-if="tag.source === 'ai'"
+                class="rounded bg-kiwi-100 px-0.5 text-[8px] text-kiwi-500"
+              >AI</span>
+            </button>
+          </div>
+        </div>
       </section>
 
       <!-- Wiki 关联 -->
@@ -585,20 +676,28 @@ onBeforeUnmount(stopCompilePolling)
       <!-- 编译 -->
       <section>
         <h4 class="info-title">笔记 → Wiki</h4>
-        <button
-          class="kiwi-btn-secondary w-full !text-[11.5px] !py-1.5"
-          :disabled="compileRunning"
-          @click="compileNote"
+        <template v-if="!compileSkipLabel">
+          <button
+            class="kiwi-btn-secondary w-full !text-[11.5px] !py-1.5"
+            :disabled="compileRunning"
+            @click="compileNote"
+          >
+            <KiwiIcon
+              :name="compileRunning ? 'loader' : 'sparkle'"
+              :size="12"
+              :spin="compileRunning"
+            />
+            {{ compileRunning ? '编译中…' : compileStatus?.compiled ? '重新编译为 Wiki' : '以此笔记触发编译' }}
+          </button>
+          <p class="mt-1 text-[10px] leading-relaxed text-slate-400">
+            支持全部笔记类型；数据表、画布与 Notebook 会先序列化为 Markdown 再编译。
+          </p>
+        </template>
+        <p
+          v-else
+          class="rounded-lg bg-slate-50 px-2.5 py-2 text-[10.5px] leading-relaxed text-slate-500"
         >
-          <KiwiIcon
-            :name="compileRunning ? 'loader' : 'sparkle'"
-            :size="12"
-            :spin="compileRunning"
-          />
-          {{ compileRunning ? '编译中…' : compileStatus?.compiled ? '重新编译为 Wiki' : '以此笔记触发编译' }}
-        </button>
-        <p class="mt-1 text-[10px] leading-relaxed text-slate-400">
-          支持全部笔记类型；数据表、画布与 Notebook 会先序列化为 Markdown 再编译。
+          {{ compileSkipLabel }}
         </p>
         <div v-if="compileStatus && compileStatus.status !== 'idle'" class="mt-1.5">
           <div class="flex items-center justify-between text-[10px] text-slate-400">
@@ -665,22 +764,63 @@ onBeforeUnmount(stopCompilePolling)
           <span v-if="loadingRelated" class="text-[10px] text-slate-400">分析中…</span>
         </div>
         <div class="space-y-1">
-          <button
+          <div
             v-for="item in related.slice(0, 6)"
             :key="item.note.id"
-            class="w-full text-left rounded-lg px-2 py-1.5 hover:bg-slate-50"
-            @click="emit('open-note', item.note.id)"
+            class="group relative rounded-lg px-2 py-1.5 hover:bg-slate-50"
           >
-            <div class="flex items-center gap-1.5">
-              <KiwiIcon name="file" :size="10" class="text-slate-300 shrink-0" />
-              <span class="text-[11px] text-slate-600 truncate">{{ item.note.title }}</span>
-            </div>
-            <p class="text-[9.5px] text-slate-400 truncate">{{ item.reasons.join(' · ') }}</p>
-          </button>
+            <button
+              type="button"
+              class="block w-full text-left"
+              @click="emit('open-note', item.note.id)"
+            >
+              <div class="flex items-center gap-1.5 pr-10">
+                <KiwiIcon name="file" :size="10" class="text-slate-300 shrink-0" />
+                <span class="text-[11px] text-slate-600 truncate">{{ item.note.title }}</span>
+                <span
+                  v-if="item.duplicate"
+                  class="shrink-0 rounded bg-amber-50 px-1 py-px text-[8.5px] text-amber-600"
+                >可能重复</span>
+                <span v-else-if="item.linked" class="shrink-0 text-[8.5px] text-kiwi-400">
+                  已链接
+                </span>
+              </div>
+              <p class="mt-0.5 line-clamp-2 text-[9.5px] leading-relaxed text-slate-400">
+                {{ item.reasons.join(' · ') }}
+              </p>
+            </button>
+            <button
+              v-if="!item.linked"
+              type="button"
+              class="absolute right-1.5 top-1.5 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-white hover:text-kiwi-600 group-hover:opacity-100"
+              :title="`复制 [[${item.note.title}]]，粘贴到正文建立双链`"
+              @click="copyMention(item)"
+            >
+              <KiwiIcon name="link2" :size="10" />
+            </button>
+          </div>
           <p v-if="!related.length && !loadingRelated" class="text-[10.5px] text-slate-300">
             暂无通过标签、链接或内容推断出的关联
           </p>
         </div>
+      </section>
+
+      <!-- 只读分享 -->
+      <section class="pt-1 border-t border-slate-200/60">
+        <h4 class="info-title">分享</h4>
+        <button
+          type="button"
+          class="kiwi-btn-secondary w-full !text-[11.5px] !py-1.5"
+          :disabled="note.is_locked"
+          :title="note.is_locked ? '上锁笔记需先移除密码锁' : '生成无需登录的只读链接'"
+          @click="shareOpen = true"
+        >
+          <KiwiIcon name="link2" :size="12" />
+          只读分享链接
+        </button>
+        <p class="mt-1 text-[10px] leading-relaxed text-slate-400">
+          可设置有效期和访问密码；获得链接的人无需登录即可阅读。
+        </p>
       </section>
 
       <!-- 模板 / 生命周期 -->
@@ -731,6 +871,8 @@ onBeforeUnmount(stopCompilePolling)
       </section>
     </div>
 
+    <NoteShareDialog :open="shareOpen" :note="note" @close="shareOpen = false" />
+
     <KiwiConfirm
       v-model="trashOpen"
       danger
@@ -754,5 +896,18 @@ onBeforeUnmount(stopCompilePolling)
 }
 .info-row dd {
   @apply text-right text-slate-600 min-w-0 break-words;
+}
+
+/* 窄屏下信息面板改为右侧抽屉，不再挤压正文。 */
+@media (max-width: 767px) {
+  .note-info-panel {
+    position: fixed;
+    inset-block: 0;
+    right: 0;
+    z-index: 45;
+    width: min(88vw, 320px);
+    background: rgb(255 255 255 / 0.94);
+    box-shadow: 0 20px 50px rgb(15 23 42 / 0.22);
+  }
 }
 </style>

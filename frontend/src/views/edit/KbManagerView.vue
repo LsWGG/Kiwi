@@ -713,7 +713,7 @@ async function onImportKbFile(event: Event) {
           title="导入 .kiwizip 知识库包"
           @click="pickImportKb"
         >
-          <KiwiIcon :name="importingKb ? 'loader' : 'fileDown'" :size="15" :spin="importingKb" />
+          <KiwiIcon :name="importingKb ? 'loader' : 'fileImport'" :size="15" :spin="importingKb" />
           {{ importingKb ? '导入中…' : '导入' }}
         </button>
         <button class="kiwi-btn-primary" @click="openEdit(null)">
@@ -891,7 +891,7 @@ async function onImportKbFile(event: Event) {
               @click.stop="exportKb(k)"
             >
               <KiwiIcon
-                name="download"
+                name="fileExport"
                 :size="15"
                 :class="exportingKbId === k.id ? 'animate-pulse' : ''"
               />
@@ -1127,7 +1127,7 @@ async function onImportKbFile(event: Event) {
           <div class="flex items-center justify-between gap-2">
             <label class="text-xs font-medium text-slate-500">Embedding 模型</label>
             <RouterLink
-              to="/settings/embedding"
+              to="/settings/models?tab=embedding"
               class="text-[11px] font-medium text-kiwi-600 hover:text-kiwi-700"
             >
               向量设置

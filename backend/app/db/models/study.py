@@ -201,9 +201,11 @@ class StudyAttempt(UUIDPkMixin, Base):
 
 
 class StudyReview(UUIDPkMixin, Base):
-    """知识点复习调度（SM-2 简化版）。
+    """知识点复习调度（FSRS-5）。
 
-    每个 (kb_id, slug) 一行：记录难度因子、间隔天数、连续答对次数与到期时间。
+    每个 (kb_id, slug) 一行：FSRS 状态（stability / difficulty / lapses /
+    review_state 等）为调度事实源；ease_factor / interval_days / repetitions
+    保留用于旧接口展示与向后兼容。
     调度键用 slug 而非内容指纹——内容更新后复习进度保留（README 14.7.1）。
     """
 
@@ -229,6 +231,24 @@ class StudyReview(UUIDPkMixin, Base):
         DateTime(timezone=True), nullable=True
     )
     last_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # FSRS-5 状态；新列为空/0 时调度器按旧字段做防御式初始化。
+    stability: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0", nullable=False
+    )
+    difficulty: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0", nullable=False
+    )
+    lapses: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # new / learning / review / relearning
+    review_state: Mapped[str] = mapped_column(
+        String(20), default="new", server_default="new", nullable=False
+    )
+    last_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fsrs_reps: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     def __repr__(self) -> str:
         return f"<StudyReview {self.slug} due={self.due_at}>"

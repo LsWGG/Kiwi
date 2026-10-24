@@ -1,9 +1,10 @@
-"""知识库定时任务：Wiki 自动编译与待办聚合。
+"""知识库定时任务：Wiki 自动编译、待办聚合与 Web Push 提醒。
 
 每 60 秒检查一次到期知识库：
 
 - ``wiki_compile_interval_hours``：把自上次编译以来更新的笔记送入 Wiki 编译；
-- ``todo_sync_interval_hours``：刷新收件箱并同步双向状态。
+- ``todo_sync_interval_hours``：刷新收件箱并同步双向状态；
+- Web Push：到达提醒时间后推送到期复习 / 待办与每周学习报告。
 
 任务进程内运行，重启后按 ``last_at`` 继续到期判断，不会重复堆积。
 """
@@ -45,18 +46,14 @@ async def _run_wiki_compile(
     """把更新过的笔记送入编译流水线；必须在独立 session 中调用。"""
     # 延迟导入，避免 routers.notes ↔ services 的循环依赖。
     from app.routers.notes_compile import _prepare_note_compile, _schedule_note_compile
+    from app.services.compile_eligibility import note_compile_eligible
 
     last = _aware(kb.wiki_compile_last_at)
     stmt = select(Note).where(Note.kb_id == kb.id, Note.status == "active")
     if last is not None:
         stmt = stmt.where(Note.updated_at > last)
     notes = (await session.execute(stmt.order_by(Note.updated_at))).scalars().all()
-    candidates = [
-        note
-        for note in notes
-        if not (note.props_json or {}).get("collection_row_id")
-        and not (note.props_json or {}).get("todo_hub")
-    ]
+    candidates = [note for note in notes if note_compile_eligible(note)]
 
     jobs = 0
     busy = 0
@@ -135,6 +132,17 @@ async def _tick() -> None:
                 except Exception:  # noqa: BLE001
                     logger.exception("知识库 %s 定时待办同步失败", kb.id)
                     await session.rollback()
+
+        # 推送提醒与具体知识库的编译 / 同步周期无关，单独检查。
+        try:
+            from app.services import push_service
+
+            pushed = await push_service.run_push_tick(session)
+            if pushed and (pushed["daily"] or pushed["weekly"]):
+                logger.info("Web Push 提醒已发送：%s", pushed)
+        except Exception:  # noqa: BLE001
+            logger.exception("Web Push 提醒调度失败")
+            await session.rollback()
 
 
 async def _loop() -> None:

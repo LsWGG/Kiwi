@@ -25,6 +25,10 @@ from app.config import settings
 PUBLIC_PREFIXES = (
     "/api/health",
     "/api/auth/",
+    # 飞书 OAuth 回调由浏览器 302 进入，没有自定义请求头；用 state 校验防伪。
+    "/api/transcribe/feishu/oauth/callback",
+    # 公开只读分享页：凭随机 token + 可选密码访问，不要求登录。
+    "/api/share/",
     "/assets/",
     "/portal/",
     "/favicon",

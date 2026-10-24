@@ -19,6 +19,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'select', row: TreeRow, event: MouseEvent): void
+  (e: 'sticky', row: TreeRow): void
   (e: 'toggle', row: TreeRow): void
   (e: 'menu', event: MouseEvent, row: TreeRow): void
   (e: 'pointerdown', event: PointerEvent, row: TreeRow): void
@@ -134,6 +135,13 @@ function onClick(event: MouseEvent) {
   if (isFolder.value) emit('toggle', props.row)
   else emit('select', props.row, event)
 }
+
+/** 双击笔记（非分组）= 贴一贴：以独立浮窗置顶展示。 */
+function onDblClick(event: MouseEvent) {
+  if (props.renaming || isFolder.value) return
+  event.preventDefault()
+  emit('sticky', props.row)
+}
 </script>
 
 <template>
@@ -157,6 +165,7 @@ function onClick(event: MouseEvent) {
     :title="isInbox ? '收件箱 · 始终置顶' : undefined"
     :aria-expanded="hasChildren ? open : undefined"
     @click="onClick"
+    @dblclick="onDblClick"
     @contextmenu.prevent.stop="emit('menu', $event, row)"
     @pointerdown="emit('pointerdown', $event, row)"
   >

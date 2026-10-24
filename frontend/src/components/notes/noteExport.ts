@@ -4,10 +4,14 @@
  * 数据表导出 CSV / JSON，画布导出 SVG / 源文件。
  */
 import { request } from '@/api/client'
-import { downloadNoteDocx } from '@/components/editor/docx'
+import { downloadNoteDocx, downloadNotePdf } from '@/components/editor/docx'
+import { noteToPdf } from '@/components/notes/notePdfExport'
+import { toast } from '@/components/ui/toast'
 import type { DbField, DbRow } from '@/stores/noteDatabase'
 import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
 import { canvasDocToSvg } from './canvas/canvasSvgExport'
+import { svgToPdfBlob, svgToPngBlob } from './canvas/canvasRasterExport'
+import { themeOf } from './canvas/themes'
 import { normalizeWorkbook } from './sheet/types'
 import { sheetToCsv, workbookToXlsxBlob } from './sheet/xlsx'
 import { normalizeDoc } from './canvas/types'
@@ -15,6 +19,7 @@ import type { NotebookDoc } from './notebook/types'
 
 export type ExportKey =
   | 'markdown'
+  | 'pdf'
   | 'docx'
   | 'ipynb'
   | 'python'
@@ -23,6 +28,8 @@ export type ExportKey =
   | 'xlsx'
   | 'database-json'
   | 'canvas-svg'
+  | 'canvas-png'
+  | 'canvas-pdf'
   | 'canvas-json'
 
 export interface ExportAction {
@@ -35,6 +42,7 @@ export interface ExportAction {
 
 const DOC_ACTIONS: ExportAction[] = [
   { key: 'markdown', label: 'Markdown 文档', icon: 'fileText', ext: 'MD' },
+  { key: 'pdf', label: 'PDF 文档', icon: 'file', ext: 'PDF' },
   { key: 'docx', label: 'Word 文档', icon: 'file', ext: 'DOCX' },
 ]
 
@@ -53,6 +61,8 @@ const ACTIONS: Record<string, ExportAction[]> = {
     { key: 'database-json', label: 'JSON 数据', icon: 'code', ext: 'JSON' },
   ],
   canvas: [
+    { key: 'canvas-png', label: 'PNG 图片', icon: 'image', ext: 'PNG' },
+    { key: 'canvas-pdf', label: 'PDF 文档', icon: 'file', ext: 'PDF' },
     { key: 'canvas-svg', label: 'SVG 矢量图', icon: 'image', ext: 'SVG' },
     { key: 'canvas-json', label: '画布源文件', icon: 'code', ext: 'JSON' },
   ],
@@ -343,6 +353,24 @@ export async function runNoteExport(
   key: ExportKey,
 ): Promise<void> {
   const base = safeFileName(note.title)
+  if (key === 'pdf') {
+    // 正文 / 导入 / 链接笔记按阅读界面截图排版；只读导入展示的是原始文件，
+    // 没有 .editor-sheet，继续走服务端的 Markdown 排版作为降级。
+    const full = await fetchNote(note)
+    if (full.kind === 'import' && full.props_json?.readonly) {
+      await downloadNotePdf(full.id, full.kb_id, full.title, noteHeaders(full.id))
+      return
+    }
+    toast.info('正在生成与页面一致的 PDF…')
+    const blob = await noteToPdf({
+      id: full.id,
+      title: full.title || note.title,
+      kind: full.kind,
+      unlockToken: noteHeaders(full.id)['X-Note-Token'] ?? null,
+    })
+    downloadBlob(blob, `${base}.pdf`)
+    return
+  }
   if (key === 'docx') {
     await downloadNoteDocx(note.id, note.kb_id, note.title, noteHeaders(note.id))
     return
@@ -387,6 +415,21 @@ export async function runNoteExport(
     case 'canvas-svg': {
       const doc = normalizeDoc(full.props_json?.canvas_doc)
       downloadText(canvasDocToSvg(doc), `${base}.svg`, 'image/svg+xml')
+      return
+    }
+    case 'canvas-png': {
+      const doc = normalizeDoc(full.props_json?.canvas_doc)
+      const blob = await svgToPngBlob(canvasDocToSvg(doc), 2)
+      downloadBlob(blob, `${base}.png`)
+      return
+    }
+    case 'canvas-pdf': {
+      const doc = normalizeDoc(full.props_json?.canvas_doc)
+      const blob = await svgToPdfBlob(canvasDocToSvg(doc), {
+        title: full.title,
+        background: themeOf(doc.theme).bg,
+      })
+      downloadBlob(blob, `${base}.pdf`)
       return
     }
     default:

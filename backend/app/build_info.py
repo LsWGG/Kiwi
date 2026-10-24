@@ -13,7 +13,7 @@ from functools import lru_cache
 
 from app.config import settings
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "1.0.0"
 STARTED_AT = datetime.now(timezone.utc)
 
 

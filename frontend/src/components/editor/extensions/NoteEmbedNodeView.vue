@@ -21,7 +21,7 @@ const loading = ref(false)
 
 const META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   doc: { label: '文档', icon: 'file', color: 'text-kiwi-600', bg: 'bg-kiwi-100' },
-  import: { label: '导入文档', icon: 'download', color: 'text-orange-500', bg: 'bg-orange-50' },
+  import: { label: '导入文档', icon: 'fileImport', color: 'text-orange-500', bg: 'bg-orange-50' },
   database: { label: '数据表', icon: 'table', color: 'text-sky-600', bg: 'bg-sky-50' },
   canvas: { label: '画布', icon: 'pen', color: 'text-violet-600', bg: 'bg-violet-50' },
   notebook: { label: 'Notebook', icon: 'code', color: 'text-emerald-600', bg: 'bg-emerald-50' },

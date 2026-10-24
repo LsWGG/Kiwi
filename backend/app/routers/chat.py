@@ -7,6 +7,7 @@ error / keepalive。引用严格限定在用户检索范围内（kb_id 边界由
 
 import json
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,13 +18,55 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
+from app.services.lexical import tokenize
 from app.services.llm_factory import LLMCrypto, llm_factory
 from app.services.note_indexer import ensure_notes_indexed
-from app.services.retrieval import route_intent, search
+from app.services.retrieval import RetrievalFilters, route_intent, search
 
 logger = logging.getLogger("kiwi.chat")
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+def _plain_excerpt(text: str) -> str:
+    """把 Markdown 片段压成纯文本，便于目标页面按文本精确高亮。"""
+    plain = re.sub(r"```[\s\S]*?```", " ", text or "")
+    plain = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", plain)
+    plain = re.sub(r"\[\[([^\]]+)\]\]", r"\1", plain)
+    plain = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", plain)
+    plain = re.sub(r"^#{1,6}\s*", "", plain, flags=re.MULTILINE)
+    plain = re.sub(r"[*_`>#|~]", " ", plain)
+    return re.sub(r"\s+", " ", plain).strip()
+
+
+def _quote_from_chunk(text: str, query: str) -> str:
+    """截取命中词附近的一段原文，作为前端跳转后的高亮锚点。"""
+    plain = _plain_excerpt(text)
+    if not plain:
+        return ""
+    for token in dict.fromkeys(tokenize(query)):
+        if len(token) < 2:
+            continue
+        index = plain.lower().find(token.lower())
+        if index >= 0:
+            start = max(0, index - 50)
+            return plain[start : start + 180].strip()
+    return plain[:160]
+
+
+def _first_heading(text: str) -> str:
+    match = re.search(r"^#{1,6}\s+(.+)$", text or "", flags=re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def _retrieval_filters(scope: SearchScope) -> RetrievalFilters:
+    return RetrievalFilters(
+        note_ids=list(scope.note_ids),
+        note_kinds=list(scope.note_kinds),
+        tag_ids=list(scope.tag_ids),
+        updated_from=scope.updated_from,
+        updated_to=scope.updated_to,
+    )
 
 
 async def resolve_llm(
@@ -155,16 +198,24 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
     # 多取一些笔记分块：数据表 / 长文档的相邻行可能排在稍后的名次，
     # 只取 8 条会漏掉尾部记录；合并后仍按笔记去重并受上下文预算约束。
     note_limit = 16
-    wiki_hits = await search(
-        session, query, kb_ids, limit=wiki_limit, collection="wiki"
-    )
+    filters = _retrieval_filters(data.scope)
+    wiki_hits: list[dict] = []
+    if not filters.has_note_constraints:
+        wiki_hits = await search(
+            session, query, kb_ids, limit=wiki_limit, collection="wiki"
+        )
     try:
         # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
         await ensure_notes_indexed(kb_ids)
     except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
         logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
     note_hits = await search(
-        session, query, kb_ids, limit=note_limit, collection="note"
+        session,
+        query,
+        kb_ids,
+        limit=note_limit,
+        collection="note",
+        filters=filters,
     )
     kb_names = await _kb_names(session, kb_ids)
 
@@ -200,6 +251,8 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 slug=slug,
                 chunk_text=(body or "")[:300],
                 target_id=str(pid),
+                heading=_first_heading(body) or title,
+                quote=_quote_from_chunk(body, query),
             )
         )
         # 资料序号与 citations 下标一致，供模型输出 [n] 引用
@@ -212,6 +265,7 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         kind: str,
         text: str,
         kb_id: str,
+        anchor: tuple[int, str, str] | None = None,
     ) -> None:
         try:
             nid = uuid.UUID(str(note_id))
@@ -240,6 +294,9 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 chunk_text=(text or "")[:300],
                 target_id=str(nid),
                 kind=kind,
+                chunk_index=anchor[0] if anchor else 0,
+                heading=(anchor[2] if anchor else "") or _first_heading(text),
+                quote=_quote_from_chunk(anchor[1] if anchor else text, query),
             )
         )
         # 数据表的行内容可能分布在多个分块中，给笔记更宽的上下文预算。
@@ -270,10 +327,16 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         text = str(payload.get("text") or "").strip()
         if (
             text
-            and all(text != existing for _, existing in group["chunks"])
+            and all(text != existing for _, existing, _heading in group["chunks"])
             and len(group["chunks"]) < 4
         ):
-            group["chunks"].append((int(payload.get("chunk_index") or 0), text))
+            group["chunks"].append(
+                (
+                    int(payload.get("chunk_index") or 0),
+                    text,
+                    str(payload.get("heading") or ""),
+                )
+            )
 
     # 以数据库为准过滤已删除 / 回收站笔记，并取最新标题（向量 payload 可能滞后）。
     note_meta: dict[str, tuple[str, str]] = {}
@@ -320,8 +383,12 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 title=title or group["title"] or "未命名笔记",
                 kind=kind or group["kind"],
                 # 按原始分块顺序拼接，避免打乱表格行的语义。
-                text="\n\n".join(text for _, text in sorted(group["chunks"])),
+                text="\n\n".join(
+                    text for _, text, _heading in sorted(group["chunks"])
+                ),
                 kb_id=group["kb_id"],
+                # 首个分块是分数最高的命中，引用跳转以它为锚点。
+                anchor=group["chunks"][0],
             )
 
     if intent == "note":

@@ -9,10 +9,29 @@ import { useKbsStore } from '@/stores/kbs'
 import { useStudyStore } from '@/stores/study'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 
-type Pane = 'review' | 'train' | 'mock' | 'graph' | 'plan' | 'mistakes' | 'profile'
+type Pane =
+  | 'review'
+  | 'train'
+  | 'mock'
+  | 'graph'
+  | 'plan'
+  | 'report'
+  | 'reminders'
+  | 'mistakes'
+  | 'profile'
 type NavKey = Pane | 'resume'
 
-const PANES: Pane[] = ['review', 'train', 'mock', 'graph', 'plan', 'mistakes', 'profile']
+const PANES: Pane[] = [
+  'review',
+  'train',
+  'mock',
+  'graph',
+  'plan',
+  'report',
+  'reminders',
+  'mistakes',
+  'profile',
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -79,6 +98,8 @@ const navItems = computed<{ key: NavKey; label: string; icon: string }[]>(() => 
     { key: 'mock', label: '仿真考试', icon: 'book' },
     { key: 'graph', label: '学习图谱', icon: 'graph' },
     { key: 'plan', label: '学习计划', icon: 'calendar' },
+    { key: 'report', label: '学习周报', icon: 'trendingUp' },
+    { key: 'reminders', label: '提醒设置', icon: 'bell' },
     { key: 'mistakes', label: '错题本', icon: 'bookOpen' },
     { key: 'profile', label: '我的画像', icon: 'edit' },
   )

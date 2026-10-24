@@ -1,6 +1,6 @@
 [project]
 name = "kiwi-backend"
-version = "0.2.0"
+version = "1.0.0"
 description = "Kiwi — 个人知识编译与检索系统（阶段一后端）"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -28,6 +28,10 @@ dependencies = [
     "xlrd>=2.0.2",
     "pandas>=3.0.6",
     "matplotlib>=3.11.2",
+    "pywebpush>=2.5.0",
+    "faster-whisper>=1.2.1",
+    # av 16+ 移除了 decode_audio 依赖的 metadata_errors 参数，锁在兼容区间。
+    "av>=12,<16",
 ]
 
 [project.optional-dependencies]

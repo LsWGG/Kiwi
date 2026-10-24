@@ -26,7 +26,7 @@
       <circle cx="88" cy="211" r="14" fill="#1d3b52" stroke="#5ad1c0"/>
       <text x="88" y="217" fill="#7ee7d6" font-size="14" text-anchor="middle" font-weight="700">1</text>
       <text x="114" y="217" fill="#eaf2ff" font-size="17" font-weight="700">记下来</text>
-      <text x="80" y="247" fill="#93a9cc" font-size="12">文档 · 画布 · 数据表</text>
+      <text x="80" y="247" fill="#93a9cc" font-size="12">文档 · 表格 · 数据表</text>
       <text x="80" y="269" fill="#93a9cc" font-size="12">Notebook · 导入 · 外链</text>
     </g>
     <g>
@@ -42,7 +42,7 @@
       <circle cx="552" cy="211" r="14" fill="#2a3358" stroke="#b39bff"/>
       <text x="552" y="217" fill="#c9b8ff" font-size="14" text-anchor="middle" font-weight="700">3</text>
       <text x="578" y="217" fill="#eaf2ff" font-size="17" font-weight="700">编译</text>
-      <text x="544" y="247" fill="#93a9cc" font-size="12">素材 → Wiki 页面</text>
+      <text x="544" y="247" fill="#93a9cc" font-size="12">笔记 → Wiki 页面</text>
       <text x="544" y="269" fill="#93a9cc" font-size="12">来源 · 引用 · 人工校对</text>
     </g>
     <g>
@@ -79,7 +79,7 @@
     <g transform="translate(168 452)">
       <rect width="864" height="58" rx="12" fill="#101a2d" stroke="#223353"/>
       <text x="26" y="24" fill="#8fa3c8" font-size="12">贯穿能力</text>
-      <text x="26" y="44" fill="#dbe7ff" font-size="13">知识图谱（星图 / 精要 / 掌握度） · 全文检索 · AI 问答（带来源） · 学习计划 · 备份与还原</text>
+      <text x="26" y="44" fill="#dbe7ff" font-size="13">语音转写 · 贴一贴 · 组件插件 · 混合检索问答 · 学习周报 · 按类型导出</text>
     </g>
   </g>
 </svg>

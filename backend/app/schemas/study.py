@@ -132,6 +132,58 @@ class QuestionOut(BaseModel):
     multiple: bool = False
 
 
+class AnkiImportOut(BaseModel):
+    """Anki 牌组导入结果。"""
+
+    imported: int
+    skipped: int
+    media_files: int
+    decks: list[str] = Field(default_factory=list)
+
+
+class WeeklyDailyStat(BaseModel):
+    date: str
+    attempts: int
+    correct: int
+    accuracy: float
+    minutes: float
+
+
+class WeeklyWeakTopic(BaseModel):
+    slug: str
+    title: str
+    attempts: int
+    accuracy: float
+    mastery: float
+
+
+class WeeklyRetentionBucket(BaseModel):
+    bucket: str
+    attempts: int
+    accuracy: float
+
+
+class WeeklyReportOut(BaseModel):
+    start: str
+    end: str
+    days: int
+    attempts: int
+    correct: int
+    accuracy: float
+    minutes: float
+    active_days: int
+    previous_attempts: int
+    previous_correct: int
+    previous_accuracy: float
+    previous_minutes: float
+    mastery_average: float
+    mastery_topics: int
+    weak_count: int
+    daily: list[WeeklyDailyStat]
+    weak_topics: list[WeeklyWeakTopic]
+    retention: list[WeeklyRetentionBucket]
+
+
 class AnswerIn(BaseModel):
     question_id: uuid.UUID
     selected_index: int = Field(default=-1, ge=-1, le=9)

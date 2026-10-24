@@ -69,33 +69,6 @@ export function getJob(kbId: string, jobId: string) {
   )
 }
 
-export interface CompileResult {
-  jobs: Array<{ job_id: string; source_id: string }>
-  count: number
-  requested: number
-  skipped: number
-}
-
-/** 触发编译；后端单次最多接收 20 个，调用方负责分批。 */
-export function compileSources(kbId: string, sourceIds: string[]) {
-  return request<CompileResult>('/ingest/compile', {
-    method: 'POST',
-    kbId,
-    body: JSON.stringify({ source_ids: sourceIds }),
-  })
-}
-
-/** 重新解析素材（OCR 复核 / 解析失败重试）。 */
-export function reparseSource(kbId: string, sourceId: string) {
-  return request<{ job_id: string; status: string }>(
-    `/sources/${sourceId}/reparse`,
-    { method: 'POST', kbId },
-  )
-}
-
-export function deleteSource(kbId: string, sourceId: string) {
-  return request<void>(`/sources/${sourceId}`, { method: 'DELETE', kbId })
-}
 
 export function cancelBatch(kbId: string, batchId: string) {
   return request<ImportBatch>(`/ingest/batches/${batchId}/cancel`, {

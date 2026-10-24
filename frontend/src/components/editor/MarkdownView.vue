@@ -1,6 +1,15 @@
 <script setup lang="ts">
 /** Markdown 只读渲染（markdown-it + GFM 任务列表 + Kiwi 扩展块）。 */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  computed,
+  h,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+  render,
+  watch,
+  type VNode,
+} from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import taskLists from 'markdown-it-task-lists'
@@ -22,6 +31,8 @@ import { normalizeDataTable, type DataTableModel } from './extensions/dataTableM
 import type { DbField, DbView } from '@/stores/noteDatabase'
 import { orderedListStyleClass } from './orderedListStyles'
 import { foldImageCaptionTokens } from './imageCaptions'
+import PluginReadonlyBlock from './PluginReadonlyBlock.vue'
+import { usePluginsStore } from '@/stores/plugins'
 
 const props = withDefaults(
   defineProps<{
@@ -29,11 +40,16 @@ const props = withDefaults(
     citationCount?: number
     /** 多级有序列表编号预设，与编辑态保持一致 */
     orderedListStyle?: string | null
+    /** 工作区阅读态允许挂载已启用的组件插件；公开分享页保持静态占位。 */
+    plugins?: boolean
+    /** 设置页的内置组件预览：允许勾选待办并实时刷新进度卡，不写回笔记。 */
+    interactive?: boolean
   }>(),
-  { citationCount: undefined, orderedListStyle: null },
+  { citationCount: undefined, orderedListStyle: null, plugins: false, interactive: false },
 )
 const emit = defineEmits<{ (e: 'citation-click', n: number): void }>()
 const router = useRouter()
+const pluginsStore = usePluginsStore()
 const root = ref<HTMLElement | null>(null)
 const orderedListClass = computed(() => orderedListStyleClass(props.orderedListStyle))
 
@@ -145,6 +161,45 @@ function escapeHtml(value: string): string {
 
 function escapeAttr(value: string): string {
   return escapeHtml(value).replace(/"/g, '&quot;').replace(/\n/g, '&#10;')
+}
+
+/** 与 fence 渲染端的 encodeURIComponent 配对；兼容未编码的历史值。 */
+function decodeDataAttr(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/**
+ * 组件插件区块的静态占位。工作区阅读态会把已启用组件挂载进来；
+ * 公开分享页不执行第三方代码，保留可识别的插件占位卡。
+ */
+function pluginBlockHtml(content: string): string {
+  try {
+    const data = JSON.parse(content)
+    const plugin = String(data?.plugin || '').slice(0, 80)
+    const block = String(data?.block || '').slice(0, 80)
+    if (!plugin || !block) return ''
+    const props = data?.props && typeof data.props === 'object' ? data.props : {}
+    const align =
+      data?.align === 'center' || data?.align === 'right' ? data.align : 'left'
+    return (
+      `<div class="md-plugin-block" data-kiwi-plugin-embed="true"` +
+      ` data-align="${align}"` +
+      ` data-plugin="${escapeAttr(plugin)}" data-block="${escapeAttr(block)}"` +
+      ` data-props="${escapeAttr(JSON.stringify(props))}">` +
+      `<div class="md-plugin-placeholder">` +
+      `<span class="md-plugin-placeholder-icon">◈</span>` +
+      `<span class="md-plugin-placeholder-body">` +
+      `<span class="md-plugin-placeholder-title">组件插件区块</span>` +
+      `<code>${escapeHtml(plugin)}:${escapeHtml(block)}</code>` +
+      `</span></div></div>`
+    )
+  } catch {
+    return ''
+  }
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -772,14 +827,18 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     return `${taskProgressCardHtml(body)}\n`
   }
   if (lang === 'kiwi-math') {
-    return `<div class="md-formula" data-formula="${escapeAttr(body)}"></div>\n`
+    // DOMPurify 会丢弃含换行的 data-* 属性，先做 URI 编码，渲染时再解码。
+    return `<div class="md-formula" data-formula="${escapeAttr(encodeURIComponent(body))}"></div>\n`
   }
   if (lang === 'mermaid') {
     return (
-      `<div class="md-mermaid" data-mermaid="${escapeAttr(body)}">` +
+      `<div class="md-mermaid" data-mermaid="${escapeAttr(encodeURIComponent(body))}">` +
       `<pre class="md-mermaid-source">${escapeHtml(body)}</pre>` +
       `</div>\n`
     )
+  }
+  if (lang === 'kiwi-plugin') {
+    return `${pluginBlockHtml(body)}\n`
   }
   if (lang === 'kiwi-gallery') {
     return `${galleryHtml(body)}\n`
@@ -894,11 +953,25 @@ function decorateTaskProgressComponents(el: HTMLElement) {
       continue
     }
 
+    // 预览态允许勾选：只改当前预览 DOM，不写回任何笔记。
+    if (props.interactive) {
+      list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
+        box.disabled = false
+        if (box.dataset.previewBound === '1') return
+        box.dataset.previewBound = '1'
+        box.addEventListener('change', () => {
+          // 同步属性，并让同一预览里的多张进度卡一起刷新。
+          box.toggleAttribute('checked', box.checked)
+          decorateTaskProgressComponents(el)
+        })
+      })
+    }
+
     // 递归统计多级待办：task-list-item 内可以继续嵌套任务列表，
     // 只看直接子节点会漏掉二级 / 三级清单。
     const items = Array.from(list.querySelectorAll('li.task-list-item'))
-    const done = items.filter((item) =>
-      item.querySelector('input[type="checkbox"]')?.hasAttribute('checked'),
+    const done = items.filter(
+      (item) => item.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked,
     ).length
     const total = items.length
     const percent = total ? Math.round((done / total) * 100) : 0
@@ -1026,7 +1099,7 @@ function decorateCallouts(el: HTMLElement) {
 
 function renderFormulas(el: HTMLElement) {
   el.querySelectorAll<HTMLElement>('[data-formula]').forEach((node) => {
-    const latex = node.dataset.formula || ''
+    const latex = decodeDataAttr(node.dataset.formula || '')
     if (!latex) return
     try {
       katex.render(latex, node, {
@@ -1065,7 +1138,7 @@ async function renderMermaids(el: HTMLElement) {
     flowchart: { htmlLabels: false },
   })
   for (const node of nodes) {
-    const code = node.dataset.mermaid || ''
+    const code = decodeDataAttr(node.dataset.mermaid || '')
     if (!code || !node.isConnected) continue
     try {
       const id = `kiwi-md-mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -1091,6 +1164,43 @@ function decorateFavicons(el: HTMLElement) {
   }
 }
 
+const pluginMounts = new Map<HTMLElement, VNode>()
+
+function unmountPluginMounts() {
+  for (const [container, vnode] of pluginMounts) {
+    render(null, container)
+    pluginMounts.delete(container)
+  }
+}
+
+/** 工作区阅读态：把组件插件挂到静态围栏占位上；分享页不调用。 */
+function mountPluginMounts(el: HTMLElement) {
+  if (!props.plugins) return
+  const containers = el.querySelectorAll<HTMLElement>('[data-kiwi-plugin-embed]')
+  if (!containers.length) return
+  void pluginsStore.ensureComponentBlocks()
+  for (const container of containers) {
+    if (pluginMounts.has(container)) continue
+    const pluginKey = container.dataset.plugin || ''
+    const blockType = container.dataset.block || ''
+    if (!pluginKey || !blockType) continue
+    let blockProps: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(container.dataset.props || '{}')
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        blockProps = parsed
+      }
+    } catch {
+      blockProps = {}
+    }
+    const vnode = h(PluginReadonlyBlock, { pluginKey, blockType, blockProps })
+    // 挂载真实组件前清掉静态占位内容，避免分屏预览出现「占位卡 + 组件」重复。
+    container.replaceChildren()
+    render(vnode, container)
+    pluginMounts.set(container, vnode)
+  }
+}
+
 let decorateTimer: number | undefined
 let renderSeq = 0
 async function decorate() {
@@ -1103,6 +1213,7 @@ async function decorate() {
   decorateTaskProgressComponents(el)
   decorateDates(el)
   decorateFavicons(el)
+  mountPluginMounts(el)
   renderFormulas(el)
   try {
     await renderMermaids(el)
@@ -1113,15 +1224,28 @@ async function decorate() {
 }
 
 watch(
-  () => props.content,
+  html,
   () => {
+    // v-html 会替换占位节点，先卸载旧的插件根实例，避免内存泄漏。
+    unmountPluginMounts()
     window.clearTimeout(decorateTimer)
     decorateTimer = window.setTimeout(() => void decorate(), 180)
   },
   { immediate: true },
 )
 
-onBeforeUnmount(() => window.clearTimeout(decorateTimer))
+watch(
+  () => props.plugins,
+  (enabled) => {
+    if (!enabled) unmountPluginMounts()
+    else void decorate()
+  },
+)
+
+onBeforeUnmount(() => {
+  window.clearTimeout(decorateTimer)
+  unmountPluginMounts()
+})
 
 // ---------- 图片灯箱：点击任意正文图片放大，可下载 ----------
 const zoomSrc = ref('')
@@ -1207,7 +1331,7 @@ function onClick(event: MouseEvent) {
   <div
     ref="root"
     class="prose-wiki markdown-view"
-    :class="orderedListClass"
+    :class="[orderedListClass, { 'is-interactive': interactive }]"
     @click="onClick"
     v-html="html"
   />

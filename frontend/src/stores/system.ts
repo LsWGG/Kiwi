@@ -26,6 +26,14 @@ export interface SystemSettings {
   has_ocr_api_key: boolean
   ocr_timeout: number
   ocr_language: string
+  /** 语音转写通道：auto（有飞书配置就用飞书）/ local / feishu */
+  transcribe_provider: string
+  feishu_app_id: string
+  feishu_folder_token: string
+  feishu_redirect_uri: string
+  has_feishu_app_secret: boolean
+  has_feishu_user_token: boolean
+  has_feishu_refresh_token: boolean
   source: string
 }
 
@@ -58,6 +66,13 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   has_ocr_api_key: false,
   ocr_timeout: 120,
   ocr_language: 'auto',
+  transcribe_provider: 'auto',
+  feishu_app_id: '',
+  feishu_folder_token: '',
+  feishu_redirect_uri: '',
+  has_feishu_app_secret: false,
+  has_feishu_user_token: false,
+  has_feishu_refresh_token: false,
   source: 'default',
 }
 
@@ -246,7 +261,12 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   async function saveSettings(
-    patch: Partial<SystemSettings> & { ocr_api_key?: string | null },
+    patch: Partial<SystemSettings> & {
+      ocr_api_key?: string | null
+      feishu_app_secret?: string | null
+      feishu_user_token?: string | null
+      feishu_refresh_token?: string | null
+    },
   ): Promise<SystemSettings> {
     const updated = await request<SystemSettings>('/settings/system', {
       method: 'PUT',

@@ -45,6 +45,7 @@ from app.schemas.wiki import (
     WikiSchemaUpdate,
 )
 from app.services import audit
+from app.services.compile_eligibility import note_compile_eligible
 from app.services.wiki_links import WIKI_LINK_RE, extract_links, strip_code
 
 logger = logging.getLogger("kiwi.wiki")
@@ -230,19 +231,18 @@ async def overview(kb_id: uuid.UUID, session: AsyncSession = Depends(get_session
             .where(Source.kb_id == kb_id, Source.parse_quality == "review")
         )
     ).scalar_one()
-    # 可与「编译全部笔记」一起进入 Wiki 的活跃笔记数。
-    # 数据表行笔记随所属数据表编译，不计入候选。
-    note_compile_candidates = (
-        await session.execute(
-            select(func.count())
-            .select_from(Note)
-            .where(
-                Note.kb_id == kb_id,
-                Note.status == "active",
-                ~Note.props_json.has_key("collection_row_id"),
+    # 可与「编译全部笔记」一起进入 Wiki 的活跃笔记数。与 compile-all 使用同一套
+    # 资格判断：数据表行笔记、待办汇总、只读导入材料不计入候选。
+    candidate_notes = (
+        (
+            await session.execute(
+                select(Note).where(Note.kb_id == kb_id, Note.status == "active")
             )
         )
-    ).scalar_one()
+        .scalars()
+        .all()
+    )
+    note_compile_candidates = sum(1 for note in candidate_notes if note_compile_eligible(note))
 
     links = await _link_counts(session, kb_id)
     annotations = await _annotation_counts(session, kb_id)
@@ -1155,71 +1155,19 @@ async def reindex_wiki(
 async def _clear_wiki_content(
     session: AsyncSession, kb: KnowledgeBase
 ) -> tuple[int, int, int]:
-    """删除知识库的全部 Wiki 页、向量、健康报告与页面批注。
+    """兼容入口：实际清理逻辑在 services.compiled_data，供重建与删除复用。"""
+    from app.services.compiled_data import clear_wiki_content
 
-    返回 ``(页面数, 批注数, 健康报告数)``。笔记上的 wiki_page_id 只是
-    props 里的软关联，必须同步清空，避免列表继续指向已删除页面。
-    """
-    pages = list(
-        (
-            await session.execute(
-                select(WikiPage).where(WikiPage.kb_id == kb.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    from app.services import qdrant_store as qs
-
-    for page in pages:
-        try:
-            await asyncio.to_thread(
-                qs.delete_wiki_page, kb.id, page.id, kb.embedding_model
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("删除 Wiki 页向量失败 %s：%s", page.id, exc)
-
-    notes = list(
-        (
-            await session.execute(
-                select(Note).where(
-                    Note.kb_id == kb.id, Note.status == "active"
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for note in notes:
-        props = dict(note.props_json or {})
-        if "wiki_page_id" in props:
-            props.pop("wiki_page_id", None)
-            note.props_json = props
-
-    annotations = await session.execute(
-        delete(LearningAnnotation).where(
-            LearningAnnotation.kb_id == kb.id,
-            LearningAnnotation.target_type == "wiki",
-        )
-    )
-    reports = await session.execute(
-        delete(WikiLintReport).where(WikiLintReport.kb_id == kb.id)
-    )
-    await session.execute(
-        delete(WikiPage)
-        .where(WikiPage.kb_id == kb.id)
-        .execution_options(synchronize_session=False)
-    )
-    await session.flush()
-    return len(pages), annotations.rowcount or 0, reports.rowcount or 0
+    return await clear_wiki_content(session, kb)
 
 
 @router.post("/rebuild", status_code=202)
 async def rebuild_wiki(
     kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ):
-    """清空本库全部 Wiki 页面，并重新编译全部笔记与独立素材。
+    """清空本库全部 Wiki 页面，并重新编译全部笔记。
 
+    导入素材解析后已经形成笔记，Wiki 编译只以笔记为输入，不再单独编译素材。
     这是不可撤销的重建操作：人工编辑页、页面批注与健康检查历史会一并删除；
     学习题目 / 复习 / 知识点仅解除页面关联，重新编译后会按 slug 自动关联。
     """
@@ -1244,7 +1192,7 @@ async def rebuild_wiki(
     await session.commit()
 
     from app.routers.notes_compile import _prepare_note_compile, _schedule_note_compile
-    from app.services import ingest_service, note_compiler
+    from app.services import note_compiler
 
     notes = list(
         (
@@ -1257,9 +1205,7 @@ async def rebuild_wiki(
         .scalars()
         .all()
     )
-    candidates = [
-        note for note in notes if not (note.props_json or {}).get("collection_row_id")
-    ]
+    candidates = [note for note in notes if note_compile_eligible(note)]
     note_jobs: list[dict] = []
     empty = 0
     busy = 0
@@ -1284,64 +1230,45 @@ async def rebuild_wiki(
             }
         )
 
-    linked_sources: set[uuid.UUID] = set()
-    for note in notes:
-        props = note.props_json or {}
-        raw = props.get("source_id") or (props.get("import") or {}).get("source_id")
-        if not raw:
-            continue
-        try:
-            linked_sources.add(uuid.UUID(str(raw)))
-        except (ValueError, AttributeError):
-            continue
-
-    sources = list(
-        (
-            await session.execute(
-                select(Source).where(
-                    Source.kb_id == kb_id,
-                    Source.type != "note",
-                    Source.status.in_(("parsed", "compiled")),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    source_jobs: list[dict] = []
-    for source in sources:
-        if source.id in linked_sources or not Path(source.raw_path).exists():
-            continue
-        job = IngestJob(
-            kb_id=kb_id, source_id=source.id, kind="compile", status="pending"
-        )
-        session.add(job)
-        await session.flush()
-        job_id, source_id = job.id, source.id
-
-        async def _run(jid=job_id, sid=source_id):
-            await ingest_service._process_ingest(
-                str(jid), kb_id, sid, compile_now=True, embed_raw=False
-            )
-
-        ingest_service._running[str(job_id)] = asyncio.create_task(
-            _run(), name=f"rebuild-compile:{job_id}"
-        )
-        source_jobs.append({"job_id": str(job_id), "source_id": str(source_id)})
-
     await session.commit()
     return {
         "deleted_pages": deleted_pages,
         "cleared_annotations": cleared_annotations,
         "cleared_lint_reports": cleared_reports,
         "note_jobs": note_jobs,
-        "source_jobs": source_jobs,
-        "count": len(note_jobs) + len(source_jobs),
+        "source_jobs": [],
+        "count": len(note_jobs),
         "notes": len(candidates),
-        "sources": len(source_jobs),
+        "sources": 0,
         "skipped_empty": empty,
         "skipped_busy": busy,
     }
+
+
+@router.delete("/compiled", response_model=dict)
+async def delete_compiled_data(
+    kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """删除当前知识库的全部编译数据。
+
+    清空 Wiki 页面、页面向量、批注、Lint 报告、笔记上的 Wiki 关联与笔记
+    快照素材，并终止排队中的编译任务；笔记正文、导入素材与学习记录保留。
+    """
+    kb = await _require_kb(session, kb_id)
+    from app.services.compiled_data import delete_all_compiled_data
+
+    stats = await delete_all_compiled_data(session, kb)
+    await audit.record(
+        session,
+        "wiki.compiled.delete",
+        kb_id=kb_id,
+        target_type="kb",
+        target_id=kb_id,
+        detail={"name": kb.name, **stats},
+        note=f"删除全部编译数据：{kb.name}（{stats['deleted_pages']} 个页面）",
+    )
+    await session.commit()
+    return {"kb_id": str(kb_id), **stats}
 
 
 # --------------------------------------------------------------------------- #

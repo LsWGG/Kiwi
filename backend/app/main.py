@@ -19,6 +19,7 @@ from app.routers import (
     chat,
     chat_sessions,
     code_run,
+    editor_extensions,
     health,
     ingest,
     jobs,
@@ -27,13 +28,17 @@ from app.routers import (
     maintenance,
     note_databases,
     note_editor,
+    note_share_public,
     notebooks,
     notes,
+    plugins,
+    push,
     search,
     settings_embedding,
     settings_system,
     sources,
     study,
+    transcribe,
     wiki,
 )
 from app.security import AccessControlMiddleware, RateLimitMiddleware
@@ -97,13 +102,20 @@ async def lifespan(app: FastAPI):
         note_index_task = start_note_index_task()
         # 知识库定时任务：Wiki 周期编译 + 待办聚合。
         scheduler_task = start_scheduler_task()
-        # 持久化任务 worker：导入、编译、知识库包导入、备份。
-        worker_task = job_queue.start_worker()
         # 自动备份：pg_dump + uploads + manifest。
         backup_task = backup_service.start_backup_task()
     else:
         logger.info(
-            "KIWI_BACKGROUND_JOBS=false：跳过演示库种子、笔记索引巡检、定时任务与任务 worker"
+            "KIWI_BACKGROUND_JOBS=false：跳过演示库种子、笔记索引巡检、定时任务与自动备份"
+        )
+
+    # 持久化任务 worker 独立于自动任务：关闭定时 / 种子任务时，手动导入与编译
+    # 仍需要消费队列，否则任务会一直停在「排队中」。
+    if settings.job_worker_enabled:
+        worker_task = job_queue.start_worker()
+    else:
+        logger.info(
+            "KIWI_JOB_WORKER_ENABLED=false：不消费持久化任务，导入与编译将保持排队"
         )
 
     yield
@@ -145,6 +157,7 @@ app.include_router(llm.router)
 app.include_router(settings_embedding.router)
 app.include_router(settings_system.router)
 app.include_router(notes.router)
+app.include_router(note_share_public.router)
 app.include_router(note_databases.router)
 app.include_router(note_editor.router)
 app.include_router(notebooks.router)
@@ -157,6 +170,10 @@ app.include_router(search.router)
 app.include_router(chat_sessions.router)
 app.include_router(chat.router)
 app.include_router(study.router)
+app.include_router(push.router)
+app.include_router(transcribe.router)
+app.include_router(plugins.router)
+app.include_router(editor_extensions.router)
 app.include_router(jobs.router)
 app.include_router(audit.router)
 app.include_router(maintenance.router)

@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#05060b" />
   <title>Kiwi · 把笔记编译成真正学会的知识</title>
-  <meta name="description" content="Kiwi 是一个本地优先的知识编译与学习系统：三种编辑模式写同一份内容，代码块结果可直接运行，再把文档、网页、数据表与画布编译成相互引用的 Wiki，用练习与仿真考试把读过变成掌握。" />
+  <meta name="description" content="Kiwi 是一个本地优先的知识编译与学习系统：标准编辑与 DOCX 写同一份内容，代码块结果可直接运行；语音转写、贴一贴、组件插件与混合检索问答让知识随手可用，再把文档、表格、网页、数据表与画布编译成相互引用的 Wiki，用 FSRS 复习与仿真考试把读过变成掌握。" />
   <meta name="author" content="Kiwi" />
   <link rel="canonical" href="https://lswgg.github.io/Kiwi/" />
 
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://lswgg.github.io/Kiwi/" />
   <meta property="og:title" content="Kiwi · 把笔记编译成真正学会的知识" />
-  <meta property="og:description" content="三种编辑模式、可执行代码块、Notebook、Wiki 与学习闭环。把散落的内容编译成相互引用的知识网络。" />
+  <meta property="og:description" content="标准编辑与 DOCX、可执行代码块、Notebook、语音转写、贴一贴、组件插件、Wiki 与学习闭环。把散落的内容编译成相互引用的知识网络。" />
   <meta property="og:image" content="https://lswgg.github.io/Kiwi/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -35,7 +35,7 @@
     "name": "Kiwi",
     "applicationCategory": "ProductivityApplication",
     "operatingSystem": "Linux, macOS, Windows",
-    "description": "本地优先的知识编译与学习系统：三种编辑模式与可执行代码块写笔记，再编译成 Wiki，通过学习闭环验证掌握度。",
+    "description": "本地优先的知识编译与学习系统：标准编辑与 DOCX 写笔记，语音转写、贴一贴与组件插件扩展工作流，再编译成 Wiki，通过 FSRS 学习闭环验证掌握度。",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
   }
   </script>
@@ -69,9 +69,10 @@
 
       <div class="nav-links">
         <a href="#how">工作原理</a>
-        <a href="#editors">三种编辑模式</a>
+        <a href="#editors">两种编辑模式</a>
         <a href="#code">可执行代码</a>
         <a href="#notebook">Notebook</a>
+        <a href="#capabilities">进阶能力</a>
         <a href="#learn-loop">学习闭环</a>
         <a href="#showcase">界面</a>
       </div>
@@ -92,9 +93,10 @@
     </nav>
     <div class="mobile-menu" id="mobile-menu">
       <a href="#how">工作原理</a>
-      <a href="#editors">三种编辑模式</a>
+      <a href="#editors">两种编辑模式</a>
       <a href="#code">可执行代码</a>
       <a href="#notebook">Notebook</a>
+      <a href="#capabilities">进阶能力</a>
       <a href="#learn-loop">学习闭环</a>
       <a href="#showcase">界面</a>
       <a href="#start">开始使用</a>
@@ -108,7 +110,7 @@
         <div class="hero-copy">
           <p class="eyebrow" data-reveal><span class="eyebrow-dot"></span> LOCAL-FIRST · KNOWLEDGE COMPILER</p>
           <h1 class="hero-title" data-reveal>把笔记，编译成<br /><span class="grad">你真正学会的知识。</span></h1>
-          <p class="hero-lede" data-reveal>Kiwi 把文档、网页、数据表与画布编译成相互引用的 Wiki；同一份内容可在三种编辑模式间切换，代码块直接运行，再用计划与仿真考试把「读过」变成「掌握」。</p>
+          <p class="hero-lede" data-reveal>Kiwi 把文档、表格、网页、数据表与画布编译成相互引用的 Wiki；同一份内容可在标准编辑与 DOCX 间切换，代码块直接运行、录音直接成稿，再用 FSRS 复习与仿真考试把「读过」变成「掌握」。</p>
           <div class="hero-actions" data-reveal>
             <a class="btn btn-primary" href="#start">
               开始搭建知识库
@@ -120,9 +122,9 @@
             </a>
           </div>
           <ul class="hero-stats" data-reveal>
-            <li><b>3</b><span>种编辑模式</span></li>
-            <li><b>6</b><span>种笔记形态</span></li>
-            <li><b>5</b><span>步学习闭环</span></li>
+            <li><b>2</b><span>种编辑模式</span></li>
+            <li><b>7</b><span>种笔记形态</span></li>
+            <li><b>9</b><span>项进阶能力</span></li>
             <li><b>100%</b><span>数据留在本机</span></li>
           </ul>
         </div>
@@ -146,7 +148,7 @@
             <span class="fc-icon">
               <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l3.5 3.5L16 5.5" /></svg>
             </span>
-            <div><strong>Wiki 编译完成</strong><span>29 个页面 · 128 条引用</span></div>
+            <div><strong>Wiki 编译完成</strong><span>29 个页面 · 120 条引用</span></div>
           </div>
 
           <div class="float-card fc-mastery" aria-hidden="true">
@@ -169,8 +171,8 @@
           <li class="step" data-reveal>
             <span class="step-num">01</span>
             <h3>采集</h3>
-            <p>文档、PDF、网页、数据表、画布与 Notebook，都可以是原料。</p>
-            <span class="step-tags">文档 · 网页 · 数据表 · 画布</span>
+            <p>文档、表格、PDF、网页、数据表、画布、语音录音与 Notebook，都可以是原料。</p>
+            <span class="step-tags">文档 · 表格 · 语音 · 画布</span>
           </li>
           <li class="step" data-reveal>
             <span class="step-num">02</span>
@@ -187,8 +189,8 @@
           <li class="step" data-reveal>
             <span class="step-num">04</span>
             <h3>掌握</h3>
-            <p>计划、练习、间隔重复与仿真考试，把理解沉淀成可度量的掌握度。</p>
-            <span class="step-tags">学习计划 · 间隔重复 · 仿真考试</span>
+            <p>FSRS-5 安排复习，练习与仿真考试持续产生证据，把理解沉淀成可度量的掌握度。</p>
+            <span class="step-tags">FSRS-5 · 学习周报 · 仿真考试 · Anki</span>
           </li>
         </ol>
       </div>
@@ -197,45 +199,31 @@
     <section class="section" id="editors">
       <div class="container">
         <header class="section-head" data-reveal>
-          <p class="section-kicker"><span></span>THREE EDITORS · ONE DOCUMENT</p>
-          <h2 class="section-title">一份内容，<br class="br-desktop" />三种写法。</h2>
-          <p class="section-sub">不是三套割裂的编辑器，而是同一份 Markdown 的三种呈现。写作、整理与交付，各取所需，随时切换，内容不会丢。</p>
+          <p class="section-kicker"><span></span>TWO EDITORS · ONE DOCUMENT</p>
+          <h2 class="section-title">一份内容，<br class="br-desktop" />两种写法。</h2>
+          <p class="section-sub">同一份 Markdown 的两种呈现：标准编辑负责写作、整理与交互区块，DOCX 负责正式排版与交付；随时切换，内容不会丢。</p>
         </header>
 
         <div class="editor-showcase" data-reveal>
           <div class="editor-modes" role="tablist" aria-label="编辑模式">
-            <button class="editor-mode is-active" type="button" role="tab" id="mode-tab-simple" aria-selected="true" aria-controls="editor-panel" tabindex="0"
-              data-src="assets/screenshots/editor-simple.webp" data-alt="Simple editor：极简工具栏与 Markdown 文档" data-title="Simple editor" data-desc="极简工具栏与干净的排版，适合快速记录、导入后清理和长文写作。">
+            <button class="editor-mode is-active" type="button" role="tab" id="mode-tab-standard" aria-selected="true" aria-controls="editor-panel" tabindex="0"
+              data-src="assets/screenshots/editor-standard.webp" data-alt="标准编辑：工具栏、斜杠命令与块级排版" data-title="标准编辑" data-desc="工具栏、斜杠命令、块拖拽与气泡菜单合为一体；表格、代码、公式、分栏与插件区块即插即用。">
               <span class="mode-top">
                 <span class="mode-index">01</span>
-                <span class="mode-icon">
-                  <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 5h12M4 9h9M4 13h11" /></svg>
-                </span>
-              </span>
-              <span class="mode-name">Simple editor</span>
-              <span class="mode-sub">专注写作</span>
-              <span class="mode-desc">极简工具栏与干净的排版，适合快速记录、导入后清理和长文写作。</span>
-              <span class="mode-tags"><span>Markdown</span><span>快捷格式</span><span>阅读切换</span></span>
-            </button>
-
-            <button class="editor-mode" type="button" role="tab" id="mode-tab-notion" aria-selected="false" aria-controls="editor-panel" tabindex="-1"
-              data-src="assets/screenshots/editor-notion.webp" data-alt="Notion-like editor：块级拖拽与斜杠命令" data-title="Notion-like editor" data-desc="以块为单位组织内容，拖拽、斜杠命令与气泡菜单，让表格、待办、图片和代码块即插即用。">
-              <span class="mode-top">
-                <span class="mode-index">02</span>
                 <span class="mode-icon">
                   <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3.5" y="3.5" width="5.5" height="5.5" rx="1.2" /><rect x="11" y="3.5" width="5.5" height="5.5" rx="1.2" /><rect x="3.5" y="11" width="5.5" height="5.5" rx="1.2" /><path d="M11 13.75h5.5" stroke-linecap="round" /></svg>
                 </span>
               </span>
-              <span class="mode-name">Notion-like editor</span>
-              <span class="mode-sub">块级编辑</span>
-              <span class="mode-desc">以块为单位组织内容，拖拽、斜杠命令与气泡菜单，让表格、待办、图片和代码块即插即用。</span>
-              <span class="mode-tags"><span>Slash 命令</span><span>拖拽块</span><span>气泡菜单</span></span>
+              <span class="mode-name">标准编辑</span>
+              <span class="mode-sub">写作 · 整理 · 交互</span>
+              <span class="mode-desc">工具栏、斜杠命令、块拖拽与气泡菜单合为一体；表格、代码、公式、分栏与插件区块即插即用。</span>
+              <span class="mode-tags"><span>Slash 命令</span><span>块级排版</span><span>插件区块</span><span>对齐</span></span>
             </button>
 
             <button class="editor-mode" type="button" role="tab" id="mode-tab-docx" aria-selected="false" aria-controls="editor-panel" tabindex="-1"
               data-src="assets/screenshots/editor-docx.webp" data-alt="DOCX editor：纸张视图与文档排版工具" data-title="DOCX editor" data-desc="熟悉的文档式排版：纸张视图、字号与对齐工具，适合正式文档、交付物和打印归档。">
               <span class="mode-top">
-                <span class="mode-index">03</span>
+                <span class="mode-index">02</span>
                 <span class="mode-icon">
                   <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5h5.5l3.5 3.5v9.5h-9z" /><path d="M11 3.5V7h3.5M8 10.5h4M8 13.5h4" /></svg>
                 </span>
@@ -248,11 +236,11 @@
           </div>
 
           <figure class="editor-stage">
-            <div class="editor-frame" id="editor-panel" role="tabpanel" aria-labelledby="mode-tab-simple">
-              <img id="editor-image" src="assets/screenshots/editor-simple.webp" width="1600" height="1000" alt="Simple editor：极简工具栏与 Markdown 文档" loading="lazy" />
+            <div class="editor-frame" id="editor-panel" role="tabpanel" aria-labelledby="mode-tab-standard">
+              <img id="editor-image" src="assets/screenshots/editor-standard.webp" width="1600" height="1000" alt="标准编辑：工具栏、斜杠命令与块级排版" loading="lazy" />
             </div>
             <figcaption class="editor-caption">
-              <span class="editor-caption-text"><strong id="editor-title">Simple editor</strong><span id="editor-desc">极简工具栏与干净的排版，适合快速记录、导入后清理和长文写作。</span></span>
+              <span class="editor-caption-text"><strong id="editor-title">标准编辑</strong><span id="editor-desc">工具栏、斜杠命令、块拖拽与气泡菜单合为一体；表格、代码、公式、分栏与插件区块即插即用。</span></span>
               <span class="editor-hint">同一份 Markdown · 随时切换</span>
             </figcaption>
           </figure>
@@ -426,12 +414,110 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
       </div>
     </section>
 
+    <section class="section" id="capabilities">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <p class="section-kicker"><span></span>MORE THAN MARKDOWN</p>
+          <h2 class="section-title">别的笔记停在记录，<br class="br-desktop" />Kiwi 继续把内容用起来。</h2>
+          <p class="section-sub">记录只是起点。语音、浮窗、插件、分享、检索、待办、导出与学习都接进同一份内容，让笔记从「存起来」变成「用起来」。</p>
+        </header>
+
+        <div class="cap-forms" data-reveal>
+          <span class="cap-forms-label">七种笔记形态</span>
+          <span>文档</span><span>画布</span><span>数据表</span><span>表格</span><span>Notebook</span><span>导入</span><span>外链</span>
+        </div>
+
+        <div class="cap-grid">
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7.5" y="2.8" width="5" height="9" rx="2.5" /><path d="M5 9.5a5 5 0 0 0 10 0M10 14.5v2.7" /></svg>
+            </span>
+            <h3>语音转写</h3>
+            <p>直接录音或上传音频，本地模型边录边出字幕；停止后生成带时间戳的会议笔记，可选调用大模型整理摘要、讨论点与待办。配置飞书妙记后可扫码授权，长音频交给云端，失败自动回退本地。</p>
+            <div class="cap-tags"><span>实时字幕</span><span>会议纪要</span><span>飞书扫码</span><span>本地兜底</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.2 3.5h5.6l-.9 3.6 2.6 2.7H5.5l2.6-2.7z" /><path d="M10 9.8v6.7" /></svg>
+            </span>
+            <h3>贴一贴</h3>
+            <p>双击目录里的笔记，把它变成置顶便签；可拖动、缩放、多窗并存，窗口状态写入本地存储。浮窗独立拉取正文，不切换也不打断主编辑区，还能直接编辑与保存。</p>
+            <div class="cap-tags"><span>多窗置顶</span><span>自由缩放</span><span>刷新恢复</span><span>编辑 / 阅读</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="5" height="5" rx="1.2" /><rect x="11.5" y="3.5" width="5" height="5" rx="1.2" /><rect x="3.5" y="11.5" width="5" height="5" rx="1.2" /><path d="M14 11.5v5M11.5 14h5" /></svg>
+            </span>
+            <h3>组件插件</h3>
+            <p>内置分栏、画廊、日历、数据表、待办进度等可交互区块，也支持导入第三方 zip 插件。设置页可真实预览、启停与导出，区块颜色自动跟随系统主题色与学习模式。</p>
+            <div class="cap-tags"><span>内置区块</span><span>zip 导入</span><span>效果预览</span><span>主题适配</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="15" cy="5" r="2.2" /><circle cx="5" cy="10" r="2.2" /><circle cx="15" cy="15" r="2.2" /><path d="M6.9 8.9l6.2-2.8M6.9 11.1l6.2 2.8" /></svg>
+            </span>
+            <h3>只读分享</h3>
+            <p>为单篇笔记生成随机链接，有效期 1 小时到 30 天，可加访问密码、随时撤销并查看浏览次数。图片与附件走短时签名地址，上锁笔记禁止创建分享。</p>
+            <div class="cap-tags"><span>有效期</span><span>访问密码</span><span>随时撤销</span><span>上锁保护</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2" /><path d="M3 8h14M8 8v8M13 8v8" /></svg>
+            </span>
+            <h3>表格与 OCR</h3>
+            <p>表格笔记支持多 Sheet、公式、合并单元格、冻结窗格与筛选；导入 Excel / CSV 会保留公式与样式。扫描件或图片表格可以勾选 OCR 强制解析，直接变成可编辑内容。</p>
+            <div class="cap-tags"><span>多 Sheet</span><span>公式</span><span>冻结筛选</span><span>OCR</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="9" r="4.5" /><path d="M12.5 12.5l4 4" /></svg>
+            </span>
+            <h3>混合检索问答</h3>
+            <p>向量召回与 BM25 词法召回经加权 RRF 融合，可再接入重排模型。问答支持按笔记类型、标签、更新时间筛选与跨库检索，答案带段落级引用，可一键沉淀为 Wiki 页面。</p>
+            <div class="cap-tags"><span>混合召回</span><span>段落引用</span><span>跨库问答</span><span>写入 Wiki</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2.5" /><path d="M6.5 10l2.2 2.2 4.8-5" /></svg>
+            </span>
+            <h3>待办汇总</h3>
+            <p>笔记里的 <code>- [ ]</code> 任务与数据表的状态行自动汇入「待办汇总」，按来源文档分组，支持双向同步与一键定位回原文，不用再手动抄一遍。</p>
+            <div class="cap-tags"><span>自动汇总</span><span>双向同步</span><span>来源定位</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5v8M6.8 8.3 10 11.5l3.2-3.2" /><path d="M4 12.5v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2" /></svg>
+            </span>
+            <h3>按类型导出</h3>
+            <p>文档导出 Markdown / PDF / Word，数据表 xlsx / csv / json，表格 xlsx / csv，Notebook ipynb / py，画布 png / pdf / svg，题库还能导出 Anki 牌组。锁定笔记需先解锁。</p>
+            <div class="cap-tags"><span>PDF</span><span>Word</span><span>xlsx</span><span>Anki</span></div>
+          </article>
+
+          <article class="cap-card" data-reveal>
+            <span class="cap-icon">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5l1.6 3.9 3.9 1.6-3.9 1.6L10 14.5l-1.6-3.9L4.5 9l3.9-1.6z" /><path d="M15.5 13.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" /></svg>
+            </span>
+            <h3>学习增强</h3>
+            <p>复习调度升级为 FSRS-5，按稳定度与难度安排下一次；学习周报对比上周表现，Web Push 在到期时提醒，题库与 Anki 双向导入导出，纸面和屏幕都能接着练。</p>
+            <div class="cap-tags"><span>FSRS-5</span><span>学习周报</span><span>Web Push</span><span>Anki</span></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="learn-loop">
       <div class="container">
         <header class="section-head" data-reveal>
           <p class="section-kicker"><span></span>LEARNING LOOP · MEASURED MASTERY</p>
           <h2 class="section-title">学习不是打卡，<br class="br-desktop" />是一条会回写的闭环。</h2>
-          <p class="section-sub">画像决定起点，计划安排节奏，训练与考试产生证据，掌握度再回写到每个知识点。每一次作答，都会改变下一次出题。</p>
+          <p class="section-sub">画像决定起点，计划安排节奏，训练与考试产生证据，掌握度再回写到每个知识点。复习由 FSRS-5 按稳定度与难度安排，学习周报和 Web Push 提醒接着把节奏守住；每一次作答，都会改变下一次出题。</p>
         </header>
 
         <div class="loop-showcase" data-reveal>
@@ -479,10 +565,10 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
         </div>
 
         <ul class="loop-facts" data-reveal>
-          <li><b>SM-2</b><span>按遗忘曲线安排复习</span></li>
+          <li><b>FSRS-5</b><span>按稳定度与难度安排复习</span></li>
           <li><b>7 种</b><span>客观与主观题型</span></li>
           <li><b>29</b><span>演示库知识点</span></li>
-          <li><b>100%</b><span>掌握度可追溯</span></li>
+          <li><b>Anki</b><span>题库双向导入导出</span></li>
         </ul>
       </div>
     </section>
@@ -505,6 +591,18 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
               data-src="assets/screenshots/notes-welcome.webp" data-alt="笔记工作区" data-title="笔记工作区" data-desc="目录树、双向链接与阅读视图，所有笔记类型共用一套组织方式。">
               笔记工作区
             </button>
+            <button class="gallery-tab" role="tab" id="tab-sheet" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
+              data-src="assets/screenshots/sheet.webp" data-alt="表格笔记：多工作表、公式与冻结窗格" data-title="表格笔记" data-desc="Excel 风格的多工作表，支持公式、合并单元格、冻结窗格与筛选；导入保留结构与样式。">
+              表格笔记
+            </button>
+            <button class="gallery-tab" role="tab" id="tab-sticky" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
+              data-src="assets/screenshots/sticky.webp" data-alt="贴一贴：多篇笔记以可拖动便签窗口置顶" data-title="贴一贴" data-desc="双击目录把笔记变成置顶便签，多窗并存、自由缩放，不打断主编辑区。">
+              贴一贴
+            </button>
+            <button class="gallery-tab" role="tab" id="tab-transcribe" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
+              data-src="assets/screenshots/transcribe.webp" data-alt="语音转写：录音、实时字幕与会议笔记" data-title="语音转写" data-desc="录音实时出字幕，停止后生成带时间戳的会议笔记；本地模型与飞书妙记自动选择。">
+              语音转写
+            </button>
             <button class="gallery-tab" role="tab" id="tab-notebook" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
               data-src="assets/screenshots/notebook.webp" data-alt="Notebook 工作区" data-title="Notebook" data-desc="代码单元、图形化输出与结论在同一页，工作区随笔记持久化。">
               Notebook
@@ -516,6 +614,10 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
             <button class="gallery-tab" role="tab" id="tab-graph" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
               data-src="assets/screenshots/wiki-graph.webp" data-alt="知识星图" data-title="知识星图" data-desc="星图式浏览页面关系，节点大小反映被引次数。">
               知识星图
+            </button>
+            <button class="gallery-tab" role="tab" id="tab-plugins" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
+              data-src="assets/screenshots/plugins.webp" data-alt="插件与区块设置：内置扩展组件与第三方组件插件" data-title="组件插件" data-desc="内置扩展与第三方 zip 插件统一管理，支持真实预览、启停、导出与主题适配。">
+              组件插件
             </button>
             <button class="gallery-tab" role="tab" id="tab-plan" aria-selected="false" aria-controls="gallery-panel" tabindex="-1"
               data-src="assets/screenshots/learn-plan.webp" data-alt="学习计划" data-title="学习计划" data-desc="按掌握度与遗忘曲线动态排程，每天知道该学什么。">
@@ -537,7 +639,7 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
             </div>
             <figcaption class="gallery-caption">
               <span class="gallery-text"><strong id="gallery-title">结构化 Wiki</strong><span id="gallery-desc">Schema 编译出的页面：目录、大纲、反向链接与来源引用。</span></span>
-              <span class="gallery-count" id="gallery-count">01 / 08</span>
+              <span class="gallery-count" id="gallery-count">01 / 12</span>
             </figcaption>
           </figure>
         </div>
@@ -553,7 +655,7 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
             <p class="section-sub">一条命令启动，首次运行自带完整演示知识库。生产环境可用 Docker 一键部署。</p>
             <ul class="start-list">
               <li><span class="check">✓</span>本地运行，无需注册与订阅</li>
-              <li><span class="check">✓</span>内置 22 篇演示笔记与 29 个 Wiki 页面</li>
+              <li><span class="check">✓</span>内置 33 篇演示笔记、29 个 Wiki 页面与表格示例，覆盖全部功能</li>
               <li><span class="check">✓</span>模型可替换，兼容 OpenAI 协议</li>
             </ul>
             <a class="text-link" href="https://github.com/LsWGG/Kiwi/blob/main/docs/DEPLOY.md" target="_blank" rel="noopener">
@@ -612,8 +714,24 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
             <p>普通工具帮你记录；Kiwi 把内容编译成结构化 Wiki，再通过学习闭环持续更新掌握度。目录由 Schema 与引用关系生成，知识点之间不是孤立的，学习结果也会回写到页面。</p>
           </details>
           <details class="faq" name="faq">
-            <summary>三种编辑模式有什么区别？<span class="faq-icon" aria-hidden="true"></span></summary>
-            <p>Simple editor 专注纯文本与 Markdown 快捷格式；Notion-like editor 以块为单位，支持拖拽、斜杠命令与气泡菜单；DOCX editor 提供接近文档软件的纸张视图与排版工具。三者编辑的是同一份 Markdown，随时切换，内容不会丢失。</p>
+            <summary>两种编辑模式有什么区别？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>标准编辑把工具栏、斜杠命令、块拖拽、气泡菜单与插件区块放在同一套界面里，适合从快速记录到结构化长文。DOCX editor 提供接近文档软件的纸张视图、页眉页脚与排版工具，适合正式文档和打印归档。两者编辑的是同一份 Markdown，随时切换，内容不会丢失。</p>
+          </details>
+          <details class="faq" name="faq">
+            <summary>语音转写要联网吗？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>本地 faster-whisper 默认在本机识别，音频不上传；配置飞书妙记后可以扫码授权，把长音频交给云端，自动模式下飞书失败会回退本地。录音过程中每 12 秒做一次实时预览，最终转写与可选的大模型纪要都在后台任务里完成，关掉窗口也会继续。</p>
+          </details>
+          <details class="faq" name="faq">
+            <summary>「贴一贴」会打断当前编辑吗？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>不会。便签窗口独立按笔记 ID 拉取与保存正文，可拖动、缩放、多开，窗口位置与打开列表写入本地存储，刷新后恢复；主编辑区当前打开的笔记不受影响。数据表、画布与 Notebook 以摘要形式置顶，完整内容仍回主窗口编辑。</p>
+          </details>
+          <details class="faq" name="faq">
+            <summary>组件插件安全吗？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>插件是第三方前端代码，只应在信任来源使用。导入前会预检并展示入口与区块信息，启用后才加载 ESM；可以随时停用、导出或删除。停用或加载失败时区块降级为静态卡片，数据不会丢；公开分享页不执行插件脚本。</p>
+          </details>
+          <details class="faq" name="faq">
+            <summary>分享链接有访问控制吗？<span class="faq-icon" aria-hidden="true"></span></summary>
+            <p>分享页使用随机 token，可设 1 小时至 30 天有效期与访问密码，随时撤销并查看浏览次数；图片与附件通过短时签名地址加载，上锁笔记不能创建分享。配置公网地址后，还可以配合隧道只暴露分享页。</p>
           </details>
           <details class="faq" name="faq">
             <summary>Notebook 和可执行代码块有什么区别？<span class="faq-icon" aria-hidden="true"></span></summary>
@@ -678,9 +796,10 @@ cohort.<span class="tok-f">plot</span>(kind=<span class="tok-s">"line"</span>, m
         </div>
         <div class="footer-col">
           <h4>产品</h4>
-          <a href="#editors">三种编辑模式</a>
+          <a href="#editors">两种编辑模式</a>
           <a href="#code">可执行代码</a>
           <a href="#notebook">Notebook</a>
+          <a href="#capabilities">进阶能力</a>
           <a href="#learn-loop">学习闭环</a>
           <a href="#showcase">界面</a>
           <a href="#faq">常见问题</a>

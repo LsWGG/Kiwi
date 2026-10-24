@@ -6,6 +6,9 @@ import KiwiModal from '@/components/ui/KiwiModal.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 
+/** embedded：作为「模型配置」子页渲染时隐藏独立页头与设置导航。 */
+withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+
 const llm = useLlmStore()
 const editing = ref(false)
 const editId = ref<string | null>(null)
@@ -140,9 +143,9 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
 </script>
 
 <template>
-  <div class="page-wrap-slim px-8 py-8">
+  <div :class="embedded ? '' : 'page-wrap-slim px-8 py-8'">
     <!-- 页头 -->
-    <div class="flex items-end justify-between mb-5 animate-fade-up">
+    <div v-if="!embedded" class="flex items-end justify-between mb-5 animate-fade-up">
       <div class="flex items-center gap-3">
         <span
           class="w-10 h-10 rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 grid place-items-center text-white shadow-glow"
@@ -162,7 +165,18 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
       </button>
     </div>
 
-    <SettingsTabs />
+    <SettingsTabs v-if="!embedded" />
+
+    <!-- 嵌入「模型配置」时保留新增入口，与向量 / OCR 页签的操作位置一致 -->
+    <div v-if="embedded" class="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <p class="text-xs leading-relaxed text-slate-500">
+        支持任何 OpenAI 兼容端点；密钥加密存储。级联：知识库默认 &gt; 全局默认。
+      </p>
+      <button v-if="!editing" class="kiwi-btn-primary !py-1.5 !text-xs" @click="startEdit()">
+        <KiwiIcon name="plus" :size="13" />
+        新增配置
+      </button>
+    </div>
 
     <!-- 编辑表单 -->
     <div

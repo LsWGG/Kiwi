@@ -16,6 +16,7 @@ import NoteEmojiButton from '@/components/notes/NoteEmojiButton.vue'
 import NoteTagButton from '@/components/notes/NoteTagButton.vue'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
+import { useFindHighlight } from '@/composables/useFindHighlight'
 import {
   resolveDocxPrefs,
   resolveEditorMode,
@@ -39,6 +40,8 @@ const refreshing = ref(false)
 const faviconBroken = ref(false)
 const editorRef = ref<InstanceType<typeof KiwiEditor> | null>(null)
 const exporting = ref(false)
+// 页内查找：链接正文同样走编辑器装饰。
+useFindHighlight(editorRef, () => props.note.id, () => props.note.body_md)
 
 const modeOverride = ref<EditorMode | null>(null)
 const editorMode = computed(
@@ -420,7 +423,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
           :disabled="exporting"
           @click="exportDocx"
         >
-          <KiwiIcon :name="exporting ? 'loader' : 'download'" :size="13" :spin="exporting" />
+          <KiwiIcon :name="exporting ? 'loader' : 'fileExport'" :size="13" :spin="exporting" />
           Word
         </button>
         <button

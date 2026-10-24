@@ -13,17 +13,26 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import KiwiToastHost from '@/components/ui/KiwiToastHost.vue'
 import ShortcutHelpDialog from '@/components/ui/ShortcutHelpDialog.vue'
+import NoteStickyLayer from '@/components/notes/NoteStickyLayer.vue'
+import NoteSearchDialog from '@/components/notes/NoteSearchDialog.vue'
+import PluginFloatLayer from '@/components/editor/PluginFloatLayer.vue'
 import AuthLoginView from '@/views/AuthLoginView.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useCommandPaletteStore } from '@/stores/commandPalette'
+import { uiScaleForWidth } from '@/utils/uiScale'
 
 const kbs = useKbsStore()
 const mode = useModeStore()
 const system = useSystemStore()
 const auth = useAuthStore()
+const commandPalette = useCommandPaletteStore()
 const route = useRoute()
 
 const shortcutsOpen = ref(false)
 const booted = ref(false)
+
+/** 公开分享页使用独立布局，不加载业务数据、不弹登录页。 */
+const isPublicShare = computed(() => route.name === 'note-share')
 
 /** 登录成功后再拉取业务数据，避免访问控制开启时首屏刷出一串 401。 */
 function loadAppData() {
@@ -35,6 +44,10 @@ function loadAppData() {
 }
 
 async function boot() {
+  if (isPublicShare.value) {
+    auth.checking = false
+    return
+  }
   await auth.check()
   if (!auth.blocked) loadAppData()
 }
@@ -45,11 +58,13 @@ async function onLoginSuccess() {
 }
 
 async function onLogout() {
+  commandPalette.close()
   await auth.logout()
   booted.value = false
 }
 
 function onUnauthorized() {
+  commandPalette.close()
   auth.markUnauthorized()
   booted.value = false
 }
@@ -72,6 +87,26 @@ function onShortcutKey(event: KeyboardEvent) {
   if (isTypingTarget(event.target)) return
   event.preventDefault()
   shortcutsOpen.value = !shortcutsOpen.value
+}
+
+/** 全站命令面板：笔记检索 + 新建 / 导航 / 页内查找 / 置顶插件等操作。 */
+function onCommandPaletteKey(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.altKey || event.shiftKey) return
+  if (!(event.ctrlKey || event.metaKey)) return
+  if (event.key.toLowerCase() !== 'k') return
+  if (isPublicShare.value || auth.blocked || auth.checking) return
+  event.preventDefault()
+  commandPalette.toggle()
+}
+
+/** Ctrl/⌘+Shift+P：只显示命令（VSCode 习惯），不混入笔记结果。 */
+function onCommandOnlyPaletteKey(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.altKey || !event.shiftKey) return
+  if (!(event.ctrlKey || event.metaKey)) return
+  if (event.key.toLowerCase() !== 'p') return
+  if (isPublicShare.value || auth.blocked || auth.checking) return
+  event.preventDefault()
+  commandPalette.show(true)
 }
 
 /**
@@ -116,8 +151,7 @@ watch(
 /** 大屏自动放大 UI：4K 屏上文字/控件不再偏小。 */
 function applyUiScale() {
   const width = window.innerWidth
-  const scale =
-    width >= 4000 ? 1.75 : width >= 3200 ? 1.5 : width >= 2400 ? 1.3 : width >= 1800 ? 1.12 : 1
+  const scale = uiScaleForWidth(width)
   document.documentElement.style.setProperty('--ui-scale', String(scale))
   // body 的 zoom 会放大内容，而 100dvh 不随之缩放。Wiki 页面目录需要的是
   // 视觉上不超过一屏的高度，因此先按缩放比换算成布局像素再下发。
@@ -129,6 +163,8 @@ onMounted(() => {
   applyUiScale()
   window.addEventListener('resize', applyUiScale)
   window.addEventListener('keydown', onShortcutKey)
+  window.addEventListener('keydown', onCommandPaletteKey)
+  window.addEventListener('keydown', onCommandOnlyPaletteKey)
   window.addEventListener('kiwi:unauthorized', onUnauthorized)
   void boot()
 })
@@ -136,12 +172,17 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', applyUiScale)
   window.removeEventListener('keydown', onShortcutKey)
+  window.removeEventListener('keydown', onCommandPaletteKey)
+  window.removeEventListener('keydown', onCommandOnlyPaletteKey)
   window.removeEventListener('kiwi:unauthorized', onUnauthorized)
 })
 </script>
 
 <template>
-  <div v-if="auth.checking" class="grid h-full place-items-center text-sm text-slate-400">
+  <!-- 公开只读分享页：不渲染顶栏、侧栏与登录门。 -->
+  <RouterView v-if="isPublicShare" />
+
+  <div v-else-if="auth.checking" class="grid h-full place-items-center text-sm text-slate-400">
     <span class="flex items-center gap-2">
       <KiwiIcon name="loader" :size="16" :spin="true" />
       正在检查访问权限…
@@ -153,7 +194,7 @@ onBeforeUnmount(() => {
   <div v-else class="h-full flex flex-col">
     <!-- 全局顶栏：渐变玻璃条 -->
     <header
-      class="h-14 shrink-0 relative z-30 flex items-center gap-4 px-4 backdrop-blur-xl bg-white/55 border-b border-slate-200/60"
+      class="h-14 shrink-0 relative z-30 flex items-center gap-4 px-4 backdrop-blur-xl bg-white/55 border-b border-slate-200/60 max-md:gap-1.5 max-md:px-2"
     >
       <!-- 顶部高光细线 -->
       <div
@@ -172,7 +213,7 @@ onBeforeUnmount(() => {
           :size="32"
           class="relative shrink-0 rounded-xl shadow-glow"
         />
-        <div class="min-w-0 leading-tight">
+        <div class="min-w-0 leading-tight max-md:hidden">
           <span class="block truncate text-[15px] font-bold tracking-wide text-slate-800">
             {{ system.appName }}
           </span>
@@ -185,13 +226,13 @@ onBeforeUnmount(() => {
       <div class="flex-1" />
 
       <!-- 右侧：模式切换 + 知识库切换 + 设置入口（两种模式共用） -->
-      <ModeSwitcher />
+      <ModeSwitcher class="max-md:hidden" />
       <KbSwitcher :learn="isLearn" />
       <button
         type="button"
         title="键盘快捷键（?）"
         aria-label="键盘快捷键"
-        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700 max-md:hidden"
         :class="shortcutsOpen ? 'bg-white/80 text-kiwi-600' : ''"
         @click="shortcutsOpen = true"
       >
@@ -233,6 +274,12 @@ onBeforeUnmount(() => {
     </main>
 
     <ShortcutHelpDialog :open="shortcutsOpen" @close="shortcutsOpen = false" />
+    <!-- 全局命令面板：Ctrl/⌘+K 检索笔记或执行「置顶插件组件」等快捷操作 -->
+    <NoteSearchDialog :open="commandPalette.open" @close="commandPalette.close()" />
+    <!-- 「贴一贴」便签窗口：跨路由保留，登录后才渲染 -->
+    <NoteStickyLayer />
+    <!-- 组件插件置顶窗口：pinnable 区块可跨路由常驻 -->
+    <PluginFloatLayer />
   </div>
 
   <KiwiToastHost />

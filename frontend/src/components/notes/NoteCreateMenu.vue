@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 新建菜单：模板 / 文档 / 画布 / 数据表 / 表格 / Notebook / 导入 / 分组 / 链接。 */
+/** 新建菜单：模板 / 文档 / 画布 / 数据表 / 表格 / Notebook / 导入 / 语音转写 / 分组 / 链接。 */
 import KiwiDropdown from '@/components/ui/KiwiDropdown.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 
@@ -11,6 +11,7 @@ const emit = defineEmits<{
   (e: 'sheet'): void
   (e: 'notebook'): void
   (e: 'import'): void
+  (e: 'audio'): void
   (e: 'folder'): void
   (e: 'link'): void
 }>()
@@ -23,6 +24,7 @@ const items = [
   { key: 'sheet', label: '表格', hint: 'Excel 风格 · 多 Sheet · 公式', icon: 'table', tone: 'text-emerald-600' },
   { key: 'notebook', label: 'Notebook', hint: '代码 / 分析 · 沙箱执行', icon: 'notebook', tone: 'text-indigo-500' },
   { key: 'import', label: '导入文件', hint: '解析为可编辑文档', icon: 'fileImport', tone: 'text-emerald-500' },
+  { key: 'audio', label: '语音转写', hint: '音频生成会议笔记', icon: 'mic', tone: 'text-rose-500' },
   { key: 'folder', label: '分组', hint: '整理工作区条目', icon: 'folder', tone: 'text-amber-400' },
   { key: 'link', label: '链接', hint: '抓取网页正文', icon: 'link2', tone: 'text-sky-500' },
 ] as const
@@ -50,6 +52,9 @@ function choose(key: (typeof items)[number]['key'], close: () => void) {
       break
     case 'import':
       emit('import')
+      break
+    case 'audio':
+      emit('audio')
       break
     case 'folder':
       emit('folder')

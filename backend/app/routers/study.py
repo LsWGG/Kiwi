@@ -3,11 +3,23 @@
 import re
 import uuid
 from datetime import datetime, timezone
+from html import escape
+from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import (
     KnowledgeBase,
     LearningAnnotation,
@@ -29,6 +41,7 @@ from app.repositories import (
 )
 from app.schemas.study import (
     ActiveSessionOut,
+    AnkiImportOut,
     AnnotationIn,
     AnnotationOut,
     AnnotationUpdate,
@@ -61,8 +74,16 @@ from app.schemas.study import (
     StudyProfileIn,
     StudyProfileOut,
     TopicNoteOut,
+    WeeklyReportOut,
 )
 from app.services import mock_exam as mock_service
+from app.services.anki_export import (
+    QUESTION_TYPE_LABELS,
+    build_anki_package,
+    question_to_card,
+    sanitize_deck_segment,
+)
+from app.services.anki_import import AnkiImportError, import_anki_package
 from app.services.study_engine import (
     WEAK_THRESHOLD,
     StudyEngineError,
@@ -83,6 +104,7 @@ from app.services.study_engine import (
     sync_learning_topics,
 )
 from app.services.study_onboarding import complete_onboarding, onboarding_turn
+from app.services.study_report import build_weekly_report
 from app.services.web_research import research_question
 
 
@@ -674,6 +696,152 @@ async def due_reviews(kb_id: uuid.UUID, session: AsyncSession = Depends(get_sess
     ]
     next_due = None if items else await repo.next_due_at(kb_id, now)
     return ReviewDueOut(total=len(items), items=items, next_due_at=next_due)
+
+
+@router.get("/export/anki")
+async def export_anki(
+    kb_id: uuid.UUID,
+    group_by: str = Query(default="none", pattern="^(none|type|topic)$"),
+    session: AsyncSession = Depends(get_session),
+):
+    """把知识库题库导出为 Anki `.apkg`。
+
+    ``group_by`` 控制牌组映射：``none`` 单牌组、``type`` 按题型、
+    ``topic`` 按知识点拆分。只导出仍在缓存中启用的题目。
+    """
+    kb = await session.get(KnowledgeBase, kb_id)
+    if kb is None:
+        raise HTTPException(404, "知识库不存在")
+    questions = (
+        (
+            await session.execute(
+                select(StudyQuestion)
+                .where(
+                    StudyQuestion.kb_id == kb_id,
+                    StudyQuestion.cache_status == "active",
+                )
+                .order_by(StudyQuestion.topic_slug, StudyQuestion.question_type)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not questions:
+        raise HTTPException(
+            404, "题库还没有可导出的题目，请先完成一次训练或仿真考试"
+        )
+
+    pages = (
+        (await session.execute(select(WikiPage).where(WikiPage.kb_id == kb_id)))
+        .scalars()
+        .all()
+    )
+    title_by_id = {page.id: page.title for page in pages}
+    title_by_slug = {page.slug: page.title for page in pages}
+    deck_root = f"Kiwi::{sanitize_deck_segment(kb.name or '学习')}"
+
+    media_root = settings.upload_dir / "media"
+    media: dict[str, bytes] = {}
+    cards = []
+    for question in questions:
+        question_json = question.question_json or {}
+        cite_slug = str(question.topic_slug or question_json.get("cite_slug") or "")
+        cite_title = (
+            title_by_id.get(question.wiki_page_id)
+            or title_by_slug.get(cite_slug)
+            or ""
+        )
+        if group_by == "type":
+            label = QUESTION_TYPE_LABELS.get(question.question_type, "其它")
+            deck = f"{deck_root}::{sanitize_deck_segment(label)}"
+        elif group_by == "topic":
+            deck = (
+                f"{deck_root}::"
+                f"{sanitize_deck_segment(cite_title or cite_slug or '未分类')}"
+            )
+        else:
+            deck = deck_root
+        card = question_to_card(
+            question_id=question.id,
+            question_type=question.question_type,
+            question_json=question_json,
+            answer_json=question.answer_json or {},
+            difficulty=question.difficulty,
+            deck=deck,
+            cite_title=cite_title,
+            topic_tag=cite_slug,
+            extra_tags=[str(tag) for tag in question_json.get("anki_tags") or []],
+        )
+        # 导入时保留的媒体（图片 / 附件）重新打包进牌组，保证往返不丢文件。
+        images: list[str] = []
+        for ref in question_json.get("media") or []:
+            url = str(ref.get("url") or "") if isinstance(ref, dict) else ""
+            if not url.startswith("/media/"):
+                continue
+            relative = unquote(url[len("/media/") :])
+            path = (media_root / relative).resolve()
+            if not path.is_file() or not path.is_relative_to(media_root.resolve()):
+                continue
+            if path.stat().st_size > 25 * 1024 * 1024:
+                continue
+            name = f"{question.id.hex[:8]}-{path.name}"
+            media[name] = path.read_bytes()
+            images.append(f'<div class="kiwi-media"><img src="{escape(name)}" alt=""></div>')
+        card.front_html += "".join(images)
+        cards.append(card)
+
+    package = build_anki_package(cards, deck_root, media=media)
+    safe_name = re.sub(r"[/\\]+", "_", kb.name or "kiwi").strip() or "kiwi"
+    filename = quote(f"{safe_name}-Anki.apkg")
+    return Response(
+        content=package,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+            "X-Kiwi-Anki-Count": str(len(cards)),
+        },
+    )
+
+
+@router.post("/import/anki", response_model=AnkiImportOut)
+async def import_anki(
+    kb_id: uuid.UUID,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """导入 Anki `.apkg` / `.colpkg`：识别题型、牌组、标签与媒体。
+
+    重复导入同一牌组会按题目指纹跳过，不产生重复题目。
+    """
+    filename = (file.filename or "").lower()
+    if not filename.endswith((".apkg", ".colpkg")):
+        raise HTTPException(400, "请选择 .apkg 或 .colpkg 牌组文件")
+    payload = await file.read()
+    try:
+        result = await import_anki_package(
+            session,
+            kb_id,
+            payload,
+            settings.upload_dir / "media",
+        )
+    except AnkiImportError as e:
+        raise HTTPException(400, str(e)) from e
+    return AnkiImportOut(
+        imported=result.imported,
+        skipped=result.skipped,
+        media_files=result.media_files,
+        decks=result.decks,
+    )
+
+
+@router.get("/report/weekly", response_model=WeeklyReportOut)
+async def weekly_report(
+    kb_id: uuid.UUID,
+    days: int = Query(default=7, ge=1, le=30),
+    session: AsyncSession = Depends(get_session),
+):
+    """每周学习报告：答题量 / 正确率 / 薄弱知识点与留存曲线。"""
+    return await build_weekly_report(session, kb_id, days=days)
 
 
 @router.get("/mastery", response_model=MasteryOut)

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { request } from '@/api/client'
+import { errorMessage, request, upload } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 
 export type QuestionType =
@@ -137,6 +137,49 @@ export interface ReviewItem {
   repetitions: number
   domain?: string
   content_updated?: boolean
+}
+
+export interface WeeklyDailyStat {
+  date: string
+  attempts: number
+  correct: number
+  accuracy: number
+  minutes: number
+}
+
+export interface WeeklyWeakTopic {
+  slug: string
+  title: string
+  attempts: number
+  accuracy: number
+  mastery: number
+}
+
+export interface WeeklyRetentionBucket {
+  bucket: string
+  attempts: number
+  accuracy: number
+}
+
+export interface WeeklyReport {
+  start: string
+  end: string
+  days: number
+  attempts: number
+  correct: number
+  accuracy: number
+  minutes: number
+  active_days: number
+  previous_attempts: number
+  previous_correct: number
+  previous_accuracy: number
+  previous_minutes: number
+  mastery_average: number
+  mastery_topics: number
+  weak_count: number
+  daily: WeeklyDailyStat[]
+  weak_topics: WeeklyWeakTopic[]
+  retention: WeeklyRetentionBucket[]
 }
 
 export interface ActiveSession {
@@ -368,6 +411,20 @@ export interface OnboardingMessage {
   content: string
 }
 
+/** 从 Content-Disposition 提取下载文件名（兼容 RFC 5987 中文名）。 */
+function ankiFilename(disposition: string | null): string {
+  if (!disposition) return 'kiwi-anki.apkg'
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      // 非法编码时退回普通 filename / 默认文件名。
+    }
+  }
+  return /filename="?([^";]+)"?/i.exec(disposition)?.[1] || 'kiwi-anki.apkg'
+}
+
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   single_choice: '单选题',
   multiple_choice: '多选题',
@@ -394,6 +451,8 @@ export const useStudyStore = defineStore('study', () => {
   const dueReviews = ref<ReviewItem[]>([])
   const dueLoading = ref(false)
   const nextDueAt = ref<string | null>(null)
+  const weeklyReport = ref<WeeklyReport | null>(null)
+  const weeklyLoading = ref(false)
   const activeSession = ref<ActiveSession | null>(null)
 
   const answered = ref<AnswerResult[]>([])
@@ -768,6 +827,56 @@ export const useStudyStore = defineStore('study', () => {
     }
   }
 
+  /** 加载最近 N 天学习报告。 */
+  async function loadWeeklyReport(days = 7) {
+    if (!kbId()) return
+    weeklyLoading.value = true
+    try {
+      weeklyReport.value = await request<WeeklyReport>(
+        `/study/report/weekly?days=${days}`,
+        { kbId: kbId() },
+      )
+    } catch (e: any) {
+      error.value = e.message
+    } finally {
+      weeklyLoading.value = false
+    }
+  }
+
+  /**
+   * 下载当前知识库的 Anki 牌组包。
+   * ``group_by`` 与后端约定：none / type / topic。
+   */
+  async function exportAnki(groupBy: 'none' | 'type' | 'topic' = 'none') {
+    if (!kbId()) throw new Error('未选择知识库')
+    const params = new URLSearchParams({ kb_id: kbId()!, group_by: groupBy })
+    const res = await fetch(`/api/study/export/anki?${params.toString()}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      throw new Error(
+        errorMessage(body?.detail, res.statusText || '导出 Anki 牌组失败'),
+      )
+    }
+    return {
+      blob: await res.blob(),
+      filename: ankiFilename(res.headers.get('Content-Disposition')),
+      count: Number(res.headers.get('X-Kiwi-Anki-Count') || 0),
+    }
+  }
+
+  /** 导入 Anki `.apkg` / `.colpkg`，返回题目、跳过与媒体数量。 */
+  async function importAnki(file: File) {
+    if (!kbId()) throw new Error('未选择知识库')
+    const form = new FormData()
+    form.append('file', file)
+    return upload<{
+      imported: number
+      skipped: number
+      media_files: number
+      decks: string[]
+    }>('/study/import/anki', form, kbId())
+  }
+
   async function loadActiveSession() {
     if (!kbId()) return
     try {
@@ -1110,6 +1219,9 @@ export const useStudyStore = defineStore('study', () => {
     dueReviews,
     dueLoading,
     nextDueAt,
+    weeklyReport,
+    weeklyLoading,
+    loadWeeklyReport,
     activeSession,
     answered,
     answeredCount,
@@ -1153,6 +1265,8 @@ export const useStudyStore = defineStore('study', () => {
     sendQuestionFeedback,
     verifyQuestion,
     loadDueReviews,
+    exportAnki,
+    importAnki,
     loadActiveSession,
     resumeSession,
     loadMistakes,

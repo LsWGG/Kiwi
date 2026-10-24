@@ -1,0 +1,22 @@
+# Kiwi 公网只读分享网关（Cloudflare Named Tunnel 示例）
+#
+# 用法：
+#   1. kiwi.example.com 已托管在 Cloudflare；
+#   2. cloudflared tunnel login
+#   3. cloudflared tunnel create kiwi-share
+#   4. 把本文件复制为 /etc/cloudflared/config.yml，替换 tunnel / credentials-file / hostname；
+#   5. cloudflared tunnel route dns kiwi-share share.example.com
+#   6. systemctl enable --now cloudflared
+#
+# 只放行分享页需要的路径，其余请求直接 404；公网看不到笔记工作区与 API。
+
+tunnel: kiwi-share
+credentials-file: /etc/cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: share.example.com
+    path: ^/(share/|api/share/|assets/|favicon)
+    service: http://127.0.0.1:18473
+  - hostname: share.example.com
+    service: http_status:404
+  - service: http_status:404

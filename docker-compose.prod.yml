@@ -77,7 +77,7 @@ services:
         DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/debian-security}
         KIWI_BUILD_COMMIT: ${KIWI_BUILD_COMMIT:-}
         KIWI_BUILD_TIME: ${KIWI_BUILD_TIME:-}
-    image: kiwi-backend:0.2.0
+    image: kiwi-backend:1.0.0
     container_name: kiwi-prod-backend
     restart: unless-stopped
     init: true
@@ -97,6 +97,8 @@ services:
       # 可选访问控制：留空不启用；设置后浏览器会先进入令牌登录页。
       KIWI_ACCESS_TOKEN: ${KIWI_ACCESS_TOKEN:-}
       KIWI_ACCESS_COOKIE_NAME: ${KIWI_ACCESS_COOKIE_NAME:-kiwi_access}
+      # 公网只读分享域名；留空时分享链接使用当前访问地址。
+      KIWI_PUBLIC_BASE_URL: ${KIWI_PUBLIC_BASE_URL:-}
       KIWI_RATE_LIMIT_ENABLED: ${KIWI_RATE_LIMIT_ENABLED:-true}
       KIWI_RATE_LIMIT_LLM_PER_MINUTE: ${KIWI_RATE_LIMIT_LLM_PER_MINUTE:-20}
       KIWI_RATE_LIMIT_IMPORT_PER_MINUTE: ${KIWI_RATE_LIMIT_IMPORT_PER_MINUTE:-10}

@@ -40,3 +40,6 @@ qdrantdata/
 
 # os
 .DS_Store
+
+# claude code local worktrees
+.claude/worktrees/

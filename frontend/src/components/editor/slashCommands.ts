@@ -3,6 +3,7 @@ import { Extension, type Editor } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import Suggestion from '@tiptap/suggestion'
 import { iconSVG } from '@/components/ui/icons'
+import type { PluginBlock } from '@/stores/plugins'
 
 /** @tiptap/suggestion 默认共用一个 PluginKey，多个 Suggestion 同时启用会冲突。 */
 const slashCommandKey = new PluginKey('slashCommand')
@@ -14,6 +15,8 @@ export interface SlashItem {
   keywords: string
   /** 菜单分组标题 */
   group: string
+  /** 内置扩展组件 key；在「插件与区块」停用后隐藏 */
+  extension?: string
   run: (editor: Editor) => void
 }
 
@@ -33,6 +36,12 @@ export interface SlashActions {
   onDate: () => void
   /** 打开 AI 指令栏（续写 / 缩写 / 润色 / 知识库解释） */
   onAI: () => void
+  /** 已启用插件提供的区块（在菜单构建时读取，插件启停无需重建编辑器） */
+  pluginBlocks?: () => PluginBlock[]
+  /** 插入插件区块的 Markdown 模板 */
+  onPluginBlock?: (editor: Editor, block: PluginBlock) => void
+  /** 内置扩展组件是否启用（设置 → 插件与区块） */
+  extensionEnabled?: (key: string) => boolean
 }
 
 export function buildSlashItems(
@@ -183,7 +192,19 @@ export function buildSlashItems(
         },
       ]
     : []
-  return [
+  // 插件区块由后端注册表下发；停用插件后下一次打开菜单即消失。
+  const pluginItems: SlashItem[] =
+    actions.onPluginBlock && actions.pluginBlocks
+      ? actions.pluginBlocks().map((block) => ({
+          title: block.label,
+          hint: block.description || `${block.plugin_name} · ${block.category}`,
+          icon: block.icon || 'puzzle',
+          keywords: `plugin block 插件 区块 ${block.plugin_name} ${block.category} ${block.type}`,
+          group: '插件区块',
+          run: (e: Editor) => actions.onPluginBlock?.(e, block),
+        }))
+      : []
+  const items: SlashItem[] = [
     {
       title: '正文',
       hint: '普通段落',
@@ -247,6 +268,7 @@ export function buildSlashItems(
       icon: 'hash',
       keywords: 'formula math latex katex 公式 数学',
       group: '程序员专区',
+      extension: 'formula',
       run: (e) => c(e).insertFormula().run(),
     },
     {
@@ -255,6 +277,7 @@ export function buildSlashItems(
       icon: 'graph',
       keywords: 'mermaid diagram flowchart uml 绘图 流程图 时序图 类图',
       group: '程序员专区',
+      extension: 'mermaid',
       run: (e) => c(e).insertMermaid().run(),
     },
     {
@@ -271,6 +294,7 @@ export function buildSlashItems(
       icon: 'columns',
       keywords: 'columns layout grid 分栏 卡片 布局 两栏',
       group: '布局与样式',
+      extension: 'columns2',
       run: (e) => c(e).insertColumns({ count: 2 }).run(),
     },
     {
@@ -279,6 +303,7 @@ export function buildSlashItems(
       icon: 'columns',
       keywords: 'columns layout grid 分栏 卡片 布局 三栏',
       group: '布局与样式',
+      extension: 'columns3',
       run: (e) => c(e).insertColumns({ count: 3 }).run(),
     },
     {
@@ -335,6 +360,7 @@ export function buildSlashItems(
       icon: 'gallery',
       keywords: 'gallery album images photo 图册 相册 多图 图片',
       group: '媒体与嵌入',
+      extension: 'gallery',
       run: (e) => c(e).insertGallery().run(),
     },
     {
@@ -375,6 +401,7 @@ export function buildSlashItems(
       icon: 'calendar',
       keywords: 'date calendar today 日期 日历 今天',
       group: '小工具',
+      extension: 'date',
       run: () => actions.onDate(),
     },
     {
@@ -383,6 +410,7 @@ export function buildSlashItems(
       icon: 'calendar',
       keywords: 'calendar month schedule 日历 月历 日程 安排',
       group: '小工具',
+      extension: 'calendar',
       run: (e) => c(e).insertCalendar().run(),
     },
     {
@@ -391,6 +419,7 @@ export function buildSlashItems(
       icon: 'checkSquare',
       keywords: 'progress task todo checklist 进度 待办 任务 完成度',
       group: '小工具',
+      extension: 'taskProgress',
       run: (e) => c(e).insertTaskProgress().run(),
     },
     {
@@ -399,6 +428,7 @@ export function buildSlashItems(
       icon: 'table',
       keywords: 'datatable grid spreadsheet 数据表 表格 行列',
       group: '高级块',
+      extension: 'datatable',
       run: (e) => c(e).insertDataTable().run(),
     },
     {
@@ -420,7 +450,13 @@ export function buildSlashItems(
     ...alignments,
     ...detailsOps,
     ...tableOps,
+    ...pluginItems,
   ]
+  // 内置扩展组件被停用后，斜杠菜单与工具栏「扩展组件」同步隐藏。
+  const extensionEnabled = actions.extensionEnabled
+  return extensionEnabled
+    ? items.filter((item) => !item.extension || extensionEnabled(item.extension))
+    : items
 }
 
 function escapeHtml(text: string) {

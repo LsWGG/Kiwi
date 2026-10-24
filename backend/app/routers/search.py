@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase
 from app.db.session import get_session
 from app.schemas.chat import SearchHit, SearchRequest, SearchResponse
-from app.services.retrieval import search
+from app.services.retrieval import RetrievalFilters, search
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -31,29 +31,48 @@ async def do_search(data: SearchRequest, session: AsyncSession = Depends(get_ses
     if not data.query.strip():
         raise HTTPException(422, "查询不能为空")
     kb_ids = await _resolve_kb_ids(session, data.scope.kb_ids, data.scope.scope)
+    filters = RetrievalFilters(
+        note_ids=list(data.scope.note_ids),
+        note_kinds=list(data.scope.note_kinds),
+        tag_ids=list(data.scope.tag_ids),
+        updated_from=data.scope.updated_from,
+        updated_to=data.scope.updated_to,
+    )
 
-    # Wiki + 笔记双 collection 检索 + 融合（笔记是素材整理后的最终形态）
+    # Wiki + 笔记双 collection 混合检索；带笔记筛选时只查笔记。
     results = []
-    for collection, weight in (("wiki", 1.0), ("note", 0.9)):
-        hits = await search(session, data.query, kb_ids, limit=data.top_k, collection=collection)
-        kb_info = {}
+    collections = [("note", 1.0)] if filters.has_note_constraints else [
+        ("wiki", 1.0),
+        ("note", 0.9),
+    ]
+    for collection, weight in collections:
+        hits = await search(
+            session,
+            data.query,
+            kb_ids,
+            limit=data.top_k,
+            collection=collection,
+            filters=filters,
+        )
+        kb_names: dict[str, str] = {}
         for h in hits:
             kb_id = h.get("kb_id", "")
-            if kb_id and kb_id not in kb_info:
+            if kb_id and kb_id not in kb_names:
                 kb_row = await session.get(KnowledgeBase, uuid.UUID(kb_id))
-                kb_info[kb_id] = kb_row.name if kb_row else ""
+                kb_names[kb_id] = kb_row.name if kb_row else ""
             results.append(
                 SearchHit(
                     kb_id=uuid.UUID(kb_id) if kb_id else uuid.UUID(int=0),
-                    kb_name=kb_info.get(kb_id, ""),
+                    kb_name=kb_names.get(kb_id, ""),
                     collection=collection,
                     payload=h["payload"],
                     score=h["score"] * weight,
+                    fusion_score=float(h.get("fusion_score", h["score"])) * weight,
                     rank=len(results) + 1,
                 )
             )
 
-    results.sort(key=lambda x: x.score, reverse=True)
+    results.sort(key=lambda x: x.fusion_score, reverse=True)
     for i, r in enumerate(results):
         r.rank = i + 1
-    return SearchResponse(hits=results[: data.top_k], merged_by="weighted")
+    return SearchResponse(hits=results[: data.top_k], merged_by="hybrid_rrf")

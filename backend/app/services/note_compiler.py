@@ -1,7 +1,7 @@
 """把工作区笔记转成可编译进 Wiki 的 Markdown。
 
-文档 / 导入 / 链接直接使用正文；数据表、画布与 Notebook 把结构化内容序列化，
-保证「全部笔记类型都能沉淀为 Wiki 知识」。
+文档 / 导入 / 链接直接使用正文；数据表、画布、Notebook 与表格把结构化内容
+序列化，保证「全部笔记类型都能沉淀为 Wiki 知识」。
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import CollectionRow, Note, NoteCollection
 
 MAX_TABLE_ROWS = 200
+MAX_SHEET_ROWS = 200
+MAX_SHEET_COLS = 20
 MAX_CANVAS_TEXT = 4000
 
 CANVAS_SHAPE_LABEL = {
@@ -141,7 +143,9 @@ def _database_markdown(
             data = row.data or {}
             lines.append(
                 "| "
-                + " | ".join(_cell(_field_value(field, data.get(field.get("id")))) for field in fields)
+                + " | ".join(
+                    _cell(_field_value(field, data.get(field.get("id")))) for field in fields
+                )
                 + " |"
             )
         if len(rows) > MAX_TABLE_ROWS:
@@ -161,7 +165,9 @@ def _database_markdown(
             body = (row_note.body_md or "").strip()
             if not body:
                 continue
-            title = (row_note.title or "").strip() or str((row.data or {}).get("name") or "未命名记录")
+            title = (row_note.title or "").strip() or str(
+                (row.data or {}).get("name") or "未命名记录"
+            )
             lines += [f"### {title}", "", body, ""]
 
     return "\n".join(lines).strip()
@@ -298,6 +304,104 @@ def _html_table_markdown(html: str) -> str:
     return "\n".join(lines)
 
 
+def _a1_position(address: str) -> tuple[int, int] | None:
+    match = re.fullmatch(r"\$?([A-Za-z]+)\$?(\d+)", address.strip())
+    if not match:
+        return None
+    col = 0
+    for char in match.group(1).upper():
+        col = col * 26 + (ord(char) - 64)
+    return int(match.group(2)) - 1, col - 1
+
+
+def _column_label(index: int) -> str:
+    label = ""
+    value = index + 1
+    while value > 0:
+        value, rem = divmod(value - 1, 26)
+        label = chr(65 + rem) + label
+    return label
+
+
+def _sheet_cell_text(cell: object) -> tuple[str, bool]:
+    """单元格展示文本与是否加粗；公式优先取导入时缓存的计算结果。"""
+    if not isinstance(cell, dict):
+        return "", False
+    style = cell.get("s") if isinstance(cell.get("s"), dict) else {}
+    bold = bool(style.get("bold"))
+    for key in ("v", "cached"):
+        value = cell.get(key)
+        if value is None or value == "":
+            continue
+        if isinstance(value, bool):
+            return ("是" if value else "否"), bold
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value)), bold
+        return str(value), bold
+    return "", bold
+
+
+def _sheet_markdown(note: Note) -> str:
+    """表格笔记：说明正文 + 每个工作表转成 Markdown 表格。"""
+    props = note.props_json or {}
+    workbook = props.get("sheet") if isinstance(props.get("sheet"), dict) else {}
+    sheets = [item for item in workbook.get("sheets") or [] if isinstance(item, dict)]
+    blocks: list[list[str]] = []
+    for sheet in sheets:
+        cells = sheet.get("cells") if isinstance(sheet.get("cells"), dict) else {}
+        used: dict[tuple[int, int], tuple[str, bool]] = {}
+        for address, cell in cells.items():
+            position = _a1_position(str(address))
+            text, bold = _sheet_cell_text(cell)
+            if position is not None and text:
+                used[position] = (text, bold)
+        if not used:
+            continue
+        min_row = min(row for row, _ in used)
+        max_row = max(row for row, _ in used)
+        min_col = min(col for _, col in used)
+        max_col = max(col for _, col in used)
+        row_count = max_row - min_row + 1
+        col_count = max_col - min_col + 1
+        visible_rows = min(row_count, MAX_SHEET_ROWS)
+        visible_cols = min(col_count, MAX_SHEET_COLS)
+        columns = list(range(min_col, min_col + visible_cols))
+        first_row = [used.get((min_row, col)) for col in columns]
+        # 首行整行加粗（导入表格常见）时作为表头，否则用列号保证数据不丢。
+        header_bold = bool(first_row) and all(item and item[1] for item in first_row if item)
+        if header_bold and any(first_row):
+            header = [item[0] if item else "" for item in first_row]
+            data_start = min_row + 1
+        else:
+            header = [_column_label(col) for col in columns]
+            data_start = min_row
+        name = str(sheet.get("name") or f"工作表 {len(blocks) + 1}")
+        block: list[str] = [f"## {name}", ""]
+        block.append("| " + " | ".join(_cell(value) for value in header) + " |")
+        block.append("| " + " | ".join("---" for _ in header) + " |")
+        for row in range(data_start, min_row + visible_rows):
+            values = [used.get((row, col), ("", False))[0] for col in columns]
+            block.append("| " + " | ".join(_cell(value) for value in values) + " |")
+        block.append("")
+        if row_count > MAX_SHEET_ROWS or col_count > MAX_SHEET_COLS:
+            block += [
+                f"> 仅列出前 {visible_rows} 行、{visible_cols} 列，"
+                f"工作表共 {row_count} 行 × {col_count} 列。",
+                "",
+            ]
+        blocks.append(block)
+
+    body = (note.body_md or "").strip()
+    if not blocks:
+        return body
+    lines: list[str] = [f"# {note.title or '表格'}", ""]
+    if body:
+        lines += [body, ""]
+    for block in blocks:
+        lines += block
+    return "\n".join(lines).strip()
+
+
 def _notebook_markdown(note: Note) -> str:
     doc = (note.props_json or {}).get("notebook_doc")
     if not isinstance(doc, dict):
@@ -341,11 +445,11 @@ async def build_note_compile_markdown(session: AsyncSession, note: Note) -> str:
         return _link_markdown(note)
     if note.kind == "notebook":
         return _notebook_markdown(note)
+    if note.kind == "sheet":
+        return _sheet_markdown(note)
     if note.kind == "database":
         collection = (
-            await session.execute(
-                select(NoteCollection).where(NoteCollection.note_id == note.id)
-            )
+            await session.execute(select(NoteCollection).where(NoteCollection.note_id == note.id))
         ).scalar_one_or_none()
         if collection is None:
             return ""

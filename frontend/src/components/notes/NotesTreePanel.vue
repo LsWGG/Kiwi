@@ -18,26 +18,34 @@ import NoteCreateMenu from './NoteCreateMenu.vue'
 import NoteContextMenu from './NoteContextMenu.vue'
 import LinkCreateDialog from './LinkCreateDialog.vue'
 import NoteImportDialog from './NoteImportDialog.vue'
+import NoteTranscribeDialog from './NoteTranscribeDialog.vue'
 import NoteEmojiPicker from './NoteEmojiPicker.vue'
 import NoteTagEditor from './NoteTagEditor.vue'
 import NoteMoveKbDialog from './NoteMoveKbDialog.vue'
+import NoteMoveFolderDialog from './NoteMoveFolderDialog.vue'
 import NoteLockDialog from './NoteLockDialog.vue'
+import NoteShareDialog from './NoteShareDialog.vue'
 import NoteTemplatePicker from './NoteTemplatePicker.vue'
 import QuickCaptureDialog from './QuickCaptureDialog.vue'
 import { useKbsStore } from '@/stores/kbs'
+import { useStickyNotesStore } from '@/stores/stickyNotes'
+import { request } from '@/api/client'
 import type { DropPos, TreeRow } from './types'
 import { exportActionsFor, runNoteExport, type ExportKey } from './noteExport'
+import { outlineToCanvasDoc } from './canvas/mindmap'
 import { toast } from '@/components/ui/toast'
 
-const props = defineProps<{ activeId: string | null }>()
+const props = defineProps<{ activeId: string | null; drawer?: boolean }>()
 const emit = defineEmits<{
   (e: 'open-note', note: NoteOut | string): void
   (e: 'close-note'): void
   (e: 'open-search'): void
+  (e: 'close'): void
 }>()
 
 const notes = useNotesStore()
 const kbs = useKbsStore()
+const sticky = useStickyNotesStore()
 const STORAGE_KEY = 'kiwi.notes.expanded'
 
 // ---------- 目录独立收起 / 展开 ----------
@@ -49,6 +57,9 @@ const collapsed = ref((() => {
     return false
   }
 })())
+
+/** 窄屏抽屉里始终展示完整目录，不继承桌面端的收起状态。 */
+const isCollapsed = computed(() => collapsed.value && !props.drawer)
 
 watch(collapsed, (value) => {
   try {
@@ -334,13 +345,48 @@ watch(
   () => notes.folders,
   (folders) => {
     if (seeded || !folders.length) return
-    expanded.value = new Set(folders.map((f) => f.id))
+    // 小目录保持「全部展开」的旧体验；大目录只展开根级，子层按需加载。
+    const initial =
+      folders.length <= 50 ? folders : folders.filter((f) => !f.parent_id)
+    expanded.value = new Set(initial.map((f) => f.id))
     seeded = true
   },
   { immediate: true },
 )
 
+// 展开状态或目录刷新后，补齐尚未加载的子节点（已加载的 ID 会跳过）。
+watch(
+  [expanded, () => notes.treeVersion],
+  () => {
+    void notes.ensureTreeChildren([...expanded.value]).catch(() => {})
+  },
+  { immediate: true, deep: true },
+)
+
 const search = ref('')
+/** 服务端标题搜索结果：懒加载时本地只持有部分节点。 */
+const remoteHits = ref<NoteSummary[]>([])
+let searchTimer: number | null = null
+
+watch(search, (value) => {
+  if (searchTimer !== null) window.clearTimeout(searchTimer)
+  const keyword = value.trim()
+  if (!keyword) {
+    remoteHits.value = []
+    return
+  }
+  searchTimer = window.setTimeout(async () => {
+    try {
+      remoteHits.value = await notes.searchTree(keyword)
+    } catch {
+      // 服务端搜索失败时保留本地已加载节点的匹配结果。
+    }
+  }, 250)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer !== null) window.clearTimeout(searchTimer)
+})
 
 const notePinned = (note: NoteSummary) => !!note.props_json?.pinned
 
@@ -434,9 +480,15 @@ function mixedChildren(parentId: string | null): MixedNode[] {
 const rows = computed<TreeRow[]>(() => {
   const q = search.value.trim().toLowerCase()
   if (q) {
-    return sortedNotes.value
-      .filter((n) => (n.title || '无标题').toLowerCase().includes(q))
-      .map((n) => ({ type: 'note', id: n.id, depth: 0, note: n }))
+    // 本地已加载节点即时过滤 + 服务端全量命中，兼顾输入延迟与完整性。
+    const hits = new Map<string, NoteSummary>()
+    for (const note of sortedNotes.value) {
+      if ((note.title || '无标题').toLowerCase().includes(q)) hits.set(note.id, note)
+    }
+    for (const note of remoteHits.value) hits.set(note.id, note)
+    return [...hits.values()]
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+      .map((note) => ({ type: 'note', id: note.id, depth: 0, note }))
   }
   const out: TreeRow[] = []
   // 防御异常数据造成的父子环，保证任何情况下目录都能渲染完成。
@@ -507,43 +559,129 @@ const rows = computed<TreeRow[]>(() => {
   return out
 })
 
-const total = computed(() => notes.notes.length)
+const total = computed(() => notes.treeTotal || notes.notes.length)
+
+// ---------- 虚拟滚动：只渲染视口附近的行（行高固定 32px） ----------
+const VIRTUAL_THRESHOLD = 120
+const virtualEnabled = computed(
+  () => !search.value.trim() && rows.value.length > VIRTUAL_THRESHOLD,
+)
+const virtualStart = computed(() => {
+  if (!virtualEnabled.value) return 0
+  return Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN)
+})
+const virtualEnd = computed(() => {
+  if (!virtualEnabled.value) return rows.value.length
+  const span = Math.ceil(viewportHeight.value / ROW_HEIGHT) + OVERSCAN * 2
+  return Math.min(rows.value.length, virtualStart.value + span + 1)
+})
+const visibleRows = computed(() => rows.value.slice(virtualStart.value, virtualEnd.value))
+const topSpacer = computed(() => (virtualEnabled.value ? virtualStart.value * ROW_HEIGHT : 0))
+const bottomSpacer = computed(() =>
+  virtualEnabled.value ? (rows.value.length - virtualEnd.value) * ROW_HEIGHT : 0,
+)
 
 // ---------- 打开笔记时在目录树中追踪其原位置 ----------
 const treeScrollEl = ref<HTMLElement | null>(null)
 let revealedActive: string | null = null
+/** 由目录点击触发的主窗口打开先不滚动，等双击窗口结束后再定位。 */
+let suppressRevealId: string | null = null
+
+/** 行高固定为 h-8（32px），虚拟滚动按索引换算偏移。 */
+const ROW_HEIGHT = 32
+const OVERSCAN = 10
+const scrollTop = ref(0)
+const viewportHeight = ref(0)
+let treeResizeObserver: ResizeObserver | null = null
+
+function onTreeScroll(event: Event) {
+  scrollTop.value = (event.target as HTMLElement).scrollTop
+}
+
+watch(
+  treeScrollEl,
+  (el) => {
+    treeResizeObserver?.disconnect()
+    treeResizeObserver = null
+    if (!el) {
+      viewportHeight.value = 0
+      return
+    }
+    viewportHeight.value = el.clientHeight
+    treeResizeObserver = new ResizeObserver(() => {
+      viewportHeight.value = el.clientHeight
+    })
+    treeResizeObserver.observe(el)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  treeResizeObserver?.disconnect()
+  treeResizeObserver = null
+})
+
+function scrollRowIntoView(id: string): boolean {
+  const el = treeScrollEl.value
+  if (!el) return false
+  let index = rows.value.findIndex(
+    (row) => row.type === 'note' && row.id === id && !row.hoisted,
+  )
+  if (index < 0) index = rows.value.findIndex((row) => row.id === id)
+  if (index < 0) return false
+  const top = index * ROW_HEIGHT
+  const viewTop = el.scrollTop
+  const viewBottom = viewTop + el.clientHeight
+  if (top < viewTop) el.scrollTop = top
+  else if (top + ROW_HEIGHT > viewBottom) {
+    el.scrollTop = top - el.clientHeight + ROW_HEIGHT
+  }
+  return true
+}
 
 async function revealActiveNote(id: string | null, force = false) {
   if (!id || (!force && revealedActive === id)) return
-  const note = notes.notes.find((n) => n.id === id)
-  if (!note) return
-  // 展开所有上级分组与父笔记，保证原目录中的那一行可见。
   const next = new Set(expanded.value)
-  let parentId = note.folder_id
-  let guard = 0
-  while (parentId && guard++ < 100) {
-    next.add(parentId)
-    parentId = notes.folders.find((f) => f.id === parentId)?.parent_id ?? null
-  }
-  const byId = new Map(notes.notes.map((n) => [n.id, n]))
-  let parentNoteId = note.parent_note_id
-  guard = 0
-  while (parentNoteId && guard++ < 100) {
-    next.add(parentNoteId)
-    parentNoteId = byId.get(parentNoteId)?.parent_note_id ?? null
+  let note = notes.notes.find((n) => n.id === id)
+  if (!note) {
+    // 懒加载模式下目标笔记可能尚未加载：向服务端要摘要与祖先链。
+    const located = await notes.locateTreeNote(id)
+    if (!located) return
+    note = located.note
+    for (const ancestorId of located.ancestor_ids) next.add(ancestorId)
+  } else {
+    // 展开所有上级分组与父笔记，保证原目录中的那一行可见。
+    let parentId = note.folder_id
+    let guard = 0
+    while (parentId && guard++ < 100) {
+      next.add(parentId)
+      parentId = notes.folders.find((f) => f.id === parentId)?.parent_id ?? null
+    }
+    const byId = new Map(notes.notes.map((n) => [n.id, n]))
+    let parentNoteId = note.parent_note_id
+    guard = 0
+    while (parentNoteId && guard++ < 100) {
+      next.add(parentNoteId)
+      parentNoteId = byId.get(parentNoteId)?.parent_note_id ?? null
+    }
   }
   if (next.size !== expanded.value.size) expanded.value = next
+  // 展开的分组 / 父笔记可能需要补拉子节点。
+  await notes.ensureTreeChildren([...next]).catch(() => {})
   await nextTick()
-  const el = treeScrollEl.value?.querySelector<HTMLElement>(
-    `[data-origin-note="${id}"]`,
-  )
-  el?.scrollIntoView({ block: 'nearest' })
-  revealedActive = id
+  // 目录数据尚未到位时不要锁定 guard，等 notes 更新后重试。
+  if (scrollRowIntoView(id)) revealedActive = id
 }
 
 watch(
   () => props.activeId,
   (id) => {
+    // 目录内点击打开：先不滚动，避免行在两次点击之间移动（见 onSelect）。
+    if (id && id === suppressRevealId) {
+      suppressRevealId = null
+      revealedActive = id
+      return
+    }
     revealedActive = null
     revealActiveNote(id)
   },
@@ -1115,6 +1253,33 @@ async function exportFromMenu(key: string) {
   }
 }
 
+/** 读取完整正文，按标题层级生成一张新的画布笔记。 */
+async function generateMindMapFromMenu() {
+  const note = menu.value.row?.note
+  if (!note) return
+  try {
+    const full = await request<NoteOut>(`/notes/${note.id}`, {
+      kbId: note.kb_id,
+      headers: notes.noteHeaders(note.id),
+    })
+    if (full.is_locked && !full.unlocked) {
+      throw new Error('笔记已上锁，请先解锁后再生成思维导图')
+    }
+    const doc = outlineToCanvasDoc(full.body_md || '', full.title || '思维导图')
+    if (!doc) throw new Error('正文没有标题，无法生成思维导图')
+    const created = await notes.createNote({
+      title: `${full.title || '无标题'} · 思维导图`,
+      kind: 'canvas',
+      folder_id: full.folder_id ?? null,
+      props_json: { canvas_doc: doc, mindmap_source: full.id },
+    })
+    emit('open-note', created)
+    toast.success(`已生成思维导图（${doc.nodes.length} 个节点）`)
+  } catch (e: any) {
+    toast.error(e.message || '生成思维导图失败')
+  }
+}
+
 function beginRenameFromMenu() {
   const row = menu.value.row
   if (row) renamingId.value = row.id
@@ -1205,6 +1370,14 @@ async function onLockChanged() {
   }
 }
 
+// 只读分享：目录树右键直接打开，无需切到右侧信息面板
+const sharing = ref<TreeRow | null>(null)
+
+function openShareFromMenu() {
+  const row = menu.value.row
+  if (row?.note && !row.note.is_locked) sharing.value = row
+}
+
 // 复制 / 归档 / 跨知识库移动
 async function copyFromMenu() {
   const row = menu.value.row
@@ -1284,6 +1457,77 @@ async function confirmMove(payload: { kbId: string; folderId: string | null }) {
     if (props.activeId === row.note.id) emit('close-note')
     moving.value = null
     toast.success('已移动到目标知识库')
+  } catch (e: any) {
+    toast.error(e.message || '移动失败')
+  }
+}
+
+// ---------- 移动到分组 ----------
+const moveFolderRow = ref<TreeRow | null>(null)
+const moveFolderOpen = computed({
+  get: () => moveFolderRow.value !== null,
+  set: (v: boolean) => {
+    if (!v) moveFolderRow.value = null
+  },
+})
+
+function openMoveFolderFromMenu() {
+  const row = menu.value.row
+  if (!row || row.inbox) return
+  moveFolderRow.value = row
+}
+
+/** 移动分组时，自身与后代不能作为目标，否则会把分组移进自己的子树。 */
+const moveFolderExcluded = computed(() => {
+  const row = moveFolderRow.value
+  if (!row || row.type !== 'folder') return []
+  const ids = new Set<string>([row.id])
+  let frontier = new Set<string>([row.id])
+  while (frontier.size) {
+    const next = new Set<string>()
+    for (const folder of notes.folders) {
+      if (folder.parent_id && frontier.has(folder.parent_id) && !ids.has(folder.id)) {
+        ids.add(folder.id)
+        next.add(folder.id)
+      }
+    }
+    frontier = next
+  }
+  return [...ids]
+})
+
+const moveFolderCurrent = computed(() => {
+  const row = moveFolderRow.value
+  if (!row) return null
+  return row.type === 'folder' ? row.folder?.parent_id ?? null : row.note?.folder_id ?? null
+})
+
+const moveFolderTitle = computed(() => {
+  const row = moveFolderRow.value
+  if (!row) return '移动到分组'
+  if (row.type === 'folder') return `移动分组「${row.folder?.name ?? '未命名'}」`
+  return `移动「${row.note?.title || '无标题'}」`
+})
+
+async function confirmMoveToFolder(folderId: string | null) {
+  const row = moveFolderRow.value
+  if (!row) return
+  try {
+    if (row.type === 'folder') {
+      if ((row.folder?.parent_id ?? null) === folderId) {
+        toast.info('分组已经在该位置')
+        moveFolderRow.value = null
+        return
+      }
+      await notes.updateFolder(row.id, { parent_id: folderId })
+      if (folderId) expand(folderId)
+      toast.success('分组已移动')
+    } else if (row.note) {
+      await notes.moveNoteTo(row.id, { folder_id: folderId, parent_note_id: null })
+      if (folderId) expand(folderId)
+      toast.success('笔记已移动')
+    }
+    moveFolderRow.value = null
   } catch (e: any) {
     toast.error(e.message || '移动失败')
   }
@@ -1455,6 +1699,7 @@ const createSheet = (folderId: string | null = null) => createNoteAt('sheet', fo
 const importOpen = ref(false)
 const importFolderId = ref<string | null>(null)
 const importParentNoteId = ref<string | null>(null)
+const transcribeOpen = ref(false)
 const linkOpen = ref(false)
 const linkFolderId = ref<string | null>(null)
 const linkParentNoteId = ref<string | null>(null)
@@ -1466,6 +1711,15 @@ function openImport(folderId: string | null = null, parentNoteId: string | null 
   importParentNoteId.value = parentNoteId
   expandCreateTarget(folderId, parentNoteId)
   importOpen.value = true
+}
+
+function openTranscribe() {
+  transcribeOpen.value = true
+}
+
+async function onTranscribed(noteId: string) {
+  await notes.fetchTree()
+  emit('open-note', noteId)
 }
 
 function openLink(folderId: string | null = null, parentNoteId: string | null = null) {
@@ -1529,6 +1783,55 @@ function createFromMenu(kind: string) {
   }
 }
 
+/**
+ * 单击打开与双击「贴一贴」共用一次点击序列：延迟打开主窗口，
+ * 双击时取消主窗口打开并置顶浮窗。
+ *
+ * 双击在第二次 `pointerdown` 时判定，比 `click` 更早，也不依赖原生 `dblclick`
+ * （Firefox 在第一次点击已触发页面切换后可能不再派发）。第二下按指针位置匹配
+ * 第一下：列表滚动或重排导致行移动时，仍能识别为同一次双击。
+ */
+const DOUBLE_CLICK_MS = 500
+/** 两次按下允许的指针位移；相邻行高 32px，8px 内不会误判为别的条目。 */
+const DOUBLE_CLICK_SLOP = 8
+let lastNoteClick: { id: string; row: TreeRow; at: number; x: number; y: number } | null = null
+let openTimer: number | null = null
+let revealTimer: number | null = null
+
+function cancelPendingOpen() {
+  if (openTimer !== null) {
+    window.clearTimeout(openTimer)
+    openTimer = null
+  }
+  if (revealTimer !== null) {
+    window.clearTimeout(revealTimer)
+    revealTimer = null
+  }
+}
+
+onBeforeUnmount(cancelPendingOpen)
+
+/** 第二下按在同一位置（行可能已滚动换位）= 双击第一下命中的笔记。 */
+function onTreePointerDown(event: PointerEvent) {
+  if (event.button !== 0 || event.pointerType === 'touch') return
+  // 带修饰键的连点是多选，不是双击。
+  if (event.shiftKey || event.ctrlKey || event.metaKey) return
+  if (Date.now() < suppressClickUntil) return
+  const target = event.target as Element | null
+  if (target?.closest('button, input, a, [contenteditable="true"]')) return
+  const last = lastNoteClick
+  const isSecond =
+    !!last &&
+    event.timeStamp - last.at <= DOUBLE_CLICK_MS &&
+    Math.hypot(event.clientX - last.x, event.clientY - last.y) <= DOUBLE_CLICK_SLOP
+  if (!isSecond) return
+  const row = last!.row
+  lastNoteClick = null
+  // 第二下随后派发的 click / dblclick 全部吞掉，避免再打开或折叠别的条目。
+  suppressClickUntil = Date.now() + 400
+  onSticky(row)
+}
+
 function onSelect(row: TreeRow, event?: MouseEvent) {
   if (Date.now() < suppressClickUntil) return
   if (!row.note) return
@@ -1539,6 +1842,7 @@ function onSelect(row: TreeRow, event?: MouseEvent) {
     const range = noteRange(anchorId, row.id)
     const next = new Set(toggle ? [...selectedIds.value, ...range] : range)
     selectedIds.value = next
+    lastNoteClick = null
     return
   }
   if (toggle) {
@@ -1547,13 +1851,60 @@ function onSelect(row: TreeRow, event?: MouseEvent) {
     else next.add(row.id)
     selectedIds.value = next
     anchorId = row.id
+    lastNoteClick = null
     return
   }
+
+  // 兜底：触摸端与指针事件被中断时，仍按两次 click 判定双击。
+  const now = event?.timeStamp ?? performance.now()
+  const isDouble =
+    lastNoteClick?.id === row.id && now - lastNoteClick.at <= DOUBLE_CLICK_MS
+  lastNoteClick = {
+    id: row.id,
+    row,
+    at: now,
+    x: event?.clientX ?? 0,
+    y: event?.clientY ?? 0,
+  }
+  if (isDouble) {
+    lastNoteClick = null
+    cancelPendingOpen()
+    onSticky(row)
+    return
+  }
+
   selectedIds.value = new Set([row.id])
   anchorId = row.id
-  emit('open-note', row.id)
-  // 从置顶副本打开时，滚动并高亮其在原目录中的位置。
-  revealActiveNote(row.id, true)
+  // 超过自定义双击间隔的原生第二下不再安排打开，交给 dblclick 兜底。
+  if (event && event.detail > 1) return
+  cancelPendingOpen()
+  openTimer = window.setTimeout(() => {
+    openTimer = null
+    suppressRevealId = row.id
+    emit('open-note', row.id)
+    // 置顶副本的原始行可能在别处：等双击窗口结束再滚动定位，
+    // 避免第一下打开就让列表跳动、第二下落空。
+    revealTimer = window.setTimeout(() => {
+      revealTimer = null
+      if (row.hoisted) revealActiveNote(row.id, true)
+    }, DOUBLE_CLICK_MS)
+  }, 220)
+}
+
+/** 双击笔记：贴一贴浮窗，不切换主编辑区。 */
+function onSticky(row: TreeRow) {
+  cancelPendingOpen()
+  if (!row.note) return
+  const kbId = kbs.currentKbId
+  if (!kbId) return
+  selectedIds.value = new Set([row.id])
+  anchorId = row.id
+  sticky.open(row.note, kbId)
+}
+
+function openStickyFromMenu() {
+  const row = menu.value.row
+  if (row?.note) onSticky(row)
 }
 
 const createFolderMenu = () => openFolderDialog(null)
@@ -1562,11 +1913,17 @@ const createFolderMenu = () => openFolderDialog(null)
 <template>
   <aside
     class="relative z-20 shrink-0 h-full flex flex-col sidebar-glass"
-    :class="[collapsed ? 'w-14' : '', resizing ? '' : 'transition-[width] duration-300 ease-out']"
-    :style="collapsed ? undefined : { width: `${treeWidth}px` }"
+    :class="[isCollapsed ? 'w-14' : '', resizing ? '' : 'transition-[width] duration-300 ease-out']"
+    :style="
+      isCollapsed
+        ? undefined
+        : props.drawer
+          ? { width: 'min(86vw, 320px)' }
+          : { width: `${treeWidth}px` }
+    "
   >
     <div
-      v-if="!collapsed"
+      v-if="!isCollapsed && !drawer"
       class="group/resize absolute inset-y-0 -right-1 z-30 w-2 cursor-col-resize touch-none"
       title="拖动调整目录宽度，双击恢复默认"
       @mousedown="startResize"
@@ -1578,7 +1935,7 @@ const createFolderMenu = () => openFolderDialog(null)
       />
     </div>
     <!-- 收起态：图标轨道 -->
-    <template v-if="collapsed">
+    <template v-if="isCollapsed">
       <div class="flex flex-1 flex-col items-center gap-1 pt-3">
         <button
           type="button"
@@ -1597,6 +1954,7 @@ const createFolderMenu = () => openFolderDialog(null)
           @sheet="createSheet()"
           @notebook="createNotebook()"
           @import="openImport()"
+          @audio="openTranscribe()"
           @folder="createFolderMenu"
           @link="openLink()"
         />
@@ -1627,16 +1985,17 @@ const createFolderMenu = () => openFolderDialog(null)
         @sheet="createSheet()"
         @notebook="createNotebook()"
         @import="openImport()"
+        @audio="openTranscribe()"
         @folder="createFolderMenu"
         @link="openLink()"
       />
       <button
         type="button"
         class="w-7 h-7 grid place-items-center rounded-lg text-slate-400 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700"
-        title="收起目录"
-        @click="collapsed = true"
+        :title="drawer ? '关闭目录' : '收起目录'"
+        @click="drawer ? emit('close') : (collapsed = true)"
       >
-        <KiwiIcon name="panelLeftClose" :size="14" />
+        <KiwiIcon :name="drawer ? 'close' : 'panelLeftClose'" :size="14" />
       </button>
     </div>
 
@@ -1701,33 +2060,47 @@ const createFolderMenu = () => openFolderDialog(null)
       ref="treeScrollEl"
       class="flex-1 min-h-0 overflow-y-auto px-1.5 pb-2"
       @dragstart.prevent
+      @scroll.passive="onTreeScroll"
+      @pointerdown.capture="onTreePointerDown"
     >
+      <div v-if="topSpacer" :style="{ height: `${topSpacer}px` }" aria-hidden="true" />
       <template
-        v-for="row in rows"
+        v-for="row in visibleRows"
         :key="`${row.type}:${row.id}:${row.hoisted ? 'pin' : 'origin'}`"
       >
         <div
-          v-if="row.separatorBefore"
-          class="mx-2 my-1.5 h-px bg-slate-200/90"
-          role="separator"
-        />
-        <NotesTreeNode
-          :row="row"
-          :active-id="activeId"
-          :open="expanded.has(row.id)"
-          :renaming="renamingId === row.id && !row.hoisted"
-          :dragging="dragRow?.id === row.id && !row.hoisted"
-          :selected="row.type === 'note' && !row.hoisted && selectedIds.has(row.id)"
-          :drop-target="dropState?.id === row.id ? dropState.pos : null"
-          @select="onSelect"
-          @toggle="toggle"
-          @menu="openMenu"
-          @pointerdown="onRowPointerDown"
-          @rename="onRename"
-          @rename-cancel="renamingId = null"
-          @unpin="unpinFromRow(row)"
-        />
+          class="relative"
+          :style="virtualEnabled ? { height: `${ROW_HEIGHT}px` } : undefined"
+        >
+          <div
+            v-if="row.separatorBefore"
+            class="pointer-events-none absolute inset-x-2 top-0 h-px bg-slate-200/90"
+            role="separator"
+          />
+          <NotesTreeNode
+            :row="row"
+            :active-id="activeId"
+            :open="expanded.has(row.id)"
+            :renaming="renamingId === row.id && !row.hoisted"
+            :dragging="dragRow?.id === row.id && !row.hoisted"
+            :selected="row.type === 'note' && !row.hoisted && selectedIds.has(row.id)"
+            :drop-target="dropState?.id === row.id ? dropState.pos : null"
+            @select="onSelect"
+            @sticky="onSticky"
+            @toggle="toggle"
+            @menu="openMenu"
+            @pointerdown="onRowPointerDown"
+            @rename="onRename"
+            @rename-cancel="renamingId = null"
+            @unpin="unpinFromRow(row)"
+          />
+        </div>
       </template>
+      <div
+        v-if="bottomSpacer"
+        :style="{ height: `${bottomSpacer}px` }"
+        aria-hidden="true"
+      />
 
       <div v-if="!rows.length && !notes.treeLoading" class="px-3 pt-8">
         <KiwiEmpty
@@ -2000,10 +2373,14 @@ const createFolderMenu = () => openFolderDialog(null)
       @rename="beginRenameFromMenu"
       @pin="togglePinFromMenu"
       @copy="copyFromMenu"
+      @sticky="openStickyFromMenu"
+      @mindmap="generateMindMapFromMenu"
+      @move-folder="openMoveFolderFromMenu"
       @move-kb="openMoveFromMenu"
       @emoji="openEmojiFromMenu"
       @tags="openTagsFromMenu"
       @lock="openLockFromMenu"
+      @share="openShareFromMenu"
       @archive="archiveFromMenu"
       @export="exportFromMenu"
       @delete="deleteFromMenu"
@@ -2047,6 +2424,12 @@ const createFolderMenu = () => openFolderDialog(null)
       @changed="onLockChanged"
     />
 
+    <NoteShareDialog
+      :open="!!sharing"
+      :note="sharing?.note ?? null"
+      @close="sharing = null"
+    />
+
     <NoteMoveKbDialog
       :open="moveOpen"
       :current-kb-id="kbs.currentKbId"
@@ -2055,13 +2438,23 @@ const createFolderMenu = () => openFolderDialog(null)
       @move="confirmMove"
     />
 
+    <NoteMoveFolderDialog
+      :open="moveFolderOpen"
+      :title="moveFolderTitle"
+      :folders="notes.folders"
+      :current-folder-id="moveFolderCurrent"
+      :exclude-ids="moveFolderExcluded"
+      @close="moveFolderRow = null"
+      @move="confirmMoveToFolder"
+    />
+
     <KiwiConfirm
       v-model="deleteOpen"
       danger
       :title="deleting?.type === 'folder' ? '删除分组' : '删除条目'"
       :message="
         deleting?.type === 'folder'
-          ? '子分组会一并删除，其中的文档会移动到上一级分组。'
+          ? '该分组及其子分组会一并删除，其中的全部笔记会移入回收站，可在 30 天内恢复。'
           : '条目会移入回收站，可在 30 天内恢复；导入与链接来源记录会保留。'
       "
       confirm-text="删除"
@@ -2123,6 +2516,11 @@ const createFolderMenu = () => openFolderDialog(null)
       :parent-note-id="importParentNoteId"
       @close="importOpen = false"
       @created="onCreated"
+    />
+    <NoteTranscribeDialog
+      :open="transcribeOpen"
+      @close="transcribeOpen = false"
+      @created="onTranscribed"
     />
     <LinkCreateDialog
       :open="linkOpen"

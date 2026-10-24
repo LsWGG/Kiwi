@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 系统设置：品牌名称 / 描述 / Logo / 主题色，以及扫描件线上 OCR。
+ * 品牌设置：品牌名称 / 描述 / Logo / 主题色。
  * 保存后立即写入全局状态，顶栏、浏览器标题和主题色同步更新。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -20,25 +20,11 @@ import {
   type SystemSettings,
 } from '@/stores/system'
 
-/** 品牌与 OCR 是两个互不相关的设置域，按路由拆成独立页面。 */
-const props = withDefaults(
-  defineProps<{ section?: 'brand' | 'ocr' }>(),
-  { section: 'brand' },
-)
-const isOcr = computed(() => props.section === 'ocr')
-const pageMeta = computed(() =>
-  isOcr.value
-    ? {
-        icon: 'scanText',
-        title: 'OCR 设置',
-        description: '为扫描件与图片配置 OpenAI 兼容的视觉识别接口。',
-      }
-    : {
-        icon: 'palette',
-        title: '品牌设置',
-        description: '自定义系统名称、描述、Logo 与主题色，显示在顶栏与浏览器标签。',
-      },
-)
+const pageMeta = {
+  icon: 'palette',
+  title: '品牌设置',
+  description: '自定义系统名称、描述、Logo 与主题色，显示在顶栏与浏览器标签。',
+}
 
 const system = useSystemStore()
 const mode = useModeStore()
@@ -52,12 +38,9 @@ const themeMode = ref<ThemeMode>(mode.mode === 'learn' ? 'learn' : 'edit')
 
 const loading = ref(true)
 const saving = ref(false)
-const testing = ref(false)
 const uploadingLogo = ref(false)
 const resettingLogo = ref(false)
 const logoInput = ref<HTMLInputElement | null>(null)
-const keyTouched = ref(false)
-const testResult = ref<{ ok: boolean; message: string; sample_text: string } | null>(null)
 
 const form = ref({
   app_name: DEFAULT_SYSTEM_SETTINGS.app_name,
@@ -67,13 +50,6 @@ const form = ref({
   learn_theme_color: DEFAULT_LEARN_THEME_COLOR,
   learn_logo_url: '',
   learn_description: DEFAULT_SYSTEM_SETTINGS.learn_description,
-  ocr_enabled: false,
-  ocr_provider: 'openai',
-  ocr_api_base: '',
-  ocr_api_model: '',
-  ocr_api_key: '',
-  ocr_timeout: 120,
-  ocr_language: 'auto',
 })
 
 const THEME_PRESETS = [
@@ -85,14 +61,6 @@ const THEME_PRESETS = [
   { label: '琥珀', value: '#d97706' },
   { label: '玫红', value: '#db2777' },
   { label: '石墨', value: '#475569' },
-]
-
-const OCR_LANGUAGES = [
-  { value: 'auto', label: '自动识别' },
-  { value: '中文', label: '中文' },
-  { value: 'English', label: 'English' },
-  { value: '日本語', label: '日本語' },
-  { value: '한국어', label: '한국어' },
 ]
 
 const themeColor = computed({
@@ -136,7 +104,6 @@ const isPresetColor = computed(() =>
 )
 const isCustomTheme = computed(() => !isPresetColor.value)
 
-const hasSavedKey = ref(false)
 const appOrigin = computed(() => (import.meta.env.DEV ? 'http://localhost:5173' : window.location.origin))
 
 function hydrate(settings: SystemSettings) {
@@ -149,17 +116,7 @@ function hydrate(settings: SystemSettings) {
     learn_logo_url: settings.learn_logo_url || '',
     learn_description:
       settings.learn_description ?? DEFAULT_SYSTEM_SETTINGS.learn_description,
-    ocr_enabled: settings.ocr_enabled,
-    ocr_provider: settings.ocr_provider || 'openai',
-    ocr_api_base: settings.ocr_api_base,
-    ocr_api_model: settings.ocr_api_model,
-    ocr_api_key: '',
-    ocr_timeout: settings.ocr_timeout,
-    ocr_language: settings.ocr_language || 'auto',
   }
-  hasSavedKey.value = settings.has_ocr_api_key
-  keyTouched.value = false
-  testResult.value = null
 }
 
 onMounted(async () => {
@@ -248,30 +205,15 @@ async function restoreDefaultLogo() {
   }
 }
 
-function clearKey() {
-  form.value.ocr_api_key = ''
-  keyTouched.value = true
-  hasSavedKey.value = false
-  toast.info('保存后将清除已保存的 OCR 密钥')
-}
-
 async function save() {
   const name = form.value.app_name.trim()
-  if (!isOcr.value && !name) {
+  if (!name) {
     toast.info('请填写系统名称')
-    return
-  }
-  if (form.value.ocr_enabled && (!form.value.ocr_api_base.trim() || !form.value.ocr_api_model.trim())) {
-    toast.info('启用线上 OCR 前请填写接口地址与模型名')
-    return
-  }
-  if (form.value.ocr_api_base && !/^https?:\/\//i.test(form.value.ocr_api_base.trim())) {
-    toast.info('OCR 接口地址必须以 http:// 或 https:// 开头')
     return
   }
   saving.value = true
   try {
-    const payload: Record<string, unknown> = {
+    const saved = await system.saveSettings({
       app_name: name,
       app_description: form.value.app_description.trim(),
       logo_url: form.value.logo_url,
@@ -279,49 +221,13 @@ async function save() {
       learn_theme_color: form.value.learn_theme_color,
       learn_logo_url: form.value.learn_logo_url,
       learn_description: form.value.learn_description.trim(),
-      ocr_enabled: form.value.ocr_enabled,
-      ocr_provider: form.value.ocr_provider,
-      ocr_api_base: form.value.ocr_api_base.trim(),
-      ocr_api_model: form.value.ocr_api_model.trim(),
-      ocr_timeout: form.value.ocr_timeout,
-      ocr_language: form.value.ocr_language,
-    }
-    if (keyTouched.value) payload.ocr_api_key = form.value.ocr_api_key
-    const saved = await system.saveSettings(payload as Partial<SystemSettings>)
+    })
     hydrate(saved)
     toast.success('系统设置已保存')
   } catch (e: any) {
     toast.error(e.message || '保存失败')
   } finally {
     saving.value = false
-  }
-}
-
-async function testOcr() {
-  if (!form.value.ocr_api_base.trim() || !form.value.ocr_api_model.trim()) {
-    toast.info('请先填写 OCR 接口地址与模型名')
-    return
-  }
-  testing.value = true
-  testResult.value = null
-  try {
-    const payload: Record<string, unknown> = {
-      api_base: form.value.ocr_api_base.trim(),
-      api_model: form.value.ocr_api_model.trim(),
-      timeout: form.value.ocr_timeout,
-      language: form.value.ocr_language,
-    }
-    // 未重新输入密钥时让后端使用已保存的密钥。
-    if (keyTouched.value && form.value.ocr_api_key) payload.api_key = form.value.ocr_api_key
-    const result = await system.testOcr(payload)
-    testResult.value = result
-    if (result.ok) toast.success('OCR 接口连接成功')
-    else toast.error(result.message || 'OCR 接口连接失败')
-  } catch (e: any) {
-    testResult.value = { ok: false, message: e.message || '测试失败', sample_text: '' }
-    toast.error(e.message || '测试失败')
-  } finally {
-    testing.value = false
   }
 }
 
@@ -357,7 +263,7 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
 
     <div v-else class="space-y-6">
       <!-- 品牌信息 -->
-      <section v-if="!isOcr" class="animate-fade-up rounded-2xl glass-strong p-5">
+      <section class="animate-fade-up rounded-2xl glass-strong p-5">
         <div class="mb-4 flex items-center gap-2">
           <KiwiIcon name="sparkle" :size="15" class="text-kiwi-500" />
           <h2 class="text-[14px] font-semibold text-slate-700">品牌信息</h2>
@@ -533,127 +439,9 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
         </div>
       </section>
 
-      <!-- OCR -->
-      <section v-else class="animate-fade-up rounded-2xl glass-strong p-5">
-        <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div class="flex items-center gap-2">
-            <KiwiIcon name="scanText" :size="15" class="text-kiwi-500" />
-            <h2 class="text-[14px] font-semibold text-slate-700">扫描件 OCR</h2>
-          </div>
-          <span class="text-[10px] text-slate-400">
-            调用 OpenAI 兼容的视觉模型识别扫描 PDF / 图片；未启用时回退到本地 tesseract。
-          </span>
-          <label class="ml-auto flex cursor-pointer items-center gap-2 text-[11.5px] text-slate-600">
-            <button
-              type="button"
-              role="switch"
-              :aria-checked="form.ocr_enabled"
-              class="relative h-5 w-9 rounded-full transition-colors"
-              :class="form.ocr_enabled ? 'bg-kiwi-500' : 'bg-slate-300'"
-              @click="form.ocr_enabled = !form.ocr_enabled"
-            >
-              <span
-                class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
-                :class="form.ocr_enabled ? 'left-[18px]' : 'left-0.5'"
-              />
-            </button>
-            {{ form.ocr_enabled ? '已启用' : '未启用' }}
-          </label>
-        </div>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <label class="block">
-            <span :class="labelClass">接口地址</span>
-            <input
-              v-model="form.ocr_api_base"
-              :class="inputClass"
-              placeholder="https://api.openai.com/v1 或中转地址"
-            />
-          </label>
-          <label class="block">
-            <span :class="labelClass">模型名称</span>
-            <input v-model="form.ocr_api_model" :class="inputClass" placeholder="gpt-4o-mini" />
-          </label>
-          <label class="block">
-            <span :class="labelClass">
-              API Key
-              <span v-if="hasSavedKey && !keyTouched" class="ml-1 text-[10px] font-normal text-emerald-600">
-                已保存 · 留空保持不变
-              </span>
-            </span>
-            <div class="flex items-center gap-2">
-              <input
-                v-model="form.ocr_api_key"
-                type="password"
-                :class="inputClass"
-                autocomplete="new-password"
-                :placeholder="hasSavedKey ? '••••••••（留空保持不变）' : 'sk-…'"
-                @input="keyTouched = true"
-              />
-              <button
-                v-if="hasSavedKey || form.ocr_api_key"
-                class="shrink-0 rounded-lg px-2 py-1.5 text-[10.5px] text-rose-500 transition-colors hover:bg-rose-50"
-                @click="clearKey"
-              >
-                清除
-              </button>
-            </div>
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="block">
-              <span :class="labelClass">超时（秒）</span>
-              <input v-model.number="form.ocr_timeout" type="number" min="5" max="600" :class="inputClass" />
-            </label>
-            <label class="block">
-              <span :class="labelClass">文档语言</span>
-              <select v-model="form.ocr_language" :class="inputClass">
-                <option v-for="item in OCR_LANGUAGES" :key="item.value" :value="item.value">
-                  {{ item.label }}
-                </option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div class="mt-4 flex flex-wrap items-center gap-2">
-          <button class="kiwi-btn-secondary" :disabled="testing" @click="testOcr">
-            <KiwiIcon :name="testing ? 'loader' : 'play'" :size="13" :spin="testing" />
-            {{ testing ? '测试中…' : '测试连接' }}
-          </button>
-          <span class="text-[10.5px] text-slate-400">
-            测试会发送一张内置测试图；超时时间按实际接口响应调整。
-          </span>
-        </div>
-
-        <div
-          v-if="testResult"
-          class="mt-3 rounded-xl border px-3 py-2.5 text-[11.5px] leading-relaxed"
-          :class="
-            testResult.ok
-              ? 'border-emerald-200 bg-emerald-50/70 text-emerald-700'
-              : 'border-rose-200 bg-rose-50/70 text-rose-600'
-          "
-        >
-          <p class="flex items-center gap-1.5 font-medium">
-            <KiwiIcon :name="testResult.ok ? 'check' : 'alert'" :size="13" />
-            {{ testResult.message }}
-          </p>
-          <pre
-            v-if="testResult.sample_text"
-            class="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-white/70 p-2 font-mono text-[10.5px] text-slate-500"
-          >{{ testResult.sample_text }}</pre>
-        </div>
-      </section>
-
-      <div class="flex items-center justify-between rounded-xl border border-slate-200/70 bg-white/50 px-4 py-3">
-        <p class="text-[10.5px] text-slate-400">
-          当前访问地址：{{ appOrigin }} · 设置保存后立即生效，无需重启服务。
-        </p>
-        <button class="kiwi-btn-primary" :disabled="saving" @click="save">
-          <KiwiIcon :name="saving ? 'loader' : 'check'" :size="14" :spin="saving" />
-          {{ saving ? '保存中…' : '保存设置' }}
-        </button>
-      </div>
+      <p class="px-1 text-[10.5px] text-slate-400">
+        当前访问地址：{{ appOrigin }} · 设置保存后立即生效，无需重启服务。
+      </p>
     </div>
   </div>
 </template>

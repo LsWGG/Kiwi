@@ -32,6 +32,7 @@ from app.schemas.source import (
     YuqueTokenRequest,
 )
 from app.services import import_service, ingest_service, upload_session
+from app.services.compile_status import reconcile_ingest_jobs
 from app.services.file_security import (
     MAX_DIRECT_UPLOAD_BYTES,
     FileRejected,
@@ -513,6 +514,9 @@ async def list_jobs(
         stmt = stmt.where(IngestJob.import_batch_id == str(batch_id))
     if kind:
         stmt = stmt.where(IngestJob.kind == kind)
+    # 旧版可能留下「队列已失败、业务记录仍排队」的悬空任务；列表读取前对齐。
+    if await reconcile_ingest_jobs(session, kb_id):
+        await session.commit()
     rows = list(
         (
             await session.execute(
@@ -535,6 +539,11 @@ async def get_job(
     job = await session.get(IngestJob, job_id)
     if job is None or job.kb_id != kb_id:
         raise HTTPException(404, "任务不存在")
+    if job.status in ("pending", "running") and await reconcile_ingest_jobs(
+        session, kb_id
+    ):
+        await session.commit()
+        await session.refresh(job)
     return (await _jobs_out(session, [job]))[0]
 
 

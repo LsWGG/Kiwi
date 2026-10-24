@@ -108,6 +108,28 @@ def _uv_python_mount() -> tuple[str, str] | None:
     return (str(root), str(root))
 
 
+def _venv_python_alias_mounts() -> list[tuple[str, str]]:
+    """兼容 venv 内指向 `/home/...` 的绝对符号链接。
+
+    uv 创建的 venv 里 ``bin/python`` 可能是指向用户目录运行时的绝对链接；
+    沙箱只挂载了解析后的真实路径，链接字面路径在沙箱内不存在。这里把真实
+    运行时额外挂到链接指向的位置，保证 ``/venv/bin/python`` 可执行。
+    """
+    venv_python = _venv_root() / "bin" / "python"
+    try:
+        target = Path(os.readlink(venv_python))
+    except OSError:
+        return []
+    if not target.is_absolute():
+        return []
+    resolved = venv_python.resolve()
+    target_root = target.parent.parent
+    resolved_root = resolved.parent.parent
+    if target_root == resolved_root or not resolved_root.exists():
+        return []
+    return [(str(resolved_root), str(target_root))]
+
+
 def _limit_prefix(command: list[str], *, cpu_seconds: int | None) -> list[str]:
     """用 prlimit 在沙箱内施加资源限制，避免在宿主线程中 fork 时设置。"""
     if not PRLIMIT:
@@ -181,6 +203,8 @@ def bwrap_args(
     uv_mount = _uv_python_mount()
     if uv_mount:
         args += ["--ro-bind", uv_mount[0], uv_mount[1]]
+    for src, dest in _venv_python_alias_mounts():
+        args += ["--ro-bind", src, dest]
     args += [
         "--ro-bind",
         str(_venv_root()),

@@ -4,7 +4,7 @@
 - 出题依据：Wiki 页面（优先）+ 学习画像 + 掌握度 + 场景模板；
 - 题目按题型结构化存储，客观题规则判分，主观题按评分维度由 LLM 打分；
 - 掌握度以 slug 为键做 EMA，难易度与置信度参与权重；
-- SM-2 简化调度驱动「今日复习」；
+- FSRS-5 调度驱动「今日复习」；
 - 计划引擎按覆盖率 / 正确率 / 剩余时间 / 仿真成绩给出阶段建议；
 - 所有学习数据只写学习侧表，不回写 Wiki。
 """
@@ -58,6 +58,15 @@ from app.schemas.study import (
     PlanDay,
     QuestionOut,
     StudyPlanOut,
+)
+from app.services.fsrs import (
+    AGAIN,
+    REVIEW_STATES,
+    FSRSState,
+    difficulty_from_ease,
+    ease_from_difficulty,
+    fsrs_schedule,
+    rating_for_ratio,
 )
 from app.services.llm_factory import LLMFactory
 from app.services.web_research import maybe_research_question
@@ -1533,39 +1542,88 @@ async def _grade_question(
 
 
 # ---------- 掌握度 / 复习 ----------
-REVIEW_MIN_EASE = 1.3
-REVIEW_MAX_EASE = 2.8
-REVIEW_BASE_EASE = 2.5
-REVIEW_DIFFICULTY_FACTOR = {"basic": 1.3, "medium": 1.0, "hard": 0.8}
+def _as_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _legacy_fsrs_state(review: StudyReview) -> FSRSState:
+    """从 ORM 行读取 FSRS 状态；旧行缺失/为空时按旧字段推导。"""
+
+    interval = _as_float(getattr(review, "interval_days", 0.0))
+    legacy_reps = _as_int(getattr(review, "repetitions", 0))
+    ease = _as_float(getattr(review, "ease_factor", None), 2.5)
+    stability = _as_float(getattr(review, "stability", None))
+    difficulty = _as_float(getattr(review, "difficulty", None))
+    review_state = str(getattr(review, "review_state", "") or "")
+    if review_state not in REVIEW_STATES:
+        # 迁移前写入的旧行没有 review_state：有复习记录视为 review。
+        review_state = "review" if (legacy_reps > 0 or interval > 0) else "new"
+    if stability <= 0 and review_state != "new":
+        stability = max(interval, 1.0)
+    if difficulty <= 0:
+        difficulty = difficulty_from_ease(ease)
+    fsrs_reps = _as_int(getattr(review, "fsrs_reps", 0))
+    return FSRSState(
+        stability=stability,
+        difficulty=difficulty,
+        reps=fsrs_reps or legacy_reps,
+        lapses=_as_int(getattr(review, "lapses", 0)),
+        state=review_state,
+        last_rating=getattr(review, "last_rating", None),
+    )
 
 
 def _apply_review_schedule(
-    review: StudyReview, correct: bool, difficulty: str, now: datetime
+    review: StudyReview,
+    ratio: float,
+    difficulty: str,
+    now: datetime,
+    *,
+    correct: bool | None = None,
 ) -> None:
-    ease = float(review.ease_factor or REVIEW_BASE_EASE)
-    reps = int(review.repetitions or 0)
-    interval = float(review.interval_days or 0.0)
-    if correct:
-        reps += 1
-        if reps == 1:
-            base = 1.0
-        elif reps == 2:
-            base = 3.0
-        else:
-            base = max(1.0, interval * ease)
-        factor = REVIEW_DIFFICULTY_FACTOR.get(difficulty, 1.0)
-        interval = max(1.0, round(base * factor, 2))
-        ease = min(REVIEW_MAX_EASE, ease + 0.1)
-    else:
-        reps = 0
-        interval = 1.0
-        ease = max(REVIEW_MIN_EASE, ease - 0.2)
-    review.ease_factor = round(ease, 2)
-    review.repetitions = reps
-    review.interval_days = interval
+    """按 FSRS-5 更新复习状态，并同步旧字段（ease/interval/repetitions）。"""
+
+    state = _legacy_fsrs_state(review)
+    last_reviewed = getattr(review, "last_reviewed_at", None)
+    elapsed_days: float | None = None
+    if last_reviewed is not None:
+        try:
+            elapsed_days = max(0.0, (now - last_reviewed).total_seconds() / 86400.0)
+        except TypeError:
+            # 旧数据可能带 naive datetime，视为无历史间隔。
+            elapsed_days = None
+    rating = rating_for_ratio(ratio, difficulty)
+    result = fsrs_schedule(state, rating, elapsed_days=elapsed_days)
+
+    success = result.last_rating != AGAIN
+    if correct is not None:
+        success = bool(correct)
+
+    review.stability = result.stability
+    review.difficulty = result.difficulty
+    review.lapses = result.lapses
+    review.review_state = result.state
+    review.last_rating = result.last_rating
+    review.fsrs_reps = result.reps
+    # 旧字段保持可读：ease 由 FSRS 难度反推，repetitions 表示连续成功次数。
+    review.ease_factor = round(ease_from_difficulty(result.difficulty), 2)
+    review.interval_days = result.interval_days
+    review.repetitions = _as_int(getattr(review, "repetitions", 0)) + 1 if success else 0
     review.last_reviewed_at = now
-    review.last_correct = correct
-    review.due_at = now + timedelta(days=interval)
+    review.last_correct = (
+        bool(correct) if correct is not None else result.last_rating >= 3
+    )
+    review.due_at = now + timedelta(days=result.interval_days)
 
 
 CONFIDENCE_WEIGHT = {"verified": 1.0, "unverified": 0.7, "disputed": 0.5}
@@ -1617,7 +1675,7 @@ async def apply_outcome(
 
     now = datetime.now(timezone.utc)
     review = await StudyReviewRepo(db).get_or_create(kb_id, slug, q.wiki_page_id)
-    _apply_review_schedule(review, correct, difficulty, now)
+    _apply_review_schedule(review, ratio, difficulty, now, correct=correct)
     await db.flush()
     return score, review.due_at
 

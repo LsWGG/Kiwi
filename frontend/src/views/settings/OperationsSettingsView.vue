@@ -522,7 +522,7 @@ const selectClass =
               class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white/70 px-2 py-1.5 text-[11px] text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600"
               download
             >
-              <KiwiIcon name="download" :size="12" />
+              <KiwiIcon name="fileExport" :size="12" />
               导出 CSV
             </a>
           </div>

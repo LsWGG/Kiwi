@@ -23,11 +23,12 @@ type AssistAction =
 type SelectionRange = { from: number; to: number }
 
 interface AssistReference {
-  kind: 'wiki' | 'source'
+  kind: 'wiki' | 'note' | 'source'
   title: string
   quote: string
   score: number
   wiki_page_id: string | null
+  note_id: string | null
   source_id: string | null
 }
 
@@ -144,7 +145,17 @@ function discard() {
 
 function openReference(ref: AssistReference) {
   if (ref.kind === 'wiki' && ref.wiki_page_id) {
-    void router.push({ name: 'wiki-page', params: { id: ref.wiki_page_id } })
+    void router.push({
+      name: 'wiki-page',
+      params: { id: ref.wiki_page_id },
+      query: { quote: ref.quote.slice(0, 160) },
+    })
+  } else if (ref.kind === 'note' && ref.note_id) {
+    void router.push({
+      name: 'notes',
+      params: { id: ref.note_id },
+      query: { quote: ref.quote.slice(0, 160) },
+    })
   }
 }
 
@@ -227,10 +238,10 @@ async function copyResult() {
           </div>
           <button
             v-for="(ref, i) in references"
-            :key="`${ref.kind}-${ref.wiki_page_id || ref.source_id}-${i}`"
+            :key="`${ref.kind}-${ref.wiki_page_id || ref.note_id || ref.source_id}-${i}`"
             type="button"
             class="mb-1 flex w-full items-start gap-1.5 rounded-md px-1 py-0.5 text-left hover:bg-kiwi-50/70"
-            :class="ref.kind === 'wiki' ? 'cursor-pointer' : 'cursor-default'"
+            :class="ref.kind === 'wiki' || ref.kind === 'note' ? 'cursor-pointer' : 'cursor-default'"
             :title="ref.quote"
             @click="openReference(ref)"
           >
@@ -244,7 +255,7 @@ async function copyResult() {
               </span>
             </span>
             <span class="ml-auto shrink-0 pt-px text-[9px] text-slate-300">
-              {{ ref.kind === 'wiki' ? 'Wiki' : '素材' }}
+              {{ ref.kind === 'wiki' ? 'Wiki' : ref.kind === 'note' ? '笔记' : '素材' }}
             </span>
           </button>
         </div>

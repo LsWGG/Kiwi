@@ -55,6 +55,12 @@ export class NotesApi {
     return (await res.json()) as NoteOut
   }
 
+  async createTag(name: string) {
+    const res = await this.request.post(this.url('/tags'), { data: { name } })
+    expect(res.status(), await res.text()).toBe(201)
+    return (await res.json()) as { id: string; name: string }
+  }
+
   async createFolder(name: string, parentId: string | null = null) {
     const res = await this.request.post(this.url('/folders'), {
       data: { name, parent_id: parentId },

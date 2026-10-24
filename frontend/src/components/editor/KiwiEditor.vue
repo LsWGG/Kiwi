@@ -66,9 +66,15 @@ import { CodeOutput, formatRunResult, upsertCodeOutput } from './extensions/code
 import { buildPreviewDocument } from './extensions/preview'
 import { TrailingParagraph } from './extensions/trailingParagraph'
 import { KiwiTaskProgress } from './extensions/taskProgress'
+import { KiwiPluginBlock } from './extensions/pluginBlock'
 import { EmbedBlock, embedAttrs } from './extensions/embed'
 import { PageBreak } from './extensions/pageBreak'
 import { PagedDoc } from './extensions/pagedDoc'
+import {
+  SearchHighlight,
+  clearSearchHighlight,
+  highlightSearchTerm,
+} from './extensions/searchHighlight'
 import {
   applyParagraphFormat,
   applyParagraphFormats,
@@ -116,6 +122,8 @@ import { request, upload } from '@/api/client'
 import { runPython, type RunCodeResult } from '@/api/run'
 import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
+import { usePluginsStore, type PluginBlock } from '@/stores/plugins'
+import { useExtensionsStore } from '@/stores/extensions'
 import { toast } from '@/components/ui/toast'
 
 const props = withDefaults(
@@ -167,6 +175,8 @@ const emit = defineEmits<{
 
 const kbs = useKbsStore()
 const notesStore = useNotesStore()
+const pluginsStore = usePluginsStore()
+const extensionsStore = useExtensionsStore()
 const router = useRouter()
 const lowlight = createLowlight(common)
 
@@ -513,6 +523,10 @@ function onCodeRunMessage(event: MessageEvent) {
 
 onMounted(() => {
   void loadWikiPages()
+  void pluginsStore.ensureBlocks()
+  // 组件插件只在编辑器 / 工作区阅读态按需执行脚本；设置页不会自动加载。
+  void pluginsStore.ensureComponentBlocks()
+  void extensionsStore.ensure().catch(() => {})
   window.addEventListener('kiwi-run-code', onRunCodeEvent)
   window.addEventListener('keydown', onCodeRunKeydown)
   window.addEventListener('keydown', onParagraphMenuKeydown)
@@ -1354,6 +1368,26 @@ function insertComponent(key: string) {
   }
 }
 
+/** 第三方组件插件：插入通用插件节点，由运行时组件渲染。 */
+function insertPluginBlockEntry(ed: Editor, block: PluginBlock) {
+  void pluginsStore.ensureComponentBlocks()
+  const chain = ed.chain().focus()
+  // 选中的是原子块时先折叠到块后，避免 insertContent 直接替换掉它。
+  if (ed.state.selection instanceof NodeSelection) {
+    chain.setTextSelection(ed.state.selection.to)
+  }
+  chain
+    .insertPluginBlock({
+      pluginKey: block.plugin_key,
+      blockType: block.type,
+      props: { ...(block.default_props || {}) },
+    })
+    .run()
+  if (ed.state.selection instanceof NodeSelection) {
+    ed.chain().setTextSelection(ed.state.selection.to).run()
+  }
+}
+
 /** DOCX 模式：在光标处插入分页符 */
 function insertPageBreak() {
   editor.value?.chain().focus().insertContent({ type: 'pageBreak' }).run()
@@ -1826,6 +1860,7 @@ const editor = useEditor({
         docxPages.value = pages
       },
     }),
+    SearchHighlight,
     CharacterCount,
     Callout,
     Video,
@@ -1843,6 +1878,7 @@ const editor = useEditor({
     KiwiNoteEmbed,
     KiwiCalendar,
     KiwiDataTable,
+    KiwiPluginBlock,
     createMentionExtension(
       mentionNotes,
       () => props.noteId ?? null,
@@ -1866,6 +1902,7 @@ const editor = useEditor({
               'kiwiNoteEmbed',
               'kiwiCalendar',
               'kiwiDataTable',
+              'kiwiPluginBlock',
             ],
             dragHandleSelector: '#kiwi-drag-handle',
           }),
@@ -1880,6 +1917,10 @@ const editor = useEditor({
             onKnowledgePoint: openKnowledgePoint,
             onDate: insertToday,
             onAI: () => emit('toggle-agent'),
+            pluginBlocks: () => pluginsStore.blocks,
+            onPluginBlock: (editorInstance, block) =>
+              insertPluginBlockEntry(editorInstance, block),
+            extensionEnabled: (key) => extensionsStore.isEnabled(key),
           }),
         ]
       : []),
@@ -2135,6 +2176,15 @@ defineExpose({
   getSelectionRange,
   getDocumentText,
   insertMarkdown,
+  /** 搜索结果定位：在正文中标记关键词并滚动到第一处命中。 */
+  highlightSearchTerm: (term: string, active = -1, splitWords = true) => {
+    const ed = editor.value
+    return ed ? highlightSearchTerm(ed, term, active, splitWords) : false
+  },
+  clearSearchHighlight: () => {
+    const ed = editor.value
+    if (ed) clearSearchHighlight(ed)
+  },
   /** 在纸张上直接进入页眉 / 页脚编辑（页面设置里的快捷按钮使用） */
   startHeaderEdit,
   startFooterEdit,
@@ -2206,6 +2256,7 @@ defineExpose({
       @mention="insertSuggestionChar('@')"
       @emoji="insertSuggestionChar(':')"
       @component="insertComponent"
+      @plugin-block="editor && insertPluginBlockEntry(editor, $event)"
     />
     </Teleport>
 
@@ -2863,6 +2914,12 @@ defineExpose({
 /* 文档 / 笔记模式：更从容的页边距与顶部品牌细线 */
 .kiwi-editor:not(.kiwi-editor-docx) .editor-sheet {
   padding: 2.4rem 2.6rem 2.2rem;
+}
+/* 窄屏收窄纸张内边距，避免正文每行只剩几个字。 */
+@media (max-width: 767px) {
+  .kiwi-editor:not(.kiwi-editor-docx) .editor-sheet {
+    padding: 1.25rem 1rem 1.5rem;
+  }
 }
 .kiwi-editor:not(.kiwi-editor-docx) .editor-sheet::before {
   content: '';

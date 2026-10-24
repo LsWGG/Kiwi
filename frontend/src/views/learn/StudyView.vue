@@ -26,6 +26,8 @@ import ReviewQueue from '@/components/study/ReviewQueue.vue'
 import MockExamPanel from '@/components/study/MockExamPanel.vue'
 import LearnGraphPanel from '@/components/study/LearnGraphPanel.vue'
 import StudyPlanPanel from '@/components/study/StudyPlanPanel.vue'
+import WeeklyReportPanel from '@/components/study/WeeklyReportPanel.vue'
+import ReminderPanel from '@/components/study/ReminderPanel.vue'
 import { toast } from '@/components/ui/toast'
 
 const kbs = useKbsStore()
@@ -34,8 +36,27 @@ const mode = useModeStore()
 const router = useRouter()
 const route = useRoute()
 
-type Pane = 'review' | 'train' | 'mock' | 'graph' | 'plan' | 'mistakes' | 'profile'
-const PANES: Pane[] = ['review', 'train', 'mock', 'graph', 'plan', 'mistakes', 'profile']
+type Pane =
+  | 'review'
+  | 'train'
+  | 'mock'
+  | 'graph'
+  | 'plan'
+  | 'report'
+  | 'reminders'
+  | 'mistakes'
+  | 'profile'
+const PANES: Pane[] = [
+  'review',
+  'train',
+  'mock',
+  'graph',
+  'plan',
+  'report',
+  'reminders',
+  'mistakes',
+  'profile',
+]
 
 function paneFromQuery(): Pane {
   const raw = typeof route.query.pane === 'string' ? route.query.pane : ''
@@ -489,6 +510,12 @@ onMounted(() => {
         @start-mode="onPlanStart"
         @open-graph="active = 'graph'"
       />
+
+      <!-- 学习周报 -->
+      <WeeklyReportPanel v-else-if="active === 'report'" />
+
+      <!-- 提醒设置 -->
+      <ReminderPanel v-else-if="active === 'reminders'" />
 
       <!-- 训练 -->
       <div v-else class="max-w-3xl mx-auto">

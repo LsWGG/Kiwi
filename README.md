@@ -35,10 +35,11 @@ Most tools stop at “captured.” Kiwi keeps asking: **How do you know you have
 
 ## Core capabilities
 
-- **Note workspace**: docs, databases, imports, links, canvas, and notebooks share folders, tags, templates, and bidirectional links.
-- **Three editing modes**: switch the same Markdown between Simple, Notion-like, and DOCX editors—focused writing, block-level organization, and formal layout each get the right tool.
+- **Note workspace**: docs, databases, sheets, imports, links, canvas, and notebooks share folders, tags, templates, and bidirectional links.
+- **Two editing modes**: switch the same Markdown between the standard editor and DOCX—block-based writing, interactive blocks, and formal layout in one document.
 - **Executable code blocks**: Python runs in a bubblewrap sandbox, with output and exit code kept in the document; HTML / JS previews inside an isolated iframe.
-- **Compilation jobs**: every note and source compiles into the Wiki, with parse quality, job progress, and affected pages tracked.
+- **Advanced capabilities**: voice transcription, sticky note windows, component plugins, read-only sharing, sheets with OCR, hybrid retrieval QA, todo hub, and typed exports.
+- **Compilation jobs**: every eligible note compiles into the Wiki—todo hubs, read-only imports, and database row notes are skipped—with job progress and affected pages tracked.
 - **Structured Wiki**: schema-driven, incrementally updated, source-cited, with health checks and one-click rebuild.
 - **Knowledge star map**: explore page relationships as a star map; node size reflects citation count.
 - **Learning loop**: profile → plan → progressive practice → spaced repetition → mock exam → mistake notebook.

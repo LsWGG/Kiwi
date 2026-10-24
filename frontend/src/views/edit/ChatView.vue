@@ -26,6 +26,21 @@ interface Citation {
   chunk_text: string
   target_id: string
   kind?: string
+  chunk_index?: number
+  heading?: string
+  quote?: string
+}
+
+interface ScopeFilters {
+  note_kinds: string[]
+  tag_ids: string[]
+  updated_from: string
+  updated_to: string
+}
+
+interface TagOption {
+  id: string
+  name: string
 }
 
 interface Msg {
@@ -40,7 +55,14 @@ interface SessionSummary {
   id: string
   title: string
   message_count: number
-  scope: { kb_ids?: string[]; scope?: ScopeMode }
+  scope: {
+    kb_ids?: string[]
+    scope?: ScopeMode
+    note_kinds?: string[]
+    tag_ids?: string[]
+    updated_from?: string | null
+    updated_to?: string | null
+  }
   /** 兼容旧数据：早期会话可能保存 raw，前端统一按 note 处理 */
   intent: Intent | 'raw'
   llm_config_id: string | null
@@ -73,6 +95,21 @@ const multiIds = ref<string[]>([])
 const intent = ref<Intent>('auto')
 const llmConfigId = ref('')
 const scopeMenuOpen = ref(false)
+const filterMenuOpen = ref(false)
+const filterTags = ref<TagOption[]>([])
+const filterTagsLoading = ref(false)
+const filterKinds = ref<string[]>([])
+const filterTagIds = ref<string[]>([])
+const filterFrom = ref('')
+const filterTo = ref('')
+const NOTE_KIND_OPTIONS = [
+  { id: 'doc', label: '文档' },
+  { id: 'import', label: '导入' },
+  { id: 'database', label: '数据表' },
+  { id: 'canvas', label: '画布' },
+  { id: 'notebook', label: 'Notebook' },
+  { id: 'link', label: '链接' },
+]
 
 // ---------- 会话列表 ----------
 const sessions = ref<SessionSummary[]>([])
@@ -126,9 +163,17 @@ function loadSettings() {
       multiIds?: string[]
       intent?: Intent | 'raw'
       llmConfigId?: string
+      filters?: Partial<ScopeFilters>
     }
     if (saved.scopeMode) scopeMode.value = saved.scopeMode
     if (Array.isArray(saved.multiIds)) multiIds.value = saved.multiIds
+    const filters = saved.filters
+    if (filters) {
+      if (Array.isArray(filters.note_kinds)) filterKinds.value = filters.note_kinds
+      if (Array.isArray(filters.tag_ids)) filterTagIds.value = filters.tag_ids
+      if (typeof filters.updated_from === 'string') filterFrom.value = filters.updated_from
+      if (typeof filters.updated_to === 'string') filterTo.value = filters.updated_to
+    }
     if (saved.intent === 'raw') intent.value = 'note'
     else if (saved.intent) intent.value = saved.intent
     if (typeof saved.llmConfigId === 'string') llmConfigId.value = saved.llmConfigId
@@ -146,6 +191,12 @@ function saveSettings() {
         multiIds: multiIds.value,
         intent: intent.value,
         llmConfigId: llmConfigId.value,
+        filters: {
+          note_kinds: filterKinds.value,
+          tag_ids: filterTagIds.value,
+          updated_from: filterFrom.value,
+          updated_to: filterTo.value,
+        },
       }),
     )
   } catch {
@@ -200,6 +251,10 @@ function scopeFromSession(item: SessionSummary) {
     scopeMode.value = scope.scope
   }
   if (Array.isArray(scope.kb_ids)) multiIds.value = scope.kb_ids.map(String)
+  filterKinds.value = Array.isArray(scope.note_kinds) ? scope.note_kinds.map(String) : []
+  filterTagIds.value = Array.isArray(scope.tag_ids) ? scope.tag_ids.map(String) : []
+  filterFrom.value = typeof scope.updated_from === 'string' ? scope.updated_from.slice(0, 10) : ''
+  filterTo.value = typeof scope.updated_to === 'string' ? scope.updated_to.slice(0, 10) : ''
   if (item.intent === 'raw') intent.value = 'note'
   else if (item.intent) intent.value = item.intent
   llmConfigId.value = item.llm_config_id || ''
@@ -306,7 +361,65 @@ async function loadSession(id: string) {
 }
 
 function sessionScopePayload() {
-  return { kb_ids: scopeKbIds.value, scope: scopeMode.value }
+  return {
+    kb_ids: scopeKbIds.value,
+    scope: scopeMode.value,
+    ...filtersPayload(),
+  }
+}
+
+function filtersPayload() {
+  return {
+    note_kinds: [...filterKinds.value],
+    // 标签只在当前知识库内有意义；多库 / 全局时仍按 tag id 过滤，
+    // 其他库的同名标签不会误命中。
+    tag_ids: [...filterTagIds.value],
+    updated_from: filterFrom.value ? new Date(`${filterFrom.value}T00:00:00`).toISOString() : null,
+    updated_to: filterTo.value ? new Date(`${filterTo.value}T23:59:59`).toISOString() : null,
+  }
+}
+
+const activeFilterCount = computed(
+  () =>
+    filterKinds.value.length +
+    filterTagIds.value.length +
+    (filterFrom.value ? 1 : 0) +
+    (filterTo.value ? 1 : 0),
+)
+
+function toggleFilterKind(kind: string) {
+  const index = filterKinds.value.indexOf(kind)
+  if (index >= 0) filterKinds.value.splice(index, 1)
+  else filterKinds.value.push(kind)
+}
+
+function toggleFilterTag(id: string) {
+  const index = filterTagIds.value.indexOf(id)
+  if (index >= 0) filterTagIds.value.splice(index, 1)
+  else filterTagIds.value.push(id)
+}
+
+function clearFilters() {
+  filterKinds.value = []
+  filterTagIds.value = []
+  filterFrom.value = ''
+  filterTo.value = ''
+}
+
+async function toggleFilterMenu() {
+  filterMenuOpen.value = !filterMenuOpen.value
+  if (!filterMenuOpen.value || filterTags.value.length) return
+  filterTagsLoading.value = true
+  try {
+    if (!kbs.currentKbId) return
+    filterTags.value = await request<TagOption[]>('/notes/tags', {
+      kbId: kbs.currentKbId,
+    })
+  } catch {
+    /* 标签加载失败不阻塞其他筛选 */
+  } finally {
+    filterTagsLoading.value = false
+  }
 }
 
 async function createSession(): Promise<SessionDetail | null> {
@@ -518,6 +631,7 @@ function requestScope() {
   return {
     kb_ids: scopeKbIds.value,
     scope: scopeMode.value,
+    ...filtersPayload(),
   }
 }
 
@@ -661,10 +775,23 @@ function citationPreview(text: string): string {
 }
 
 function openCitation(citation: Citation) {
+  const query: Record<string, string> = {}
+  const quote = (citation.quote || citation.chunk_text || '').slice(0, 200)
+  if (quote) query.quote = quote
+  if (citation.heading) query.heading = citation.heading.slice(0, 120)
+  if (citation.chunk_index) query.chunk = String(citation.chunk_index)
   if (citation.collection === 'wiki' && citation.target_id) {
-    void router.push({ name: 'wiki-page', params: { id: citation.target_id } })
+    void router.push({
+      name: 'wiki-page',
+      params: { id: citation.target_id },
+      query,
+    })
   } else if (citation.collection === 'note' && citation.target_id) {
-    void router.push(`/notes/${citation.target_id}`)
+    void router.push({
+      name: 'notes',
+      params: { id: citation.target_id },
+      query,
+    })
   }
 }
 
@@ -956,7 +1083,7 @@ watch(
     <!-- 主区域 -->
     <div class="relative flex min-w-0 flex-1 flex-col">
       <!-- 会话标题 / 范围 / 意图 / 模型 -->
-      <header class="shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl">
+      <header class="relative z-20 shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl">
         <div class="mx-auto flex w-full max-w-[1120px] items-center gap-2">
           <button
             type="button"
@@ -1056,6 +1183,82 @@ watch(
                 >
                   完成
                 </button>
+              </div>
+            </div>
+
+            <div class="relative">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] transition"
+                :class="activeFilterCount
+                  ? 'border-kiwi-300 bg-kiwi-50/70 text-kiwi-700'
+                  : 'border-slate-200 bg-white/80 text-slate-600 hover:border-kiwi-300 hover:text-kiwi-700'"
+                @click="toggleFilterMenu"
+              >
+                <KiwiIcon name="filter" :size="12" :class="activeFilterCount ? 'text-kiwi-500' : 'text-slate-400'" />
+                筛选
+                <span
+                  v-if="activeFilterCount"
+                  class="rounded-full bg-kiwi-500 px-1.5 text-[9px] font-medium leading-4 text-white"
+                >{{ activeFilterCount }}</span>
+                <KiwiIcon name="chevron" :size="11" class="text-slate-400" />
+              </button>
+              <div
+                v-if="filterMenuOpen"
+                class="absolute left-0 top-full z-30 mt-1 w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-lifted"
+              >
+                <div class="mb-2 flex items-center justify-between">
+                  <span class="text-[11px] font-medium text-slate-600">笔记筛选</span>
+                  <button
+                    v-if="activeFilterCount"
+                    type="button"
+                    class="text-[10.5px] text-slate-400 hover:text-kiwi-600"
+                    @click="clearFilters"
+                  >
+                    清除
+                  </button>
+                </div>
+                <p class="mb-1 text-[10px] text-slate-400">按类型</p>
+                <div class="mb-2.5 flex flex-wrap gap-1">
+                  <button
+                    v-for="kind in NOTE_KIND_OPTIONS"
+                    :key="kind.id"
+                    type="button"
+                    class="rounded-full border px-2 py-0.5 text-[10.5px] transition"
+                    :class="filterKinds.includes(kind.id)
+                      ? 'border-kiwi-300 bg-kiwi-50 text-kiwi-700'
+                      : 'border-slate-200 text-slate-500 hover:border-kiwi-200'"
+                    @click="toggleFilterKind(kind.id)"
+                  >
+                    {{ kind.label }}
+                  </button>
+                </div>
+                <p class="mb-1 text-[10px] text-slate-400">按标签（当前知识库）</p>
+                <div v-if="filterTagsLoading" class="py-1 text-[10.5px] text-slate-400">加载中…</div>
+                <div v-else-if="filterTags.length" class="mb-2.5 flex max-h-24 flex-wrap gap-1 overflow-auto">
+                  <button
+                    v-for="tag in filterTags"
+                    :key="tag.id"
+                    type="button"
+                    class="rounded-full border px-2 py-0.5 text-[10.5px] transition"
+                    :class="filterTagIds.includes(tag.id)
+                      ? 'border-kiwi-300 bg-kiwi-50 text-kiwi-700'
+                      : 'border-slate-200 text-slate-500 hover:border-kiwi-200'"
+                    @click="toggleFilterTag(tag.id)"
+                  >
+                    #{{ tag.name }}
+                  </button>
+                </div>
+                <p v-else class="mb-2.5 text-[10.5px] text-slate-400">当前知识库还没有标签</p>
+                <p class="mb-1 text-[10px] text-slate-400">按更新时间</p>
+                <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
+                  <input v-model="filterFrom" type="date" class="min-w-0 flex-1 rounded-lg border border-slate-200 px-1.5 py-1" />
+                  <span class="text-slate-300">→</span>
+                  <input v-model="filterTo" type="date" class="min-w-0 flex-1 rounded-lg border border-slate-200 px-1.5 py-1" />
+                </div>
+                <p class="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-slate-400">
+                  设置任一筛选后只检索笔记，Wiki 没有类型 / 标签 / 更新时间属性。
+                </p>
               </div>
             </div>
 

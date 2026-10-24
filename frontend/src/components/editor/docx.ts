@@ -1,12 +1,13 @@
-/** 触发浏览器下载笔记的 Word 导出（后端 python-docx 生成）。 */
-export async function downloadNoteDocx(
+/** 触发浏览器下载笔记的 Word / PDF 导出（后端统一生成）。 */
+async function downloadNoteFile(
   noteId: string,
   kbId: string | null,
-  title: string,
+  format: 'docx' | 'pdf',
+  filename: string,
   headers: Record<string, string> = {},
 ): Promise<void> {
   const res = await fetch(
-    `/api/notes/${noteId}/export/docx?kb_id=${encodeURIComponent(kbId ?? '')}`,
+    `/api/notes/${noteId}/export/${format}?kb_id=${encodeURIComponent(kbId ?? '')}`,
     { headers },
   )
   if (!res.ok) {
@@ -17,9 +18,43 @@ export async function downloadNoteDocx(
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${(title || '无标题文档').trim() || '无标题文档'}.docx`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function downloadTitle(title: string): string {
+  return (title || '无标题文档').trim() || '无标题文档'
+}
+
+export async function downloadNoteDocx(
+  noteId: string,
+  kbId: string | null,
+  title: string,
+  headers: Record<string, string> = {},
+): Promise<void> {
+  await downloadNoteFile(
+    noteId,
+    kbId,
+    'docx',
+    `${downloadTitle(title)}.docx`,
+    headers,
+  )
+}
+
+export async function downloadNotePdf(
+  noteId: string,
+  kbId: string | null,
+  title: string,
+  headers: Record<string, string> = {},
+): Promise<void> {
+  await downloadNoteFile(
+    noteId,
+    kbId,
+    'pdf',
+    `${downloadTitle(title)}.pdf`,
+    headers,
+  )
 }

@@ -6,6 +6,7 @@ import uuid
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +16,8 @@ from app.routers.chat import resolve_llm
 from app.schemas.note import NoteAssistIn, NoteAssistOut, NoteAssistReference
 from app.services.docx_export import markdown_to_docx, resolve_note_mentions
 from app.services.llm_factory import llm_factory
-from app.services.note_lock import token_is_valid
+from app.services.note_lock import note_body, token_is_valid
+from app.services.pdf_export import markdown_to_pdf
 from app.services.retrieval import hyrid_search
 
 router = APIRouter(prefix="/api/notes", tags=["note-editor"])
@@ -87,29 +89,29 @@ async def _explain_references(
         if len(refs) >= 4:
             break
 
-    seen_raw: set[tuple[str, int]] = set()
-    raw_refs: list[NoteAssistReference] = []
-    for hit in hits.get("raw", []):
+    seen_notes: set[tuple[str, int]] = set()
+    note_refs: list[NoteAssistReference] = []
+    for hit in hits.get("notes", []):
         payload = hit.get("payload") or {}
-        source_id = str(payload.get("source_id") or "")
+        note_id = str(payload.get("note_id") or "")
         chunk_index = int(payload.get("chunk_index") or 0)
         score = float(hit.get("score") or 0.0)
-        key = (source_id, chunk_index)
-        if not source_id or key in seen_raw or score < EXPLAIN_SCORE_FLOOR:
+        key = (note_id, chunk_index)
+        if not note_id or key in seen_notes or score < EXPLAIN_SCORE_FLOOR:
             continue
-        seen_raw.add(key)
-        raw_refs.append(
+        seen_notes.add(key)
+        note_refs.append(
             NoteAssistReference(
-                kind="source",
-                title=str(payload.get("source_title") or payload.get("title") or "素材"),
+                kind="note",
+                title=str(payload.get("title") or "笔记"),
                 quote=str(payload.get("text") or "")[:MAX_EXPLAIN_QUOTE],
                 score=round(score, 4),
-                source_id=uuid.UUID(source_id),
+                note_id=uuid.UUID(note_id),
             )
         )
-        if len(raw_refs) >= 4:
+        if len(note_refs) >= 4:
             break
-    return refs + raw_refs
+    return refs + note_refs
 
 
 @router.post("/{note_id}/assist", response_model=NoteAssistOut)
@@ -233,7 +235,7 @@ async def export_docx(
     if note.is_locked and not token_is_valid(note, x_note_token):
         raise HTTPException(403, "笔记已上锁，请先输入密码解锁后再导出")
     props = note.props_json or {}
-    body_md = note.body_md or ""
+    body_md = note_body(note, x_note_token)
     titles = await _mention_titles(session, kb_id, body_md)
     if titles:
         body_md = resolve_note_mentions(body_md, titles)
@@ -255,5 +257,40 @@ async def export_docx(
         media_type=(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ),
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.get("/{note_id}/export/pdf")
+async def export_pdf(
+    note_id: uuid.UUID,
+    kb_id: uuid.UUID,
+    x_note_token: str | None = Header(default=None, alias="X-Note-Token"),
+    session: AsyncSession = Depends(get_session),
+):
+    """把文档 / 导入 / 链接类笔记排版为 PDF 下载。"""
+    note = await _get_note(session, kb_id, note_id)
+    if note.is_locked and not token_is_valid(note, x_note_token):
+        raise HTTPException(403, "笔记已上锁，请先输入密码解锁后再导出")
+    props = note.props_json or {}
+    body_md = note_body(note, x_note_token)
+    titles = await _mention_titles(session, kb_id, body_md)
+    if titles:
+        body_md = resolve_note_mentions(body_md, titles)
+    if note.kind == "link":
+        url = str(props.get("url") or "")
+        if url.lower().startswith(("http://", "https://")):
+            body_md = f"{body_md.rstrip()}\n\n---\n\n来源：<{url}>\n"
+    buffer = await run_in_threadpool(
+        markdown_to_pdf,
+        note.title or "无标题文档",
+        body_md,
+        props.get("docx_prefs") if isinstance(props.get("docx_prefs"), dict) else None,
+    )
+    safe_title = (note.title or "note").replace("/", "_").replace("\\", "_").strip() or "note"
+    filename = quote(f"{safe_title}.pdf")
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )

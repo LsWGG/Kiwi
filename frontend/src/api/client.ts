@@ -85,4 +85,33 @@ export function upload<T>(
     })
 }
 
+/** 下载二进制响应（插件包 / 内置包 / 开发套件），返回实际文件名。 */
+export async function download(
+  path: string,
+  fallbackName = 'download.zip',
+): Promise<string> {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (!res.ok) throw await readError(res)
+  const disposition = res.headers.get('content-disposition') || ''
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
+  let filename = fallbackName
+  if (match?.[1]) {
+    try {
+      filename = decodeURIComponent(match[1])
+    } catch {
+      filename = match[1]
+    }
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  return filename
+}
+
 export default { request, upload }

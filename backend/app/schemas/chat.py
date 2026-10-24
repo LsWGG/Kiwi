@@ -1,15 +1,23 @@
 """检索 / 问答 schemas。"""
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 
 class SearchScope(BaseModel):
-    """检索范围。"""
+    """检索范围与内容筛选。"""
 
     kb_ids: list[uuid.UUID] = []  # 空 = 全局（所有库）
     scope: str = "kb"  # kb / multi / global
+    # 笔记级筛选：带任一条件时只检索笔记（Wiki 没有标签 / 类型 / 时间属性）。
+    note_kinds: list[str] = []
+    tag_ids: list[uuid.UUID] = []
+    updated_from: datetime | None = None
+    updated_to: datetime | None = None
+    # 「问这篇笔记」：只在这些笔记范围内检索。
+    note_ids: list[uuid.UUID] = []
 
 
 class SearchRequest(BaseModel):
@@ -25,12 +33,14 @@ class SearchHit(BaseModel):
     collection: str  # wiki / note / raw
     payload: dict = {}
     score: float = 0.0
+    # RRF / 重排后的融合分数，用于跨 collection 排序；score 保留原始相似度。
+    fusion_score: float = 0.0
     rank: int = 0
 
 
 class SearchResponse(BaseModel):
     hits: list[SearchHit] = []
-    merged_by: str = "cosine"  # or "rrf"
+    merged_by: str = "hybrid_rrf"  # cosine / rrf / hybrid_rrf / rerank
 
 
 class Citation(BaseModel):
@@ -42,6 +52,10 @@ class Citation(BaseModel):
     chunk_text: str = ""
     target_id: str = ""  # wiki 页面 / 笔记 id，供前端跳转
     kind: str = ""  # 笔记类型（doc/database/canvas/...），Wiki 引用为空
+    # 块级锚点：前端跳转后按 quote 精确高亮，heading 作为兜底定位。
+    chunk_index: int = 0
+    heading: str = ""
+    quote: str = ""
 
 
 class ChatRequest(BaseModel):

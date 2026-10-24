@@ -14,6 +14,8 @@ from app.routers import (
     notes_lock,
     notes_revisions,
     notes_search,
+    notes_shares,
+    notes_suggestions,
     notes_tags,
     notes_templates,
     notes_tree,
@@ -27,11 +29,13 @@ for module in (
     notes_tags,
     notes_templates,
     notes_search,
+    notes_suggestions,
     notes_lifecycle,
     notes_crud,
     notes_lock,
     notes_revisions,
     notes_compile,
     notes_actions,
+    notes_shares,
 ):
     router.include_router(module.router, prefix="/api/notes", tags=["notes"])

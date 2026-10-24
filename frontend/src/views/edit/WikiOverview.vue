@@ -3,7 +3,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { request } from '@/api/client'
-import { compileSources, listSources } from '@/api/sources'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
 import { useNotesStore } from '@/stores/notes'
@@ -13,6 +12,7 @@ import KiwiSkeleton from '@/components/ui/KiwiSkeleton.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import KiwiProgress from '@/components/ui/KiwiProgress.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import WikiGraphPanel from '@/components/graph/WikiGraphPanel.vue'
 import { toast } from '@/components/ui/toast'
 
@@ -128,16 +128,39 @@ onMounted(load)
 watch(() => kbId.value, load)
 
 const compilingNotes = ref(false)
-const compilingSources = ref(false)
 const rebuilding = ref(false)
+const purgeOpen = ref(false)
+const purging = ref(false)
 
-/** 清空全部 Wiki 页面与向量，再把全部笔记 / 独立素材重新编译。 */
+/** 删除当前知识库的全部编译产物，笔记正文与导入素材保留。 */
+async function purgeCompiledData() {
+  if (!kbId.value || purging.value) return
+  purging.value = true
+  try {
+    const res = await request<{
+      deleted_pages: number
+      cleared_annotations: number
+      cleared_lint_reports: number
+      deleted_snapshots: number
+    }>('/wiki/compiled', { method: 'DELETE', kbId: kbId.value })
+    toast.success(
+      `已删除 ${res.deleted_pages} 个 Wiki 页面及全部编译数据，笔记正文保持不变`,
+    )
+    await load()
+  } catch (e: any) {
+    toast.error(e.message || '删除编译数据失败')
+  } finally {
+    purging.value = false
+  }
+}
+
+/** 清空全部 Wiki 页面与向量，再把全部笔记重新编译。 */
 async function rebuildWiki() {
   if (!kbId.value || rebuilding.value) return
   const pageCount = ov.value?.page_count ?? 0
   const ok = window.confirm(
     `将删除本库全部 ${pageCount} 个 Wiki 页面、页面批注与健康检查历史，` +
-      '并重新编译全部笔记和独立素材。人工编辑保护的页面也会被删除，此操作不可撤销。\n\n' +
+      '并重新编译全部笔记。人工编辑保护的页面也会被删除，此操作不可撤销。\n\n' +
       '确定继续重建吗？',
   )
   if (!ok) return
@@ -146,7 +169,6 @@ async function rebuildWiki() {
     const res = await request<{
       deleted_pages: number
       note_jobs: unknown[]
-      source_jobs: unknown[]
       count: number
       skipped_empty: number
       skipped_busy: number
@@ -165,37 +187,7 @@ async function rebuildWiki() {
   }
 }
 
-/** Wiki 内的按需编译入口：把已解析、尚未编译的素材提交编译。 */
-async function compilePendingSources() {
-  if (!kbId.value) return
-  compilingSources.value = true
-  try {
-    const list = await listSources(kbId.value)
-    const ids = list.filter((s) => s.status === 'parsed').map((s) => s.id)
-    if (!ids.length) {
-      toast.info('没有待编译的素材')
-      await load()
-      return
-    }
-    let submitted = 0
-    let skipped = 0
-    for (let i = 0; i < ids.length; i += 20) {
-      const res = await compileSources(kbId.value, ids.slice(i, i + 20))
-      submitted += res.count
-      skipped += res.skipped
-    }
-    toast.success(
-      skipped
-        ? `已提交 ${submitted} 个编译任务，${skipped} 个未提交`
-        : `已提交 ${submitted} 个编译任务`,
-    )
-    router.push({ name: 'sources', query: { tab: 'jobs' } })
-  } catch (e: any) {
-    toast.error(e.message || '提交素材编译失败')
-  } finally {
-    compilingSources.value = false
-  }
-}
+/** Wiki 重建后的队列在编译任务页统一查看。 */
 
 async function compileAllNotes() {
   if (!kbId.value) return
@@ -512,11 +504,21 @@ async function reindexWiki() {
         <button
           type="button"
           class="kiwi-btn-secondary !text-rose-600 hover:!border-rose-200 hover:!bg-rose-50"
-          :disabled="rebuilding || !ov?.page_count"
-          title="删除全部 Wiki 页面，并从全部笔记与独立素材重新编译"
+          :disabled="purging"
+          title="删除全部 Wiki 页面、向量与编译任务，笔记正文保留"
+          @click="purgeOpen = true"
+        >
+          <KiwiIcon :name="purging ? 'loader' : 'trash'" :size="14" :spin="purging" />
+          {{ purging ? '删除中…' : '删除已编译数据' }}
+        </button>
+        <button
+          type="button"
+          class="kiwi-btn-secondary"
+          :disabled="rebuilding || purging || !ov?.page_count"
+          title="删除全部 Wiki 页面，并从全部笔记重新编译"
           @click="rebuildWiki"
         >
-          <KiwiIcon :name="rebuilding ? 'loader' : 'trash'" :size="14" :spin="rebuilding" />
+          <KiwiIcon :name="rebuilding ? 'loader' : 'refresh'" :size="14" :spin="rebuilding" />
           {{ rebuilding ? '重建中…' : '重建 Wiki' }}
         </button>
         <button class="kiwi-btn-secondary" :disabled="linting" @click="runLint(false)">
@@ -535,8 +537,8 @@ async function reindexWiki() {
       <KiwiStat label="Wiki 页面" :value="ov.page_count" accent="kiwi">
         <template #icon><KiwiIcon name="wiki" :size="18" /></template>
       </KiwiStat>
-      <KiwiStat label="待编译素材" :value="ov.pending_compile_count" accent="amber">
-        <template #icon><KiwiIcon name="file" :size="18" /></template>
+      <KiwiStat label="可编译笔记" :value="ov.note_compile_candidate_count" accent="amber">
+        <template #icon><KiwiIcon name="note" :size="18" /></template>
       </KiwiStat>
       <KiwiStat label="待复核素材" :value="ov.pending_review_count" accent="emerald">
         <template #icon><KiwiIcon name="alert" :size="18" /></template>
@@ -625,22 +627,6 @@ async function reindexWiki() {
             近期活动
           </p>
           <div class="ml-auto flex items-center gap-1.5">
-            <button
-              v-if="ov.pending_compile_count"
-              type="button"
-              class="text-[11px] text-amber-600 transition-colors hover:text-amber-700 disabled:text-slate-300"
-              :disabled="compilingSources"
-              @click="compilePendingSources"
-            >
-              <KiwiIcon
-                :name="compilingSources ? 'loader' : 'file'"
-                :size="11"
-                :spin="compilingSources"
-                class="inline"
-              />
-              编译待处理素材 {{ ov.pending_compile_count }}
-            </button>
-            <span v-if="ov.pending_compile_count" class="text-slate-200">|</span>
             <button
               type="button"
               class="text-[11px] text-slate-500 transition-colors hover:text-kiwi-700"
@@ -775,7 +761,7 @@ async function reindexWiki() {
         v-else-if="!ov?.page_count"
         icon="wiki"
         title="还没有编译产物"
-        desc="在笔记工作区创建素材并触发编译，或直接创建 Wiki 页面。"
+        desc="在笔记工作区撰写笔记并提交编译，或直接创建 Wiki 页面。"
       >
         <button class="kiwi-btn-primary" @click="router.push({ name: 'notes' })">
           <KiwiIcon name="note" :size="14" />
@@ -1043,5 +1029,14 @@ async function reindexWiki() {
         </p>
       </template>
     </KiwiModal>
+
+    <KiwiConfirm
+      v-model="purgeOpen"
+      danger
+      title="删除全部已编译数据"
+      :message="`将删除本库全部 ${ov?.page_count ?? 0} 个 Wiki 页面、页面向量、页面批注与健康检查历史，并终止排队中的编译任务。笔记正文、导入素材与学习记录保留，此操作不可撤销。`"
+      confirm-text="删除"
+      @confirm="purgeCompiledData"
+    />
   </div>
 </template>

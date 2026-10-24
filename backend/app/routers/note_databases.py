@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import CollectionRow, Note, NoteCollection
 from app.db.session import get_session
 from app.routers.note_guard import require_unlocked_note
+from app.routers.notes_shared import _record_tree_tombstones
 from app.schemas.note_database import (
     CollectionContextOut,
     DatabaseOut,
@@ -315,13 +316,16 @@ async def delete_rows(
         .all()
     )
     deleted = 0
+    deleted_note_ids: list[uuid.UUID] = []
     for row in rows:
         note = await session.get(Note, row.note_id) if row.note_id else None
         if note is not None:
             await session.delete(note)
+            deleted_note_ids.append(note.id)
         else:
             await session.delete(row)
         deleted += 1
+    await _record_tree_tombstones(session, kb_id, note_ids=deleted_note_ids)
     await session.commit()
     todo_sync.schedule_kb_sync(kb_id)
     return {"deleted": deleted}
@@ -339,6 +343,7 @@ async def delete_row(
     note = await session.get(Note, row.note_id) if row.note_id else None
     if note is not None:
         await session.delete(note)
+        await _record_tree_tombstones(session, kb_id, note_ids=[note.id])
     else:
         await session.delete(row)
     await session.commit()
