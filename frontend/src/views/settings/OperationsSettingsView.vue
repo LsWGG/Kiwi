@@ -27,17 +27,31 @@ import {
   type JobStatus,
 } from '@/api/operations'
 
+const JOBS_PAGE_SIZE = 20
+const AUDIT_PAGE_SIZE = 20
+
 const jobs = ref<Job[]>([])
 const jobsTotal = ref(0)
+const jobsPage = ref(1)
+const jobsRetentionDays = ref(14)
 const statusFilter = ref<'' | JobStatus>('')
 const jobsLoading = ref(false)
 const jobActionId = ref<string | null>(null)
 
 const auditEntries = ref<AuditEntry[]>([])
 const auditTotal = ref(0)
+const auditPage = ref(1)
+const auditRetentionDays = ref(14)
 const auditAction = ref('')
 const auditLoading = ref(false)
 const expandedAudit = ref<string | null>(null)
+
+const jobsPageCount = computed(() =>
+  Math.max(1, Math.ceil(jobsTotal.value / JOBS_PAGE_SIZE)),
+)
+const auditPageCount = computed(() =>
+  Math.max(1, Math.ceil(auditTotal.value / AUDIT_PAGE_SIZE)),
+)
 
 const backups = ref<BackupList | null>(null)
 const backupsLoading = ref(false)
@@ -173,9 +187,24 @@ async function loadJobs(silent = false) {
   if (jobsLoading.value) return
   jobsLoading.value = true
   try {
-    const data = await listJobs({ limit: 50, status: statusFilter.value || undefined })
+    const data = await listJobs({
+      limit: JOBS_PAGE_SIZE,
+      offset: (jobsPage.value - 1) * JOBS_PAGE_SIZE,
+      status: statusFilter.value || undefined,
+    })
     jobs.value = data.items
     jobsTotal.value = data.total
+    jobsRetentionDays.value = data.retention_days
+    if (jobsPage.value > jobsPageCount.value) {
+      jobsPage.value = jobsPageCount.value
+      const last = await listJobs({
+        limit: JOBS_PAGE_SIZE,
+        offset: (jobsPage.value - 1) * JOBS_PAGE_SIZE,
+        status: statusFilter.value || undefined,
+      })
+      jobs.value = last.items
+      jobsTotal.value = last.total
+    }
   } catch (e: any) {
     if (!silent) toast.error(e.message || '读取任务列表失败')
   } finally {
@@ -188,14 +217,43 @@ async function loadAudit() {
   if (auditLoading.value) return
   auditLoading.value = true
   try {
-    const data = await listAudit({ limit: 50, action: auditAction.value || undefined })
+    const data = await listAudit({
+      limit: AUDIT_PAGE_SIZE,
+      offset: (auditPage.value - 1) * AUDIT_PAGE_SIZE,
+      action: auditAction.value || undefined,
+    })
     auditEntries.value = data.items
     auditTotal.value = data.total
+    auditRetentionDays.value = data.retention_days
+    if (auditPage.value > auditPageCount.value) {
+      auditPage.value = auditPageCount.value
+      const last = await listAudit({
+        limit: AUDIT_PAGE_SIZE,
+        offset: (auditPage.value - 1) * AUDIT_PAGE_SIZE,
+        action: auditAction.value || undefined,
+      })
+      auditEntries.value = last.items
+      auditTotal.value = last.total
+    }
   } catch (e: any) {
     toast.error(e.message || '读取审计日志失败')
   } finally {
     auditLoading.value = false
   }
+}
+
+function goJobsPage(page: number) {
+  const next = Math.max(1, Math.min(page, jobsPageCount.value))
+  if (next === jobsPage.value) return
+  jobsPage.value = next
+  void loadJobs()
+}
+
+function goAuditPage(page: number) {
+  const next = Math.max(1, Math.min(page, auditPageCount.value))
+  if (next === auditPage.value) return
+  auditPage.value = next
+  void loadAudit()
 }
 
 async function loadBackups() {
@@ -224,10 +282,12 @@ async function refreshAll() {
 }
 
 async function onStatusChange() {
+  jobsPage.value = 1
   await loadJobs()
 }
 
 async function onAuditActionChange() {
+  auditPage.value = 1
   await loadAudit()
 }
 
@@ -265,6 +325,7 @@ async function handleBackup() {
   try {
     await triggerBackup()
     toast.success('备份任务已创建，完成后可在下方查看')
+    jobsPage.value = 1
     await Promise.allSettled([loadJobs(true), loadBackups()])
   } catch (e: any) {
     toast.error(e.message || '创建备份任务失败')
@@ -405,7 +466,7 @@ const selectClass =
             <h2 class="text-[14px] font-semibold text-slate-700">后台任务</h2>
           </div>
           <span class="text-[10px] text-slate-400">
-            共 {{ jobsTotal }} 条 · 进行中 {{ activeCount }} · 失败 {{ failedCount }}
+            共 {{ jobsTotal }} 条 · 本页进行中 {{ activeCount }} · 本页失败 {{ failedCount }}
           </span>
           <div class="ml-auto flex items-center gap-2">
             <select v-model="statusFilter" :class="selectClass" @change="onStatusChange">
@@ -497,9 +558,35 @@ const selectClass =
           </div>
         </div>
 
-        <p v-if="jobsTotal > jobs.length" class="mt-2 text-[10.5px] text-slate-400">
-          仅显示最近 {{ jobs.length }} 条，可通过状态筛选缩小范围。
-        </p>
+        <div
+          v-if="jobsTotal"
+          class="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-slate-400"
+        >
+          <span>
+            共 {{ jobsTotal }} 条 · 第 {{ jobsPage }} / {{ jobsPageCount }} 页
+            <template v-if="jobsRetentionDays > 0">
+              · 仅保留近 {{ jobsRetentionDays }} 天
+            </template>
+          </span>
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              :disabled="jobsPage <= 1 || jobsLoading"
+              @click="goJobsPage(jobsPage - 1)"
+            >
+              上一页
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              :disabled="jobsPage >= jobsPageCount || jobsLoading"
+              @click="goJobsPage(jobsPage + 1)"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
       </section>
 
       <!-- 审计日志 -->
@@ -563,6 +650,36 @@ const selectClass =
               <p v-if="entry.ip">来源 IP：<span class="font-mono">{{ entry.ip }}</span></p>
               <pre class="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-white/80 p-2 font-mono text-[10px] text-slate-500">{{ JSON.stringify(entry.detail, null, 2) }}</pre>
             </div>
+          </div>
+        </div>
+
+        <div
+          v-if="auditTotal"
+          class="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-slate-400"
+        >
+          <span>
+            共 {{ auditTotal }} 条 · 第 {{ auditPage }} / {{ auditPageCount }} 页
+            <template v-if="auditRetentionDays > 0">
+              · 仅保留近 {{ auditRetentionDays }} 天
+            </template>
+          </span>
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              :disabled="auditPage <= 1 || auditLoading"
+              @click="goAuditPage(auditPage - 1)"
+            >
+              上一页
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              :disabled="auditPage >= auditPageCount || auditLoading"
+              @click="goAuditPage(auditPage + 1)"
+            >
+              下一页
+            </button>
           </div>
         </div>
       </section>

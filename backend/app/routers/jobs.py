@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import Job
 from app.db.session import get_session
 from app.schemas.job import JobListOut, JobOut
@@ -44,7 +45,11 @@ async def list_jobs(
             .limit(limit)
         )
     ).scalars().all()
-    return JobListOut(items=[JobOut.model_validate(row) for row in rows], total=total)
+    return JobListOut(
+        items=[JobOut.model_validate(row) for row in rows],
+        total=total,
+        retention_days=settings.ops_retention_days,
+    )
 
 
 @router.get("/{job_id}", response_model=JobOut)

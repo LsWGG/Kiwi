@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     backup_retention_days: int = 14
     backup_dir: Path = Path("data/backups")
 
+    # --- 运维数据保留 ---
+    # 后台任务与审计日志仅保留最近 N 天；0 表示不自动清理。
+    ops_retention_days: int = 14
+
     # --- 构建信息 ---
     build_commit: str = ""
     build_time: str = ""

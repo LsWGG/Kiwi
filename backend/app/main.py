@@ -46,6 +46,7 @@ from app.services import (
     backup_service,
     embedding_settings,
     job_queue,
+    ops_retention,
     qdrant_store,
     system_settings,
 )
@@ -89,6 +90,7 @@ async def lifespan(app: FastAPI):
     scheduler_task: asyncio.Task[None] | None = None
     worker_task: asyncio.Task[None] | None = None
     backup_task: asyncio.Task[None] | None = None
+    retention_task: asyncio.Task[None] | None = None
     if settings.background_jobs:
         # 内置演示库：幂等确保存在（不自动还原用户主动隐藏的库）。
         try:
@@ -104,9 +106,12 @@ async def lifespan(app: FastAPI):
         scheduler_task = start_scheduler_task()
         # 自动备份：pg_dump + uploads + manifest。
         backup_task = backup_service.start_backup_task()
+        # 运维数据保留：后台任务与审计日志仅保留近 N 天。
+        retention_task = ops_retention.start_retention_task()
     else:
         logger.info(
-            "KIWI_BACKGROUND_JOBS=false：跳过演示库种子、笔记索引巡检、定时任务与自动备份"
+            "KIWI_BACKGROUND_JOBS=false：跳过演示库种子、笔记索引巡检、定时任务、"
+            "自动备份与运维数据清理"
         )
 
     # 持久化任务 worker 独立于自动任务：关闭定时 / 种子任务时，手动导入与编译
@@ -122,6 +127,7 @@ async def lifespan(app: FastAPI):
 
     await job_queue.stop_worker()
     await backup_service.stop_backup_task(backup_task)
+    await ops_retention.stop_retention_task(retention_task)
     for task in (builtin_task, note_index_task, scheduler_task, worker_task):
         if task is not None and not task.done():
             task.cancel()

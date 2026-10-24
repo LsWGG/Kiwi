@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import AuditLog
 from app.db.session import get_session
 from app.schemas.audit import AuditLogOut, AuditPageOut
@@ -48,7 +49,11 @@ async def list_audit(
             .limit(limit)
         )
     ).scalars().all()
-    return AuditPageOut(items=[AuditLogOut.model_validate(row) for row in rows], total=total)
+    return AuditPageOut(
+        items=[AuditLogOut.model_validate(row) for row in rows],
+        total=total,
+        retention_days=settings.ops_retention_days,
+    )
 
 
 @router.get("/export.csv")

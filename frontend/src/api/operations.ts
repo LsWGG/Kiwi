@@ -29,6 +29,7 @@ export interface Job {
 export interface JobList {
   items: Job[]
   total: number
+  retention_days: number
 }
 
 export interface AuditEntry {
@@ -48,6 +49,7 @@ export interface AuditEntry {
 export interface AuditList {
   items: AuditEntry[]
   total: number
+  retention_days: number
 }
 
 export interface BackupFile {

@@ -25,3 +25,4 @@ class AuditLogOut(BaseModel):
 class AuditPageOut(BaseModel):
     items: list[AuditLogOut]
     total: int
+    retention_days: int = 14

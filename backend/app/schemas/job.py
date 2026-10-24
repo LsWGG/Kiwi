@@ -34,3 +34,4 @@ class JobOut(BaseModel):
 class JobListOut(BaseModel):
     items: list[JobOut]
     total: int
+    retention_days: int = 14
