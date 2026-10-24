@@ -414,32 +414,33 @@ async def delete_folder(
         .scalars()
         .all()
     )
+    # 先收集所有子笔记，避免处理顺序影响标记：父笔记可能排在子笔记之后。
+    descendant_ids: set[uuid.UUID] = set()
+    for note in notes:
+        descendant_ids.update(await _note_descendant_ids(session, kb_id, note.id))
+
     trashed_ids: set[uuid.UUID] = set()
     for note in notes:
-        # 子笔记（不同父笔记的层级）一并进入回收站，避免留下无法定位的孤立笔记。
-        candidates = [note.id, *await _note_descendant_ids(session, kb_id, note.id)]
-        for candidate_id in candidates:
-            row = await session.get(Note, candidate_id)
-            if row is None or row.status not in ("active", "archived"):
-                continue
-            if candidate_id == note.id:
-                # 分组直接包含的笔记：恢复时原分组已不存在，会回到根级。
-                _set_lifecycle(
-                    row,
-                    trashed_at=_now_iso(),
-                    status_before_trash=row.status,
-                    trashed_with_folder=True,
-                )
-            else:
-                # 子笔记随父笔记恢复，避免恢复父笔记后留下不完整的子树。
-                _set_lifecycle(
-                    row,
-                    trashed_at=_now_iso(),
-                    status_before_trash=row.status,
-                    trashed_with_parent=True,
-                )
-            row.status = "trash"
-            trashed_ids.add(row.id)
+        if note.status not in ("active", "archived"):
+            continue
+        if note.id in descendant_ids:
+            # 子笔记随父笔记恢复，避免恢复父笔记后留下不完整的子树。
+            _set_lifecycle(
+                note,
+                trashed_at=_now_iso(),
+                status_before_trash=note.status,
+                trashed_with_parent=True,
+            )
+        else:
+            # 分组直接包含的笔记：恢复时原分组已不存在，会回到根级。
+            _set_lifecycle(
+                note,
+                trashed_at=_now_iso(),
+                status_before_trash=note.status,
+                trashed_with_folder=True,
+            )
+        note.status = "trash"
+        trashed_ids.add(note.id)
 
     await _record_tree_tombstones(
         session, kb_id, folder_ids=to_delete, note_ids=list(trashed_ids)
