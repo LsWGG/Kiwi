@@ -412,12 +412,16 @@ export function pageWidthMax(width: PageWidth): number {
   return PAGE_WIDTHS.find((w) => w.id === width)?.max ?? 800
 }
 
-export function resolvePagePrefs(raw: unknown): PagePrefs {
+/** `fallbackWidth` 供内置演示库等场景指定默认纸宽；显式设置仍然优先。 */
+export function resolvePagePrefs(
+  raw: unknown,
+  fallbackWidth: PageWidth = DEFAULT_PAGE_PREFS.width,
+): PagePrefs {
   const value = (raw ?? {}) as Partial<PagePrefs>
   const width: PageWidth =
     value.width === 'wide' || value.width === 'full' || value.width === 'standard'
       ? value.width
-      : DEFAULT_PAGE_PREFS.width
+      : fallbackWidth
   const fontSize =
     typeof value.fontSize === 'number' && PAGE_FONT_SIZES.includes(value.fontSize)
       ? value.fontSize

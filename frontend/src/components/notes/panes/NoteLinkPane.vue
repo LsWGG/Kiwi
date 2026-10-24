@@ -56,7 +56,13 @@ watch(editorMode, () => {
   agentOpen.value = false
 })
 const docxPrefs = computed(() => resolveDocxPrefs(props.note.props_json?.docx_prefs))
-const pagePrefs = computed(() => resolvePagePrefs(props.note.props_json?.page_prefs))
+/** 内置演示库默认全宽阅读；笔记里显式保存过纸宽时仍按用户设置显示。 */
+const isBuiltinKb = computed(
+  () => kbs.kbs.find((kb) => kb.id === props.note.kb_id)?.is_builtin === true,
+)
+const pagePrefs = computed(() =>
+  resolvePagePrefs(props.note.props_json?.page_prefs, isBuiltinKb.value ? 'full' : 'standard'),
+)
 
 /** DOCX 段落级排版：编辑器回传、随自动保存写入 props_json.paragraph_formats。 */
 const paragraphFormats = ref<ParagraphFormatRecord[]>(

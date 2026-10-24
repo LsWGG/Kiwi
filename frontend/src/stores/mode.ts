@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { useKbsStore } from './kbs'
 
 export type AppMode = 'edit' | 'learn'
 
@@ -10,6 +11,9 @@ export const useModeStore = defineStore('mode', () => {
   )
 
   function setMode(m: AppMode) {
+    if (m === mode.value) return
+    // 编辑 / 学习切换沿用当前知识库；目标模式不支持该库时保留原选择。
+    useKbsStore().carryActiveKb(m)
     mode.value = m
     localStorage.setItem('kiwi.mode', m)
   }

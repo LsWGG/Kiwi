@@ -51,7 +51,8 @@ export interface BuiltinKbStatus {
 
 export const useKbsStore = defineStore('kbs', () => {
   const kbs = ref<KbOverview[]>([])
-  // 编辑模式与学习模式各自记住上次使用的知识库（README 双模隔离）
+  // 两个模式仍各自持久化，方便冷启动恢复；用户主动切换模式时会把
+  // 正在使用的知识库带到目标模式，只有目标模式不支持时才沿用旧记忆。
   const currentKbId = ref<string | null>(localStorage.getItem('kiwi.kb.edit'))
   const learnKbId = ref<string | null>(localStorage.getItem('kiwi.kb.learn'))
   const loading = ref(false)
@@ -82,6 +83,20 @@ export const useKbsStore = defineStore('kbs', () => {
     const cur = currentKb.value
     return cur && cur.learning_enabled !== false ? cur.id : null
   })
+
+  /**
+   * 切换模式时维持当前知识库：编辑 → 学习需目标库已开启学习模式；
+   * 学习 → 编辑始终沿用学习空间的库。目标模式不支持时保留原选择。
+   */
+  function carryActiveKb(target: 'edit' | 'learn') {
+    if (target === 'learn') {
+      const kb = currentKb.value
+      if (kb && kb.learning_enabled !== false) learnKbId.value = kb.id
+      return
+    }
+    const active = activeLearnKbId.value
+    if (active) currentKbId.value = active
+  }
 
   async function fetchKbs() {
     loading.value = true
@@ -157,6 +172,7 @@ export const useKbsStore = defineStore('kbs', () => {
     activeLearnKbId,
     loading,
     builtinStatus,
+    carryActiveKb,
     fetchKbs,
     fetchBuiltinStatus,
     restoreBuiltin,

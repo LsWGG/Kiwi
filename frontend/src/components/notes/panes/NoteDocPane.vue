@@ -249,7 +249,13 @@ watch(editorMode, () => {
 })
 const exporting = ref(false)
 const docxPrefs = computed(() => resolveDocxPrefs(props.note.props_json?.docx_prefs))
-const pagePrefs = computed(() => resolvePagePrefs(props.note.props_json?.page_prefs))
+/** 内置演示库默认全宽阅读；笔记里显式保存过纸宽时仍按用户设置显示。 */
+const isBuiltinKb = computed(
+  () => kbs.kbs.find((kb) => kb.id === props.note.kb_id)?.is_builtin === true,
+)
+const pagePrefs = computed(() =>
+  resolvePagePrefs(props.note.props_json?.page_prefs, isBuiltinKb.value ? 'full' : 'standard'),
+)
 /** 多级有序列表编号样式按笔记持久化，编辑 / 阅读 / 分屏共用。 */
 const orderedListStyle = computed(() =>
   resolveOrderedListStyle(props.note.props_json?.ordered_list_style),
