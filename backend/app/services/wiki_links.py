@@ -1,8 +1,9 @@
 """Wiki / 笔记双向链接解析。
 
-Markdown 正文里的行内代码与围栏代码块经常包含 ``[[示例]]`` 这类语法说明，
-它们不是真实链接。所有抽取 ``[[...]]`` 的代码先经过 :func:`strip_code`，
-避免把文档里的示例当成死链或建立幽灵关联。
+支持两种正文引用：编辑器写入的 ``[@标题](kiwi://wiki/<id>)`` 提及，以及
+历史内容里的 ``[[标题]]``。Markdown 正文的代码块经常包含 ``[[示例]]`` 这类
+语法说明，它们不是真实链接。所有抽取逻辑先经过 :func:`strip_code`，避免把
+文档里的示例当成死链或建立幽灵关联。
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import re
 
 WIKI_LINK_RE = re.compile(r"\[\[([^\[\]]+?)\]\]")
+# 编辑器里的 @ 提及持久化为 `[@标题](kiwi://wiki/<id>)`；Wiki 正文用它替代旧写法。
+WIKI_MENTION_RE = re.compile(r"\]\(kiwi://wiki/([0-9a-fA-F-]{36})(?:\?[^)]*)?\)")
 
 _FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
@@ -80,3 +83,8 @@ def strip_code(text: str) -> str:
 def extract_links(text: str) -> list[str]:
     """提取正文中的真实 ``[[链接]]``（忽略代码示例）。"""
     return WIKI_LINK_RE.findall(strip_code(text))
+
+
+def extract_wiki_mentions(text: str) -> list[str]:
+    """提取 ``[@标题](kiwi://wiki/<id>)`` 的目标页面 ID（忽略代码示例）。"""
+    return WIKI_MENTION_RE.findall(strip_code(text))

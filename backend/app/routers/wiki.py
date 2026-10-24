@@ -46,7 +46,12 @@ from app.schemas.wiki import (
 )
 from app.services import audit
 from app.services.compile_eligibility import note_compile_eligible
-from app.services.wiki_links import WIKI_LINK_RE, extract_links, strip_code
+from app.services.wiki_links import (
+    WIKI_LINK_RE,
+    extract_links,
+    extract_wiki_mentions,
+    strip_code,
+)
 
 logger = logging.getLogger("kiwi.wiki")
 
@@ -637,6 +642,7 @@ def _lint_deterministic(
         incoming[link.to_page_id] = incoming.get(link.to_page_id, 0) + 1
         outgoing[link.from_page_id] = outgoing.get(link.from_page_id, 0) + 1
 
+    page_ids = {p.id for p in pages}
     for page in pages:
         seen_targets: set[str] = set()
         for raw_target in extract_links(page.body_md or ""):
@@ -655,6 +661,25 @@ def _lint_deterministic(
                         page_title=page.title,
                     )
                 )
+        for raw_id in extract_wiki_mentions(page.body_md or ""):
+            try:
+                target_id = uuid.UUID(raw_id)
+            except ValueError:
+                continue
+            if target_id in page_ids or raw_id in seen_targets:
+                continue
+            seen_targets.add(raw_id)
+            issues.append(
+                LintIssue(
+                    code="dead_link",
+                    severity="warning",
+                    category="dead_link",
+                    message="死链：@ 提及指向的 Wiki 页面不存在",
+                    page_id=str(page.id),
+                    page_title=page.title,
+                    detail=raw_id,
+                )
+            )
 
         if incoming.get(page.id, 0) == 0 and outgoing.get(page.id, 0) == 0:
             issues.append(
@@ -706,6 +731,11 @@ def _lint_deterministic(
             for t in extract_links(index.body_md or "")
             if (by_slug.get(t.strip()) or by_title.get(_norm_link(t))) is not None
         }
+        for raw_id in extract_wiki_mentions(index.body_md or ""):
+            try:
+                linked.add(uuid.UUID(raw_id))
+            except ValueError:
+                continue
         for page in pages:
             if page.id != index.id and page.id not in linked:
                 issues.append(

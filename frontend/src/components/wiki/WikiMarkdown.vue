@@ -44,6 +44,13 @@ function onClick(event: MouseEvent) {
     void router.push({ name: 'wiki-page', params: { id: wikiId } })
     return
   }
+  // 正文里的 @ 笔记提及（kiwi://note/<id>）同样按站内路由跳转。
+  const noteId = anchor.dataset.noteId
+  if (noteId) {
+    event.preventDefault()
+    void router.push({ name: 'notes', params: { id: noteId } })
+    return
+  }
   if (anchor.dataset.wikiMissing !== undefined) {
     event.preventDefault()
     return

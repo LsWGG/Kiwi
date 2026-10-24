@@ -22,7 +22,7 @@ from app.repositories import WikiPageRepo
 from app.services import qdrant_store
 from app.services.embedder import embed_one_async, embed_texts_async
 from app.services.llm_factory import LLMCrypto, LLMFactory
-from app.services.wiki_links import WIKI_LINK_RE, strip_code
+from app.services.wiki_links import WIKI_LINK_RE, WIKI_MENTION_RE, strip_code
 from app.services.wiki_schema import load_schema
 
 logger = logging.getLogger(__name__)
@@ -228,10 +228,10 @@ async def _slugify(title: str) -> str:
 
 
 async def _rebuild_wiki_links(db: AsyncSession, kb_id: uuid.UUID) -> None:
-    """扫描本库全部 wiki 页的 [[slug]] 链接，重建 wiki_links 边。
+    """扫描本库全部 wiki 页的引用，重建 wiki_links 边。
 
-    阶段一简化：链接以 slug 匹配（编译产物统一用 [[小写短横线]]）。
-    human_edited 页若含手写 [[标题]]，仅匹配不到时忽略。
+    正文里的 ``[@标题](kiwi://wiki/<id>)`` 提及按 ID 直接匹配；历史内容中的
+    ``[[slug]]`` / ``[[标题]]`` 仍按 slug 匹配。人工页面里的链接匹配不到时忽略。
     """
     from sqlalchemy import delete, select
 
@@ -245,9 +245,11 @@ async def _rebuild_wiki_links(db: AsyncSession, kb_id: uuid.UUID) -> None:
         return s.strip().lower().replace("_", "-")
 
     slug_to_id: dict[str, uuid.UUID] = {}
+    page_ids: set[uuid.UUID] = set()
     for p in pages:
         slug_to_id[p.slug] = p.id
         slug_to_id.setdefault(_norm(p.slug), p.id)
+        page_ids.add(p.id)
 
     # 清空本库旧边（编译会全量重建）
     page_ids = [p.id for p in pages]
@@ -263,13 +265,23 @@ async def _rebuild_wiki_links(db: AsyncSession, kb_id: uuid.UUID) -> None:
     conflicts: set[tuple[uuid.UUID, uuid.UUID]] = set()
     for p in pages:
         for line in strip_code(p.body_md or "").splitlines():
-            link_slugs = WIKI_LINK_RE.findall(line)
-            if not link_slugs:
+            target_ids: set[uuid.UUID] = set()
+            for target_slug in WIKI_LINK_RE.findall(line):
+                target_id = slug_to_id.get(_norm(target_slug))
+                if target_id is not None:
+                    target_ids.add(target_id)
+            for raw_id in WIKI_MENTION_RE.findall(line):
+                try:
+                    target_id = uuid.UUID(raw_id)
+                except ValueError:
+                    continue
+                if target_id in page_ids:
+                    target_ids.add(target_id)
+            if not target_ids:
                 continue
             is_conflict = "矛盾" in line or "⚠" in line or "冲突" in line
-            for target_slug in link_slugs:
-                target_id = slug_to_id.get(_norm(target_slug))
-                if target_id is None or target_id == p.id:
+            for target_id in target_ids:
+                if target_id == p.id:
                     continue
                 refs[p.id].add(target_id)
                 if is_conflict:

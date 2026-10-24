@@ -127,6 +127,23 @@ export function createWikiMarkdown(): MarkdownIt {
 
   md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     const href = tokens[idx].attrGet('href') ?? ''
+    // @ 提及在 Markdown 里是 kiwi:// 自定义协议：阅读态还原成站内路由，
+    // 并复用 .wiki-link 样式，避免浏览器把自定义协议当成外部地址。
+    const mention = /^kiwi:\/\/(wiki|note)\/([0-9a-fA-F-]{36})(?:[?#][^)]*)?$/.exec(href)
+    if (mention) {
+      const kind = mention[1]
+      const id = mention[2]
+      if (kind === 'wiki') {
+        tokens[idx].attrSet('href', `/wiki/${id}`)
+        tokens[idx].attrSet('data-wiki-id', id)
+        tokens[idx].attrSet('class', 'wiki-link')
+      } else {
+        tokens[idx].attrSet('href', `/notes/${id}`)
+        tokens[idx].attrSet('data-note-id', id)
+        tokens[idx].attrSet('class', 'wiki-link wiki-link-note')
+      }
+      return defaultLinkOpen(tokens, idx, options, env, self)
+    }
     if (/^https?:\/\//i.test(href)) {
       tokens[idx].attrSet('target', '_blank')
       tokens[idx].attrSet('rel', 'noopener noreferrer')
