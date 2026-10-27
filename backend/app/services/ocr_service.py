@@ -10,7 +10,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import re
+import unicodedata
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +37,21 @@ _MEANINGFUL_RE = re.compile(
 )
 _PUNCT_ONLY_RE = re.compile(r"[\s{}()\[\],;:'\"。，；：、“”‘’]+")
 _JSON_TEXT_KEYS = ("text", "markdown", "content", "result", "output", "pages", "data")
+
+# 页眉 / 页脚判定：只检查每页开头和结尾的少量非空行，并要求同一行在
+# 多数页面重复出现。不匹配具体文字或关键词，完全由跨页重复与位置决定。
+_FURNITURE_ZONE_LINES = 3
+_MIN_FURNITURE_LEN = 4
+_REPEAT_RATIO = 0.5
+_NON_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
+_PAGE_NUMBER_RE = re.compile(
+    r"^(?:"
+    r"第\s*\d{1,4}\s*页(?:\s*[/／,，]?\s*共\s*\d{1,4}\s*页?)?"
+    r"|\d{1,4}\s*[/／]\s*\d{1,4}\s*页?"
+    r"|page\s*\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?"
+    r")$",
+    re.I,
+)
 
 
 def _nested_text(value) -> str:
@@ -86,6 +104,87 @@ def clean_ocr_content(raw: str) -> str:
     if not _MEANINGFUL_RE.search(text):
         return ""
     return text
+
+
+def _normalize_furniture_line(line: str) -> str:
+    """归一化全半角、空白与标点，避免 OCR 的细微差异导致漏判。"""
+    text = unicodedata.normalize("NFKC", line)
+    return _NON_WORD_RE.sub("", text).casefold()
+
+
+def _furniture_zone_indexes(lines: list[str]) -> set[int]:
+    """返回每页开头 / 结尾若干非空行的下标，作为页眉页脚候选区。"""
+    indexes = [index for index, line in enumerate(lines) if line.strip()]
+    return set(indexes[:_FURNITURE_ZONE_LINES] + indexes[-_FURNITURE_ZONE_LINES:])
+
+
+def _is_page_number(line: str, page_count: int) -> bool:
+    value = line.strip().strip("-—_– ")
+    if not value:
+        return False
+    if value.isdigit():
+        return 1 <= int(value) <= page_count
+    return bool(_PAGE_NUMBER_RE.match(value))
+
+
+def _repeat_threshold(page_count: int) -> int:
+    return max(3, math.ceil(page_count * _REPEAT_RATIO))
+
+
+def strip_repeated_headers_footers(pages: list[str]) -> tuple[list[str], list[str]]:
+    """移除各页顶部 / 底部重复出现的页眉、页脚与页码。
+
+    OCR 逐页识别会把每页都有的页脚文字带进正文。这里不匹配任何具体文字：
+    只考察每页前 / 后若干非空行，同一行去掉空白、全半角与标点差异后在
+    至少一半页面重复出现，才判定为页眉页脚。
+    这样不会把只在正文中出现一次的网址或句子误删。页码因逐页变化无法
+    靠重复判断，另按通用的「第 N 页 / Page N of M」形式识别。
+    少于 3 页的文档无法可靠判断重复，保持原样。
+
+    返回 ``(清理后的页面列表, 被移除内容的示例)``。
+    """
+    if len(pages) < 3:
+        return list(pages), []
+
+    hits: dict[str, set[int]] = defaultdict(set)
+    samples: dict[str, str] = {}
+    for page_index, page in enumerate(pages):
+        lines = page.splitlines()
+        for line_index in _furniture_zone_indexes(lines):
+            line = lines[line_index]
+            normalized = _normalize_furniture_line(line)
+            if len(normalized) < _MIN_FURNITURE_LEN:
+                continue
+            hits[normalized].add(page_index)
+            samples.setdefault(normalized, line.strip())
+
+    repeated = [
+        key
+        for key, page_indexes in hits.items()
+        if len(page_indexes) >= _repeat_threshold(len(pages))
+    ]
+    repeated_set = set(repeated)
+    removed: list[str] = [samples[key] for key in repeated]
+    page_number_hits = 0
+
+    cleaned: list[str] = []
+    for page in pages:
+        lines = page.splitlines()
+        zone = _furniture_zone_indexes(lines)
+        kept: list[str] = []
+        for index, line in enumerate(lines):
+            if index in zone:
+                is_page_number = _is_page_number(line, len(pages))
+                if _normalize_furniture_line(line) in repeated_set or is_page_number:
+                    if is_page_number:
+                        page_number_hits += 1
+                    continue
+            kept.append(line)
+        cleaned.append(re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip())
+
+    if page_number_hits:
+        removed.append(f"页码（{page_number_hits} 处）")
+    return cleaned, removed
 
 
 class OcrError(Exception):
@@ -208,6 +307,8 @@ def ocr_pdf_pages(
 
     单页失败不会中断整份文档：记录页码后继续识别，避免一页超时导致
     整本扫描件回退到不可用的原生文本层。全部页面都失败时才抛 OcrError。
+    识别完成后会移除各页重复出现的页眉、页脚与页码，避免每页的页脚
+    文字进入笔记正文。
     150 DPI 对扫描件已足够，且页面图更小、单页耗时明显低于 200 DPI。
     """
     import fitz
@@ -236,7 +337,10 @@ def ocr_pdf_pages(
                 chunks.append(text)
     finally:
         doc.close()
-    text = "\n\n".join(chunks).strip()
+    chunks, removed = strip_repeated_headers_footers(chunks)
+    if removed:
+        warnings.append(f"已移除重复页眉/页脚 {len(removed)} 项：{removed[0][:60]}")
+    text = "\n\n".join(chunk for chunk in chunks if chunk).strip()
     if not text and errors:
         raise OcrError(f"全部页面 OCR 失败（共 {len(errors)} 页）：{errors[0]}")
     return text, warnings
