@@ -38,15 +38,26 @@ jobs:
       - name: Run pgserver spike
         shell: pwsh
         run: |
-          $log = "$env:RUNNER_TEMP\pgserver.log"
-          python -u -X faulthandler desktop/spike/check_pgserver.py 2>&1 |
-            Tee-Object -FilePath $log
-          $code = $LASTEXITCODE
+          $outLog = "$env:RUNNER_TEMP\pgserver.out.log"
+          $errLog = "$env:RUNNER_TEMP\pgserver.err.log"
+          # 不能用 2>&1：GitHub 的 pwsh 设置了 ErrorActionPreference=Stop，
+          # 原生命令写 stderr 会被当成终止错误，后面的诊断逻辑根本不会执行。
+          $proc = Start-Process -FilePath "python" `
+            -ArgumentList @("-u", "-X", "faulthandler", "desktop/spike/check_pgserver.py") `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+          $code = $proc.ExitCode
+          $combined = @()
+          foreach ($path in @($outLog, $errLog)) {
+            if (Test-Path $path) {
+              $combined += Get-Content -Path $path -ErrorAction SilentlyContinue
+            }
+          }
+          $combined | ForEach-Object { Write-Host $_ }
           $out = 'desktop/spike/out/pgserver.json'
           if ($code -ne 0) {
             # 进程可能因原生崩溃来不及收尾；把脱敏后的日志尾部带回去。
-            $tail = Get-Content $log -Tail 80 -ErrorAction SilentlyContinue
-            $safe = ($tail | ForEach-Object {
+            $safe = ($combined | Select-Object -Last 80 | ForEach-Object {
               $_ -replace '(postgres(?:ql)?://[^:\s]+:)[^@\s]+@', '$1***@'
             }) -join "`n"
             New-Item -ItemType Directory -Force -Path 'desktop/spike/out' | Out-Null
@@ -73,9 +84,9 @@ jobs:
         if: always()
         with:
           name: spike-pgserver
-          path: |
-            desktop/spike/out/pgserver.json
-            ${{ runner.temp }}/pgserver.log
+          # 只传结构化结果：多路径 artifact 会保留各自相对路径，下载后不在 out/ 根目录。
+          # 日志尾部已脱敏写入 pgserver.json 的 log_tail。
+          path: desktop/spike/out/pgserver.json
           if-no-files-found: warn
 
   qdrant:

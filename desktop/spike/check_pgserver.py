@@ -80,6 +80,13 @@ def main() -> None:
     result["details"]["pgserver_version"] = getattr(pgserver, "__version__", "unknown")
     result["details"]["python"] = sys.version
     result["details"]["executable"] = sys.executable
+    package_dir = Path(pgserver.__file__).resolve().parent
+    embedded_bin = package_dir / "pginstall" / "bin"
+    result["details"]["package_dir"] = str(package_dir)
+    result["details"]["embedded_bin"] = str(embedded_bin)
+    result["details"]["embedded_bin_exists"] = embedded_bin.is_dir()
+    if embedded_bin.is_dir():
+        result["details"]["embedded_bin_count"] = len(list(embedded_bin.iterdir()))
 
     data_dir = Path(tempfile.gettempdir()) / "Kiwi 中文 数据" / "pgdata"
     data_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +127,6 @@ def main() -> None:
             str(getattr(pgserver, "POSTGRES_BIN_PATH", "") or getattr(pgserver, "pg_bin", ""))
         )
         candidates = [bin_dir / "pg_dump.exe", bin_dir / "pg_dump"]
-        package_dir = Path(pgserver.__file__).resolve().parent
         candidates.extend(package_dir.rglob("pg_dump.exe"))
         candidates.extend(package_dir.rglob("pg_dump"))
         pg_dump = next((p for p in candidates if p.is_file()), None)
