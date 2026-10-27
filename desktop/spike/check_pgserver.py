@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -42,6 +43,8 @@ def flush_result() -> None:
 
 def step(name: str, fn):
     started = time.time()
+    result["current_step"] = name
+    flush_result()
     try:
         value = fn()
     except Exception as exc:  # noqa: BLE001 - 需要把失败步骤写进结果
@@ -53,15 +56,62 @@ def step(name: str, fn):
                 "error": f"{type(exc).__name__}: {exc}",
             }
         )
+        result.pop("current_step", None)
         print(f"[fail] {name}: {type(exc).__name__}: {exc}", flush=True)
         flush_result()
         raise
     result["steps"].append(
         {"name": name, "status": "pass", "seconds": round(time.time() - started, 2)}
     )
+    result.pop("current_step", None)
     print(f"[pass] {name} -> {value!r}", flush=True)
     flush_result()
     return value
+
+
+def start_watchdog(seconds: int | None = None) -> None:
+    """超时后落盘并退出，避免 pgserver 的子进程卡住整个作业。"""
+    if seconds is None:
+        seconds = int(os.environ.get("SPIKE_WATCHDOG_SECONDS", "300"))
+
+    def _expire() -> None:
+        result["status"] = "fail"
+        result["error"] = f"看门狗：超过 {seconds} 秒未完成"
+        result["watchdog"] = {
+            "seconds": seconds,
+            "current_step": result.get("current_step"),
+            "phase": result.get("phase"),
+            "threads": [thread.name for thread in threading.enumerate()],
+        }
+        result.setdefault("details", {})["leftover_processes"] = snapshot_processes()
+        flush_result()
+        os._exit(2)
+
+    timer = threading.Timer(seconds, _expire)
+    timer.daemon = True
+    timer.start()
+
+
+def snapshot_processes() -> list[dict]:
+    """记录残留的 PostgreSQL 相关进程，辅助定位退出挂起。"""
+    try:
+        import psutil
+    except Exception as exc:  # noqa: BLE001 - 诊断信息不能影响主流程
+        return [{"error": f"{type(exc).__name__}: {exc}"}]
+    found: list[dict] = []
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        name = str(proc.info.get("name") or "").lower()
+        if "postgres" not in name and "pg_ctl" not in name:
+            continue
+        cmdline = " ".join(proc.info.get("cmdline") or [])
+        found.append(
+            {
+                "pid": proc.info.get("pid"),
+                "name": proc.info.get("name"),
+                "cmdline": cmdline[:300],
+            }
+        )
+    return found
 
 
 def redact_uri(uri: str) -> str:
@@ -92,11 +142,22 @@ def probe_non_ascii_path(pgserver) -> dict:
     base = Path(tempfile.gettempdir()) / "Kiwi 中文 数据"
     base.mkdir(parents=True, exist_ok=True)
     info: dict = {"data_dir": str(base / "pgdata")}
+    result["details"]["non_ascii_path"] = info
+    flush_result()
 
-    def try_start(label: str, data_dir: Path) -> None:
+    def try_start(label: str, data_dir: Path, *, direct_constructor: bool = False) -> None:
         server = None
         try:
-            server = pgserver.get_server(str(data_dir), cleanup_mode="stop")
+            data_dir.mkdir(parents=True, exist_ok=True)
+            if direct_constructor:
+                # get_server() 会 resolve() 短路径，重新得到同一个非 ASCII 长路径，
+                # 从而命中 _instances 里 initdb 失败的实例。直接构造才能把 8.3
+                # 短路径原样交给 initdb。
+                from pgserver.postgres_server import PostgresServer
+
+                server = PostgresServer(data_dir, cleanup_mode="stop")
+            else:
+                server = pgserver.get_server(str(data_dir), cleanup_mode="stop")
             info[label] = {
                 "status": "pass",
                 "query": str(server.psql("SELECT 1")).strip(),
@@ -110,11 +171,17 @@ def probe_non_ascii_path(pgserver) -> dict:
                 except Exception as exc:  # noqa: BLE001 - 清理失败仅记录
                     info.setdefault("cleanup_warnings", []).append(str(exc))
 
+    info["phase"] = "direct"
+    flush_result()
     try_start("direct", base / "pgdata")
     short_base = short_windows_path(base)
     info["short_base"] = str(short_base) if short_base else None
+    info["phase"] = "short_path"
+    flush_result()
     if short_base is not None and short_base != base:
-        try_start("short_path", short_base / "pgdata")
+        try_start("short_path", short_base / "pgdata-short", direct_constructor=True)
+    info["phase"] = "done"
+    flush_result()
     return info
 
 
@@ -240,7 +307,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import atexit
+
+    def _mark_atexit() -> None:
+        # 注册早于 pgserver 的 atexit 清理，因此最后执行。若结果停留在 final
+        # 而不是 atexit，说明卡在 pgserver 清理或非守护线程退出阶段。
+        result["phase"] = "atexit"
+        flush_result()
+
+    atexit.register(_mark_atexit)
+    result["phase"] = "start"
     flush_result()
+    start_watchdog()
     try:
         main()
     except Exception:  # noqa: BLE001 - 记录完整堆栈到结果文件
@@ -249,5 +327,8 @@ if __name__ == "__main__":
     finally:
         if result["status"] == "running":
             result["status"] = "fail"
+        result["phase"] = "final"
+        result.setdefault("details", {})["leftover_processes"] = snapshot_processes()
+        result["details"]["threads"] = [thread.name for thread in threading.enumerate()]
         flush_result()
     sys.exit(0 if result["status"] == "pass" else 1)

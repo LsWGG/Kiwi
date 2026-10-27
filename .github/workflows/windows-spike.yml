@@ -27,7 +27,7 @@ jobs:
   pgserver:
     name: pgserver（启动 / 中文路径 / pg_dump / 重启）
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,11 +45,19 @@ jobs:
           $code = 1
           $combined = @()
           try {
+            # 不用 -Wait：PostgreSQL 子进程可能继承重定向句柄，PowerShell 会一直
+            # 等输出流 EOF，导致作业在 30 分钟后被取消。这里只等待 python 进程，
+            # 超时后强制结束整棵进程树，再由脚本落盘的结果诊断挂起位置。
             $proc = Start-Process -FilePath "python" `
               -ArgumentList @("-u", "-X", "faulthandler", "desktop/spike/check_pgserver.py") `
-              -NoNewWindow -Wait -PassThru `
+              -NoNewWindow -PassThru `
               -RedirectStandardOutput $outLog -RedirectStandardError $errLog
-            $code = $proc.ExitCode
+            if (-not $proc.WaitForExit(420000)) {
+              $combined += "python 在 420 秒内未退出，强制结束进程树"
+              & taskkill /T /F /PID $proc.Id 2>&1 | ForEach-Object { $combined += "$_" }
+              $proc.WaitForExit(30000) | Out-Null
+            }
+            $code = if ($proc.HasExited) { $proc.ExitCode } else { 1 }
             foreach ($path in @($outLog, $errLog)) {
               if (Test-Path $path) {
                 $combined += Get-Content -Path $path -ErrorAction SilentlyContinue
@@ -68,11 +76,15 @@ jobs:
             New-Item -ItemType Directory -Force -Path 'desktop/spike/out' | Out-Null
             if (Test-Path $out) {
               $data = Get-Content $out -Raw | ConvertFrom-Json
-              if ($data.status -ne 'pass') {
+              $data | Add-Member -NotePropertyName log_tail -NotePropertyValue $safe -Force
+              if ($data.status -eq 'pass') {
+                # 检查项本身通过，但进程没有正常退出（例如输出句柄被子进程占用）。
+                $data | Add-Member -NotePropertyName runner_error `
+                  -NotePropertyValue "spike 进程以退出码 $code 结束，检查项已 pass 但进程未正常收尾" -Force
+              } else {
                 $data.status = 'fail'
-                $data | Add-Member -NotePropertyName log_tail -NotePropertyValue $safe -Force
-                $data | ConvertTo-Json -Depth 8 | Set-Content -Path $out -Encoding utf8
               }
+              $data | ConvertTo-Json -Depth 8 | Set-Content -Path $out -Encoding utf8
             } else {
               [ordered]@{
                 check = 'pgserver'
