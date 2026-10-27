@@ -1,0 +1,29 @@
+{
+  "check": "pyinstaller",
+  "status": "fail",
+  "steps": [
+    {
+      "name": "pyinstaller_version",
+      "status": "pass",
+      "seconds": 0.53,
+      "value": "6.22.3"
+    },
+    {
+      "name": "build",
+      "status": "pass",
+      "seconds": 36.46,
+      "value": "built"
+    },
+    {
+      "name": "run_frozen_exe",
+      "status": "fail",
+      "seconds": 2.89,
+      "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_pyinstaller.ps1:71\r\nLine |\r\n  71 |  …   if ($LASTEXITCODE -ne 0) { throw \"冻结程序退出码 $LASTEXITCODE`n$output\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 冻结程序退出码 1 Traceback (most recent call last):   File \"pyinstaller_entry.py\", line 84, in <module>   File\r\n     | \"encodings\\cp1252.py\", line 19, in encode UnicodeEncodeError: 'charmap' codec can't encode characters in\r\n     | position 522-535: character maps to <undefined> [PYI-884:ERROR] Failed to execute script 'pyinstaller_entry' due\r\n     | to unhandled exception!\r\n\r\n"
+    }
+  ],
+  "details": {
+    "exe": "D:\\a\\_temp\\pyinstaller-spike-a187e1ac41a24758b1c902dc97cf8240\\dist\\kiwi-spike\\kiwi-spike.exe",
+    "dist_bytes": 87875383.0
+  },
+  "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_pyinstaller.ps1:71\r\nLine |\r\n  71 |  …   if ($LASTEXITCODE -ne 0) { throw \"冻结程序退出码 $LASTEXITCODE`n$output\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 冻结程序退出码 1 Traceback (most recent call last):   File \"pyinstaller_entry.py\", line 84, in <module>   File\r\n     | \"encodings\\cp1252.py\", line 19, in encode UnicodeEncodeError: 'charmap' codec can't encode characters in\r\n     | position 522-535: character maps to <undefined> [PYI-884:ERROR] Failed to execute script 'pyinstaller_entry' due\r\n     | to unhandled exception!\r\n\r\n"
+}
