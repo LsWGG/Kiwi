@@ -5,18 +5,18 @@
     {
       "name": "pyinstaller_version",
       "status": "pass",
-      "seconds": 0.65,
+      "seconds": 0.52,
       "value": "6.22.3"
     },
     {
       "name": "build",
       "status": "pass",
-      "seconds": 36.76,
+      "seconds": 36.7,
       "value": "built"
     }
   ],
   "details": {
-    "exe": "D:\\a\\_temp\\pyinstaller-spike-7fb2777a37244628b655b0c37eab5aed\\dist\\kiwi-spike\\kiwi-spike.exe",
+    "exe": "D:\\a\\_temp\\pyinstaller-spike-66f98e004ed4407387e9db9d9185d5cd\\dist\\kiwi-spike\\kiwi-spike.exe",
     "dist_bytes": 87875513.0,
     "runtime": {
       "check": "pyinstaller-runtime",
@@ -24,7 +24,7 @@
       "details": {
         "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
         "frozen": true,
-        "executable": "D:\\a\\_temp\\pyinstaller-spike-7fb2777a37244628b655b0c37eab5aed\\dist\\kiwi-spike\\kiwi-spike.exe",
+        "executable": "D:\\a\\_temp\\pyinstaller-spike-66f98e004ed4407387e9db9d9185d5cd\\dist\\kiwi-spike\\kiwi-spike.exe",
         "fastapi": "0.143.5",
         "uvicorn": "0.34.3",
         "sqlalchemy": "2.1.6",
@@ -33,7 +33,7 @@
         "qdrant_client": "unknown",
         "openai": "1.107.3",
         "pydantic": "2.14.1",
-        "http_port": 62074
+        "http_port": 62320
       },
       "summary": "PyInstaller onedir 可导入后端核心依赖并启动本地 HTTP 服务"
     }
