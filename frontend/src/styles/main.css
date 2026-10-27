@@ -682,7 +682,7 @@ html.kiwi-sticky-expanding .page-enter-from {
   table-layout: fixed;
   width: 100%;
   margin: 1rem 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .kiwi-editor .ProseMirror th,
 .kiwi-editor .ProseMirror td {
@@ -690,6 +690,64 @@ html.kiwi-sticky-expanding .page-enter-from {
   padding: 6px 10px;
   vertical-align: top;
   position: relative;
+}
+
+/* 列宽拖拽手柄：悬停列边框时出现，拖动后 colwidth 持久化到表格 HTML。 */
+.kiwi-editor .ProseMirror .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: -2px;
+  z-index: 20;
+  width: 4px;
+  border-radius: 2px;
+  background: rgb(var(--kiwi-400) / 0.9);
+  pointer-events: none;
+}
+.kiwi-editor .ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+
+/*
+ * 行高手柄：贴合行底边框的横向拖拽条。
+ * 放在行底部而不是单元格左侧，避免与编辑器左侧的全局块拖动手柄
+ * （.drag-handle，fixed + z-index 80）抢事件。
+ */
+.kiwi-editor .ProseMirror .kiwi-row-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 0;
+  left: 4px;
+  z-index: 12;
+  height: 8px;
+  cursor: ns-resize;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.kiwi-editor .ProseMirror .kiwi-row-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(var(--kiwi-400) / 0.9);
+}
+.kiwi-editor .ProseMirror tr:hover .kiwi-row-resize-handle,
+.kiwi-editor .ProseMirror .kiwi-row-resize-handle:hover,
+.kiwi-editor .ProseMirror .kiwi-row-resize-handle.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.kiwi-editor.is-readonly .ProseMirror .kiwi-row-resize-handle {
+  display: none;
+}
+body.kiwi-row-resizing,
+body.kiwi-row-resizing * {
+  cursor: ns-resize !important;
+  user-select: none !important;
 }
 .kiwi-editor .ProseMirror th {
   background: #f8fafc;

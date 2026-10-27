@@ -17,7 +17,6 @@ import Link from '@tiptap/extension-link'
 import { KiwiImage } from './extensions/kiwiImage'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
-import TableRow from '@tiptap/extension-table-row'
 import { KiwiTaskList } from './extensions/emptyTaskList'
 import TaskItem from '@tiptap/extension-task-item'
 import DetailsSummary from '@tiptap/extension-details-summary'
@@ -60,6 +59,7 @@ import {
   KiwiTable,
   KiwiTableCell,
   KiwiTableHeader,
+  KiwiTableRow,
 } from './extensions/table'
 import { createCodeBlock } from './extensions/codeBlock'
 import { CodeOutput, formatRunResult, upsertCodeOutput } from './extensions/codeOutput'
@@ -1841,8 +1841,8 @@ const editor = useEditor({
     }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Highlight.configure({ multicolor: true }),
-    KiwiTable.configure({ resizable: true, lastColumnResizable: false }),
-    TableRow,
+    KiwiTable.configure({ resizable: true, lastColumnResizable: true }),
+    KiwiTableRow,
     KiwiTableHeader,
     KiwiTableCell,
     KiwiTaskList,
