@@ -235,7 +235,7 @@ function submitFiles() {
         <p class="mt-1.5 text-[12.5px] text-slate-600">
           {{ dragging ? '松开鼠标添加文件' : '点击选择文件，或拖拽到这里' }}
         </p>
-        <p class="mt-0.5 text-[11px] text-slate-400">支持 Word / Excel / PPT / PDF / 图片 / 音视频等，单个不超过 20MB</p>
+        <p class="mt-0.5 text-[11px] text-slate-400">支持 Word / Excel / PPT / PDF / 图片 / 音视频等，文件大小不限</p>
         <input ref="fileInput" type="file" multiple class="hidden" @change="onPick" />
       </div>
 

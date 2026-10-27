@@ -39,9 +39,10 @@ WIKI_MENTION_RE = re.compile(r"\]\(kiwi://wiki/([0-9a-fA-F-]{36})(?:\?[^)]*)?\)"
 TRASH_RETENTION_DAYS = 30
 # 目录树删除墓碑保留天数：客户端超过该时长未刷新时需做一次全量同步。
 TREE_TOMBSTONE_RETENTION_DAYS = 7
-# 自动历史版本：2 分钟内的连续编辑合并为一个检查点，单篇最多保留 100 个版本。
+# 自动历史版本：2 分钟内的连续编辑合并为一个检查点。
 REVISION_COALESCE_SECONDS = 120
-REVISION_MAX_PER_NOTE = 100
+# 与前端「历史版本」面板展示的上限保持一致：每篇笔记最多保留 60 个。
+REVISION_MAX_PER_NOTE = 60
 
 
 logger = logging.getLogger("kiwi.notes")

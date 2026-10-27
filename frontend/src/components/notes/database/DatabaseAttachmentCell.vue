@@ -57,10 +57,6 @@ async function onFilesPicked(event: Event) {
   if (!files.length) return
 
   for (const file of files) {
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error(`${file.name} 超过 20MB 上限`)
-      continue
-    }
     uploading.value += 1
     try {
       const uploaded = await uploadAttachment(file, database.noteId, kbs.currentKbId)

@@ -130,6 +130,50 @@ const canRecord = computed(() => !!status.value?.enabled)
 const canLivePreview = computed(() => !!status.value?.preview_enabled)
 const elapsedLabel = computed(() => formatMs(elapsedMs.value))
 
+/**
+ * 浏览器只在安全上下文（HTTPS / localhost）暴露麦克风。
+ * 局域网 http://IP 访问时权限开关即使已允许，getUserMedia 仍然不可用。
+ */
+const micSupported = computed(() => {
+  if (typeof window === 'undefined') return false
+  return (
+    window.isSecureContext &&
+    typeof navigator.mediaDevices?.getUserMedia === 'function' &&
+    typeof MediaRecorder !== 'undefined'
+  )
+})
+
+const micUnavailableReason = computed(() => {
+  if (typeof window === 'undefined') return ''
+  if (typeof MediaRecorder === 'undefined') {
+    return '当前浏览器不支持录音，请使用 Chrome / Edge 等现代浏览器。'
+  }
+  if (!window.isSecureContext) {
+    return `当前页面通过 HTTP（${window.location.host}）访问，浏览器会禁止网页使用麦克风。请改用 HTTPS 域名，或在本机通过 http://localhost:端口 访问；也可以先在系统里录音，再切换到「上传音频」。`
+  }
+  if (typeof navigator.mediaDevices?.getUserMedia !== 'function') {
+    return '当前浏览器未提供麦克风接口，请使用 Chrome / Edge 并检查站点权限。'
+  }
+  return ''
+})
+
+function describeMicError(error: unknown): string {
+  const name = (error as DOMException | null)?.name || ''
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return '麦克风权限被浏览器拒绝。请在地址栏左侧的站点设置中允许麦克风；如果页面是 HTTP 访问，浏览器仍会强制禁用，请改用 HTTPS 或 localhost。'
+  }
+  if (name === 'NotFoundError') {
+    return '没有找到可用的麦克风，请检查设备连接后重试。'
+  }
+  if (name === 'NotReadableError') {
+    return '麦克风被其他程序占用，请关闭占用程序后重试。'
+  }
+  if (name === 'OverconstrainedError') {
+    return '当前麦克风不支持所需的音频参数，请更换设备后重试。'
+  }
+  return '无法访问麦克风，请检查浏览器权限或换用 Chrome / Edge'
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -328,6 +372,10 @@ async function startRecording() {
   }
   error.value = ''
   previewError.value = ''
+  if (!micSupported.value) {
+    error.value = micUnavailableReason.value || '当前环境无法使用麦克风'
+    return
+  }
   transcript.value = []
   previewRounds.value = 0
   elapsedMs.value = 0
@@ -345,8 +393,8 @@ async function startRecording() {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
     })
-  } catch {
-    error.value = '无法访问麦克风，请检查浏览器权限或换用 Chrome / Edge'
+  } catch (err) {
+    error.value = describeMicError(err)
     return
   }
   setupAnalyser()
@@ -717,6 +765,20 @@ const jobStatusLabel = computed(() => {
 
       <!-- 录音模式 -->
       <div v-if="mode === 'record'" class="space-y-3">
+        <div
+          v-if="!micSupported"
+          class="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 text-[11px] leading-relaxed text-amber-700"
+        >
+          <p class="font-medium">当前页面无法使用麦克风</p>
+          <p class="mt-0.5">{{ micUnavailableReason }}</p>
+          <button
+            type="button"
+            class="mt-1.5 font-medium underline decoration-amber-400 underline-offset-2 hover:text-amber-800"
+            @click="mode = 'upload'"
+          >
+            改为上传音频
+          </button>
+        </div>
         <div class="rounded-2xl border border-slate-200/80 bg-white/70 p-4">
           <div class="flex items-center gap-3">
             <button

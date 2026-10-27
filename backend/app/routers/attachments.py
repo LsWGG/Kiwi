@@ -16,7 +16,8 @@ from app.schemas.attachment import AttachmentOut
 
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
 
-MAX_BYTES = 20 * 1024 * 1024
+# 附件不设大小上限：文件流式落盘，避免大文件占用进程内存。
+UPLOAD_CHUNK_BYTES = 1024 * 1024
 # 图片与常见文档；不收 SVG（同源内联脚本风险）
 ALLOWED_EXT = {
     ".png",
@@ -74,11 +75,6 @@ async def upload_attachment(
         raise HTTPException(
             415, f"不支持的文件类型 {ext or '(无扩展名)'}，允许：{', '.join(sorted(ALLOWED_EXT))}"
         )
-    content = await file.read()
-    if not content:
-        raise HTTPException(400, "空文件")
-    if len(content) > MAX_BYTES:
-        raise HTTPException(413, "文件超过 20MB 上限")
 
     if note_id is not None:
         note = await session.get(Note, note_id)
@@ -88,7 +84,26 @@ async def upload_attachment(
     storage_dir = media_dir() / str(kb_id)
     storage_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{ext}"
-    (storage_dir / stored_name).write_bytes(content)
+    target = storage_dir / stored_name
+    partial = storage_dir / f".{stored_name}.part"
+    size = 0
+    try:
+        with partial.open("wb") as out:
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "空文件")
+        partial.replace(target)
+    except HTTPException:
+        partial.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        partial.unlink(missing_ok=True)
+        raise HTTPException(500, "附件写入失败，请检查磁盘空间") from exc
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
 
     content_type = (file.content_type or "").split(";")[0].strip()
     if not content_type or content_type == "application/octet-stream":
@@ -99,7 +114,7 @@ async def upload_attachment(
         note_id=note_id,
         filename=filename[:300],
         content_type=content_type[:120],
-        size=len(content),
+        size=size,
         storage_path=f"{kb_id}/{stored_name}",
     )
     session.add(att)
