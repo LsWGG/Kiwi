@@ -228,6 +228,11 @@ valid_cf_token() {
   [[ "$1" =~ ^[A-Za-z0-9+/=._-]+$ ]]
 }
 
+# Cloudflare Account ID：控制台地址中的 32 位十六进制字符串。
+valid_cf_account_id() {
+  [[ "${1:-}" =~ ^[0-9a-fA-F]{32}$ ]]
+}
+
 url_host() {
   local host="${1#*://}"
   host="${host%%/*}"
@@ -348,6 +353,7 @@ prompt_new_access_token() {
 CF_API_BASE="https://api.cloudflare.com/client/v4"
 CF_INGRESS_PATH='^/(share/|api/share/|assets/|favicon)'
 CF_API_TOKEN=""
+CF_ACCOUNT_ID_HINT=""
 CF_LAST_ERROR=""
 CF_LAST_STAGE=""
 CF_HOST=""
@@ -392,11 +398,26 @@ cf_error() {
   printf '%s' "${message:-无法解析 Cloudflare API 响应}"
 }
 
+# 账户级 Token（cfat_）没有用户上下文，只能走 /accounts/{id}/tokens/verify；
+# 用户级 Token（cfut_）走 /user/tokens/verify。
+cf_token_is_account() {
+  [[ "${CF_API_TOKEN:-}" == cfat_* ]]
+}
+
 cf_verify_token() {
-  local res
+  local res endpoint
   CF_LAST_ERROR=""
   CF_LAST_STAGE=token
-  res="$(cf_api GET /user/tokens/verify)" || {
+  if cf_token_is_account; then
+    if [ -z "$CF_ACCOUNT_ID_HINT" ]; then
+      CF_LAST_ERROR="这是账户级 API Token（cfat_ 开头），还需要 Cloudflare Account ID。"
+      return 1
+    fi
+    endpoint="/accounts/${CF_ACCOUNT_ID_HINT}/tokens/verify"
+  else
+    endpoint="/user/tokens/verify"
+  fi
+  res="$(cf_api GET "$endpoint")" || {
     CF_LAST_ERROR="无法连接 Cloudflare API，请检查服务器网络。"
     CF_LAST_STAGE=network
     return 1
@@ -410,6 +431,21 @@ cf_verify_token() {
     return 1
   fi
   return 0
+}
+
+# 账户级 Token 校验需要账户 ID；可从控制台地址 dash.cloudflare.com/<Account ID> 获取。
+ask_cf_account_id() {
+  local id
+  echo "账户级 Token（cfat_）需要 Account ID；控制台地址末尾的 32 位字符串即是。" >&2
+  while :; do
+    id="$(ask 'Cloudflare Account ID' "${CF_ACCOUNT_ID_HINT:-}")"
+    id="$(printf '%s' "$id" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+    if valid_cf_account_id "$id"; then
+      CF_ACCOUNT_ID_HINT="$id"
+      return 0
+    fi
+    echo "  Account ID 应为 32 位十六进制字符。" >&2
+  done
 }
 
 # 校验公网主机名：必须带点、顶级域为字母、每段符合 DNS 标签规则。
@@ -474,7 +510,8 @@ cloudflare_resolve_host() {
 
 # 逐级去掉子域，找到该主机名所属的 Cloudflare 区域。
 cf_find_zone() {
-  local host="$1" candidate res
+  local host="$1" candidate res account_hint
+  account_hint="$CF_ACCOUNT_ID_HINT"
   CF_ZONE_ID=""
   CF_ZONE_NAME=""
   CF_ACCOUNT_ID=""
@@ -497,6 +534,11 @@ cf_find_zone() {
       CF_ACCOUNT_ID="$(printf '%s' "$res" | jq -r '.result[0].account.id // ""')"
       if [ -z "$CF_ACCOUNT_ID" ]; then
         CF_LAST_ERROR="无法从区域信息中读取 Account ID，请确认 Token 权限。"
+        return 1
+      fi
+      if cf_token_is_account && [ -n "$account_hint" ] && [ "$CF_ACCOUNT_ID" != "$account_hint" ]; then
+        CF_LAST_ERROR="区域 ${CF_ZONE_NAME} 属于账户 ${CF_ACCOUNT_ID}，与填写的 Account ID ${account_hint} 不一致。"
+        CF_LAST_STAGE=api
         return 1
       fi
       return 0
@@ -767,7 +809,8 @@ configure_cloudflare_api() {
   require_cf_api_tools
   echo
   echo "自动创建需要 Cloudflare API Token（只用于本次配置，不会写入 $ENV_FILE）。"
-  echo "创建入口：https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom token"
+  echo "创建入口：https://dash.cloudflare.com/profile/api-tokens → Create Token → Custom token（用户级 Token，cfut_）"
+  echo "也可使用 Manage Account → Account API Tokens 的账户级 Token（cfat_），此时还需要 Account ID。"
   echo "所需权限：账户 → Cloudflare Tunnel → 编辑；区域 → DNS → 编辑；区域 → Zone → 读取"
   while :; do
     CF_API_TOKEN="$(ask_secret 'Cloudflare API Token')"
@@ -778,6 +821,9 @@ configure_cloudflare_api() {
     if ! valid_cf_token "$CF_API_TOKEN"; then
       echo "  Token 含有不支持字符，请重新复制。" >&2
       continue
+    fi
+    if cf_token_is_account; then
+      ask_cf_account_id
     fi
     if cf_verify_token; then
       echo "  API Token 校验通过。"
@@ -869,6 +915,13 @@ auto_configure_cloudflare() {
   CF_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
   [ -n "$CF_API_TOKEN" ] || die "未提供 CLOUDFLARE_API_TOKEN。"
   valid_cf_token "$CF_API_TOKEN" || die "CLOUDFLARE_API_TOKEN 含有不支持字符。"
+  CF_ACCOUNT_ID_HINT="$(printf '%s' "${CLOUDFLARE_ACCOUNT_ID:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+  if [ -n "$CF_ACCOUNT_ID_HINT" ] && ! valid_cf_account_id "$CF_ACCOUNT_ID_HINT"; then
+    die "CLOUDFLARE_ACCOUNT_ID 应为 32 位十六进制字符。"
+  fi
+  if cf_token_is_account && [ -z "$CF_ACCOUNT_ID_HINT" ]; then
+    die "账户级 API Token（cfat_）还需要 CLOUDFLARE_ACCOUNT_ID，见控制台地址 dash.cloudflare.com/<Account ID>。"
+  fi
   [ -n "${KIWI_PUBLIC_BASE_URL:-}" ] || die "自动创建还需要 KIWI_PUBLIC_BASE_URL，例如 https://share.example.com。"
   cloudflare_resolve_host "$KIWI_PUBLIC_BASE_URL" || die "$CF_LAST_ERROR"
   cf_verify_token || die "Cloudflare API Token 校验失败：$CF_LAST_ERROR"

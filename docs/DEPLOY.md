@@ -191,12 +191,22 @@ NAS / Docker 部署无需在宿主机安装 systemd 服务，推荐使用方式 
 
 #### A1. API 自动创建（推荐，只需要域名）
 
-在 [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens) 创建
-**Custom Token**，权限如下（Account / Zone Resources 选择域名所在的账户与区域）：
+在 Cloudflare 创建 **Custom Token**，支持两种 Token：
 
-- 账户 → **Cloudflare Tunnel** → 编辑；
-- 区域 → **DNS** → 编辑；
-- 区域 → **Zone** → 读取。
+- **用户级 Token**（`cfut_`）：[My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)；
+- **账户级 Token**（`cfat_`）：Manage Account → Account API Tokens。校验与创建隧道时
+  还需要 **Account ID**（控制台地址 `dash.cloudflare.com/<Account ID>` 中的 32 位字符串），
+  交互模式会提示输入。
+
+权限如下（新版界面按资源范围分组）：
+
+- **整个账户** → **Cloudflare Tunnel** → 编辑（部分账号显示为
+  **Cloudflare One Connectors** 或 **Cloudflare One Connector: cloudflared**，三者等价）；
+- **所有域名** → **DNS** → 编辑；
+- **所有域名** → **Zone** → 读取。
+
+注意 `DNS` 与 `Zone` 必须放在 **All Domains** 资源策略下；放在 `Entire Account`
+策略下只能看到账户级 DNS 设置，不会出现这两个权限组。
 
 然后执行：
 
@@ -229,6 +239,15 @@ NAS / Docker 部署无需在宿主机安装 systemd 服务，推荐使用方式 
 
 ```bash
 CLOUDFLARE_API_TOKEN='<api-token>' \
+KIWI_PUBLIC_BASE_URL='https://share.example.com' \
+./deploy.sh cloudflare
+```
+
+账户级 Token（`cfat_`）还需提供 Account ID：
+
+```bash
+CLOUDFLARE_API_TOKEN='cfat_...' \
+CLOUDFLARE_ACCOUNT_ID='<32 位 Account ID>' \
 KIWI_PUBLIC_BASE_URL='https://share.example.com' \
 ./deploy.sh cloudflare
 ```
