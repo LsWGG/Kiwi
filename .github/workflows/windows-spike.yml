@@ -1,0 +1,208 @@
+name: Windows 可行性 Spike
+
+# Phase 0：在真正的 Windows 上验证桌面版打包依赖，结论写回 desktop/spike/out。
+# 手动触发，或推送到 spike 分支时自动运行。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/windows-desktop-spike]
+    paths:
+      - "desktop/spike/**"
+      - ".github/workflows/windows-spike.yml"
+
+concurrency:
+  group: windows-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pgserver:
+    name: pgserver（启动 / 中文路径 / pg_dump / 重启）
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pgserver
+        run: python -m pip install --disable-pip-version-check "pgserver==0.1.4"
+      - name: Run pgserver spike
+        shell: pwsh
+        run: |
+          python desktop/spike/check_pgserver.py 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\pgserver.log"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-pgserver
+          path: |
+            desktop/spike/out/pgserver.json
+            ${{ runner.temp }}/pgserver.log
+          if-no-files-found: warn
+
+  qdrant:
+    name: Qdrant（Windows 二进制 / loopback / 就绪探测）
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Qdrant spike
+        shell: pwsh
+        run: ./desktop/spike/check_qdrant.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-qdrant
+          path: desktop/spike/out/qdrant.json
+          if-no-files-found: warn
+
+  portable-python:
+    name: 便携 Python（numpy / pandas / matplotlib）
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run portable Python spike
+        shell: pwsh
+        run: ./desktop/spike/check_portable_python.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-portable-python
+          path: desktop/spike/out/portable-python.json
+          if-no-files-found: warn
+
+  pyinstaller:
+    name: PyInstaller（依赖冻结 / 启动）
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          pyinstaller "fastapi~=0.143.3" "uvicorn[standard]~=0.34.0"
+          "sqlalchemy[asyncio]~=2.1.5" "asyncpg~=0.32.0" "alembic~=1.20.0"
+          "qdrant-client~=1.19.1" "openai~=1.107.0"
+      - name: Run PyInstaller spike
+        shell: pwsh
+        run: ./desktop/spike/check_pyinstaller.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-pyinstaller
+          path: desktop/spike/out/pyinstaller.json
+          if-no-files-found: warn
+
+  job-object:
+    name: Job Object（KILL_ON_JOB_CLOSE / 进程树）
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install psutil
+        run: python -m pip install --disable-pip-version-check psutil
+      - name: Run Job Object spike
+        run: python desktop/spike/check_job_object.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-job-object
+          path: desktop/spike/out/job-object.json
+          if-no-files-found: warn
+
+  webview2:
+    name: WebView2（.NET 10 发布 / 运行时检测）
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Run WebView2 spike
+        shell: pwsh
+        run: ./desktop/spike/check_webview2.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-webview2
+          path: desktop/spike/out/webview2.json
+          if-no-files-found: warn
+
+  backend-deps:
+    name: 后端依赖（Windows 安装 / 导入 app.main）
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen --no-dev
+      - name: Import app.main
+        working-directory: backend
+        env:
+          KIWI_UPLOAD_DIR: ${{ runner.temp }}/kiwi-uploads
+        run: uv run python ../desktop/spike/check_backend_import.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-backend-deps
+          path: desktop/spike/out/backend-deps.json
+          if-no-files-found: warn
+
+  report:
+    name: 汇总结果
+    if: always()
+    needs: [pgserver, qdrant, portable-python, pyinstaller, job-object, webview2, backend-deps]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: spike-*
+          path: desktop/spike/out
+          merge-multiple: true
+      - name: Compose summary
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 desktop/spike/collect_results.py
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${GITHUB_REF_NAME}"
+          if [ -d desktop/spike/out ] && [ -n "$(ls -A desktop/spike/out)" ]; then
+            # 只提交结构化结果与汇总，不上传可能包含连接信息的原始日志。
+            git add desktop/spike/out/*.json desktop/spike/out/SUMMARY.md
+            if git diff --cached --quiet; then
+              echo "结果无变化，跳过提交"
+            else
+              git commit -m "chore(spike): 记录 Windows 可行性结果 [skip ci]"
+              git push origin "HEAD:${GITHUB_REF_NAME}"
+            fi
+          else
+            echo "没有结果文件可提交"
+          fi
