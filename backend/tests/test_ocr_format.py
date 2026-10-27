@@ -114,7 +114,9 @@ async def test_format_ocr_document_uses_llm_and_preserves_text(monkeypatch) -> N
     assert result.quality_report["llm_format"]["enabled"] is True
     assert result.quality_report["llm_format"]["failed_chunks"] == 0
     assert fake_client.calls[0][0]["role"] == "system"
-    assert "不得翻译" in fake_client.calls[0][0]["content"]
+    prompt = fake_client.calls[0][0]["content"]
+    assert "不得翻译" in prompt
+    assert "页眉" in prompt and "页脚" in prompt
 
 
 @pytest.mark.asyncio

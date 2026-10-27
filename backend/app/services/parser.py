@@ -135,17 +135,22 @@ def _ocr_pdf(path: Path) -> tuple[str, str, list[str], list[str]]:
     import fitz
 
     doc = fitz.open(path)
-    chunks: list[str] = []
+    pages: list[str] = []
     try:
         for page in doc:
             pix = page.get_pixmap(dpi=200)
             image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             text, image_warnings = _local_tesseract_image(image)
-            chunks.extend(image_warnings)
-            chunks.append(text)
+            for warning in image_warnings:
+                if warning not in warnings:
+                    warnings.append(warning)
+            pages.append(text)
     finally:
         doc.close()
-    return "\n\n".join(chunks).strip(), "tesseract-ocr", warnings, errors
+    pages, removed = ocr_service.strip_repeated_headers_footers(pages)
+    if removed:
+        warnings.append(f"已移除重复页眉/页脚 {len(removed)} 项：{removed[0][:60]}")
+    return "\n\n".join(page for page in pages if page.strip()).strip(), "tesseract-ocr", warnings, errors
 
 
 def _parse_image(path: Path, file_type: str) -> ParsedDocument:
