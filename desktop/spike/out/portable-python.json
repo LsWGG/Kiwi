@@ -5,32 +5,32 @@
     {
       "name": "download",
       "status": "pass",
-      "seconds": 0.7,
+      "seconds": 0.56,
       "value": "已下载 47113364 字节"
     },
     {
       "name": "sha256",
       "status": "pass",
-      "seconds": 0.09,
+      "seconds": 0.08,
       "value": "590DFCBE3A34C07301E6332E13E2188B98655CD072B08AFA45A7998DC4C22BC5"
     },
     {
       "name": "extract",
       "status": "pass",
-      "seconds": 1.27,
+      "seconds": 1.34,
       "value": "D:\\a\\_temp\\portable-python-spike\\python\\python.exe"
     },
     {
       "name": "python_version",
       "status": "pass",
-      "seconds": 0.07,
+      "seconds": 0.03,
       "value": "Python 3.12.16"
     },
     {
       "name": "pip_install",
       "status": "pass",
-      "seconds": 22.01,
-      "value": "Collecting numpy   Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl.metadata (6.6 kB) Collecting pandas   Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl.metadata (18 kB) Collecting matplotlib   Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl.metadata (80 kB) Collecting openpyxl   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB) Collecting pillow   Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl.metadata (9.3 kB) Collecting python-dateutil>=2.9.0 (from pandas)   Downloading python_dateutil-3.0.0-py2.py3-none-any.whl.metadata (8.2 kB) Collecting tzdata (from pandas)   Downloading tzdata-2026.5-py2.py3-none-any.whl.metadata (1.4 kB) Collecting contourpy>=1.0.1 (from matplotlib)   Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl.metadata (3.8 kB) Collecting cycler>=0.10 (from matplotlib)   Downloading cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB) Collecting fonttools>=4.28.2 (from matplotlib)   Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl.metadata (139 kB) Collecting kiwisolver>=1.3.1 (from matplotlib)   Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl.metadata (5.2 kB) Collecting packaging>=20.0 (from matplotlib)   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB) Collecting pyparsing>=3 (from matplotlib)   Downloading pyparsing-3.3.3-py3-none-any.whl.metadata (5.9 kB) Collecting et-xmlfile (from openpyxl)   Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB) Collecting six>=1.6 (from python-dateutil>=2.9.0->pandas)   Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB) Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl (12.6 MB)    ---------------------------------------- 12.6/12.6 MB 60.6 MB/s  0:00:00 Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl (10.7 MB)    ---------------------------------------- 10.7/10.7 MB 74.4 MB/s  0:00:00 Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl (9.3 MB)    ---------------------------------------- 9.3/9.3 MB 64.9 MB/s  0:00:00 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB) Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl (7.3 MB)    ---------------------------------------- 7.3/7.3 MB 89.9 MB/s  0:00:00 Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl (234 kB) Downloading cycler-0.12.1-py3-none-any.whl (8.3 kB) Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl (2.5 MB)    ---------------------------------------- 2.5/2.5 MB 47.6 MB/s  0:00:00 Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl (70 kB) Downloading packaging-26.3-py3-none-any.whl (129 kB) Downloading pyparsing-3.3.3-py3-none-any.whl (126 kB) Downloading python_dateutil-3.0.0-py2.py3-none-any.whl (94 kB) Downloading six-1.17.0-py2.py3-none-any.whl (11 kB) Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB) Downloading tzdata-2026.5-py2.py3-none-any.whl (347 kB) Installing collected packages: tzdata, six, pyparsing, pillow, packaging, numpy, kiwisolver, fonttools, et-xmlfile, cycler, python-dateutil, openpyxl, contourpy, pandas, matplotlib  Successfully installed contourpy-1.4.0 cycler-0.12.1 et-xmlfile-2.0.0 fonttools-4.67.0 kiwisolver-1.5.1 matplotlib-3.11.2 numpy-2.5.4 openpyxl-3.1.5 packaging-26.3 pandas-3.1.0 pillow-13.0.0 pyparsing-3.3.3 python-dateutil-3.0.0 six-1.17.0 tzdata-2026.5 installed"
+      "seconds": 20.21,
+      "value": "Collecting numpy   Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl.metadata (6.6 kB) Collecting pandas   Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl.metadata (18 kB) Collecting matplotlib   Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl.metadata (80 kB) Collecting openpyxl   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB) Collecting pillow   Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl.metadata (9.3 kB) Collecting python-dateutil>=2.9.0 (from pandas)   Downloading python_dateutil-3.0.0-py2.py3-none-any.whl.metadata (8.2 kB) Collecting tzdata (from pandas)   Downloading tzdata-2026.5-py2.py3-none-any.whl.metadata (1.4 kB) Collecting contourpy>=1.0.1 (from matplotlib)   Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl.metadata (3.8 kB) Collecting cycler>=0.10 (from matplotlib)   Downloading cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB) Collecting fonttools>=4.28.2 (from matplotlib)   Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl.metadata (139 kB) Collecting kiwisolver>=1.3.1 (from matplotlib)   Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl.metadata (5.2 kB) Collecting packaging>=20.0 (from matplotlib)   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB) Collecting pyparsing>=3 (from matplotlib)   Downloading pyparsing-3.3.3-py3-none-any.whl.metadata (5.9 kB) Collecting et-xmlfile (from openpyxl)   Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB) Collecting six>=1.6 (from python-dateutil>=2.9.0->pandas)   Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB) Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl (12.6 MB)    ---------------------------------------- 12.6/12.6 MB 131.0 MB/s  0:00:00 Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl (10.7 MB)    ---------------------------------------- 10.7/10.7 MB 134.4 MB/s  0:00:00 Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl (9.3 MB)    ---------------------------------------- 9.3/9.3 MB 97.7 MB/s  0:00:00 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB) Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl (7.3 MB)    ---------------------------------------- 7.3/7.3 MB 149.1 MB/s  0:00:00 Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl (234 kB) Downloading cycler-0.12.1-py3-none-any.whl (8.3 kB) Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl (2.5 MB)    ---------------------------------------- 2.5/2.5 MB 72.1 MB/s  0:00:00 Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl (70 kB) Downloading packaging-26.3-py3-none-any.whl (129 kB) Downloading pyparsing-3.3.3-py3-none-any.whl (126 kB) Downloading python_dateutil-3.0.0-py2.py3-none-any.whl (94 kB) Downloading six-1.17.0-py2.py3-none-any.whl (11 kB) Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB) Downloading tzdata-2026.5-py2.py3-none-any.whl (347 kB) Installing collected packages: tzdata, six, pyparsing, pillow, packaging, numpy, kiwisolver, fonttools, et-xmlfile, cycler, python-dateutil, openpyxl, contourpy, pandas, matplotlib  Successfully installed contourpy-1.4.0 cycler-0.12.1 et-xmlfile-2.0.0 fonttools-4.67.0 kiwisolver-1.5.1 matplotlib-3.11.2 numpy-2.5.4 openpyxl-3.1.5 packaging-26.3 pandas-3.1.0 pillow-13.0.0 pyparsing-3.3.3 python-dateutil-3.0.0 six-1.17.0 tzdata-2026.5 installed"
     }
   ],
   "details": {
@@ -51,7 +51,7 @@
         "openpyxl": "3.1.5",
         "pillow": "13.0.0",
         "png_bytes": 11160,
-        "xlsx_bytes": 4905,
+        "xlsx_bytes": 4906,
         "pandas_roundtrip": [
           {
             "名称": "苹果",

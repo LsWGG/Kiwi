@@ -4,12 +4,12 @@
   "details": {
     "psutil": "7.2.2",
     "create_and_configure_job": "ok",
-    "root_pid": 2744,
+    "root_pid": 2340,
     "tree_pids": [
-      8896,
-      3328,
-      608,
-      2772
+      3092,
+      7808,
+      8836,
+      1036
     ],
     "survivors_after_terminate": [],
     "terminate_tree": "ok",
