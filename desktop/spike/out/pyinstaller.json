@@ -1,29 +1,42 @@
 {
   "check": "pyinstaller",
-  "status": "fail",
+  "status": "pass",
   "steps": [
     {
       "name": "pyinstaller_version",
       "status": "pass",
-      "seconds": 0.53,
+      "seconds": 0.34,
       "value": "6.22.3"
     },
     {
       "name": "build",
       "status": "pass",
-      "seconds": 36.46,
+      "seconds": 22.13,
       "value": "built"
-    },
-    {
-      "name": "run_frozen_exe",
-      "status": "fail",
-      "seconds": 2.89,
-      "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_pyinstaller.ps1:71\r\nLine |\r\n  71 |  …   if ($LASTEXITCODE -ne 0) { throw \"冻结程序退出码 $LASTEXITCODE`n$output\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 冻结程序退出码 1 Traceback (most recent call last):   File \"pyinstaller_entry.py\", line 84, in <module>   File\r\n     | \"encodings\\cp1252.py\", line 19, in encode UnicodeEncodeError: 'charmap' codec can't encode characters in\r\n     | position 522-535: character maps to <undefined> [PYI-884:ERROR] Failed to execute script 'pyinstaller_entry' due\r\n     | to unhandled exception!\r\n\r\n"
     }
   ],
   "details": {
-    "exe": "D:\\a\\_temp\\pyinstaller-spike-a187e1ac41a24758b1c902dc97cf8240\\dist\\kiwi-spike\\kiwi-spike.exe",
-    "dist_bytes": 87875383.0
+    "exe": "D:\\a\\_temp\\pyinstaller-spike-476b362ab34746f08069cfe4ca71252d\\dist\\kiwi-spike\\kiwi-spike.exe",
+    "dist_bytes": 87875513.0,
+    "runtime": {
+      "check": "pyinstaller-runtime",
+      "status": "pass",
+      "details": {
+        "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+        "frozen": true,
+        "executable": "D:\\a\\_temp\\pyinstaller-spike-476b362ab34746f08069cfe4ca71252d\\dist\\kiwi-spike\\kiwi-spike.exe",
+        "fastapi": "0.143.5",
+        "uvicorn": "0.34.3",
+        "sqlalchemy": "2.1.6",
+        "asyncpg": "0.32.0",
+        "alembic": "1.20.1",
+        "qdrant_client": "unknown",
+        "openai": "1.107.3",
+        "pydantic": "2.14.1",
+        "http_port": 61530
+      },
+      "summary": "PyInstaller onedir 可导入后端核心依赖并启动本地 HTTP 服务"
+    }
   },
-  "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_pyinstaller.ps1:71\r\nLine |\r\n  71 |  …   if ($LASTEXITCODE -ne 0) { throw \"冻结程序退出码 $LASTEXITCODE`n$output\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 冻结程序退出码 1 Traceback (most recent call last):   File \"pyinstaller_entry.py\", line 84, in <module>   File\r\n     | \"encodings\\cp1252.py\", line 19, in encode UnicodeEncodeError: 'charmap' codec can't encode characters in\r\n     | position 522-535: character maps to <undefined> [PYI-884:ERROR] Failed to execute script 'pyinstaller_entry' due\r\n     | to unhandled exception!\r\n\r\n"
+  "summary": "PyInstaller onedir 可冻结后端核心依赖并启动本地 HTTP 服务"
 }

@@ -17,19 +17,19 @@
     {
       "name": "extract",
       "status": "pass",
-      "seconds": 0.62,
+      "seconds": 0.57,
       "value": "D:\\a\\_temp\\qdrant-spike\\qdrant.exe"
     },
     {
       "name": "start",
       "status": "pass",
-      "seconds": 0.04,
-      "value": "pid=7112"
+      "seconds": 0.43,
+      "value": "pid=6644"
     },
     {
       "name": "readyz",
       "status": "pass",
-      "seconds": 0.29,
+      "seconds": 0.25,
       "value": "ready"
     },
     {
@@ -41,19 +41,19 @@
     {
       "name": "create_collection",
       "status": "pass",
-      "seconds": 0.03,
+      "seconds": 0.04,
       "value": "ok"
     },
     {
       "name": "upsert_and_query",
       "status": "pass",
-      "seconds": 0.02,
+      "seconds": 0.01,
       "value": "中文测试"
     },
     {
       "name": "loopback_only",
       "status": "pass",
-      "seconds": 0.6,
+      "seconds": 0.54,
       "value": "127.0.0.1"
     }
   ],
@@ -77,25 +77,25 @@
       "Access web UI at http://localhost:6333/dashboard",
       "Agentic Skills: https://skills.qdrant.tech/",
       "",
-      "2026-10-27T13:18:14.143408Z  WARN qdrant::settings: Config file not found: config/config",
-      "2026-10-27T13:18:14.143793Z  WARN qdrant::settings: Config file not found: config/development",
-      "2026-10-27T13:18:14.145528Z  WARN qdrant: There is a potential issue with the filesystem for storage path D:\\a\\_temp\\qdrant-spike\\storage. Details: Filesystem type check is not supported on this platform",
-      "2026-10-27T13:18:14.146197Z  INFO storage::content_manager::consensus::persistent: Initializing new raft state at D:\\a\\_temp\\qdrant-spike\\storage\\raft_state.json",
-      "2026-10-27T13:18:14.150464Z  INFO qdrant: Distributed mode disabled",
-      "2026-10-27T13:18:14.150866Z  INFO qdrant: Telemetry reporting disabled",
-      "2026-10-27T13:18:14.152366Z  WARN qdrant::actix::web_ui: Static content folder for Web UI './static' does not exist",
-      "2026-10-27T13:18:14.152631Z  INFO qdrant::actix: REST transport settings: keep_alive=5s, client_request_timeout=5s, client_disconnect_timeout=5s",
-      "2026-10-27T13:18:14.152844Z  INFO qdrant::actix: TLS disabled for REST API",
-      "2026-10-27T13:18:14.154458Z  INFO qdrant::actix: Qdrant HTTP listening on 6333",
-      "2026-10-27T13:18:14.154767Z  INFO actix_server::builder: starting 3 workers",
-      "2026-10-27T13:18:14.155255Z  INFO actix_server::server: Actix runtime found; starting in Actix runtime",
-      "2026-10-27T13:18:14.155589Z  INFO actix_server::server: starting service: \"actix-web-service-127.0.0.1:6333\", workers: 3, listening on: 127.0.0.1:6333",
-      "2026-10-27T13:18:14.161251Z  INFO qdrant::tonic: Qdrant gRPC listening on 6334",
-      "2026-10-27T13:18:14.161645Z  INFO qdrant::tonic: TLS disabled for gRPC API",
-      "2026-10-27T13:18:14.483954Z  INFO storage::content_manager::toc::collection_meta_ops: Creating collection spike",
-      "2026-10-27T13:18:14.507898Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike HTTP/1.1\" 200 51 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.024389",
-      "2026-10-27T13:18:14.517272Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike/points?wait=true HTTP/1.1\" 200 71 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.002926",
-      "2026-10-27T13:18:14.522560Z  INFO actix_web::middleware::logger: 127.0.0.1 \"POST /collections/spike/points/query HTTP/1.1\" 200 116 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.002196"
+      "2026-10-27T13:23:47.130698Z  WARN qdrant::settings: Config file not found: config/config",
+      "2026-10-27T13:23:47.130964Z  WARN qdrant::settings: Config file not found: config/development",
+      "2026-10-27T13:23:47.132681Z  WARN qdrant: There is a potential issue with the filesystem for storage path D:\\a\\_temp\\qdrant-spike\\storage. Details: Filesystem type check is not supported on this platform",
+      "2026-10-27T13:23:47.133107Z  INFO storage::content_manager::consensus::persistent: Initializing new raft state at D:\\a\\_temp\\qdrant-spike\\storage\\raft_state.json",
+      "2026-10-27T13:23:47.136668Z  INFO qdrant: Distributed mode disabled",
+      "2026-10-27T13:23:47.136902Z  INFO qdrant: Telemetry reporting disabled",
+      "2026-10-27T13:23:47.138001Z  WARN qdrant::actix::web_ui: Static content folder for Web UI './static' does not exist",
+      "2026-10-27T13:23:47.138156Z  INFO qdrant::actix: REST transport settings: keep_alive=5s, client_request_timeout=5s, client_disconnect_timeout=5s",
+      "2026-10-27T13:23:47.138255Z  INFO qdrant::actix: TLS disabled for REST API",
+      "2026-10-27T13:23:47.139599Z  INFO qdrant::actix: Qdrant HTTP listening on 6333",
+      "2026-10-27T13:23:47.139763Z  INFO actix_server::builder: starting 3 workers",
+      "2026-10-27T13:23:47.139926Z  INFO actix_server::server: Actix runtime found; starting in Actix runtime",
+      "2026-10-27T13:23:47.140052Z  INFO actix_server::server: starting service: \"actix-web-service-127.0.0.1:6333\", workers: 3, listening on: 127.0.0.1:6333",
+      "2026-10-27T13:23:47.148455Z  INFO qdrant::tonic: Qdrant gRPC listening on 6334",
+      "2026-10-27T13:23:47.148651Z  INFO qdrant::tonic: TLS disabled for gRPC API",
+      "2026-10-27T13:23:47.426848Z  INFO storage::content_manager::toc::collection_meta_ops: Creating collection spike",
+      "2026-10-27T13:23:47.457535Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike HTTP/1.1\" 200 50 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.031065",
+      "2026-10-27T13:23:47.466074Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike/points?wait=true HTTP/1.1\" 200 70 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.002289",
+      "2026-10-27T13:23:47.470025Z  INFO actix_web::middleware::logger: 127.0.0.1 \"POST /collections/spike/points/query HTTP/1.1\" 200 116 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.001743"
     ]
   },
   "summary": "Qdrant 1.20.0 Windows 二进制在 loopback 可用，读写与中文 payload 正常"

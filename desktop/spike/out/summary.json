@@ -1,15 +1,15 @@
 {
-  "run_id": "40510811416",
-  "run_url": "https://github.com/LsWGG/Kiwi/actions/runs/40510811416",
-  "generated_at": "2026-10-27T13:20:00+00:00",
+  "run_id": "40511621823",
+  "run_url": "https://github.com/LsWGG/Kiwi/actions/runs/40511621823",
+  "generated_at": "2026-10-27T13:25:03+00:00",
   "jobs": {
     "pgserver": "failure",
     "qdrant": "success",
-    "portable-python": "failure",
-    "pyinstaller": "failure",
-    "job-object": "failure",
+    "portable-python": "success",
+    "pyinstaller": "success",
+    "job-object": "success",
     "webview2": "success",
-    "backend-deps": "failure"
+    "backend-deps": "success"
   },
   "checks": {
     "backend-deps": {
@@ -49,12 +49,12 @@
       "details": {
         "psutil": "7.2.2",
         "create_and_configure_job": "ok",
-        "root_pid": 8876,
+        "root_pid": 6116,
         "tree_pids": [
-          6988,
-          4220,
-          4424,
-          7296
+          6776,
+          2208,
+          7272,
+          3032
         ],
         "survivors_after_terminate": [],
         "terminate_tree": "ok",
@@ -65,43 +65,37 @@
     },
     "portable-python": {
       "check": "portable-python",
-      "status": "fail",
+      "status": "pass",
       "steps": [
         {
           "name": "download",
           "status": "pass",
-          "seconds": 0.86,
+          "seconds": 0.67,
           "value": "已下载 47113364 字节"
         },
         {
           "name": "sha256",
           "status": "pass",
-          "seconds": 0.09,
+          "seconds": 0.15,
           "value": "590DFCBE3A34C07301E6332E13E2188B98655CD072B08AFA45A7998DC4C22BC5"
         },
         {
           "name": "extract",
           "status": "pass",
-          "seconds": 1.35,
+          "seconds": 2.01,
           "value": "D:\\a\\_temp\\portable-python-spike\\python\\python.exe"
         },
         {
           "name": "python_version",
           "status": "pass",
-          "seconds": 0.03,
+          "seconds": 0.04,
           "value": "Python 3.12.16"
         },
         {
           "name": "pip_install",
           "status": "pass",
-          "seconds": 19.97,
-          "value": "Collecting numpy   Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl.metadata (6.6 kB) Collecting pandas   Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl.metadata (18 kB) Collecting matplotlib   Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl.metadata (80 kB) Collecting openpyxl   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB) Collecting pillow   Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl.metadata (9.3 kB) Collecting python-dateutil>=2.9.0 (from pandas)   Downloading python_dateutil-3.0.0-py2.py3-none-any.whl.metadata (8.2 kB) Collecting tzdata (from pandas)   Downloading tzdata-2026.5-py2.py3-none-any.whl.metadata (1.4 kB) Collecting contourpy>=1.0.1 (from matplotlib)   Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl.metadata (3.8 kB) Collecting cycler>=0.10 (from matplotlib)   Downloading cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB) Collecting fonttools>=4.28.2 (from matplotlib)   Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl.metadata (139 kB) Collecting kiwisolver>=1.3.1 (from matplotlib)   Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl.metadata (5.2 kB) Collecting packaging>=20.0 (from matplotlib)   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB) Collecting pyparsing>=3 (from matplotlib)   Downloading pyparsing-3.3.3-py3-none-any.whl.metadata (5.9 kB) Collecting et-xmlfile (from openpyxl)   Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB) Collecting six>=1.6 (from python-dateutil>=2.9.0->pandas)   Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB) Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl (12.6 MB)    ---------------------------------------- 12.6/12.6 MB 131.0 MB/s  0:00:00 Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl (10.7 MB)    ---------------------------------------- 10.7/10.7 MB 111.6 MB/s  0:00:00 Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl (9.3 MB)    ---------------------------------------- 9.3/9.3 MB 96.7 MB/s  0:00:00 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB) Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl (7.3 MB)    ---------------------------------------- 7.3/7.3 MB 149.1 MB/s  0:00:00 Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl (234 kB) Downloading cycler-0.12.1-py3-none-any.whl (8.3 kB) Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl (2.5 MB)    ---------------------------------------- 2.5/2.5 MB 72.1 MB/s  0:00:00 Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl (70 kB) Downloading packaging-26.3-py3-none-any.whl (129 kB) Downloading pyparsing-3.3.3-py3-none-any.whl (126 kB) Downloading python_dateutil-3.0.0-py2.py3-none-any.whl (94 kB) Downloading six-1.17.0-py2.py3-none-any.whl (11 kB) Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB) Downloading tzdata-2026.5-py2.py3-none-any.whl (347 kB) Installing collected packages: tzdata, six, pyparsing, pillow, packaging, numpy, kiwisolver, fonttools, et-xmlfile, cycler, python-dateutil, openpyxl, contourpy, pandas, matplotlib  Successfully installed contourpy-1.4.0 cycler-0.12.1 et-xmlfile-2.0.0 fonttools-4.67.0 kiwisolver-1.5.1 matplotlib-3.11.2 numpy-2.5.4 openpyxl-3.1.5 packaging-26.3 pandas-3.1.0 pillow-13.0.0 pyparsing-3.3.3 python-dateutil-3.0.0 six-1.17.0 tzdata-2026.5 installed"
-        },
-        {
-          "name": "runtime_probe",
-          "status": "fail",
-          "seconds": 4.28,
-          "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_portable_python.ps1:83\r\nLine |\r\n  83 |      if ($LASTEXITCODE -ne 0) { throw \"运行时探针退出码 $LASTEXITCODE\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 运行时探针退出码 1\r\n\r\n"
+          "seconds": 17.88,
+          "value": "Collecting numpy   Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl.metadata (6.6 kB) Collecting pandas   Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl.metadata (18 kB) Collecting matplotlib   Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl.metadata (80 kB) Collecting openpyxl   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB) Collecting pillow   Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl.metadata (9.3 kB) Collecting python-dateutil>=2.9.0 (from pandas)   Downloading python_dateutil-3.0.0-py2.py3-none-any.whl.metadata (8.2 kB) Collecting tzdata (from pandas)   Downloading tzdata-2026.5-py2.py3-none-any.whl.metadata (1.4 kB) Collecting contourpy>=1.0.1 (from matplotlib)   Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl.metadata (3.8 kB) Collecting cycler>=0.10 (from matplotlib)   Downloading cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB) Collecting fonttools>=4.28.2 (from matplotlib)   Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl.metadata (139 kB) Collecting kiwisolver>=1.3.1 (from matplotlib)   Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl.metadata (5.2 kB) Collecting packaging>=20.0 (from matplotlib)   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB) Collecting pyparsing>=3 (from matplotlib)   Downloading pyparsing-3.3.3-py3-none-any.whl.metadata (5.9 kB) Collecting et-xmlfile (from openpyxl)   Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB) Collecting six>=1.6 (from python-dateutil>=2.9.0->pandas)   Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB) Downloading numpy-2.5.4-cp312-cp312-win_amd64.whl (12.6 MB)    ---------------------------------------- 12.6/12.6 MB 112.9 MB/s  0:00:00 Downloading pandas-3.1.0-cp312-cp312-win_amd64.whl (10.7 MB)    ---------------------------------------- 10.7/10.7 MB 96.2 MB/s  0:00:00 Downloading matplotlib-3.11.2-cp312-cp312-win_amd64.whl (9.3 MB)    ---------------------------------------- 9.3/9.3 MB 72.7 MB/s  0:00:00 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB) Downloading pillow-13.0.0-cp312-cp312-win_amd64.whl (7.3 MB)    ---------------------------------------- 7.3/7.3 MB 113.1 MB/s  0:00:00 Downloading contourpy-1.4.0-cp312-cp312-win_amd64.whl (234 kB) Downloading cycler-0.12.1-py3-none-any.whl (8.3 kB) Downloading fonttools-4.67.0-cp312-cp312-win_amd64.whl (2.5 MB)    ---------------------------------------- 2.5/2.5 MB 72.1 MB/s  0:00:00 Downloading kiwisolver-1.5.1-cp312-cp312-win_amd64.whl (70 kB) Downloading packaging-26.3-py3-none-any.whl (129 kB) Downloading pyparsing-3.3.3-py3-none-any.whl (126 kB) Downloading python_dateutil-3.0.0-py2.py3-none-any.whl (94 kB) Downloading six-1.17.0-py2.py3-none-any.whl (11 kB) Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB) Downloading tzdata-2026.5-py2.py3-none-any.whl (347 kB) Installing collected packages: tzdata, six, pyparsing, pillow, packaging, numpy, kiwisolver, fonttools, et-xmlfile, cycler, python-dateutil, openpyxl, contourpy, pandas, matplotlib  Successfully installed contourpy-1.4.0 cycler-0.12.1 et-xmlfile-2.0.0 fonttools-4.67.0 kiwisolver-1.5.1 matplotlib-3.11.2 numpy-2.5.4 openpyxl-3.1.5 packaging-26.3 pandas-3.1.0 pillow-13.0.0 pyparsing-3.3.3 python-dateutil-3.0.0 six-1.17.0 tzdata-2026.5 installed"
         }
       ],
       "details": {
@@ -109,38 +103,77 @@
         "release": "20261026",
         "sha256": "590DFCBE3A34C07301E6332E13E2188B98655CD072B08AFA45A7998DC4C22BC5",
         "python": "D:\\a\\_temp\\portable-python-spike\\python\\python.exe",
-        "runtime_version": "Python 3.12.16"
+        "runtime_version": "Python 3.12.16",
+        "runtime": {
+          "check": "portable-python-runtime",
+          "status": "pass",
+          "details": {
+            "python": "3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]",
+            "executable": "D:\\a\\_temp\\portable-python-spike\\python\\python.exe",
+            "numpy": "2.5.4",
+            "pandas": "3.1.0",
+            "matplotlib": "3.11.2",
+            "openpyxl": "3.1.5",
+            "pillow": "13.0.0",
+            "png_bytes": 11160,
+            "xlsx_bytes": 4905,
+            "pandas_roundtrip": [
+              {
+                "名称": "苹果",
+                "数量": 3
+              },
+              {
+                "名称": "香蕉",
+                "数量": 5
+              }
+            ]
+          },
+          "summary": "numpy / pandas / matplotlib / openpyxl / pillow 均可用"
+        }
       },
-      "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_portable_python.ps1:83\r\nLine |\r\n  83 |      if ($LASTEXITCODE -ne 0) { throw \"运行时探针退出码 $LASTEXITCODE\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 运行时探针退出码 1\r\n\r\n"
+      "summary": "便携 Python 可运行 numpy / pandas / matplotlib / openpyxl / pillow"
     },
     "pyinstaller": {
       "check": "pyinstaller",
-      "status": "fail",
+      "status": "pass",
       "steps": [
         {
           "name": "pyinstaller_version",
           "status": "pass",
-          "seconds": 0.53,
+          "seconds": 0.34,
           "value": "6.22.3"
         },
         {
           "name": "build",
           "status": "pass",
-          "seconds": 36.46,
+          "seconds": 22.13,
           "value": "built"
-        },
-        {
-          "name": "run_frozen_exe",
-          "status": "fail",
-          "seconds": 2.89,
-          "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_pyinstaller.ps1:71\r\nLine |\r\n  71 |  …   if ($LASTEXITCODE -ne 0) { throw \"冻结程序退出码 $LASTEXITCODE`n$output\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 冻结程序退出码 1 Traceback (most recent call last):   File \"pyinstaller_entry.py\", line 84, in <module>   File\r\n     | \"encodings\\cp1252.py\", line 19, in encode UnicodeEncodeError: 'charmap' codec can't encode characters in\r\n     | position 522-535: character maps to <undefined> [PYI-884:ERROR] Failed to execute script 'pyinstaller_entry' due\r\n     | to unhandled exception!\r\n\r\n"
         }
       ],
       "details": {
-        "exe": "D:\\a\\_temp\\pyinstaller-spike-a187e1ac41a24758b1c902dc97cf8240\\dist\\kiwi-spike\\kiwi-spike.exe",
-        "dist_bytes": 87875383.0
+        "exe": "D:\\a\\_temp\\pyinstaller-spike-476b362ab34746f08069cfe4ca71252d\\dist\\kiwi-spike\\kiwi-spike.exe",
+        "dist_bytes": 87875513.0,
+        "runtime": {
+          "check": "pyinstaller-runtime",
+          "status": "pass",
+          "details": {
+            "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+            "frozen": true,
+            "executable": "D:\\a\\_temp\\pyinstaller-spike-476b362ab34746f08069cfe4ca71252d\\dist\\kiwi-spike\\kiwi-spike.exe",
+            "fastapi": "0.143.5",
+            "uvicorn": "0.34.3",
+            "sqlalchemy": "2.1.6",
+            "asyncpg": "0.32.0",
+            "alembic": "1.20.1",
+            "qdrant_client": "unknown",
+            "openai": "1.107.3",
+            "pydantic": "2.14.1",
+            "http_port": 61530
+          },
+          "summary": "PyInstaller onedir 可导入后端核心依赖并启动本地 HTTP 服务"
+        }
       },
-      "error": "Exception: D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\check_pyinstaller.ps1:71\r\nLine |\r\n  71 |  …   if ($LASTEXITCODE -ne 0) { throw \"冻结程序退出码 $LASTEXITCODE`n$output\" }\r\n     |                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | 冻结程序退出码 1 Traceback (most recent call last):   File \"pyinstaller_entry.py\", line 84, in <module>   File\r\n     | \"encodings\\cp1252.py\", line 19, in encode UnicodeEncodeError: 'charmap' codec can't encode characters in\r\n     | position 522-535: character maps to <undefined> [PYI-884:ERROR] Failed to execute script 'pyinstaller_entry' due\r\n     | to unhandled exception!\r\n\r\n"
+      "summary": "PyInstaller onedir 可冻结后端核心依赖并启动本地 HTTP 服务"
     },
     "qdrant": {
       "check": "qdrant",
@@ -161,19 +194,19 @@
         {
           "name": "extract",
           "status": "pass",
-          "seconds": 0.62,
+          "seconds": 0.57,
           "value": "D:\\a\\_temp\\qdrant-spike\\qdrant.exe"
         },
         {
           "name": "start",
           "status": "pass",
-          "seconds": 0.04,
-          "value": "pid=7112"
+          "seconds": 0.43,
+          "value": "pid=6644"
         },
         {
           "name": "readyz",
           "status": "pass",
-          "seconds": 0.29,
+          "seconds": 0.25,
           "value": "ready"
         },
         {
@@ -185,19 +218,19 @@
         {
           "name": "create_collection",
           "status": "pass",
-          "seconds": 0.03,
+          "seconds": 0.04,
           "value": "ok"
         },
         {
           "name": "upsert_and_query",
           "status": "pass",
-          "seconds": 0.02,
+          "seconds": 0.01,
           "value": "中文测试"
         },
         {
           "name": "loopback_only",
           "status": "pass",
-          "seconds": 0.6,
+          "seconds": 0.54,
           "value": "127.0.0.1"
         }
       ],
@@ -221,25 +254,25 @@
           "Access web UI at http://localhost:6333/dashboard",
           "Agentic Skills: https://skills.qdrant.tech/",
           "",
-          "2026-10-27T13:18:14.143408Z  WARN qdrant::settings: Config file not found: config/config",
-          "2026-10-27T13:18:14.143793Z  WARN qdrant::settings: Config file not found: config/development",
-          "2026-10-27T13:18:14.145528Z  WARN qdrant: There is a potential issue with the filesystem for storage path D:\\a\\_temp\\qdrant-spike\\storage. Details: Filesystem type check is not supported on this platform",
-          "2026-10-27T13:18:14.146197Z  INFO storage::content_manager::consensus::persistent: Initializing new raft state at D:\\a\\_temp\\qdrant-spike\\storage\\raft_state.json",
-          "2026-10-27T13:18:14.150464Z  INFO qdrant: Distributed mode disabled",
-          "2026-10-27T13:18:14.150866Z  INFO qdrant: Telemetry reporting disabled",
-          "2026-10-27T13:18:14.152366Z  WARN qdrant::actix::web_ui: Static content folder for Web UI './static' does not exist",
-          "2026-10-27T13:18:14.152631Z  INFO qdrant::actix: REST transport settings: keep_alive=5s, client_request_timeout=5s, client_disconnect_timeout=5s",
-          "2026-10-27T13:18:14.152844Z  INFO qdrant::actix: TLS disabled for REST API",
-          "2026-10-27T13:18:14.154458Z  INFO qdrant::actix: Qdrant HTTP listening on 6333",
-          "2026-10-27T13:18:14.154767Z  INFO actix_server::builder: starting 3 workers",
-          "2026-10-27T13:18:14.155255Z  INFO actix_server::server: Actix runtime found; starting in Actix runtime",
-          "2026-10-27T13:18:14.155589Z  INFO actix_server::server: starting service: \"actix-web-service-127.0.0.1:6333\", workers: 3, listening on: 127.0.0.1:6333",
-          "2026-10-27T13:18:14.161251Z  INFO qdrant::tonic: Qdrant gRPC listening on 6334",
-          "2026-10-27T13:18:14.161645Z  INFO qdrant::tonic: TLS disabled for gRPC API",
-          "2026-10-27T13:18:14.483954Z  INFO storage::content_manager::toc::collection_meta_ops: Creating collection spike",
-          "2026-10-27T13:18:14.507898Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike HTTP/1.1\" 200 51 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.024389",
-          "2026-10-27T13:18:14.517272Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike/points?wait=true HTTP/1.1\" 200 71 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.002926",
-          "2026-10-27T13:18:14.522560Z  INFO actix_web::middleware::logger: 127.0.0.1 \"POST /collections/spike/points/query HTTP/1.1\" 200 116 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.002196"
+          "2026-10-27T13:23:47.130698Z  WARN qdrant::settings: Config file not found: config/config",
+          "2026-10-27T13:23:47.130964Z  WARN qdrant::settings: Config file not found: config/development",
+          "2026-10-27T13:23:47.132681Z  WARN qdrant: There is a potential issue with the filesystem for storage path D:\\a\\_temp\\qdrant-spike\\storage. Details: Filesystem type check is not supported on this platform",
+          "2026-10-27T13:23:47.133107Z  INFO storage::content_manager::consensus::persistent: Initializing new raft state at D:\\a\\_temp\\qdrant-spike\\storage\\raft_state.json",
+          "2026-10-27T13:23:47.136668Z  INFO qdrant: Distributed mode disabled",
+          "2026-10-27T13:23:47.136902Z  INFO qdrant: Telemetry reporting disabled",
+          "2026-10-27T13:23:47.138001Z  WARN qdrant::actix::web_ui: Static content folder for Web UI './static' does not exist",
+          "2026-10-27T13:23:47.138156Z  INFO qdrant::actix: REST transport settings: keep_alive=5s, client_request_timeout=5s, client_disconnect_timeout=5s",
+          "2026-10-27T13:23:47.138255Z  INFO qdrant::actix: TLS disabled for REST API",
+          "2026-10-27T13:23:47.139599Z  INFO qdrant::actix: Qdrant HTTP listening on 6333",
+          "2026-10-27T13:23:47.139763Z  INFO actix_server::builder: starting 3 workers",
+          "2026-10-27T13:23:47.139926Z  INFO actix_server::server: Actix runtime found; starting in Actix runtime",
+          "2026-10-27T13:23:47.140052Z  INFO actix_server::server: starting service: \"actix-web-service-127.0.0.1:6333\", workers: 3, listening on: 127.0.0.1:6333",
+          "2026-10-27T13:23:47.148455Z  INFO qdrant::tonic: Qdrant gRPC listening on 6334",
+          "2026-10-27T13:23:47.148651Z  INFO qdrant::tonic: TLS disabled for gRPC API",
+          "2026-10-27T13:23:47.426848Z  INFO storage::content_manager::toc::collection_meta_ops: Creating collection spike",
+          "2026-10-27T13:23:47.457535Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike HTTP/1.1\" 200 50 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.031065",
+          "2026-10-27T13:23:47.466074Z  INFO actix_web::middleware::logger: 127.0.0.1 \"PUT /collections/spike/points?wait=true HTTP/1.1\" 200 70 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.002289",
+          "2026-10-27T13:23:47.470025Z  INFO actix_web::middleware::logger: 127.0.0.1 \"POST /collections/spike/points/query HTTP/1.1\" 200 116 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Microsoft Windows 10.0.26100; en-US) PowerShell/7.6.7\" 0.001743"
         ]
       },
       "summary": "Qdrant 1.20.0 Windows 二进制在 loopback 可用，读写与中文 payload 正常"
@@ -251,20 +284,20 @@
         {
           "name": "dotnet_sdks",
           "status": "pass",
-          "seconds": 0.21,
+          "seconds": 0.22,
           "value": "8.0.132 [C:\\Program Files\\dotnet\\sdk]\r\n8.0.206 [C:\\Program Files\\dotnet\\sdk]\r\n8.0.319 [C:\\Program Files\\dotnet\\sdk]\r\n8.0.426 [C:\\Program Files\\dotnet\\sdk]\r\n9.0.122 [C:\\Program Files\\dotnet\\sdk]\r\n9.0.205 [C:\\Program Files\\dotnet\\sdk]\r\n9.0.319 [C:\\Program Files\\dotnet\\sdk]\r\n10.0.113 [C:\\Program Files\\dotnet\\sdk]\r\n10.0.204 [C:\\Program Files\\dotnet\\sdk]\r\n10.0.303 [C:\\Program Files\\dotnet\\sdk]\r\n10.0.402 [C:\\Program Files\\dotnet\\sdk]\r\n10.0.403 [C:\\Program Files\\dotnet\\sdk]"
         },
         {
           "name": "publish",
           "status": "pass",
-          "seconds": 15.39,
-          "value": "  Determining projects to restore...   Restored D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj (in 8.31 sec). C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277: Found conflicts between different versions of \"WindowsBase\" that could not be resolved. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277: There was a conflict between \"WindowsBase, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" and \"WindowsBase, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\". [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:     \"WindowsBase, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" was chosen because it was primary and \"WindowsBase, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" was not. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:     References which depend on \"WindowsBase, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" [C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\WindowsBase.dll]. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:         C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\WindowsBase.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:           Project file item includes which caused reference \"C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\WindowsBase.dll\". [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:             C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref/net10.0/WindowsBase.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:     References which depend on or have been unified to \"WindowsBase, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" []. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:         C:\\Users\\runneradmin\\.nuget\\packages\\microsoft.web.webview2\\1.0.4314.35\\lib_manual\\net5.0-windows10.0.17763.0\\Microsoft.Web.WebView2.Wpf.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:           Project file item includes which caused reference \"C:\\Users\\runneradmin\\.nuget\\packages\\microsoft.web.webview2\\1.0.4314.35\\lib_manual\\net5.0-windows10.0.17763.0\\Microsoft.Web.WebView2.Wpf.dll\". [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:             C:\\Users\\runneradmin\\.nuget\\packages\\microsoft.web.webview2\\1.0.4314.35\\buildTransitive\\..\\\\lib_manual\\net5.0-windows10.0.17763.0\\Microsoft.Web.WebView2.Wpf.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj]   WebView2Probe -> D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\bin\\Release\\net10.0-windows\\win-x64\\WebView2Probe.dll   WebView2Probe -> D:\\a\\_temp\\webview2-spike\\publish\\ published"
+          "seconds": 13.71,
+          "value": "  Determining projects to restore...   Restored D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj (in 7.83 sec). C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277: Found conflicts between different versions of \"WindowsBase\" that could not be resolved. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277: There was a conflict between \"WindowsBase, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" and \"WindowsBase, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\". [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:     \"WindowsBase, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" was chosen because it was primary and \"WindowsBase, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" was not. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:     References which depend on \"WindowsBase, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" [C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\WindowsBase.dll]. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:         C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\WindowsBase.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:           Project file item includes which caused reference \"C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref\\net10.0\\WindowsBase.dll\". [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:             C:\\Program Files\\dotnet\\packs\\Microsoft.NETCore.App.Ref\\10.0.14\\ref/net10.0/WindowsBase.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:     References which depend on or have been unified to \"WindowsBase, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35\" []. [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:         C:\\Users\\runneradmin\\.nuget\\packages\\microsoft.web.webview2\\1.0.4314.35\\lib_manual\\net5.0-windows10.0.17763.0\\Microsoft.Web.WebView2.Wpf.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:           Project file item includes which caused reference \"C:\\Users\\runneradmin\\.nuget\\packages\\microsoft.web.webview2\\1.0.4314.35\\lib_manual\\net5.0-windows10.0.17763.0\\Microsoft.Web.WebView2.Wpf.dll\". [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj] C:\\Program Files\\dotnet\\sdk\\10.0.403\\Microsoft.Common.CurrentVersion.targets(2453,5): warning MSB3277:             C:\\Users\\runneradmin\\.nuget\\packages\\microsoft.web.webview2\\1.0.4314.35\\buildTransitive\\..\\\\lib_manual\\net5.0-windows10.0.17763.0\\Microsoft.Web.WebView2.Wpf.dll [D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\WebView2Probe.csproj]   WebView2Probe -> D:\\a\\Kiwi\\Kiwi\\desktop\\spike\\WebView2Probe\\bin\\Release\\net10.0-windows\\win-x64\\WebView2Probe.dll   WebView2Probe -> D:\\a\\_temp\\webview2-spike\\publish\\ published"
         },
         {
           "name": "probe",
           "status": "pass",
-          "seconds": 0.18,
-          "value": "{\r\n  \"check\": \"webview2\",\r\n  \"status\": \"pass\",\r\n  \"details\": {\r\n    \"dotnet\": \"10.0.14\",\r\n    \"os\": \"Microsoft Windows NT 10.0.26100.0\",\r\n    \"process_arch\": \"X64\",\r\n    \"windows_forms\": \"1.0.0+292652866447ff2c9e737f6f5416f0fd1490b0b3\",\r\n    \"runtime_version\": \"155.0.4283.62\",\r\n    \"registry\": {\r\n      \"HKCU\\\\SOFTWARE\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": null,\r\n      \"HKCU\\\\SOFTWARE\\\\WOW6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": null,\r\n      \"HKLM\\\\SOFTWARE\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": null,\r\n      \"HKLM\\\\SOFTWARE\\\\WOW6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": {\r\n        \"pv\": \"155.0.4283.62\",\r\n        \"name\": \"Microsoft Edge WebView2 Runtime\"\r\n      }\r\n    }\r\n  },\r\n  \"summary\": \"WebView2 运行时可用：155.0.4283.62\"\r\n}"
+          "seconds": 0.24,
+          "value": "{\r\n  \"check\": \"webview2\",\r\n  \"status\": \"pass\",\r\n  \"details\": {\r\n    \"dotnet\": \"10.0.14\",\r\n    \"os\": \"Microsoft Windows NT 10.0.26100.0\",\r\n    \"process_arch\": \"X64\",\r\n    \"windows_forms\": \"1.0.0+710dacf4e22a64e7e2c7a31fff33bad01394ab7d\",\r\n    \"runtime_version\": \"155.0.4283.62\",\r\n    \"registry\": {\r\n      \"HKCU\\\\SOFTWARE\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": null,\r\n      \"HKCU\\\\SOFTWARE\\\\WOW6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": null,\r\n      \"HKLM\\\\SOFTWARE\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": null,\r\n      \"HKLM\\\\SOFTWARE\\\\WOW6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}\": {\r\n        \"pv\": \"155.0.4283.62\",\r\n        \"name\": \"Microsoft Edge WebView2 Runtime\"\r\n      }\r\n    }\r\n  },\r\n  \"summary\": \"WebView2 运行时可用：155.0.4283.62\"\r\n}"
         }
       ],
       "details": {
@@ -282,7 +315,7 @@
             "dotnet": "10.0.14",
             "os": "Microsoft Windows NT 10.0.26100.0",
             "process_arch": "X64",
-            "windows_forms": "1.0.0+292652866447ff2c9e737f6f5416f0fd1490b0b3",
+            "windows_forms": "1.0.0+710dacf4e22a64e7e2c7a31fff33bad01394ab7d",
             "runtime_version": "155.0.4283.62",
             "registry": {
               "HKCU\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}": null,
