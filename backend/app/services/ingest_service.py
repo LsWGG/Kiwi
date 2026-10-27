@@ -114,6 +114,10 @@ async def _update_import_note(
             imp["source_id"] = str(source_id)
         if parsed is not None:
             imp["parse_quality"] = parsed.parse_quality
+            imp["parse_engine"] = parsed.parse_engine
+            if parsed.warnings:
+                # 记录 OCR 跳页等解析告警，便于在导入结果里定位问题。
+                imp["parse_warnings"] = parsed.warnings[:20]
             if parsed.parse_quality == "review":
                 imp["warning"] = "解析质量存疑，可能为扫描件或复杂版式"
             title = (parsed.title or "").strip()
