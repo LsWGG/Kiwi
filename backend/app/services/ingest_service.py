@@ -21,6 +21,7 @@ from app.services.embedder import embed_texts_async
 from app.services.metrics import compile_job
 from app.services.ocr_formatter import format_ocr_document
 from app.services.parser import ParseError, parse_file
+from app.services.source_paths import resolve_raw_path
 from app.services.splitter import split_markdown
 from app.services.wiki_compiler import CompileError, compile_source
 
@@ -154,11 +155,11 @@ async def _process_note_from_existing_source(
                 await db.execute(select(Source).where(Source.id == source_id))
             ).scalar_one()
             source_type = source.type
-            raw_path = source.raw_path
+            raw_path = resolve_raw_path(source.raw_path)
             kb_id = source.kb_id
 
         parsed = await asyncio.to_thread(
-            parse_file, Path(raw_path), source_type, force_ocr=use_ocr
+            parse_file, raw_path, source_type, force_ocr=use_ocr
         )
         parsed = await format_ocr_document(parsed, kb_id)
         await _update_import_note(
@@ -354,6 +355,11 @@ async def run_ingest(
         if existed:
             if note_id is None:
                 raise FileExistsError(f"该文件已在此知识库中存在（{existed.title}）")
+            # 共享数据库 / 迁移场景下，旧记录的 raw_path 可能指向另一个环境，
+            # 或仍是相对路径。本次上传的字节就是权威内容，重新落到当前
+            # upload_dir 并修正路径，避免解析时报「文件不存在」。
+            rel_path.write_bytes(file_bytes)
+            existed.raw_path = str(rel_path)
             job = IngestJob(
                 kb_id=kb.id,
                 source_id=existed.id,
@@ -458,10 +464,11 @@ async def _process_ingest(
             kb = (
                 await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))
             ).scalar_one()
+            raw_path = resolve_raw_path(source.raw_path)
 
         await _emit(job_id, "parse_progress", {"status": "starting"})
         parsed = await asyncio.to_thread(
-            parse_file, Path(source.raw_path), source.type, force_ocr=use_ocr
+            parse_file, raw_path, source.type, force_ocr=use_ocr
         )
         parsed = await format_ocr_document(parsed, kb.id)
         await _update_job(job_id, progress=0.2)
@@ -471,7 +478,7 @@ async def _process_ingest(
                 note_id,
                 source_id=source_id,
                 parsed=parsed,
-                raw_stem=Path(source.raw_path).stem,
+                raw_stem=raw_path.stem,
                 status="parsing",
                 progress=0.25,
             )

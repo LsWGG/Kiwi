@@ -61,6 +61,7 @@ from app.db.models import (
     WikiPage,
 )
 from app.db.session import async_session_factory
+from app.services.source_paths import resolve_raw_path
 
 logger = logging.getLogger("kiwi.transfer")
 
@@ -196,7 +197,9 @@ async def build_export(session: AsyncSession, kb_id: uuid.UUID) -> tuple[str, st
         with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for source in data.get("sources", []):
                 raw = source.get("raw_path") or ""
-                path = Path(raw)
+                if not raw:
+                    continue
+                path = resolve_raw_path(raw)
                 if not path.exists() or not path.is_file():
                     continue
                 ext = _safe_ext(path.name)

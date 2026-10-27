@@ -9,7 +9,6 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, or_, select
@@ -46,6 +45,7 @@ from app.schemas.wiki import (
 )
 from app.services import audit
 from app.services.compile_eligibility import note_compile_eligible
+from app.services.source_paths import resolve_raw_path
 from app.services.wiki_links import (
     WIKI_LINK_RE,
     extract_links,
@@ -768,7 +768,7 @@ def _source_drift_issues(
             source = source_by_id.get(sid)
             if source is None:
                 continue
-            path = Path(source.raw_path)
+            path = resolve_raw_path(source.raw_path)
             if not path.exists():
                 issues.append(
                     LintIssue(

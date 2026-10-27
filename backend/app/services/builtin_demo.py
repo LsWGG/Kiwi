@@ -52,6 +52,7 @@ from app.db.models import (
 )
 from app.db.session import async_session_factory
 from app.services import todo_sync
+from app.services.source_paths import resolve_raw_path
 
 logger = logging.getLogger("kiwi.builtin_demo")
 
@@ -401,14 +402,8 @@ async def restore_builtin(session: AsyncSession) -> KnowledgeBase | None:
 
 
 def _resolve_source_path(raw_path: str) -> Path | None:
-    path = Path(raw_path)
-    if path.is_absolute():
-        return path if path.exists() else None
-    candidates = [Path.cwd() / path, Path.cwd().parent / path]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+    path = resolve_raw_path(raw_path)
+    return path if path.exists() else None
 
 
 async def seed_builtin_vectors() -> None:

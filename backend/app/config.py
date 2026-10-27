@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # backend/
@@ -59,7 +60,14 @@ class Settings(BaseSettings):
     llm_timeout: float = 600.0
 
     # --- 上传 ---
-    upload_dir: Path = Path("data/uploads")
+    # 绝对路径：相对路径会随进程 CWD 漂移，导致同一数据库记录在开发实例与
+    # 容器中指向不同的目录（表现为「no such file: data/uploads/...」）。
+    upload_dir: Path = PROJECT_ROOT / "data" / "uploads"
+
+    @field_validator("upload_dir")
+    @classmethod
+    def _resolve_upload_dir(cls, value: Path) -> Path:
+        return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
 
     # --- 学习模式联网核查（可选）---
     # 取值：disabled / duckduckgo / searxng / tavily
