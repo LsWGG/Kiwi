@@ -57,14 +57,21 @@ class LLMFactory:
         self._clients: dict[tuple[str, str], Any] = {}
 
     def get_client(self, base_url: str, api_key: str | None = None, model: str = ""):
-        """实例化 AsyncOpenAI。api_key 缺省用 "ollama"（Ollama 兜底）。"""
+        """实例化 AsyncOpenAI。api_key 缺省用 "ollama"（Ollama 兜底）。
+
+        OpenAI 兼容服务通常要求 ``/v1`` 前缀，但用户也常直接填写 ``.../v1``。
+        这里统一规范化，避免出现 ``.../v1/v1``。
+        """
         from openai import AsyncOpenAI
 
         key = api_key or "ollama"
-        cache_key = (base_url.rstrip("/"), key)
+        base = base_url.strip().rstrip("/")
+        if not base.endswith("/v1"):
+            base = f"{base}/v1"
+        cache_key = (base, key)
         if cache_key not in self._clients:
             self._clients[cache_key] = AsyncOpenAI(
-                base_url=f"{base_url.rstrip('/')}/v1",
+                base_url=base,
                 api_key=key,
                 timeout=settings.llm_timeout,
                 max_retries=0,

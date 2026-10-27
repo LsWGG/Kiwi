@@ -19,6 +19,7 @@ from app.event_hub import hub
 from app.services import job_queue, qdrant_store
 from app.services.embedder import embed_texts_async
 from app.services.metrics import compile_job
+from app.services.ocr_formatter import format_ocr_document
 from app.services.parser import ParseError, parse_file
 from app.services.splitter import split_markdown
 from app.services.wiki_compiler import CompileError, compile_source
@@ -154,10 +155,12 @@ async def _process_note_from_existing_source(
             ).scalar_one()
             source_type = source.type
             raw_path = source.raw_path
+            kb_id = source.kb_id
 
         parsed = await asyncio.to_thread(
             parse_file, Path(raw_path), source_type, force_ocr=use_ocr
         )
+        parsed = await format_ocr_document(parsed, kb_id)
         await _update_import_note(
             note_id,
             source_id=source_id,
@@ -460,6 +463,7 @@ async def _process_ingest(
         parsed = await asyncio.to_thread(
             parse_file, Path(source.raw_path), source.type, force_ocr=use_ocr
         )
+        parsed = await format_ocr_document(parsed, kb.id)
         await _update_job(job_id, progress=0.2)
         if note_id is not None:
             # 解析完先落正文，前端可立即阅读，向量化在后台继续

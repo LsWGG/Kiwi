@@ -8,7 +8,9 @@ tesseract。
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,11 +18,74 @@ import httpx
 
 logger = logging.getLogger("kiwi.ocr")
 
-OCR_PROMPT = (
-    "请准确提取图片中的全部文字，按阅读顺序输出，保留段落与列表结构；"
-    "表格尽量还原为 Markdown 表格。不要添加解释、总结或任何额外说明，"
-    "只输出识别到的文字。若图片中没有文字，只输出空字符串。"
+# DeepSeek-OCR 等专用 OCR 模型对长提示词很敏感：提示词越复杂越容易输出
+# 退化内容（例如成片的 `}}}}`）。这里统一使用模型友好的简短英文指令，
+# 识别结果的排版整理交给后续的大模型格式化步骤。
+OCR_PROMPT = "Convert the document to markdown."
+OCR_MAX_TOKENS = 4096
+
+_GROUNDING_REF_RE = re.compile(r"<\|ref\|>.*?<\|/ref\|>", re.S)
+_GROUNDING_DET_RE = re.compile(r"<\|det\|>.*?<\|/det\|>", re.S)
+_CONTROL_TOKEN_RE = re.compile(r"<\|[^|<>]{0,40}\|>")
+_BRACE_RUN_RE = re.compile(r"[{}]{6,}")
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S | re.I)
+_MEANINGFUL_RE = re.compile(
+    r"[0-9A-Za-z㐀-䶿一-鿿぀-ヿ가-힯]"
 )
+_PUNCT_ONLY_RE = re.compile(r"[\s{}()\[\],;:'\"。，；：、“”‘’]+")
+_JSON_TEXT_KEYS = ("text", "markdown", "content", "result", "output", "pages", "data")
+
+
+def _nested_text(value) -> str:
+    """从模型的 JSON 结构化输出里递归提取正文。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n\n".join(part for part in (_nested_text(v) for v in value) if part)
+    if isinstance(value, dict):
+        for key in _JSON_TEXT_KEYS:
+            if key in value:
+                return _nested_text(value[key])
+    return ""
+
+
+def clean_ocr_content(raw: str) -> str:
+    """清洗 OCR 模型输出：去掉 grounding 标记、JSON 外壳与花括号噪声。
+
+    无法恢复出任何有效字符时返回空字符串，由调用方回退到本地 OCR / 原生文本。
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+
+    fenced = _JSON_FENCE_RE.match(text)
+    candidate = fenced.group(1).strip() if fenced else text
+    if candidate.startswith(("{", "[")):
+        try:
+            data = json.loads(candidate)
+        except (TypeError, ValueError):
+            data = None
+        if data is not None:
+            extracted = _nested_text(data).strip()
+            if extracted:
+                text = extracted
+
+    text = _GROUNDING_REF_RE.sub("", text)
+    text = _GROUNDING_DET_RE.sub("", text)
+    text = _CONTROL_TOKEN_RE.sub("", text)
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not _MEANINGFUL_RE.search(stripped) and _PUNCT_ONLY_RE.fullmatch(stripped):
+            continue
+        lines.append(line)
+    text = "\n".join(lines)
+    text = _BRACE_RUN_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if not _MEANINGFUL_RE.search(text):
+        return ""
+    return text
 
 
 class OcrError(Exception):
@@ -87,19 +152,17 @@ def ocr_image_bytes(image: bytes, config: OcrConfig | None = None, mime: str | N
     cfg = config or _runtime
     if not cfg.available:
         raise OcrError("线上 OCR 未配置")
-    prompt = OCR_PROMPT
-    if cfg.language and cfg.language != "auto":
-        prompt += f"\n文档主要语言：{cfg.language}。"
     data_url = f"data:{_mime_for(mime=mime)};base64,{base64.b64encode(image).decode('ascii')}"
     payload = {
         "model": cfg.api_model.strip(),
         "temperature": 0,
+        "max_tokens": OCR_MAX_TOKENS,
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": data_url}},
+                    {"type": "text", "text": OCR_PROMPT},
                 ],
             }
         ],
@@ -127,7 +190,7 @@ def ocr_image_bytes(image: bytes, config: OcrConfig | None = None, mime: str | N
             for part in content
             if isinstance(part, dict)
         )
-    return str(content or "").strip()
+    return clean_ocr_content(str(content or ""))
 
 
 def ocr_image_file(path: Path, config: OcrConfig | None = None) -> str:
