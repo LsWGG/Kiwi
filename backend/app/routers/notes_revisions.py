@@ -3,7 +3,6 @@
 import logging
 import mimetypes
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
@@ -36,6 +35,7 @@ from app.schemas.note import (
 from app.services import (
     audit,
 )
+from app.services.source_paths import resolve_raw_path
 
 logger = logging.getLogger("kiwi.notes.revisions")
 
@@ -154,7 +154,7 @@ async def note_source_file(
     if note.source_id is not None:
         source = await session.get(Source, note.source_id)
         if source is not None and source.kb_id == kb_id:
-            path = Path(source.raw_path)
+            path = resolve_raw_path(source.raw_path)
             if path.exists() and path.is_file():
                 content_type = (
                     mimetypes.guess_type(filename)[0]

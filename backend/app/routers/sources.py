@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -14,6 +13,7 @@ from app.db.session import get_session
 from app.schemas.source import SourceOut, SourcePreviewOut
 from app.services import ingest_service, qdrant_store
 from app.services.parser import parse_file
+from app.services.source_paths import resolve_raw_path
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def preview_source(
     src = await session.get(Source, source_id)
     if src is None or src.kb_id != kb_id:
         raise HTTPException(404, "素材不存在")
-    path = Path(src.raw_path)
+    path = resolve_raw_path(src.raw_path)
     if not path.exists():
         raise HTTPException(404, "素材原文件已不存在")
 
@@ -147,7 +147,7 @@ async def delete_source(
     if src is None or src.kb_id != kb_id:
         raise HTTPException(404, "素材不存在")
     kb = await session.get(KnowledgeBase, kb_id)
-    raw_path = Path(src.raw_path)
+    raw_path = resolve_raw_path(src.raw_path)
     await session.delete(src)
     await session.commit()
 
