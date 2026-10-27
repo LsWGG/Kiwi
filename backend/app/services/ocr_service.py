@@ -198,33 +198,48 @@ def ocr_image_file(path: Path, config: OcrConfig | None = None) -> str:
 
 
 def ocr_pdf_pages(
-    path: Path, config: OcrConfig | None = None, *, max_pages: int = 200
+    path: Path,
+    config: OcrConfig | None = None,
+    *,
+    max_pages: int = 200,
+    dpi: int = 150,
 ) -> tuple[str, list[str]]:
-    """逐页渲染 PDF 并调用线上 OCR，返回 (文本, 警告)。"""
+    """逐页渲染 PDF 并调用线上 OCR，返回 (文本, 警告)。
+
+    单页失败不会中断整份文档：记录页码后继续识别，避免一页超时导致
+    整本扫描件回退到不可用的原生文本层。全部页面都失败时才抛 OcrError。
+    150 DPI 对扫描件已足够，且页面图更小、单页耗时明显低于 200 DPI。
+    """
     import fitz
 
     cfg = config or _runtime
     warnings: list[str] = []
+    errors: list[str] = []
     try:
         doc = fitz.open(path)
     except Exception as exc:  # noqa: BLE001
         raise OcrError(f"PDF 打开失败：{exc}") from exc
     chunks: list[str] = []
     try:
-        for index, page in enumerate(doc):
-            if index >= max_pages:
+        for index, page in enumerate(doc, start=1):
+            if index > max_pages:
                 warnings.append(f"PDF 超过 {max_pages} 页，仅识别前 {max_pages} 页")
                 break
-            pix = page.get_pixmap(dpi=200)
+            pix = page.get_pixmap(dpi=dpi)
             try:
                 text = ocr_image_bytes(pix.tobytes("png"), config=cfg, mime="image/png")
-            except OcrError:
-                raise
+            except OcrError as exc:
+                errors.append(f"第 {index} 页：{exc}")
+                warnings.append(f"第 {index} 页 OCR 失败，已跳过：{exc}")
+                continue
             if text:
                 chunks.append(text)
     finally:
         doc.close()
-    return "\n\n".join(chunks).strip(), warnings
+    text = "\n\n".join(chunks).strip()
+    if not text and errors:
+        raise OcrError(f"全部页面 OCR 失败（共 {len(errors)} 页）：{errors[0]}")
+    return text, warnings
 
 
 def test_connection(config: OcrConfig) -> tuple[bool, str, str]:
