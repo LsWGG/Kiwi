@@ -9,6 +9,10 @@ import tempfile
 import traceback
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 OUT = Path(os.environ.get("SPIKE_OUT", "desktop/spike/out/portable-python-runtime.json"))
 result: dict = {"check": "portable-python-runtime", "status": "fail", "details": {}}
 

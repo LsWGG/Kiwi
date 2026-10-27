@@ -11,6 +11,10 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 OUT = Path(os.environ.get("SPIKE_OUT", "desktop/spike/out/pyinstaller-runtime.json"))
 result: dict = {"check": "pyinstaller-runtime", "status": "fail", "details": {}}
 

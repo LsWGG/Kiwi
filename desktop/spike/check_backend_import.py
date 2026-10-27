@@ -10,6 +10,10 @@ import sys
 import traceback
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 OUT = Path(
     os.environ.get("SPIKE_OUT")
     or Path(__file__).resolve().parent / "out" / "backend-deps.json"

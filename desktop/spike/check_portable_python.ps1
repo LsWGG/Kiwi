@@ -77,15 +77,17 @@ try {
     'installed'
   }
 
-  Invoke-Step 'runtime_probe' {
-    $env:SPIKE_OUT = $out
-    & $python (Join-Path $PSScriptRoot 'check_portable_python_runtime.py')
-    if ($LASTEXITCODE -ne 0) { throw "运行时探针退出码 $LASTEXITCODE" }
-    'probe finished'
+  $env:SPIKE_OUT = $out
+  & $python (Join-Path $PSScriptRoot 'check_portable_python_runtime.py')
+  $probeExit = $LASTEXITCODE
+  $runtime = $null
+  if (Test-Path $out) {
+    # 探针会先写 JSON 再打印；即使打印失败也能保留诊断信息。
+    $runtime = Get-Content $out -Raw | ConvertFrom-Json
+    $result.details['runtime'] = $runtime
   }
-
-  $runtime = Get-Content $out -Raw | ConvertFrom-Json
-  $result.details['runtime'] = $runtime
+  if ($probeExit -ne 0) { throw "运行时探针退出码 $probeExit" }
+  if (-not $runtime) { throw '运行时探针没有写出结果' }
   if ($runtime.status -ne 'pass') { throw "运行时探针失败：$($runtime.error)" }
   $result.status = 'pass'
   $result.summary = '便携 Python 可运行 numpy / pandas / matplotlib / openpyxl / pillow'

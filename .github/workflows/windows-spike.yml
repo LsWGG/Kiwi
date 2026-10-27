@@ -18,6 +18,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Windows 控制台默认 cp1252，统一 UTF-8 避免中文输出导致脚本崩溃。
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 jobs:
   pgserver:
     name: pgserver（启动 / 中文路径 / pg_dump / 重启）
@@ -33,8 +38,37 @@ jobs:
       - name: Run pgserver spike
         shell: pwsh
         run: |
-          python desktop/spike/check_pgserver.py 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\pgserver.log"
-          exit $LASTEXITCODE
+          $log = "$env:RUNNER_TEMP\pgserver.log"
+          python -u -X faulthandler desktop/spike/check_pgserver.py 2>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          $out = 'desktop/spike/out/pgserver.json'
+          if ($code -ne 0) {
+            # 进程可能因原生崩溃来不及收尾；把脱敏后的日志尾部带回去。
+            $tail = Get-Content $log -Tail 80 -ErrorAction SilentlyContinue
+            $safe = ($tail | ForEach-Object {
+              $_ -replace '(postgres(?:ql)?://[^:\s]+:)[^@\s]+@', '$1***@'
+            }) -join "`n"
+            New-Item -ItemType Directory -Force -Path 'desktop/spike/out' | Out-Null
+            if (Test-Path $out) {
+              $data = Get-Content $out -Raw | ConvertFrom-Json
+              if ($data.status -ne 'pass') {
+                $data.status = 'fail'
+                $data | Add-Member -NotePropertyName log_tail -NotePropertyValue $safe -Force
+                $data | ConvertTo-Json -Depth 8 | Set-Content -Path $out -Encoding utf8
+              }
+            } else {
+              [ordered]@{
+                check = 'pgserver'
+                status = 'fail'
+                steps = @()
+                details = [ordered]@{}
+                error = '脚本未写出结果（可能是原生崩溃）'
+                log_tail = $safe
+              } | ConvertTo-Json -Depth 6 | Set-Content -Path $out -Encoding utf8
+            }
+          }
+          exit $code
       - uses: actions/upload-artifact@v4
         if: always()
         with:

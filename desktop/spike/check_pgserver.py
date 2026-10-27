@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import faulthandler
 import json
 import os
 import subprocess
@@ -16,11 +17,27 @@ import traceback
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+faulthandler.enable()
+
 OUT = Path(
     os.environ.get("SPIKE_OUT")
     or Path(__file__).resolve().parent / "out" / "pgserver.json"
 )
-result: dict = {"check": "pgserver", "status": "fail", "steps": [], "details": {}}
+result: dict = {"check": "pgserver", "status": "running", "steps": [], "details": {}}
+
+
+def flush_result() -> None:
+    """每一步后落盘，原生崩溃时也能留下最后完成的步骤。"""
+    try:
+        OUT.parent.mkdir(parents=True, exist_ok=True)
+        OUT.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except Exception as exc:  # noqa: BLE001 - 诊断写入失败不能掩盖主流程
+        print(f"[warn] 写入结果失败：{exc}", file=sys.stderr, flush=True)
 
 
 def step(name: str, fn):
@@ -37,11 +54,13 @@ def step(name: str, fn):
             }
         )
         print(f"[fail] {name}: {type(exc).__name__}: {exc}", flush=True)
+        flush_result()
         raise
     result["steps"].append(
         {"name": name, "status": "pass", "seconds": round(time.time() - started, 2)}
     )
     print(f"[pass] {name} -> {value!r}", flush=True)
+    flush_result()
     return value
 
 
@@ -160,12 +179,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    flush_result()
     try:
         main()
     except Exception:  # noqa: BLE001 - 记录完整堆栈到结果文件
         result["error"] = traceback.format_exc()
         print(result["error"], file=sys.stderr, flush=True)
     finally:
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if result["status"] == "running":
+            result["status"] = "fail"
+        flush_result()
     sys.exit(0 if result["status"] == "pass" else 1)

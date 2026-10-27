@@ -63,20 +63,22 @@ try {
       Measure-Object -Property Length -Sum
   ).Sum
 
-  Invoke-Step 'run_frozen_exe' {
-    $env:SPIKE_OUT = $out
-    Push-Location $env:RUNNER_TEMP
-    try {
-      $output = & $exe 2>&1 | Out-String
-      if ($LASTEXITCODE -ne 0) { throw "冻结程序退出码 $LASTEXITCODE`n$output" }
-      $output.Trim()
-    } finally {
-      Pop-Location
-    }
+  $env:SPIKE_OUT = $out
+  Push-Location $env:RUNNER_TEMP
+  try {
+    $output = & $exe 2>&1 | Out-String
+    $exeExit = $LASTEXITCODE
+  } finally {
+    Pop-Location
   }
-
-  $runtime = Get-Content $out -Raw | ConvertFrom-Json
-  $result.details['runtime'] = $runtime
+  $runtime = $null
+  if (Test-Path $out) {
+    # 冻结程序会先写 JSON 再打印；即使打印失败也能保留诊断信息。
+    $runtime = Get-Content $out -Raw | ConvertFrom-Json
+    $result.details['runtime'] = $runtime
+  }
+  if ($exeExit -ne 0) { throw "冻结程序退出码 $exeExit`n$output" }
+  if (-not $runtime) { throw '冻结程序没有写出结果' }
   if ($runtime.status -ne 'pass') { throw "冻结程序自测失败：$($runtime.error)" }
   $result.status = 'pass'
   $result.summary = 'PyInstaller onedir 可冻结后端核心依赖并启动本地 HTTP 服务'
