@@ -42,16 +42,21 @@ jobs:
           $errLog = "$env:RUNNER_TEMP\pgserver.err.log"
           # 不能用 2>&1：GitHub 的 pwsh 设置了 ErrorActionPreference=Stop，
           # 原生命令写 stderr 会被当成终止错误，后面的诊断逻辑根本不会执行。
-          $proc = Start-Process -FilePath "python" `
-            -ArgumentList @("-u", "-X", "faulthandler", "desktop/spike/check_pgserver.py") `
-            -NoNewWindow -Wait -PassThru `
-            -RedirectStandardOutput $outLog -RedirectStandardError $errLog
-          $code = $proc.ExitCode
+          $code = 1
           $combined = @()
-          foreach ($path in @($outLog, $errLog)) {
-            if (Test-Path $path) {
-              $combined += Get-Content -Path $path -ErrorAction SilentlyContinue
+          try {
+            $proc = Start-Process -FilePath "python" `
+              -ArgumentList @("-u", "-X", "faulthandler", "desktop/spike/check_pgserver.py") `
+              -NoNewWindow -Wait -PassThru `
+              -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+            $code = $proc.ExitCode
+            foreach ($path in @($outLog, $errLog)) {
+              if (Test-Path $path) {
+                $combined += Get-Content -Path $path -ErrorAction SilentlyContinue
+              }
             }
+          } catch {
+            $combined += "Start-Process 失败：$($_ | Out-String)"
           }
           $combined | ForEach-Object { Write-Host $_ }
           $out = 'desktop/spike/out/pgserver.json'

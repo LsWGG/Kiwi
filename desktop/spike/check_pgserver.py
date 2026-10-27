@@ -74,6 +74,50 @@ def redact_uri(uri: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
+def short_windows_path(path: Path) -> Path | None:
+    """用 8.3 短路径绕开 PostgreSQL initdb 的 ANSI 路径限制。"""
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(32768)
+    length = ctypes.windll.kernel32.GetShortPathNameW(str(path), buf, len(buf))
+    if 0 < length < len(buf):
+        return Path(buf.value)
+    return None
+
+
+def probe_non_ascii_path(pgserver) -> dict:
+    """记录非 ASCII 路径的直接结果与短路径规避结果，不影响主检查。"""
+    base = Path(tempfile.gettempdir()) / "Kiwi 中文 数据"
+    base.mkdir(parents=True, exist_ok=True)
+    info: dict = {"data_dir": str(base / "pgdata")}
+
+    def try_start(label: str, data_dir: Path) -> None:
+        server = None
+        try:
+            server = pgserver.get_server(str(data_dir), cleanup_mode="stop")
+            info[label] = {
+                "status": "pass",
+                "query": str(server.psql("SELECT 1")).strip(),
+            }
+        except Exception as exc:  # noqa: BLE001 - 探测结果需要保留原始错误
+            info[label] = {"status": "fail", "error": f"{type(exc).__name__}: {exc}"}
+        finally:
+            if server is not None:
+                try:
+                    server.cleanup()
+                except Exception as exc:  # noqa: BLE001 - 清理失败仅记录
+                    info.setdefault("cleanup_warnings", []).append(str(exc))
+
+    try_start("direct", base / "pgdata")
+    short_base = short_windows_path(base)
+    info["short_base"] = str(short_base) if short_base else None
+    if short_base is not None and short_base != base:
+        try_start("short_path", short_base / "pgdata")
+    return info
+
+
 def main() -> None:
     import pgserver
 
@@ -88,7 +132,9 @@ def main() -> None:
     if embedded_bin.is_dir():
         result["details"]["embedded_bin_count"] = len(list(embedded_bin.iterdir()))
 
-    data_dir = Path(tempfile.gettempdir()) / "Kiwi 中文 数据" / "pgdata"
+    # 主流程用纯 ASCII 路径：PostgreSQL 的 Windows 版 initdb 用 ANSI 代码页
+    # 处理路径，英文系统上非 ASCII 目录会被转成 "??" 而无法创建。
+    data_dir = Path(tempfile.gettempdir()) / "kiwi-pg-spike" / "pgdata"
     data_dir.parent.mkdir(parents=True, exist_ok=True)
     result["details"]["data_dir"] = str(data_dir)
 
@@ -173,8 +219,17 @@ def main() -> None:
         if "中文路径测试" not in rows_after:
             raise AssertionError(f"重启后数据丢失：{rows_after!r}")
         result["details"]["restart_ok"] = True
+        try:
+            result["details"]["non_ascii_path"] = probe_non_ascii_path(pgserver)
+        except Exception as exc:  # noqa: BLE001 - 探测失败不影响主结论
+            result["details"]["non_ascii_path"] = {
+                "error": f"{type(exc).__name__}: {exc}"
+            }
         result["status"] = "pass"
-        result["summary"] = "pgserver 在 Windows 可用；中文路径、pg_dump、重启均通过"
+        result["summary"] = (
+            "pgserver 在 Windows 可用（ASCII 路径下启动、pg_dump、重启均通过）；"
+            "非 ASCII 路径结果见 details.non_ascii_path"
+        )
     finally:
         for server in (db, db2):
             if server is not None:
