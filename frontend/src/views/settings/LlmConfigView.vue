@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useLlmStore, LlmConfig } from '@/stores/llm'
+import { useDesktopStore } from '@/stores/desktop'
+import { IS_DESKTOP, isLoopbackUrl } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 
@@ -10,6 +13,7 @@ import { toast } from '@/components/ui/toast'
 withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 
 const llm = useLlmStore()
+const desktop = useDesktopStore()
 const editing = ref(false)
 const editId = ref<string | null>(null)
 const form = ref({
@@ -25,8 +29,43 @@ const modelLoading = ref(false)
 const saving = ref(false)
 const showDelete = ref<string | null>(null)
 const removing = ref(false)
+const confirmExternal = ref(false)
+let pendingRemote: (() => Promise<void>) | null = null
 
 onMounted(() => llm.fetchConfigs())
+
+/** 桌面版连接非 loopback 模型地址前，必须先确认数据会离开本机。 */
+function needsRemoteAck(url: string): boolean {
+  return (
+    IS_DESKTOP &&
+    desktop.ready &&
+    !desktop.onlineModelsAllowed &&
+    !isLoopbackUrl(url)
+  )
+}
+
+/**
+ * 拦截一次外部模型操作：返回 true 表示已弹出确认框，调用方应立即返回；
+ * 用户确认后开启 allow_online_models 并重新执行同一操作。
+ */
+function guardRemote(url: string, run: () => Promise<void>): boolean {
+  if (!needsRemoteAck(url)) return false
+  pendingRemote = run
+  confirmExternal.value = true
+  return true
+}
+
+async function confirmRemote() {
+  const run = pendingRemote
+  pendingRemote = null
+  try {
+    await desktop.updateSettings({ allow_online_models: true, acknowledge_risk: true })
+    toast.success('已允许连接外部模型接口')
+    if (run) await run()
+  } catch (e: any) {
+    toast.error(e.message || '开启外部模型接口失败')
+  }
+}
 
 // 从已存配置编辑
 function startEdit(c?: LlmConfig) {
@@ -58,6 +97,7 @@ async function loadModels() {
     toast.info('先填写 Base URL')
     return
   }
+  if (guardRemote(form.value.base_url.trim(), loadModels)) return
   modelLoading.value = true
   try {
     await llm.fetchModels(form.value.base_url.trim(), form.value.api_key || undefined)
@@ -74,6 +114,7 @@ async function testConn() {
     toast.info('请先填写 base_url 并选择模型')
     return
   }
+  if (guardRemote(form.value.base_url.trim(), testConn)) return
   testing.value = true
   testMsg.value = null
   try {
@@ -98,6 +139,7 @@ async function save() {
     toast.info('请填写 Base URL 与模型')
     return
   }
+  if (guardRemote(form.value.base_url.trim(), save)) return
   saving.value = true
   const payload = {
     name: form.value.name || form.value.model_name,
@@ -183,6 +225,18 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
       v-if="editing"
       class="mb-6 rounded-2xl glass-strong p-6 space-y-5 animate-scale-in"
     >
+      <div
+        v-if="IS_DESKTOP"
+        class="rounded-xl border border-kiwi-200/70 bg-kiwi-50/50 px-4 py-3 text-[11.5px] leading-relaxed text-slate-600"
+      >
+        <p class="font-medium text-slate-700">桌面版未内置模型</p>
+        <p class="mt-1">
+          可填写本机 Ollama / LM Studio（如
+          <code class="rounded bg-white/70 px-1 py-0.5 font-mono">http://127.0.0.1:11434</code>），
+          或线上 OpenAI 兼容接口。连接非本机地址会把笔记正文、选中文本和问题发送到该服务，
+          首次使用需要确认风险。
+        </p>
+      </div>
       <div>
         <label class="text-xs font-medium text-slate-500">名称</label>
         <input
@@ -308,6 +362,16 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
         添加第一个配置
       </button>
     </div>
+
+    <!-- 外部模型接口风险确认（桌面版首次连接非本机地址） -->
+    <KiwiConfirm
+      v-model="confirmExternal"
+      title="允许连接外部模型接口？"
+      message="该地址不是本机服务。继续后，笔记正文、选中文本和你的问题会发送到该服务；请确认你信任它并了解其数据策略。开启后可在「设置 → 桌面」中随时关闭。"
+      confirm-text="了解风险并继续"
+      danger
+      @confirm="confirmRemote"
+    />
 
     <!-- 删除确认 -->
     <KiwiModal :open="!!showDelete" title="删除配置" @close="showDelete = null">

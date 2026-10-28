@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.config import PROJECT_ROOT
+from app.config import settings
 
 BWRAP = shutil.which("bwrap")
 PRLIMIT = shutil.which("prlimit")
@@ -75,6 +75,8 @@ class SandboxResult:
     timed_out: bool = False
     truncated: bool = False
     sandboxed: bool = True
+    engine: str = "bubblewrap"
+    warning: str | None = None
 
 
 def _venv_root() -> Path:
@@ -366,6 +368,37 @@ _DANGEROUS_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "删除系统路径（os.remove）",
     ),
+    # --- Windows 危险命令（与 Linux 规则共用，不改变 Docker 的拦截范围） ---
+    (
+        re.compile(r"\bformat(?:\.com)?\s+[A-Za-z]:", re.I),
+        "格式化磁盘（format）",
+    ),
+    (
+        re.compile(r"\bformat-volume\b", re.I),
+        "格式化磁盘（Format-Volume）",
+    ),
+    (
+        re.compile(r"\bdel\b[^\n;&|]*(?=/s\b)(?=[^\n;&|]*/q\b)[^\n;&|]*", re.I),
+        "递归强制删除（del /s /q）",
+    ),
+    (
+        re.compile(
+            r"\b(?:rd|rmdir)\b[^\n;&|]*(?=/s\b)(?=[^\n;&|]*/q\b)[^\n;&|]*", re.I
+        ),
+        "递归强制删除（rd /s /q）",
+    ),
+    (
+        re.compile(
+            r"\bRemove-Item\b[^\n;&|]*"
+            r"(?=[^\n;&|]*-Recurse\b)(?=[^\n;&|]*-Force\b)[^\n;&|]*",
+            re.I,
+        ),
+        "递归强制删除（Remove-Item -Recurse -Force）",
+    ),
+    (
+        re.compile(r"\b(?:diskpart|bcdedit|cipher\s+/w|vssadmin\s+delete\s+shadows)\b", re.I),
+        "磁盘 / 引导配置破坏性操作",
+    ),
 )
 
 
@@ -421,13 +454,18 @@ def run_once(
     workdir: Path | None = None,
 ) -> SandboxResult:
     """在一次性沙箱中执行 Python 代码（无持久状态）。"""
+    if os.name == "nt" and settings.desktop_mode:
+        # Windows 没有 bubblewrap；桌面版改走 Job Object + 便携 Python。
+        from app.services.windows_sandbox import run_once_windows
+
+        return run_once_windows(code, timeout=timeout, workdir=workdir)
     ensure_safe(code)
     if not BWRAP:
         raise SandboxUnavailable("安全沙箱不可用（缺少 bubblewrap），已拒绝执行代码。")
 
     owns_workdir = workdir is None
     if workdir is None:
-        base = PROJECT_ROOT / "data" / "sandbox"
+        base = settings.data_dir / "sandbox"
         base.mkdir(parents=True, exist_ok=True)
         workdir = Path(tempfile.mkdtemp(prefix="run-", dir=base))
     started = time.monotonic()
@@ -476,6 +514,10 @@ def run_once(
 
 def sandbox_status(allow_network: bool = False) -> dict:
     """供健康检查 / 前端展示的沙箱信息。"""
+    if os.name == "nt" and settings.desktop_mode:
+        from app.services.windows_sandbox import windows_sandbox_status
+
+        return windows_sandbox_status()
     return {
         "available": bool(BWRAP),
         "engine": "bubblewrap" if BWRAP else None,

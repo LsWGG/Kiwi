@@ -52,6 +52,7 @@ from app.db.models import (
 )
 from app.db.session import async_session_factory
 from app.services import todo_sync
+from app.services.embedder import is_disabled
 from app.services.source_paths import resolve_raw_path
 
 logger = logging.getLogger("kiwi.builtin_demo")
@@ -206,12 +207,13 @@ async def _insert_seed(session: AsyncSession, kb: KnowledgeBase) -> None:
 async def purge_builtin_kb(session: AsyncSession, kb: KnowledgeBase) -> None:
     """硬删除内置演示库：先清向量与 Notebook 内核，再让数据库级联删除。"""
     kb_id = kb.id
-    try:
-        from app.services import qdrant_store
+    if not is_disabled():
+        try:
+            from app.services import qdrant_store
 
-        qdrant_store.purge_kb(kb_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("内置演示库向量清理失败（继续删除）：%s", exc)
+            qdrant_store.purge_kb(kb_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("内置演示库向量清理失败（继续删除）：%s", exc)
     try:
         from app.services.notebook_kernel import kernel_manager
 
@@ -390,7 +392,7 @@ async def restore_builtin(session: AsyncSession) -> KnowledgeBase | None:
         await session.commit()
         await session.refresh(kb)
 
-    if created:
+    if created and not is_disabled():
         # 向量不是数据库内容，重建后需要重新生成；后台执行避免阻塞请求。
         start_vector_seed_task()
         asyncio.create_task(_reindex_builtin_notes(kb.id))
@@ -408,6 +410,8 @@ def _resolve_source_path(raw_path: str) -> Path | None:
 
 async def seed_builtin_vectors() -> None:
     """为演示库补齐 Wiki / 素材向量，保证检索与问答开箱可用。"""
+    if is_disabled():
+        return
     from app.services import qdrant_store
     from app.services.embedder import embed_texts_async
     from app.services.splitter import split_markdown

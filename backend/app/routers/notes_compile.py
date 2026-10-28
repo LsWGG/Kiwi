@@ -37,6 +37,7 @@ from app.services.compile_eligibility import (
     note_compile_skip_label,
 )
 from app.services.compile_status import reconcile_ingest_jobs
+from app.services.embedder import is_disabled
 from app.services.note_indexer import ensure_notes_indexed
 
 logger = logging.getLogger("kiwi.notes.compile")
@@ -272,6 +273,10 @@ async def reindex_notes(
     kb = await session.get(KnowledgeBase, kb_id)
     if kb is None:
         raise HTTPException(404, "知识库不存在")
+    if is_disabled():
+        raise HTTPException(
+            409, "向量模型已关闭，无法重建索引；请先在设置中启用向量模型。"
+        )
     stats = await ensure_notes_indexed([kb_id], force=force)
     return {"kb_id": str(kb_id), **stats}
 

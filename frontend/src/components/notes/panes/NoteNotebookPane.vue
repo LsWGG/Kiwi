@@ -10,6 +10,8 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useNotesStore, type NoteOut } from '@/stores/notes'
+import { useDesktopStore } from '@/stores/desktop'
+import { IS_DESKTOP } from '@/desktop/env'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
 import { useSyncedScroll } from '@/composables/useSyncedScroll'
@@ -40,6 +42,7 @@ import {
 
 const props = defineProps<{ note: NoteOut }>()
 const notes = useNotesStore()
+const desktop = useDesktopStore()
 
 type ViewMode = 'edit' | 'split' | 'read'
 
@@ -106,13 +109,32 @@ watch(readMode, (on) => {
 })
 
 useSyncedScroll(cellsEl, previewScrollEl, splitMode)
+const desktopExecDisabled = computed(
+  () => IS_DESKTOP && desktop.ready && !desktop.localCodeEnabled,
+)
 const sandboxAvailable = computed(() => kernel.value?.sandbox?.available !== false)
 const sandboxNetwork = computed(() => kernel.value?.sandbox?.network === true)
 const sandboxLabel = computed(() => {
+  if (IS_DESKTOP) {
+    if (desktopExecDisabled.value) return '本机执行已关闭'
+    if (!desktop.localCodeAvailable) return '本机执行组件未就绪'
+    return '本机执行（非隔离）'
+  }
   if (kernel.value?.sandbox?.available === false) return '安全沙箱不可用'
   return sandboxNetwork.value ? '沙箱执行 · 网络已开启' : '沙箱执行 · 无网络'
 })
 const sandboxHint = computed(() => {
+  if (IS_DESKTOP) {
+    if (desktopExecDisabled.value) {
+      return '桌面版本机代码执行默认关闭，可在「设置 → 桌面」中开启。'
+    }
+    return [
+      'Windows Job Object：限制内存与进程数，超时终止进程树',
+      '不是文件系统沙箱：代码可以读取当前用户可访问的文件',
+      '不提供 %pip / %uv / !shell 与网络访问',
+      '请只运行你信任的代码',
+    ].join('；')
+  }
   if (!sandboxAvailable.value) return kernelError.value || '安全沙箱不可用'
   return [
     'bubblewrap：独立 PID / 挂载命名空间，仅 /work 与 /tmp 可写',
@@ -387,7 +409,11 @@ function applyResult(cell: Cell, result: Awaited<ReturnType<typeof executeCell>>
 async function executeOne(cell: Cell): Promise<'done' | 'empty' | 'busy' | 'blocked'> {
   if (cell.type !== 'code' || !cell.source.trim()) return 'empty'
   if (runningCellId.value) return 'busy'
-  if (!sandboxAvailable.value) {
+  if (desktopExecDisabled.value) {
+    toast.error('桌面版本机代码执行默认关闭，请在「设置 → 桌面」中开启')
+    return 'blocked'
+  }
+  if (!IS_DESKTOP && !sandboxAvailable.value) {
     toast.error(kernelError.value || '安全沙箱不可用，已拒绝执行')
     return 'blocked'
   }
@@ -463,6 +489,10 @@ function clearCellOutput(cell: Cell) {
 
 async function runAll() {
   if (busy.value || readMode.value) return
+  if (desktopExecDisabled.value) {
+    toast.error('桌面版本机代码执行默认关闭，请在「设置 → 桌面」中开启')
+    return
+  }
   const targets = doc.value.cells.filter(
     (cell) => cell.type === 'code' && cell.source.trim(),
   )

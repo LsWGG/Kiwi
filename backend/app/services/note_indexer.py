@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import CollectionRow, KnowledgeBase, Note, NoteCollection
 from app.db.session import async_session_factory
 from app.services import note_compiler, qdrant_store
-from app.services.embedder import embed_texts_async
+from app.services.embedder import embed_texts_async, is_disabled
 from app.services.splitter import split_markdown
 
 logger = logging.getLogger("kiwi.note_index")
@@ -201,11 +201,19 @@ def _drop_stale(
 
 async def ensure_notes_indexed(
     kb_ids: list[uuid.UUID], *, force: bool = False
-) -> dict[str, int]:
+) -> dict[str, int | bool]:
     """把范围内知识库的笔记同步到向量库，返回本次统计。
 
     问答在检索前调用它，保证刚编辑过的笔记也能被当前问题检索到。
     """
+    if is_disabled():
+        return {
+            "indexed": 0,
+            "skipped": 0,
+            "deleted": 0,
+            "failed": 0,
+            "vectors_disabled": True,
+        }
     stats = {"indexed": 0, "skipped": 0, "deleted": 0, "failed": 0}
     for kb_id in dict.fromkeys(kb_ids):
         async with _kb_lock(kb_id):
@@ -267,6 +275,8 @@ async def ensure_notes_indexed(
 
 async def reconcile_all_notes() -> None:
     """后台巡检：覆盖全部知识库，清理失效向量并补齐变更。"""
+    if is_disabled():
+        return
     async with async_session_factory() as db:
         kb_ids = list((await db.execute(select(KnowledgeBase.id))).scalars().all())
     for kb_id in kb_ids:

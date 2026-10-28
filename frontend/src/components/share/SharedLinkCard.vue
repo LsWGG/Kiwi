@@ -2,6 +2,7 @@
 /** 公开分享页的链接笔记书签卡：站点、标题、地址与摘要。 */
 import { computed, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import { IS_DESKTOP } from '@/desktop/env'
 
 interface LinkPayload {
   url?: string
@@ -29,6 +30,8 @@ const site = computed(() => {
   }
 })
 const faviconSrc = computed(() => {
+  // 桌面版不加载远程 favicon。
+  if (IS_DESKTOP) return ''
   const saved = String(props.payload?.favicon || '').trim()
   if (/^(https?:\/\/|\/)/i.test(saved)) return saved
   try {

@@ -26,8 +26,9 @@ class Settings(BaseSettings):
     fernet_key: str = "change_me_change_me_change_me_change_me_"
 
     # --- 嵌入 ---
-    # provider=local 使用 fastembed 本地模型；openai 调用 OpenAI 兼容的线上接口。
-    embed_provider: Literal["local", "openai", "remote", "api"] = "local"
+    # provider=local 使用 fastembed 本地模型；openai 调用 OpenAI 兼容的线上接口；
+    # none 表示显式关闭向量能力（桌面版默认），检索与问答返回明确状态。
+    embed_provider: Literal["local", "openai", "remote", "api", "none"] = "local"
     embed_model: str = "BAAI/bge-small-zh-v1.5"
     embed_dim: int = 512
     # 线上接口：base 形如 https://api.openai.com/v1（也兼容 Ollama /v1）。
@@ -67,6 +68,46 @@ class Settings(BaseSettings):
     @field_validator("upload_dir")
     @classmethod
     def _resolve_upload_dir(cls, value: Path) -> Path:
+        return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
+
+    # --- 桌面模式（默认关闭；Docker / 源码部署行为保持不变）---
+    # 由桌面 runtime 注入：数据目录、SPA 资源、日志与控制令牌均使用绝对路径。
+    desktop_mode: bool = False
+    offline_mode: bool = False
+    # 非空时由 FastAPI 直接提供构建好的前端 SPA。
+    frontend_dist: Path | None = None
+    # 桌面数据根目录；沙箱与 Notebook 工作目录都放在它下面。
+    data_dir: Path = PROJECT_ROOT / "data"
+    desktop_settings_path: Path | None = None
+    # 宿主生成，仅用于 /internal/shutdown；不写入任何状态文件或日志。
+    desktop_control_token: str = ""
+    # 桌面版便携 Python（本机代码执行）；为空表示未安装。
+    desktop_python: str = ""
+    # 桌面备份使用随包的 pg_dump，避免依赖系统 PATH。
+    pg_dump_path: str = ""
+    # 设置后启用滚动文件日志；Docker 不设置，输出行为不变。
+    log_file: Path | None = None
+    # 桌面模式关闭自动 Wiki 编译 / 待办同步 / Web Push 调度。
+    kb_scheduler_enabled: bool = True
+
+    @field_validator("data_dir")
+    @classmethod
+    def _resolve_data_dir(cls, value: Path) -> Path:
+        return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
+
+    @field_validator("frontend_dist", "desktop_settings_path", "log_file", mode="before")
+    @classmethod
+    def _blank_optional_path(cls, value):
+        # 环境变量为空字符串时按未设置处理，避免变成 Path(".")。
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("frontend_dist", "desktop_settings_path", "log_file")
+    @classmethod
+    def _resolve_optional_path(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
         return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
 
     # --- 学习模式联网核查（可选）---

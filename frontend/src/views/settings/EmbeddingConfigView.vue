@@ -6,12 +6,17 @@
 import { computed, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
+import { useDesktopStore } from '@/stores/desktop'
+import { IS_DESKTOP, isLoopbackUrl } from '@/desktop/env'
 import { request } from '@/api/client'
 import { toast } from '@/components/ui/toast'
 
+type EmbeddingProvider = 'local' | 'openai' | 'none'
+
 interface EmbeddingConfig {
-  provider: 'local' | 'openai'
+  provider: EmbeddingProvider
   api_base: string
   api_model: string
   api_timeout: number
@@ -20,7 +25,7 @@ interface EmbeddingConfig {
   has_api_key: boolean
   source: 'saved' | 'env'
   active_space: string
-  env_provider: 'local' | 'openai'
+  env_provider: EmbeddingProvider
   env_api_base: string
   env_api_model: string
   env_has_api_key: boolean
@@ -36,6 +41,7 @@ interface TestResult {
 /** embedded：作为「模型配置」子页渲染时隐藏独立页头与设置导航。 */
 withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 
+const desktop = useDesktopStore()
 const loading = ref(true)
 const saving = ref(false)
 const testing = ref(false)
@@ -45,10 +51,12 @@ const clearKey = ref(false)
 const editing = ref(false)
 const showReset = ref(false)
 const testResult = ref<TestResult | null>(null)
+const confirmExternal = ref(false)
+let pendingRemote: (() => Promise<void>) | null = null
 
 const config = ref<EmbeddingConfig | null>(null)
 const form = ref({
-  provider: 'local' as 'local' | 'openai',
+  provider: 'local' as EmbeddingProvider,
   api_base: '',
   api_key: '',
   api_model: 'text-embedding-3-small',
@@ -98,16 +106,51 @@ function cancelEdit() {
 }
 
 const isRemote = computed(() => form.value.provider === 'openai')
-const displayName = computed(() =>
-  config.value?.provider === 'openai'
+const isDisabled = computed(
+  () => config.value?.provider === 'none' || form.value.provider === 'none',
+)
+const displayName = computed(() => {
+  if (isDisabled.value) return '向量模型已关闭'
+  return config.value?.provider === 'openai'
     ? config.value.api_model || '线上向量模型'
-    : '本地 fastembed',
-)
-const displayEndpoint = computed(() =>
-  config.value?.provider === 'openai'
+    : '本地 fastembed'
+})
+const displayEndpoint = computed(() => {
+  if (isDisabled.value) return '不写入、不检索向量 · 笔记搜索改用 PostgreSQL'
+  return config.value?.provider === 'openai'
     ? config.value.api_base.replace(/^https?:\/\//, '')
-    : '本地 ONNX · 数据不出本机',
-)
+    : '本地 ONNX · 数据不出本机'
+})
+
+/** 桌面版连接非 loopback 向量接口前，需先确认数据会离开本机。 */
+function needsRemoteAck(url: string): boolean {
+  return (
+    IS_DESKTOP &&
+    desktop.ready &&
+    !desktop.onlineModelsAllowed &&
+    !isLoopbackUrl(url)
+  )
+}
+
+function guardRemote(run: () => Promise<void>): boolean {
+  if (form.value.provider !== 'openai') return false
+  if (!needsRemoteAck(form.value.api_base.trim())) return false
+  pendingRemote = run
+  confirmExternal.value = true
+  return true
+}
+
+async function confirmRemote() {
+  const run = pendingRemote
+  pendingRemote = null
+  try {
+    await desktop.updateSettings({ allow_online_models: true, acknowledge_risk: true })
+    toast.success('已允许连接外部模型接口')
+    if (run) await run()
+  } catch (e: any) {
+    toast.error(e.message || '开启外部模型接口失败')
+  }
+}
 const sourceLabel = computed(() =>
   config.value?.source === 'saved' ? '应用内配置' : '环境变量',
 )
@@ -142,7 +185,10 @@ const remoteReady = computed(
     form.value.api_base.trim().startsWith('http') && !!form.value.api_model.trim(),
 )
 const canSave = computed(
-  () => !isRemote.value || (remoteReady.value && advancedValid.value),
+  () =>
+    isDisabled.value ||
+    !isRemote.value ||
+    (remoteReady.value && advancedValid.value),
 )
 const canTest = computed(
   () =>
@@ -186,6 +232,7 @@ async function testConnection() {
     )
     return
   }
+  if (guardRemote(testConnection)) return
   testing.value = true
   testResult.value = null
   try {
@@ -221,6 +268,7 @@ async function save() {
     )
     return
   }
+  if (guardRemote(save)) return
   saving.value = true
   try {
     const payload: Record<string, unknown> = {
@@ -289,7 +337,12 @@ async function resetToEnv() {
 
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
       <p class="text-xs leading-relaxed text-slate-500">
-        本地 fastembed 数据不出本机；线上接口兼容 OpenAI、Ollama、硅基流动等。
+        <template v-if="IS_DESKTOP">
+          桌面版不内置 fastembed 模型：默认关闭向量检索，或连接本机 / 线上 OpenAI 兼容接口。
+        </template>
+        <template v-else>
+          本地 fastembed 数据不出本机；线上接口兼容 OpenAI、Ollama、硅基流动等。
+        </template>
       </p>
       <button
         v-if="!editing && config && embedded"
@@ -299,6 +352,20 @@ async function resetToEnv() {
         <KiwiIcon name="edit" :size="13" />
         编辑配置
       </button>
+    </div>
+
+    <!-- 桌面版说明：不内置 fastembed，默认关闭向量 -->
+    <div
+      v-if="IS_DESKTOP"
+      class="mb-4 rounded-xl border border-kiwi-200/70 bg-kiwi-50/50 px-4 py-3 text-[11.5px] leading-relaxed text-slate-600"
+    >
+      <p class="font-medium text-slate-700">桌面版未内置向量模型</p>
+      <p class="mt-1">
+        默认关闭向量检索；可连接本机 Ollama / LM Studio（如
+        <code class="rounded bg-white/70 px-1 py-0.5 font-mono">http://127.0.0.1:11434/v1</code>）
+        或线上 OpenAI 兼容接口。关闭向量后，笔记搜索仍使用 PostgreSQL 全文匹配，
+        导入与 Wiki 编译不受影响。
+      </p>
     </div>
 
     <div v-if="loading" class="py-16 text-center text-sm text-slate-400">
@@ -313,7 +380,16 @@ async function resetToEnv() {
         class="group flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-4 shadow-soft transition-colors hover:border-kiwi-200"
       >
         <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-200/60 bg-gradient-to-br from-slate-100 to-white text-slate-500 transition-colors group-hover:border-kiwi-200 group-hover:text-kiwi-600">
-          <KiwiIcon :name="config.provider === 'openai' ? 'cloud' : 'server'" :size="16" />
+          <KiwiIcon
+            :name="
+              config.provider === 'openai'
+                ? 'cloud'
+                : config.provider === 'none'
+                  ? 'layers'
+                  : 'server'
+            "
+            :size="16"
+          />
         </span>
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
@@ -393,7 +469,32 @@ async function resetToEnv() {
 
         <!-- 模式选择 -->
         <div class="grid gap-3 sm:grid-cols-2">
+          <!-- 桌面版没有 fastembed：以「关闭向量」替代本地模型。 -->
           <button
+            v-if="IS_DESKTOP"
+            type="button"
+            class="rounded-2xl border p-4 text-left transition-all"
+            :class="
+              form.provider === 'none'
+                ? 'border-kiwi-300 bg-kiwi-50/60 shadow-soft'
+                : 'border-slate-200/70 bg-white/60 hover:border-slate-300'
+            "
+            @click="form.provider = 'none'"
+          >
+            <span class="flex items-center gap-2 font-medium text-slate-700">
+              <KiwiIcon
+                name="layers"
+                :size="16"
+                :class="form.provider === 'none' ? 'text-kiwi-600' : 'text-slate-400'"
+              />
+              关闭向量
+            </span>
+            <span class="mt-1.5 block text-xs leading-relaxed text-slate-500">
+              不生成、不检索向量；笔记编辑、导入与 PostgreSQL 搜索仍可用。
+            </span>
+          </button>
+          <button
+            v-else
             type="button"
             class="rounded-2xl border p-4 text-left transition-all"
             :class="
@@ -440,6 +541,20 @@ async function resetToEnv() {
           </p>
           <p class="mt-2 text-xs leading-relaxed text-slate-400">
             若部署环境无法运行 ONNX / 无法下载模型，请切换到「线上接口」；保存后所有知识库统一使用线上模型。
+          </p>
+        </div>
+
+        <!-- 关闭向量说明 -->
+        <div
+          v-else-if="form.provider === 'none'"
+          class="rounded-xl border border-slate-200/70 bg-white/60 p-4"
+        >
+          <p class="text-sm leading-relaxed text-slate-600">
+            保存后不写入、不检索向量。笔记编辑、素材导入、PostgreSQL 笔记搜索与 Wiki 页面浏览仍然可用；
+            问答检索、语义搜索与向量索引重建会提示「未启用向量模型」。
+          </p>
+          <p class="mt-2 text-xs leading-relaxed text-slate-400">
+            之后如需启用，可在这里连接本机 Ollama / LM Studio 或线上 OpenAI 兼容接口。
           </p>
         </div>
 
@@ -631,6 +746,16 @@ async function resetToEnv() {
         <p class="text-[11px] text-slate-400">保存前可先「测试连接」；更新配置时不填 Key 则保留原值。</p>
       </div>
     </template>
+
+    <!-- 外部向量接口风险确认（桌面版首次连接非本机地址） -->
+    <KiwiConfirm
+      v-model="confirmExternal"
+      title="允许连接外部向量接口？"
+      message="该地址不是本机服务。继续后，导入的素材文本与检索内容会发送到该服务；请确认你信任它并了解其数据策略。开启后可在「设置 → 桌面」中随时关闭。"
+      confirm-text="了解风险并继续"
+      danger
+      @confirm="confirmRemote"
+    />
 
     <!-- 恢复环境变量确认 -->
     <KiwiModal :open="showReset" title="恢复环境变量配置" @close="showReset = false">

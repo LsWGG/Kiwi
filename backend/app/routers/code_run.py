@@ -15,6 +15,9 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.config import settings
+from app.services import desktop_settings
+from app.services.desktop_guard import require_local_execution
 from app.services.sandbox import (
     DEFAULT_TIMEOUT_SECONDS,
     DangerousCodeError,
@@ -42,6 +45,8 @@ class RunCodeOut(BaseModel):
     timed_out: bool = False
     truncated: bool = False
     sandboxed: bool = True
+    engine: str = "bubblewrap"
+    warning: str | None = None
 
 
 @router.post("/code", response_model=RunCodeOut)
@@ -50,8 +55,12 @@ def run_code(payload: RunCodeIn) -> RunCodeOut:
     code = payload.code
     if not code.strip():
         raise HTTPException(400, "代码为空")
+    require_local_execution()
+    timeout = TIMEOUT_SECONDS
+    if settings.desktop_mode:
+        timeout = desktop_settings.load().local_code_timeout_seconds
     try:
-        result = run_once(code, timeout=TIMEOUT_SECONDS)
+        result = run_once(code, timeout=timeout)
     except DangerousCodeError as exc:
         raise HTTPException(400, str(exc)) from exc
     except SandboxUnavailable as exc:
@@ -65,4 +74,6 @@ def run_code(payload: RunCodeIn) -> RunCodeOut:
         timed_out=result.timed_out,
         truncated=result.truncated,
         sandboxed=result.sandboxed,
+        engine=result.engine,
+        warning=result.warning,
     )

@@ -5,6 +5,7 @@ import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import type { GalleryImage } from './gallery'
 import { useEditorEditable } from './useEditorEditable'
+import { isBlockedExternalAsset } from '@/desktop/env'
 
 const props = defineProps(nodeViewProps)
 
@@ -104,7 +105,14 @@ function scrollTrack(direction: number) {
   el.scrollBy({ left: direction * Math.max(240, el.clientWidth * 0.72), behavior: 'smooth' })
 }
 
+/** 桌面版阻止远程图片，图册同样只展示本机 / 同源图片。 */
+function blockedImage(image: GalleryImage | undefined): boolean {
+  return !!image && isBlockedExternalAsset(image.url)
+}
+
 function openLightbox(index: number) {
+  const image = images.value[index]
+  if (image && blockedImage(image)) return
   lightbox.value = index
 }
 
@@ -236,7 +244,21 @@ onBeforeUnmount(() => {
     <div v-else-if="layout === 'grid'" class="kiwi-gallery-grid" :style="gridStyle">
       <figure v-for="(image, index) in images" :key="`${image.url}-${index}`" class="kiwi-gallery-item group/item">
         <button type="button" class="kiwi-gallery-thumb" @mousedown.prevent @click="openLightbox(index)">
-          <img :src="image.url" :alt="image.caption || image.name || `图片 ${index + 1}`" loading="lazy" />
+          <span
+            v-if="blockedImage(image)"
+            class="kiwi-gallery-blocked"
+            role="img"
+            :aria-label="`外部图片已禁用：${image.caption || image.name || `图片 ${index + 1}`}`"
+          >
+            <KiwiIcon name="image" :size="16" />
+            <span>外部图片已禁用</span>
+          </span>
+          <img
+            v-else
+            :src="image.url"
+            :alt="image.caption || image.name || `图片 ${index + 1}`"
+            loading="lazy"
+          />
         </button>
         <div v-if="editable" class="kiwi-gallery-item-bar">
           <input
@@ -268,7 +290,21 @@ onBeforeUnmount(() => {
       <div ref="track" class="kiwi-gallery-track">
         <figure v-for="(image, index) in images" :key="`${image.url}-c-${index}`" class="kiwi-gallery-slide">
           <button type="button" class="kiwi-gallery-thumb" @mousedown.prevent @click="openLightbox(index)">
-            <img :src="image.url" :alt="image.caption || image.name || `图片 ${index + 1}`" loading="lazy" />
+            <span
+              v-if="blockedImage(image)"
+              class="kiwi-gallery-blocked"
+              role="img"
+              :aria-label="`外部图片已禁用：${image.caption || image.name || `图片 ${index + 1}`}`"
+            >
+              <KiwiIcon name="image" :size="16" />
+              <span>外部图片已禁用</span>
+            </span>
+            <img
+              v-else
+              :src="image.url"
+              :alt="image.caption || image.name || `图片 ${index + 1}`"
+              loading="lazy"
+            />
           </button>
           <figcaption class="kiwi-gallery-slide-caption">
             {{ image.caption || `图片 ${index + 1}` }}
@@ -295,7 +331,16 @@ onBeforeUnmount(() => {
           <KiwiIcon name="chevron" :size="20" class="rotate-90" />
         </button>
         <figure class="kiwi-lightbox-figure">
-          <img :src="images[lightbox].url" :alt="images[lightbox].caption || ''" />
+          <span
+            v-if="blockedImage(images[lightbox])"
+            class="kiwi-gallery-blocked kiwi-gallery-blocked-lightbox"
+            role="img"
+            aria-label="外部图片已禁用"
+          >
+            <KiwiIcon name="image" :size="18" />
+            <span>外部图片已禁用</span>
+          </span>
+          <img v-else :src="images[lightbox].url" :alt="images[lightbox].caption || ''" />
           <figcaption v-if="images[lightbox].caption">
             {{ images[lightbox].caption }}
             <span class="kiwi-lightbox-count">{{ lightbox + 1 }} / {{ images.length }}</span>
@@ -467,6 +512,24 @@ onBeforeUnmount(() => {
 }
 .kiwi-gallery-thumb:hover img {
   transform: scale(1.025);
+}
+.kiwi-gallery-blocked {
+  display: flex;
+  width: 100%;
+  min-height: 136px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: rgb(148 163 184);
+  font-size: 11px;
+}
+.kiwi-gallery-blocked-lightbox {
+  min-width: 280px;
+  min-height: 180px;
+  border-radius: 12px;
+  border: 1px dashed rgb(203 213 225 / 0.45);
+  color: rgb(203 213 225);
 }
 .kiwi-gallery-item-bar {
   display: flex;

@@ -12,6 +12,7 @@ from app.db.models import IngestJob, KnowledgeBase, Source
 from app.db.session import get_session
 from app.schemas.source import SourceOut, SourcePreviewOut
 from app.services import ingest_service, qdrant_store
+from app.services.embedder import is_disabled
 from app.services.parser import parse_file
 from app.services.source_paths import resolve_raw_path
 
@@ -152,14 +153,15 @@ async def delete_source(
     await session.commit()
 
     # 派生数据清理：向量索引可重建，但不该留下孤儿 chunk。
-    try:
-        await asyncio.to_thread(
-            qdrant_store.delete_source_chunks,
-            source_id,
-            kb.embedding_model if kb else None,
-        )
-    except Exception:  # noqa: BLE001 - 向量库不可用时不应阻塞素材删除
-        logger.warning("删除素材 %s 的向量失败", source_id, exc_info=True)
+    if not is_disabled():
+        try:
+            await asyncio.to_thread(
+                qdrant_store.delete_source_chunks,
+                source_id,
+                kb.embedding_model if kb else None,
+            )
+        except Exception:  # noqa: BLE001 - 向量库不可用时不应阻塞素材删除
+            logger.warning("删除素材 %s 的向量失败", source_id, exc_info=True)
     try:
         raw_path.unlink(missing_ok=True)
     except OSError:

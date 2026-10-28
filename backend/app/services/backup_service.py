@@ -5,7 +5,10 @@
     data/backups/kiwi-20261021-120000/
       db.dump          # PostgreSQL custom format
       uploads.tar.gz   # 素材与附件
+      fernet.key       # 桌面版存在时一并备份，换机恢复后模型密钥仍可解密
       manifest.json    # 版本、校验和、文件清单
+
+    备份包含数据库与可选解密密钥，按敏感数据保管。
 
 恢复必须由管理员执行 ``scripts/restore_backup.sh``，应用内不提供一键覆盖
 （覆盖数据库属于不可逆操作）。
@@ -120,8 +123,15 @@ async def create_backup(trigger: str = "manual", label: str = "") -> dict:
     if _lock.locked():
         raise BackupError("已有备份正在执行")
     async with _lock:
-        pg_dump = shutil.which("pg_dump")
-        if pg_dump is None:
+        # 桌面版把 pgserver 随包的 pg_dump.exe 通过 KIWI_PG_DUMP_PATH 注入，
+        # 不依赖系统 PATH；Docker 仍回退到镜像内的 pg_dump。
+        pg_dump = (settings.pg_dump_path or "").strip()
+        if pg_dump:
+            if not Path(pg_dump).is_file():
+                raise BackupError(f"配置的 pg_dump 不存在：{pg_dump}")
+        else:
+            pg_dump = shutil.which("pg_dump") or ""
+        if not pg_dump:
             raise BackupError(
                 "未找到 pg_dump。请安装 postgresql-client，或使用 scripts/backup.sh 在宿主机执行。"
             )
@@ -177,6 +187,21 @@ async def create_backup(trigger: str = "manual", label: str = "") -> dict:
                         "sha256": await asyncio.to_thread(_sha256, uploads_file),
                     }
                 )
+            # 桌面版把模型 API Key 用本地 Fernet 密钥加密后存进数据库；
+            # 备份密钥后，换机恢复仍能解密已有配置（Docker 通常只设置环境变量，无文件）。
+            fernet_included = False
+            fernet_src = Path(settings.data_dir) / "secrets" / "fernet.key"
+            if fernet_src.is_file():
+                fernet_dst = tmp / "fernet.key"
+                await asyncio.to_thread(shutil.copy2, fernet_src, fernet_dst)
+                fernet_included = True
+                files.append(
+                    {
+                        "name": "fernet.key",
+                        "size": fernet_dst.stat().st_size,
+                        "sha256": await asyncio.to_thread(_sha256, fernet_dst),
+                    }
+                )
             manifest = {
                 "format": FORMAT,
                 "version": VERSION,
@@ -191,6 +216,7 @@ async def create_backup(trigger: str = "manual", label: str = "") -> dict:
                     "database": env["PGDATABASE"],
                 },
                 "uploads_included": uploads_included,
+                "fernet_key_included": fernet_included,
                 "retention_days": settings.backup_retention_days,
                 "files": files,
             }

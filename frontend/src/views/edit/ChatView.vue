@@ -10,6 +10,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useLlmStore } from '@/stores/llm'
+import { useDesktopStore } from '@/stores/desktop'
 import { openSSE } from '@/api/sse'
 import { request } from '@/api/client'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
@@ -82,6 +83,11 @@ const LEGACY_KEY = 'kiwi.chat.state.v1'
 
 const kbs = useKbsStore()
 const llm = useLlmStore()
+const desktop = useDesktopStore()
+/** 仅桌面构建 + 状态已就绪 + 没有可用大模型时拦截发送。 */
+const llmMissing = computed(
+  () => desktop.isDesktop && desktop.ready && !desktop.llmConfigured,
+)
 const router = useRouter()
 
 const messages = ref<Msg[]>([])
@@ -681,6 +687,10 @@ function historyMessages() {
 async function ask() {
   const text = input.value.trim()
   if (!text || streaming.value) return
+  if (llmMissing.value) {
+    toast.error('尚未配置大模型，请先在「设置 → 模型」中完成配置')
+    return
+  }
   if (!validateScope()) return
   if (!(await ensureSession())) return
   input.value = ''
@@ -743,7 +753,9 @@ function suggest(q: { text: string }) {
   void ask()
 }
 
-const canSend = computed(() => input.value.trim().length > 0 && !streaming.value)
+const canSend = computed(
+  () => input.value.trim().length > 0 && !streaming.value && !llmMissing.value,
+)
 
 // ---------- 引用跳转与定位 ----------
 const NOTE_KIND_LABEL: Record<string, string> = {
@@ -1289,29 +1301,53 @@ watch(
       <!-- 消息区 -->
       <div ref="scrollEl" class="flex-1 overflow-y-auto px-4 py-6 sm:px-6" @scroll="onScroll">
         <div class="mx-auto w-full space-y-6" style="max-width: min(1120px, 100%)">
-          <!-- 空态：建议 chips -->
+          <!-- 空态：建议 chips；桌面版未配置模型时给出明确入口 -->
           <div v-if="!messages.length" class="text-center pt-12 sm:pt-16 animate-fade-up">
-            <div
-              class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 grid place-items-center text-white shadow-glow mb-5"
-            >
-              <KiwiIcon name="chat" :size="28" />
-            </div>
-            <h2 class="text-lg font-semibold text-slate-700">向你的知识库提问</h2>
-            <p class="text-sm text-slate-400 mt-1.5 mb-8">
-              回答综合 Wiki 与笔记内容，并标注可点击的引用来源
-            </p>
-            <div class="flex flex-col sm:flex-row gap-3 items-center justify-center">
-              <button
-                v-for="(s, i) in suggestions"
-                :key="i"
-                class="px-4 py-2.5 rounded-2xl glass hover:border-kiwi-300 hover:shadow-lifted hover:-translate-y-0.5 text-sm text-slate-600 hover:text-kiwi-700 flex items-center gap-2 transition-all duration-200 animate-fade-up"
-                :style="{ animationDelay: `${200 + i * 80}ms` }"
-                @click="suggest(s)"
+            <template v-if="llmMissing">
+              <div
+                class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-slate-400 to-slate-600 grid place-items-center text-white shadow-glow mb-5"
               >
-                <KiwiIcon :name="s.icon" :size="14" class="text-kiwi-400" />
-                {{ s.text }}
+                <KiwiIcon name="monitor" :size="28" />
+              </div>
+              <h2 class="text-lg font-semibold text-slate-700">尚未配置大模型</h2>
+              <p class="text-sm text-slate-400 mt-1.5 mb-6 max-w-md mx-auto leading-relaxed">
+                桌面版不内置模型。可连接本机 Ollama / LM Studio，或在「设置 → 桌面」中显式允许外部模型接口。
+              </p>
+              <button
+                type="button"
+                class="kiwi-btn-primary"
+                @click="router.push('/settings/models')"
+              >
+                <KiwiIcon name="settings" :size="14" />
+                去配置模型
               </button>
-            </div>
+              <p class="mt-5 text-[11px] text-slate-400">
+                笔记编辑、本地导入与笔记搜索不需要模型，可正常使用。
+              </p>
+            </template>
+            <template v-else>
+              <div
+                class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 grid place-items-center text-white shadow-glow mb-5"
+              >
+                <KiwiIcon name="chat" :size="28" />
+              </div>
+              <h2 class="text-lg font-semibold text-slate-700">向你的知识库提问</h2>
+              <p class="text-sm text-slate-400 mt-1.5 mb-8">
+                回答综合 Wiki 与笔记内容，并标注可点击的引用来源
+              </p>
+              <div class="flex flex-col sm:flex-row gap-3 items-center justify-center">
+                <button
+                  v-for="(s, i) in suggestions"
+                  :key="i"
+                  class="px-4 py-2.5 rounded-2xl glass hover:border-kiwi-300 hover:shadow-lifted hover:-translate-y-0.5 text-sm text-slate-600 hover:text-kiwi-700 flex items-center gap-2 transition-all duration-200 animate-fade-up"
+                  :style="{ animationDelay: `${200 + i * 80}ms` }"
+                  @click="suggest(s)"
+                >
+                  <KiwiIcon :name="s.icon" :size="14" class="text-kiwi-400" />
+                  {{ s.text }}
+                </button>
+              </div>
+            </template>
           </div>
 
           <!-- 消息 -->

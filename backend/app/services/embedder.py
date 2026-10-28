@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.config import settings
+from app.services import offline_guard
 
 _executor = ThreadPoolExecutor(max_workers=2)
 _embedders: dict[str, object] = {}
@@ -33,6 +34,11 @@ _embedder_lock = threading.Lock()
 _REMOTE_RETRY_STATUS = {429, 500, 502, 503, 504}
 _REMOTE_MAX_ATTEMPTS = 3
 _REMOTE_PROVIDERS = {"openai", "remote", "api"}
+_DISABLED_PROVIDERS = {"none", "disabled", "off"}
+
+
+class EmbeddingUnavailable(RuntimeError):
+    """未启用向量模型（桌面版默认 provider=none）。"""
 
 
 @dataclass(frozen=True)
@@ -75,17 +81,24 @@ def runtime_config() -> EmbeddingRuntimeConfig:
     return _runtime_override or env_runtime_config()
 
 
+def is_disabled() -> bool:
+    """桌面版显式关闭向量模型（provider=none）。"""
+    return runtime_config().provider.strip().lower() in _DISABLED_PROVIDERS
+
+
 def is_remote_provider() -> bool:
     """是否使用远程 embedding 接口。"""
-    return runtime_config().provider.strip().lower() in _REMOTE_PROVIDERS
+    return not is_disabled() and runtime_config().provider.strip().lower() in _REMOTE_PROVIDERS
 
 
 def embedding_space(model: str | None = None) -> str:
     """向量空间标识：用于 Qdrant collection 命名与同空间判断。
 
     远程模式下只取决于线上模型名，与知识库本地模型配置无关；
-    本地模式沿用原有模型名。
+    本地模式沿用原有模型名；禁用时返回 ``disabled``。
     """
+    if is_disabled():
+        return "disabled"
     if is_remote_provider():
         return f"remote:{runtime_config().api_model.strip()}"
     return model or settings.embed_model
@@ -115,6 +128,8 @@ async def embed_texts_async(texts: list[str], model: str | None = None) -> list[
     """
     if not texts:
         return []
+    if is_disabled():
+        raise EmbeddingUnavailable("向量模型已关闭，无法生成向量；请先在设置中启用向量模型")
     if is_remote_provider():
         return await _embed_texts_remote(texts)
     target = model or settings.embed_model
@@ -203,6 +218,8 @@ async def _embed_texts_remote(
     """调用线上 OpenAI 兼容 embedding 接口，按批次并发请求。"""
     cfg = config or runtime_config()
     url = _remote_endpoint(cfg)
+    # 桌面离线模式：登记后才会允许该主机的外联；Docker 下为空操作。
+    offline_guard.register_endpoint(cfg.api_base)
     batch_size = max(1, cfg.batch_size)
     batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
     timeout = httpx.Timeout(max(5.0, cfg.timeout))
@@ -234,6 +251,7 @@ async def test_remote_connection(
         concurrency=1,
     )
     url = _remote_endpoint(cfg)
+    offline_guard.register_endpoint(cfg.api_base)
     started = time.perf_counter()
     async with httpx.AsyncClient(timeout=httpx.Timeout(max(5.0, timeout))) as client:
         vectors = await _request_embeddings(client, url, ["Kiwi 向量接口连通性测试"], cfg)

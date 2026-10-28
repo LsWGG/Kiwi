@@ -28,6 +28,7 @@ from app.services import (
     note_lock,
     qdrant_store,
 )
+from app.services.embedder import is_disabled
 
 logger = logging.getLogger("kiwi.notes.lock")
 
@@ -85,9 +86,12 @@ async def set_note_lock(
     await session.commit()
     # 上锁后立即清理该笔记的问答向量，避免正文从 AI 检索侧泄露。
     try:
-        kb = await session.get(KnowledgeBase, kb_id)
-        if kb is not None:
-            await asyncio.to_thread(qdrant_store.delete_note_chunks, note.id, kb.embedding_model)
+        if not is_disabled():
+            kb = await session.get(KnowledgeBase, kb_id)
+            if kb is not None:
+                await asyncio.to_thread(
+                    qdrant_store.delete_note_chunks, note.id, kb.embedding_model
+                )
     except Exception:  # noqa: BLE001 —— 向量库不可用时由后台巡检兜底
         logger.warning("清理上锁笔记向量失败：%s", note.id, exc_info=True)
     return NoteLockOut(

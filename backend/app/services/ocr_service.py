@@ -19,6 +19,8 @@ from pathlib import Path
 
 import httpx
 
+from app.config import settings
+
 logger = logging.getLogger("kiwi.ocr")
 
 # DeepSeek-OCR 等专用 OCR 模型对长提示词很敏感：提示词越复杂越容易输出
@@ -219,6 +221,9 @@ def current_config() -> OcrConfig:
 
 
 def is_available() -> bool:
+    # 桌面版默认离线：在线 OCR 一律不可用，解析器会回退本地 tesseract。
+    if settings.desktop_mode:
+        return False
     return _runtime.available
 
 
@@ -248,6 +253,8 @@ def _mime_for(path: Path | None = None, mime: str | None = None) -> str:
 
 
 def ocr_image_bytes(image: bytes, config: OcrConfig | None = None, mime: str | None = None) -> str:
+    if settings.desktop_mode:
+        raise OcrError("桌面版已禁用在线 OCR，请安装本地 Tesseract 或改用 Web 部署")
     cfg = config or _runtime
     if not cfg.available:
         raise OcrError("线上 OCR 未配置")
@@ -348,6 +355,8 @@ def ocr_pdf_pages(
 
 def test_connection(config: OcrConfig) -> tuple[bool, str, str]:
     """用内置测试页验证配置；返回 (ok, message, sample_text)。"""
+    if settings.desktop_mode:
+        return False, "桌面版已禁用在线 OCR，请安装本地 Tesseract 或改用 Web 部署", ""
     if not config.api_base.strip() or not config.api_model.strip():
         return False, "请填写接口地址与模型名", ""
     try:

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class EmbeddingConfigUpdate(BaseModel):
-    provider: Literal["local", "openai", "remote", "api"] = "local"
+    provider: Literal["local", "openai", "remote", "api", "none"] = "local"
     api_base: str = Field("", max_length=300)
     api_key: str | None = Field(None, max_length=500)  # None=保留现有/环境变量，空串=清除
     api_model: str = Field("", max_length=120)
@@ -32,7 +32,7 @@ class EmbeddingConfigOut(BaseModel):
 
 
 class EmbeddingTestRequest(BaseModel):
-    provider: Literal["local", "openai", "remote", "api"] = "openai"
+    provider: Literal["local", "openai", "remote", "api", "none"] = "openai"
     api_base: str = Field("", max_length=300)
     api_key: str | None = Field(None, max_length=500)
     api_model: str = Field("", max_length=120)

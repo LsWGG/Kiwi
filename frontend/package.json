@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "build:desktop": "vue-tsc -b && vite build --mode desktop && node ../desktop/scripts/check-offline-dist.mjs dist",
     "preview": "vite preview",
     "type-check": "vue-tsc -b --noEmit",
     "gen:emoji-shortcodes": "node scripts/generate-emoji-shortcodes.mjs",

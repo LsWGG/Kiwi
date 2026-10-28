@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { request } from '@/api/client'
+import { IS_DESKTOP } from '@/desktop/env'
 
 export interface PushDevice {
   id: string
@@ -47,8 +48,10 @@ export const usePushStore = defineStore('push', () => {
   const browserEndpoint = ref('')
   const permission = ref<NotificationPermission | 'unsupported'>('default')
 
+  // 桌面版不注册 Service Worker，也没有推送服务：整条链路直接视为不支持。
   const supported = computed(
     () =>
+      !IS_DESKTOP &&
       typeof window !== 'undefined' &&
       'Notification' in window &&
       'serviceWorker' in navigator &&
@@ -78,6 +81,14 @@ export const usePushStore = defineStore('push', () => {
   }
 
   async function load() {
+    if (IS_DESKTOP) {
+      // 桌面版禁用 Web Push，不请求 /push/status。
+      status.value = null
+      permission.value = 'unsupported'
+      subscribed.value = false
+      browserEndpoint.value = ''
+      return
+    }
     loading.value = true
     try {
       status.value = await request<PushStatus>('/push/status')

@@ -38,6 +38,7 @@ from app.services.builtin_demo import (
     purge_builtin_kb,
     restore_builtin,
 )
+from app.services.embedder import is_disabled
 from app.services.note_indexer import forget_kb
 from app.services.notebook_kernel import kernel_manager
 
@@ -420,10 +421,11 @@ async def delete_kb(kb_id: uuid.UUID, session: AsyncSession = Depends(get_sessio
         await session.commit()
         return
     # 级联删除库内数据，向量兜底清理
-    try:
-        qdrant_store.purge_kb(kb_id)
-    except Exception:  # noqa: BLE001
-        pass
+    if not is_disabled():
+        try:
+            qdrant_store.purge_kb(kb_id)
+        except Exception:  # noqa: BLE001
+            pass
     kernel_manager.purge_kb(str(kb_id))
     forget_kb(kb_id)
     await session.delete(kb)

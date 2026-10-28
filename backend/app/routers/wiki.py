@@ -399,30 +399,35 @@ async def create_page(
 
     # 派生数据：链接边与向量索引失败不阻塞页面创建
     try:
-        from app.services import qdrant_store
-        from app.services.embedder import embed_one_async
+        from app.services.embedder import is_disabled
         from app.services.wiki_compiler import _rebuild_wiki_links
 
         await _rebuild_wiki_links(session, kb_id)
         await session.commit()
-        model = await _kb_embedding_model(session, kb_id)
-        vector = await embed_one_async(f"{page.title}\n{page.body_md[:2000]}", model)
-        qdrant_store.upsert_wiki_pages(
-            kb_id,
-            [
-                {
-                    "vector": vector,
-                    "payload": {
-                        "page_id": str(page.id),
-                        "title": page.title,
-                        "slug": page.slug,
-                        "body_head": page.body_md[:500],
-                        "human_edited": page.human_edited,
-                    },
-                }
-            ],
-            model,
-        )
+        if not is_disabled():
+            from app.services import qdrant_store
+            from app.services.embedder import embed_one_async
+
+            model = await _kb_embedding_model(session, kb_id)
+            vector = await embed_one_async(
+                f"{page.title}\n{page.body_md[:2000]}", model
+            )
+            qdrant_store.upsert_wiki_pages(
+                kb_id,
+                [
+                    {
+                        "vector": vector,
+                        "payload": {
+                            "page_id": str(page.id),
+                            "title": page.title,
+                            "slug": page.slug,
+                            "body_head": page.body_md[:500],
+                            "human_edited": page.human_edited,
+                        },
+                    }
+                ],
+                model,
+            )
     except Exception:  # noqa: BLE001
         pass
 
@@ -1141,6 +1146,12 @@ async def reindex_wiki(
     更换 embedding 模型后，素材需要重新导入，Wiki 页可用本接口重建索引。
     """
     kb = await _require_kb(session, kb_id)
+    from app.services.embedder import is_disabled
+
+    if is_disabled():
+        raise HTTPException(
+            409, "向量模型已关闭，无法重建索引；请先在设置中启用向量模型。"
+        )
     pages = list(
         (
             await session.execute(select(WikiPage).where(WikiPage.kb_id == kb_id))
@@ -1464,30 +1475,35 @@ async def update_page(
 
     # 重建链接边 + 重新索引该页向量（失败不阻塞人工保存）
     try:
-        from app.services import qdrant_store
-        from app.services.embedder import embed_one_async
+        from app.services.embedder import is_disabled
         from app.services.wiki_compiler import _rebuild_wiki_links
 
         await _rebuild_wiki_links(session, kb_id)
         await session.commit()
-        model = await _kb_embedding_model(session, kb_id)
-        vector = await embed_one_async(f"{page.title}\n{page.body_md[:2000]}", model)
-        qdrant_store.upsert_wiki_pages(
-            kb_id,
-            [
-                {
-                    "vector": vector,
-                    "payload": {
-                        "page_id": str(page.id),
-                        "title": page.title,
-                        "slug": page.slug,
-                        "body_head": page.body_md[:500],
-                        "human_edited": page.human_edited,
-                    },
-                }
-            ],
-            model,
-        )
+        if not is_disabled():
+            from app.services import qdrant_store
+            from app.services.embedder import embed_one_async
+
+            model = await _kb_embedding_model(session, kb_id)
+            vector = await embed_one_async(
+                f"{page.title}\n{page.body_md[:2000]}", model
+            )
+            qdrant_store.upsert_wiki_pages(
+                kb_id,
+                [
+                    {
+                        "vector": vector,
+                        "payload": {
+                            "page_id": str(page.id),
+                            "title": page.title,
+                            "slug": page.slug,
+                            "body_head": page.body_md[:500],
+                            "human_edited": page.human_edited,
+                        },
+                    }
+                ],
+                model,
+            )
     except Exception:  # noqa: BLE001
         # 索引是派生数据，失败时保留 PG 事实，等待下次编译重建
         pass
@@ -1514,9 +1530,11 @@ async def delete_page(
     await session.commit()
     try:
         from app.services import qdrant_store
+        from app.services.embedder import is_disabled
 
-        model = await _kb_embedding_model(session, kb_id)
-        qdrant_store.delete_wiki_page(kb_id, page_id_str, model)
+        if not is_disabled():
+            model = await _kb_embedding_model(session, kb_id)
+            qdrant_store.delete_wiki_page(kb_id, page_id_str, model)
     except Exception:  # noqa: BLE001
         pass
     # 解除笔记与该页的关联，避免悬挂引用

@@ -679,3 +679,11 @@ scripts/backup.sh            宿主机备份（数据库 + uploads + manifest）
 scripts/restore_backup.sh    宿主机恢复（校验 + pg_restore）
 .dockerignore                构建上下文裁剪
 ```
+
+## 许可与源码
+
+Kiwi 按 GNU Affero 通用公共许可证第 3 版（AGPL-3.0）发布，完整文本见仓库根目录
+`LICENSE`，第三方组件说明见 `THIRD-PARTY-NOTICES.md`。分发本项目或其修改版本时，
+需遵守 AGPL-3.0 的相应义务，包括向接收者提供对应源代码；若通过网络向用户提供
+修改版本，还需按第 13 条向这些用户提供对应源代码。本项目源代码位于
+<https://github.com/LsWGG/Kiwi>。

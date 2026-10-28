@@ -18,7 +18,7 @@ from app.config import settings
 from app.db.models import KnowledgeBase, Note, NoteTagLink
 from app.services import qdrant_store
 from app.services import rerank as rerank_service
-from app.services.embedder import embed_one_async, embedding_space
+from app.services.embedder import embed_one_async, embedding_space, is_disabled
 from app.services.lexical import bm25_scores, title_boost, tokenize
 
 
@@ -239,6 +239,9 @@ async def search(
     """
     filters = filters or RetrievalFilters()
     if not kb_ids or not query.strip():
+        return []
+    if is_disabled():
+        # 无向量模型时没有任何语义召回；调用方应改用笔记全文搜索或提示配置模型。
         return []
     kind = _normalize_kind(collection)
     models = await _kb_models(db, kb_ids)

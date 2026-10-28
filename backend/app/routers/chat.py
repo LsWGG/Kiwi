@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
+from app.services.embedder import is_disabled
 from app.services.lexical import tokenize
 from app.services.llm_factory import LLMCrypto, llm_factory
 from app.services.note_indexer import ensure_notes_indexed
@@ -186,6 +187,10 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
     query = str(data.messages[-1].get("content", "")) if data.messages else ""
     if not query.strip():
         raise HTTPException(400, "问题不能为空")
+    if is_disabled():
+        raise HTTPException(
+            409, "向量模型已关闭，问答检索不可用；请先在设置中启用向量模型。"
+        )
 
     intent = route_intent(query) if data.intent in (None, "auto") else data.intent
     # 兼容旧客户端：raw 意图改由笔记承载（笔记是素材整理后的最终形态）。

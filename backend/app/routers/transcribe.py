@@ -20,6 +20,7 @@ from app.db.models import KnowledgeBase
 from app.db.models.system_settings import SYSTEM_SETTINGS_ID, SystemSettings
 from app.db.session import get_session
 from app.services import feishu_minutes, job_queue, transcription
+from app.services.desktop_guard import require_online_feature
 
 logger = logging.getLogger("kiwi.transcribe")
 
@@ -137,6 +138,7 @@ async def create_transcription(
     session: AsyncSession = Depends(get_session),
 ):
     """保存音频并创建后台转写任务；完成后生成会议笔记。"""
+    require_online_feature("transcribe")
     status = await transcription.build_status()
     if not status["enabled"]:
         raise HTTPException(
@@ -221,6 +223,7 @@ async def preview_transcription(
 @router.post("/feishu/test", response_model=FeishuTestOut)
 async def test_feishu(session: AsyncSession = Depends(get_session)):
     """用已保存的应用凭据与用户令牌验证飞书妙记是否可用。"""
+    require_online_feature("feishu")
     config = await feishu_minutes.load_config(session)
     ok, message = await feishu_minutes.test_connection(config)
     return FeishuTestOut(ok=ok, message=message)
@@ -232,6 +235,7 @@ async def feishu_oauth_start(
     session: AsyncSession = Depends(get_session),
 ):
     """生成飞书授权页链接；PC 端打开后可直接用飞书扫码登录。"""
+    require_online_feature("feishu")
     _cleanup_oauth()
     row = await session.get(SystemSettings, SYSTEM_SETTINGS_ID)
     app_id = (row.feishu_app_id if row else "") or ""
@@ -305,6 +309,7 @@ def _callback_page(ok: bool, message: str, origin: str) -> str:
 @router.get("/feishu/oauth/callback", include_in_schema=False)
 async def feishu_oauth_callback(code: str = "", state: str = "", error: str = ""):
     """飞书授权回调（浏览器 302 进入，靠一次性 state 校验）。"""
+    require_online_feature("feishu")
     _cleanup_oauth()
     entry = _oauth_states.pop(state, None)
     if entry is None:

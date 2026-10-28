@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
+import { IS_DESKTOP } from '@/desktop/env'
 import { toast } from '@/components/ui/toast'
 import { useSystemStore, type SystemSettings } from '@/stores/system'
 
@@ -120,6 +121,10 @@ function clampTimeout() {
 }
 
 async function testConnection() {
+  if (IS_DESKTOP) {
+    toast.error('桌面版已禁用在线 OCR，导入时只使用本地解析')
+    return
+  }
   if (!baseValid.value) {
     toast.info('接口地址必须以 http:// 或 https:// 开头')
     return
@@ -231,6 +236,15 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
     </div>
 
     <SettingsTabs v-if="!embedded" />
+
+    <!-- 桌面版不发起外网 OCR 请求 -->
+    <div
+      v-if="IS_DESKTOP"
+      class="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-[11.5px] leading-relaxed text-amber-700"
+    >
+      桌面版已禁用在线 OCR：导入扫描件时只使用本地解析，不会把页面发送到外部识别服务；
+      这里的接口配置在桌面版不会生效。
+    </div>
 
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
       <p class="text-xs leading-relaxed text-slate-500">
@@ -464,7 +478,12 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
           </div>
           <div class="flex items-center gap-2">
             <button class="kiwi-btn-ghost" @click="cancelEdit">取消</button>
-            <button class="kiwi-btn-secondary" :disabled="testing" @click="testConnection">
+            <button
+              class="kiwi-btn-secondary"
+              :disabled="testing || IS_DESKTOP"
+              :title="IS_DESKTOP ? '桌面版已禁用在线 OCR' : ''"
+              @click="testConnection"
+            >
               <KiwiIcon name="loader" :size="13" :spin="testing" />
               {{ testing ? '测试中…' : '测试连接' }}
             </button>

@@ -86,6 +86,18 @@ cd Kiwi
 
 首次启动会注入内置的 **「Kiwi 上手指南 · 功能演示知识库」**，包含 22 篇笔记、29 个 Wiki 页面以及完整的学习与考试数据，可自由修改、删除或还原。
 
+## Windows 桌面版（可选）
+
+独立窗口（WebView2）安装包把同一套应用与 PostgreSQL、Qdrant、便携 Python 一起交付。不内置任何大模型、向量模型、Whisper 或 OCR 模型，数据默认只留在本机；配置本机或 OpenAI 兼容接口后才启用 AI 功能。Docker 仍是主线部署方式。
+
+从 Releases 下载 `Kiwi-Setup-<version>.exe`，或在 Windows 10/11 x64 上构建：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.0.0
+```
+
+安装、离线边界、本机代码执行、备份恢复与故障排查见 [docs/WINDOWS.md](docs/WINDOWS.md)。
+
 ## Docker 部署
 
 生产环境使用独立的 Compose 文件，默认全部采用非常规端口：Web `18473`、API `18474`、PostgreSQL `15432`、Qdrant `16333 / 16334`。
@@ -115,8 +127,12 @@ Playwright 默认连接 `http://127.0.0.1:8000`，建议使用隔离测试库并
 
 ---
 
-## 版权声明
+## 版权与许可
 
-Copyright © 2026 LsWGG. 保留所有权利。
+Copyright © 2026 LsWGG。
 
-未经授权，不得复制、修改、分发或将本项目用于商业用途。完整条款见 [LICENSE](LICENSE)。
+Kiwi 是自由软件：你可以依据自由软件基金会发布的 GNU Affero 通用公共许可证第 3 版（SPDX: AGPL-3.0-only）重新分发和/或修改本项目。
+
+Kiwi 按“现状”分发，不附带任何明示或暗示的担保，包括但不限于适销性或特定用途适用性的担保。完整许可证文本见 [LICENSE](LICENSE)。
+
+由于安装包包含以 AGPL-3.0 授权的 PyMuPDF，分发版本整体按 AGPL-3.0 提供。对应源代码见 <https://github.com/LsWGG/Kiwi>，第三方组件声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。

@@ -33,6 +33,7 @@ from app.schemas.source import (
 )
 from app.services import import_service, ingest_service, upload_session
 from app.services.compile_status import reconcile_ingest_jobs
+from app.services.desktop_guard import require_online_feature
 from app.services.file_security import (
     MAX_DIRECT_UPLOAD_BYTES,
     FileRejected,
@@ -362,6 +363,7 @@ async def abort_chunked_upload(upload_id: str):
 @router.post("/yuque/repos")
 async def list_yuque_repos(data: YuqueReposRequest):
     """用令牌拉取可访问的知识库列表（个人 + 团队）。"""
+    require_online_feature("yuque_online")
     from app.services.yuque_importer import YuqueError, fetch_user_repos
 
     try:
@@ -377,6 +379,7 @@ async def import_from_yuque_token(
     session: AsyncSession = Depends(get_session),
 ):
     """令牌直连：后台串行拉取目录与正文，逐条入库。"""
+    require_online_feature("yuque_online")
     kb = await _get_kb(session, kb_id)
     if not data.token.strip():
         raise HTTPException(400, "请填写语雀访问令牌")

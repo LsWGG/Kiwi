@@ -4,11 +4,20 @@
  */
 import Emoji, { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { installEmojiShortcodeRule } from '@/lib/emojiShortcodes'
+import { IS_DESKTOP } from '@/desktop/env'
 import { createSuggestionPopup } from './suggestionPopup'
 
 type EmojiItem = (typeof emojis)[number]
 
-const emojiByName = new Map(emojis.map((item) => [item.name, item]))
+/**
+ * 桌面版去掉 emoji 的远程回退图片，始终渲染系统原生 emoji；
+ * Docker 构建保持上游数据集不变。
+ */
+const emojiItems: EmojiItem[] = IS_DESKTOP
+  ? emojis.map((item) => ({ ...item, fallbackImage: '' }))
+  : emojis
+
+const emojiByName = new Map(emojiItems.map((item) => [item.name, item]))
 
 const COMMON = [
   'smile',
@@ -93,7 +102,7 @@ function search(query: string): EmojiItem[] {
       .slice(0, 24)
   }
   const aliased = ZH_ALIASES[keyword]
-  return emojis
+  return emojiItems
     .filter((item) => {
       if (aliased && item.name === aliased) return true
       const haystack = `${item.name} ${(item.shortcodes || []).join(' ')} ${(item.tags || []).join(' ')}`
@@ -124,6 +133,7 @@ export const KiwiEmoji = Emoji.extend({
   },
 }).configure({
   HTMLAttributes: { class: 'kiwi-emoji' },
+  emojis: emojiItems,
   enableEmoticons: false,
   suggestion: {
     char: ':',

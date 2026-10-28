@@ -2,6 +2,7 @@
 /** 设置页统一导航：品牌 / 模型（大模型·向量·OCR）/ 运维 / 插件与区块。 */
 import { useRoute } from 'vue-router'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import { IS_DESKTOP } from '@/desktop/env'
 
 const route = useRoute()
 
@@ -10,6 +11,7 @@ const tabs = [
   { path: '/settings/models', label: '模型', icon: 'sparkle' },
   { path: '/settings/operations', label: '运维', icon: 'server' },
   { path: '/settings/plugins', label: '插件与区块', icon: 'puzzle' },
+  ...(IS_DESKTOP ? [{ path: '/settings/desktop', label: '桌面', icon: 'monitor' }] : []),
 ]
 
 /** 模型页使用 ?tab= 切换子页，父级导航仍保持高亮。 */

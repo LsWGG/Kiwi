@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase
 from app.db.session import get_session
 from app.schemas.chat import SearchHit, SearchRequest, SearchResponse
+from app.services.embedder import is_disabled
 from app.services.retrieval import RetrievalFilters, search
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -30,6 +31,10 @@ async def _resolve_kb_ids(
 async def do_search(data: SearchRequest, session: AsyncSession = Depends(get_session)):
     if not data.query.strip():
         raise HTTPException(422, "查询不能为空")
+    if is_disabled():
+        raise HTTPException(
+            409, "向量模型已关闭，语义检索不可用；请先在设置中启用向量模型。"
+        )
     kb_ids = await _resolve_kb_ids(session, data.scope.kb_ids, data.scope.scope)
     filters = RetrievalFilters(
         note_ids=list(data.scope.note_ids),

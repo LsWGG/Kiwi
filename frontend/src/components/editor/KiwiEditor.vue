@@ -124,6 +124,8 @@ import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
 import { usePluginsStore, type PluginBlock } from '@/stores/plugins'
 import { useExtensionsStore } from '@/stores/extensions'
+import { useDesktopStore } from '@/stores/desktop'
+import { IS_DESKTOP } from '@/desktop/env'
 import { toast } from '@/components/ui/toast'
 
 const props = withDefaults(
@@ -177,6 +179,7 @@ const kbs = useKbsStore()
 const notesStore = useNotesStore()
 const pluginsStore = usePluginsStore()
 const extensionsStore = useExtensionsStore()
+const desktop = useDesktopStore()
 const router = useRouter()
 const lowlight = createLowlight(common)
 
@@ -423,9 +426,18 @@ const previewDocument = computed(() => {
 })
 
 async function executePython(code: string) {
-  runLoading.value = true
   runError.value = ''
   runResult.value = null
+  if (IS_DESKTOP && desktop.ready && !desktop.localCodeEnabled) {
+    runError.value =
+      '桌面版本机代码执行默认关闭。请在「设置 → 桌面」中开启，并了解本机执行没有文件系统隔离。'
+    return
+  }
+  if (IS_DESKTOP && desktop.ready && !desktop.localCodeAvailable) {
+    runError.value = '本机执行组件未就绪，请重新安装桌面应用后再试。'
+    return
+  }
+  runLoading.value = true
   try {
     runResult.value = await runPython(code)
   } catch (e: any) {
@@ -481,6 +493,10 @@ async function runPythonAtCursor(): Promise<boolean> {
     if (node.type.name !== 'codeBlock') continue
     const source = String(node.attrs.language || '').toLowerCase()
     if (!['python', 'python3', 'py'].includes(source)) return false
+    if (IS_DESKTOP && desktop.ready && !desktop.localCodeEnabled) {
+      toast.error('桌面版本机代码执行默认关闭，请在「设置 → 桌面」中开启')
+      return true
+    }
     const pos = $from.before(depth)
     const code = node.textContent
     let output: string
@@ -2771,7 +2787,9 @@ defineExpose({
                 {{
                   isPreviewRun
                     ? '在隔离的 iframe 中渲染，不会影响笔记正文'
-                    : '在本机受限子进程中执行，最多 10 秒'
+                    : IS_DESKTOP
+                      ? '在本机受限进程中执行（非文件系统沙箱）'
+                      : '在本机受限子进程中执行，最多 10 秒'
                 }}
               </p>
             </div>
@@ -2841,6 +2859,18 @@ defineExpose({
                   <span class="text-slate-400">退出码 {{ runResult.exit_code ?? '—' }}</span>
                   <span class="text-slate-400">{{ runResult.duration_ms }} ms</span>
                   <span v-if="runResult.truncated" class="text-amber-500">输出已截断</span>
+                  <span
+                    v-if="runResult.engine === 'windows-job'"
+                    class="rounded-md bg-amber-50 px-2 py-0.5 text-amber-600"
+                  >
+                    本机执行 · 非隔离
+                  </span>
+                </div>
+                <div
+                  v-if="runResult.warning"
+                  class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700"
+                >
+                  {{ runResult.warning }}
                 </div>
 
                 <div

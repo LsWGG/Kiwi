@@ -45,6 +45,7 @@ from app.services import (
     ingest_service,
     upload_session,
 )
+from app.services.desktop_guard import require_online_feature
 from app.services.file_security import (
     MAX_DIRECT_UPLOAD_BYTES,
     FileInspection,
@@ -427,6 +428,7 @@ async def import_remote_file(
     session: AsyncSession = Depends(get_session),
 ):
     """按 URL 下载线上文件 → 创建导入笔记 + 后台解析。"""
+    require_online_feature("remote_import")
     kb = await session.get(KnowledgeBase, kb_id)
     if kb is None:
         raise HTTPException(404, "知识库不存在")
@@ -707,6 +709,7 @@ async def import_status(
 @router.post("/link/meta", response_model=LinkMetaOut)
 async def link_meta(data: LinkMetaIn):
     """只读取网页元信息（标题 / 站点 / 摘要），供编辑器插入链接卡片。"""
+    require_online_feature("link_fetch")
     try:
         result = await fetch_meta(data.url)
     except LinkFetchError as e:
@@ -732,6 +735,7 @@ async def create_link(
     ``readonly=True`` 时只抓取标题 / 摘要，保留为只读书签，不生成正文，
     也不参与编译与可编辑文档。
     """
+    require_online_feature("link_fetch")
     await _validate_folder(session, kb_id, data.folder_id)
     parent = await _validate_note_parent(
         session, kb_id, None, data.parent_note_id
@@ -793,6 +797,7 @@ async def create_link(
 async def refresh_link(
     note_id: uuid.UUID, kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ):
+    require_online_feature("link_fetch")
     note = await _get_note(session, kb_id, note_id)
     if note.kind != "link":
         raise HTTPException(404, "不是链接笔记")

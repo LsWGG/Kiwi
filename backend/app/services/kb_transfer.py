@@ -61,6 +61,7 @@ from app.db.models import (
     WikiPage,
 )
 from app.db.session import async_session_factory
+from app.services.embedder import is_disabled
 from app.services.source_paths import resolve_raw_path
 
 logger = logging.getLogger("kiwi.transfer")
@@ -585,12 +586,17 @@ async def import_package(session: AsyncSession, package_path: Path) -> tuple[Kno
         zf.close()
 
     stats["files"] = len(created_files)
-    # 后台重建向量索引，不阻塞导入响应。
-    asyncio.create_task(_reindex_imported(new_kb_id), name=f"kb-import-index:{new_kb_id}")
+    # 后台重建向量索引，不阻塞导入响应；未启用向量模型时跳过。
+    if not is_disabled():
+        asyncio.create_task(
+            _reindex_imported(new_kb_id), name=f"kb-import-index:{new_kb_id}"
+        )
     return kb, stats
 
 
 async def _reindex_imported(kb_id: uuid.UUID) -> None:
+    if is_disabled():
+        return
     try:
         from app.services import qdrant_store
         from app.services.embedder import embed_texts_async

@@ -4,8 +4,18 @@
 
 ## 未发布
 
+### 新增
+
+- 新增桌面版前端构建（`npm run build:desktop`）：改用系统字体栈并移除 Google Fonts 与 emoji CDN 回退；远程图片、图册、YouTube 与网页嵌入显示本地占位，编辑器与阅读态均不发起外网请求。Docker / Web 构建行为保持不变。
+- 新增桌面设置页（`/settings/desktop`）：展示本地运行状态与数据 / 日志目录，集中管理「允许连接外部模型接口」与「本机代码执行」开关，两者默认关闭且开启前必须确认风险。
+- 未配置模型时，问答、Wiki 编译、学习出题与向量设置显示明确的「未配置模型」空态和设置入口，不再自动请求外部接口。
+- 新增 Windows 桌面版安装包构建链路：`desktop/build.ps1` 一键构建桌面前端、PyInstaller runtime、便携 Python 与 .NET WebView2 宿主，并生成 Inno Setup 安装包与 SHA-256；第三方组件版本与校验值固定在 `desktop/versions.json`。
+- 新增 Windows 发布工作流：推送 `v*` 标签或手动触发时构建安装包，执行静默安装、安装后 smoke-test、卸载与用户数据保留检查，并可选择证书签名。
+- 新增 `docs/WINDOWS.md`：安装、离线边界、模型配置、本机代码执行、备份恢复、故障排查与源码构建说明。
+
 ### 变更
 
+- 项目由专有许可切换为 GNU AGPL-3.0，以匹配安装包内置的 PyMuPDF；Windows 安装包同步包含 `LICENSE`，README 与 `THIRD-PARTY-NOTICES.md` 说明源码获取与再分发义务。
 - `deploy.sh` 改为渐进式交互向导：按需询问访问地址、访问令牌、端口冲突、前端构建、部署前备份与 Cloudflare 隧道；`--yes` 保留非交互部署。
 - 生产 Compose 新增可选 `cloudflared` 服务（`cloudflare` profile），可用 `./deploy.sh cloudflare` 一键配置、启动和停止公网只读分享。
 - `./deploy.sh cloudflare` 支持用 Cloudflare API Token 自动创建隧道、写入路径白名单 ingress 并添加 DNS 解析，只需填写分享域名；同时支持用户级 Token（`cfut_`）与账户级 Token（`cfat_`，需 Account ID）。配置前会校验域名格式、所属区域与解析冲突，API Token 不写入 `.env.prod`。
@@ -21,6 +31,7 @@
 ### 修复
 
 - 修复备份任务因后端镜像内的 `pg_dump` 15 与 PostgreSQL 16 服务端版本不匹配而失败；镜像改用 PGDG 源安装 `postgresql-client-16`，并支持通过 `PGDG_MIRROR` 切换镜像站。
+- 备份优先使用配置的 `pg_dump` 路径（桌面版指向随包的 PostgreSQL 16），并在桌面版一并备份 `fernet.key`，换机恢复后已保存的模型密钥仍可解密。
 - 修复高分辨率界面缩放下编辑器气泡菜单与日期选择弹层定位偏移、遮挡正文的问题。
 - 修复语音转写录音在 HTTP 局域网地址下被浏览器安全策略拦截时提示笼统的问题：明确安全上下文限制，并提供「改为上传音频」入口。
 - 修复历史版本实际最多保留 100 个、与界面标注的 60 个不一致；现统一为每篇最多 60 个，并在新快照写入时清理超量记录。

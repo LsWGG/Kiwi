@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { request } from '@/api/client'
+import { IS_DESKTOP } from '@/desktop/env'
 import { toast } from '@/components/ui/toast'
 import { useSystemStore, type SystemSettings } from '@/stores/system'
 
@@ -172,6 +173,10 @@ async function save(silent = false) {
 }
 
 async function testConnection() {
+  if (IS_DESKTOP) {
+    toast.error('桌面版已禁用语音转写，无法测试飞书妙记')
+    return
+  }
   if (dirty.value) {
     const ok = await save(true)
     if (!ok) return
@@ -251,6 +256,10 @@ async function pollAuth(
 }
 
 async function startAuth() {
+  if (IS_DESKTOP) {
+    toast.error('桌面版已禁用飞书妙记授权')
+    return
+  }
   if (authorizing.value) return
   const popup = window.open(
     'about:blank',
@@ -296,12 +305,21 @@ function useCurrentOrigin() {
 
 <template>
   <div class="space-y-5">
+    <!-- 桌面版不下载 whisper 模型，也不连接飞书妙记 -->
+    <div
+      v-if="IS_DESKTOP"
+      class="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-[11.5px] leading-relaxed text-amber-700"
+    >
+      桌面版已禁用语音转写：不下载 faster-whisper 模型，也不连接飞书妙记。
+      已有转写笔记仍可阅读；如需转写，请使用 Docker / Web 部署。
+    </div>
+
     <div v-if="loading" class="py-16 text-center text-sm text-slate-400">
       <KiwiIcon name="loader" :size="18" :spin="true" class="inline-block" />
       读取转写配置…
     </div>
 
-    <template v-else>
+    <template v-else-if="!IS_DESKTOP">
       <!-- 通道选择 -->
       <div class="grid gap-2 sm:grid-cols-3">
         <button

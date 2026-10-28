@@ -6,6 +6,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
+import { useDesktopStore } from '@/stores/desktop'
 import { request } from '@/api/client'
 import {
   useStudyStore,
@@ -33,8 +34,14 @@ import { toast } from '@/components/ui/toast'
 const kbs = useKbsStore()
 const study = useStudyStore()
 const mode = useModeStore()
+const desktop = useDesktopStore()
 const router = useRouter()
 const route = useRoute()
+
+/** 出题、组卷、主观题判分都依赖大模型。 */
+const llmMissing = computed(
+  () => desktop.isDesktop && desktop.ready && !desktop.llmConfigured,
+)
 
 type Pane =
   | 'review'
@@ -132,6 +139,10 @@ const TYPE_OPTIONS: Array<{ value: TypeChoice; label: string; desc: string }> = 
 ]
 
 async function startTrain(mode: StudyMode = 'drill', topicSlug?: string) {
+  if (llmMissing.value) {
+    toast.error('桌面版尚未配置大模型，无法生成题目')
+    return
+  }
   finishResult.value = null
   trainMode.value = mode
   drillLoading.value = true
@@ -168,6 +179,10 @@ async function maybeStartPendingTopic() {
 }
 
 async function startWeak() {
+  if (llmMissing.value) {
+    toast.error('桌面版尚未配置大模型，无法生成题目')
+    return
+  }
   finishResult.value = null
   drillLoading.value = true
   active.value = 'train'
@@ -531,6 +546,22 @@ onMounted(() => {
 
         <!-- 未开始 -->
         <div v-else-if="!study.currentQuestion && !finishResult" class="animate-fade-up">
+          <div
+            v-if="llmMissing"
+            class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3"
+          >
+            <KiwiIcon name="alert" :size="15" class="shrink-0 text-amber-500" />
+            <p class="min-w-0 flex-1 text-[12px] leading-relaxed text-amber-700">
+              桌面版尚未配置大模型，暂时不能生成新题或批阅主观题。复习队列与错题本仍可查看。
+            </p>
+            <button
+              type="button"
+              class="shrink-0 text-[12px] font-medium text-amber-700 underline decoration-amber-300 underline-offset-2 hover:text-amber-800"
+              @click="router.push('/settings/models')"
+            >
+              去配置模型
+            </button>
+          </div>
           <div class="text-center py-6">
             <div class="mx-auto w-16 h-16 rounded-3xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 grid place-items-center text-white shadow-glow mb-5">
               <KiwiIcon name="target" :size="30" />
@@ -567,12 +598,22 @@ onMounted(() => {
             </div>
 
             <div class="flex flex-wrap items-center gap-2 mt-5">
-              <button class="kiwi-btn-primary px-6" :disabled="drillLoading" @click="startTrain('drill')">
+              <button
+                class="kiwi-btn-primary px-6"
+                :disabled="drillLoading || llmMissing"
+                :title="llmMissing ? '桌面版尚未配置大模型，无法生成题目' : ''"
+                @click="startTrain('drill')"
+              >
                 <KiwiIcon v-if="drillLoading" name="loader" :size="16" spin />
                 <KiwiIcon v-else name="play" :size="15" />
                 开始训练（{{ study.sessionSize }} 题一组）
               </button>
-              <button class="kiwi-btn-secondary" @click="startWeak">
+              <button
+                class="kiwi-btn-secondary"
+                :disabled="llmMissing"
+                :title="llmMissing ? '桌面版尚未配置大模型，无法生成题目' : ''"
+                @click="startWeak"
+              >
                 <KiwiIcon name="target" :size="14" />
                 薄弱点专项
               </button>

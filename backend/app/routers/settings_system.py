@@ -19,6 +19,7 @@ from app.schemas.system import (
     SystemSettingsUpdate,
 )
 from app.services import ocr_service, system_settings
+from app.services.desktop_guard import require_online_feature
 from app.services.llm_factory import CryptoError, LLMCrypto
 
 router = APIRouter(prefix="/api/settings/system", tags=["settings"])
@@ -185,6 +186,7 @@ async def test_ocr(
     data: OcrTestIn, session: AsyncSession = Depends(get_session)
 ):
     """用内置测试页验证 OCR 接口是否可用。"""
+    require_online_feature("online_ocr")
     row = await system_settings.get_row(session)
     saved = system_settings.runtime_from_row(row)
     key = data.api_key if data.api_key is not None else saved.api_key

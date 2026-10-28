@@ -17,6 +17,8 @@ import {
 } from '@tiptap/pm/view'
 import type { createLowlight } from 'lowlight'
 import { runPython } from '@/api/run'
+import { IS_DESKTOP } from '@/desktop/env'
+import { useDesktopStore } from '@/stores/desktop'
 import { formatRunResult, upsertCodeOutput } from './codeOutput'
 import { buildPreviewDocument } from './preview'
 
@@ -96,10 +98,12 @@ class CodeBlockView implements NodeView {
   private node: PMNode
   private editor: Editor
   private getPos: () => number | undefined
+  private desktop = useDesktopStore()
   private previewWrap: HTMLElement
   private previewFrame: HTMLIFrameElement
   private previewLabel: HTMLElement
   private runButton: HTMLButtonElement
+  private runBadge: HTMLElement
   private copyButton: HTMLButtonElement
   private renderTimer: number | undefined
   private renderedCode = ''
@@ -124,6 +128,12 @@ class CodeBlockView implements NodeView {
     tools.className = 'code-tools'
     tools.contentEditable = 'false'
     this.runButton = makeToolButton('code-run-btn', '运行')
+    // 桌面版开启本机执行后，明确标注「非隔离」。
+    this.runBadge = document.createElement('span')
+    this.runBadge.className = 'code-run-badge'
+    this.runBadge.textContent = '本机执行（非隔离）'
+    this.runBadge.hidden = true
+    tools.appendChild(this.runBadge)
     this.runButton.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -236,6 +246,7 @@ class CodeBlockView implements NodeView {
     const kind = this.kind
     if (!kind) {
       this.runButton.style.display = 'none'
+      this.runBadge.hidden = true
     } else {
       this.runButton.style.display = ''
       this.runButton.textContent =
@@ -249,10 +260,19 @@ class CodeBlockView implements NodeView {
       this.runButton.disabled = kind === 'python' && this.running
       this.runButton.title =
         kind === 'python'
-          ? '运行 Python，结果显示在代码块下方'
+          ? IS_DESKTOP
+            ? this.desktop.localCodeEnabled
+              ? '本机执行（非隔离），结果显示在代码块下方'
+              : '桌面版本机执行默认关闭，请在「设置 → 桌面」中开启'
+            : '运行 Python，结果显示在代码块下方'
           : this.previewOn
             ? '收起正文预览'
             : '在正文中渲染预览'
+      this.runBadge.hidden = !(
+        IS_DESKTOP &&
+        kind === 'python' &&
+        this.desktop.localCodeEnabled
+      )
     }
 
     this.dom.classList.toggle('is-previewing', this.previewOn)
@@ -308,6 +328,17 @@ class CodeBlockView implements NodeView {
     this.sync()
     const code = this.node.textContent
     const pos = this.getPos()
+    if (IS_DESKTOP && !this.desktop.localCodeEnabled) {
+      upsertCodeOutput(
+        this.editor,
+        pos,
+        code,
+        '桌面版本机代码执行默认关闭。请在「设置 → 桌面」中开启后重试。',
+      )
+      this.running = false
+      this.sync()
+      return
+    }
     let output: string
     try {
       output = formatRunResult(await runPython(code))

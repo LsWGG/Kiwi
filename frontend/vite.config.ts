@@ -242,8 +242,47 @@ function buildInfoPlugin(): Plugin {
   }
 }
 
+/**
+ * 桌面模式（`vite build --mode desktop` 与 `vite --mode desktop`）：
+ * - index.html 去掉 Google Fonts 的 preconnect / stylesheet，运行时改用
+ *   Windows 系统字体（见 styles/main.css 的 .kiwi-desktop 覆盖）；
+ * - @tiptap/extension-emoji 默认数据集带有 1800+ 个 jsDelivr 的
+ *   fallbackImage，构建期替换为空字符串，保证产物零远程引用。
+ * 开发模式同样移除字体链接，桌面 Playwright 用例才能复现构建产物行为。
+ */
+const EMOJI_FALLBACK_RE =
+  /https:\/\/cdn\.jsdelivr\.net\/npm\/emoji-datasource-apple\/img\/apple\/64\/[^"'\\\s]+\.png/g
+
+function desktopIndexPlugin(): Plugin {
+  return {
+    name: 'kiwi-desktop-index',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html) {
+        return html
+          .replace(/\s*<link\b[^>]*fonts\.googleapis\.com[^>]*>\s*/g, '\n')
+          .replace(/\s*<link\b[^>]*fonts\.gstatic\.com[^>]*>\s*/g, '\n')
+      },
+    },
+  }
+}
+
+function desktopOfflineAssetsPlugin(): Plugin {
+  return {
+    name: 'kiwi-desktop-offline-assets',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== 'chunk') continue
+        output.code = output.code.replace(EMOJI_FALLBACK_RE, '')
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
+  const isDesktop = mode === 'desktop'
   // 后端地址可配：VITE_BACKEND_PROXY=http://localhost:8001 npm run dev
   const env = loadEnv(mode, process.cwd(), '')
   const backendTarget = env.VITE_BACKEND_PROXY || 'http://localhost:8000'
@@ -257,6 +296,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      ...(isDesktop ? [desktopIndexPlugin(), desktopOfflineAssetsPlugin()] : []),
       portalDevPlugin(),
       pdfjsAssetsDevPlugin(),
       pdfjsAssetsBuildPlugin(),

@@ -6,6 +6,8 @@ import { request } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
 import { useNotesStore } from '@/stores/notes'
+import { useDesktopStore } from '@/stores/desktop'
+import { IS_DESKTOP } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiStat from '@/components/ui/KiwiStat.vue'
 import KiwiSkeleton from '@/components/ui/KiwiSkeleton.vue'
@@ -100,6 +102,21 @@ interface LintReport {
 const kbs = useKbsStore()
 const mode = useModeStore()
 const notesStore = useNotesStore()
+const desktop = useDesktopStore()
+
+/** Docker 构建恒为 true；桌面版分别以 LLM / embedding 是否配置为准。 */
+const desktopCompileReady = computed(() => !IS_DESKTOP || desktop.llmConfigured)
+const desktopReindexReady = computed(() => !IS_DESKTOP || desktop.embeddingEnabled)
+const desktopModelHint = computed(() => {
+  if (!IS_DESKTOP || !desktop.ready) return ''
+  if (!desktop.llmConfigured) {
+    return '桌面版尚未配置大模型，暂时不能编译 Wiki 或执行语义审查；已有页面仍可浏览。'
+  }
+  if (!desktop.embeddingEnabled) {
+    return '桌面版未启用向量模型：可以编译 Wiki，但无法写入或重建页面向量。'
+  }
+  return ''
+})
 const router = useRouter()
 /** 学习模式下 Wiki 总览跟随学习知识库，避免从引用跳转时落到编辑库。 */
 const kbId = computed(() =>
@@ -156,6 +173,10 @@ async function purgeCompiledData() {
 
 /** 清空全部 Wiki 页面与向量，再把全部笔记重新编译。 */
 async function rebuildWiki() {
+  if (!desktopCompileReady.value) {
+    toast.error('桌面版尚未配置大模型，无法编译 Wiki')
+    return
+  }
   if (!kbId.value || rebuilding.value) return
   const pageCount = ov.value?.page_count ?? 0
   const ok = window.confirm(
@@ -190,6 +211,10 @@ async function rebuildWiki() {
 /** Wiki 重建后的队列在编译任务页统一查看。 */
 
 async function compileAllNotes() {
+  if (!desktopCompileReady.value) {
+    toast.error('桌面版尚未配置大模型，无法编译笔记')
+    return
+  }
   if (!kbId.value) return
   compilingNotes.value = true
   try {
@@ -342,6 +367,10 @@ const categoryLabel: Record<string, string> = {
 
 async function runLint(full: boolean) {
   if (!kbId.value) return
+  if (full && !desktopCompileReady.value) {
+    toast.error('桌面版尚未配置大模型，改为执行确定性检查')
+    full = false
+  }
   lintOpen.value = true
   linting.value = true
   lintFull.value = full
@@ -445,6 +474,10 @@ async function resetSchema() {
 }
 
 async function reindexWiki() {
+  if (!desktopReindexReady.value) {
+    toast.error('桌面版未启用向量模型，无法重建 Wiki 向量')
+    return
+  }
   if (!kbId.value) return
   schemaReindexing.value = true
   try {
@@ -514,8 +547,12 @@ async function reindexWiki() {
         <button
           type="button"
           class="kiwi-btn-secondary"
-          :disabled="rebuilding || purging || !ov?.page_count"
-          title="删除全部 Wiki 页面，并从全部笔记重新编译"
+          :disabled="rebuilding || purging || !ov?.page_count || !desktopCompileReady"
+          :title="
+            desktopCompileReady
+              ? '删除全部 Wiki 页面，并从全部笔记重新编译'
+              : '桌面版尚未配置大模型，无法编译 Wiki'
+          "
           @click="rebuildWiki"
         >
           <KiwiIcon :name="rebuilding ? 'loader' : 'refresh'" :size="14" :spin="rebuilding" />
@@ -530,6 +567,22 @@ async function reindexWiki() {
           刷新
         </button>
       </div>
+    </div>
+
+    <!-- 桌面版模型状态提示 -->
+    <div
+      v-if="desktopModelHint"
+      class="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 animate-fade-up"
+    >
+      <KiwiIcon name="alert" :size="15" class="shrink-0 text-amber-500" />
+      <p class="min-w-0 flex-1 text-[12.5px] text-amber-700">{{ desktopModelHint }}</p>
+      <button
+        type="button"
+        class="shrink-0 text-[12px] font-medium text-amber-700 underline decoration-amber-300 underline-offset-2 transition-colors hover:text-amber-800"
+        @click="router.push('/settings/models')"
+      >
+        去配置模型
+      </button>
     </div>
 
     <!-- 统计卡片 -->
@@ -629,9 +682,13 @@ async function reindexWiki() {
           <div class="ml-auto flex items-center gap-1.5">
             <button
               type="button"
-              class="text-[11px] text-slate-500 transition-colors hover:text-kiwi-700"
-              :disabled="compilingNotes"
-              title="把本库全部笔记（文档 / 导入 / 链接 / 数据表 / 画布 / Notebook）编译进 Wiki"
+              class="text-[11px] text-slate-500 transition-colors hover:text-kiwi-700 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="compilingNotes || !desktopCompileReady"
+              :title="
+                desktopCompileReady
+                  ? '把本库全部笔记（文档 / 导入 / 链接 / 数据表 / 画布 / Notebook）编译进 Wiki'
+                  : '桌面版尚未配置大模型，无法编译笔记'
+              "
               @click="compileAllNotes"
             >
               <KiwiIcon
@@ -889,8 +946,12 @@ async function reindexWiki() {
           </p>
           <button
             class="kiwi-btn-ghost !py-1.5 !text-xs"
-            :disabled="schemaReindexing"
-            title="更换 embedding 模型后，用当前模型重建全部 Wiki 页向量"
+            :disabled="schemaReindexing || !desktopReindexReady"
+            :title="
+              desktopReindexReady
+                ? '更换 embedding 模型后，用当前模型重建全部 Wiki 页向量'
+                : '桌面版未启用向量模型，无法重建 Wiki 向量'
+            "
             @click="reindexWiki"
           >
             <KiwiIcon name="refresh" :size="12" :class="schemaReindexing ? 'animate-spin' : ''" />
@@ -929,7 +990,12 @@ async function reindexWiki() {
           <button class="kiwi-btn-secondary !py-1.5 !text-xs" :disabled="linting" @click="runLint(false)">
             快速检查
           </button>
-          <button class="kiwi-btn-primary !py-1.5 !text-xs" :disabled="linting" @click="runLint(true)">
+          <button
+            class="kiwi-btn-primary !py-1.5 !text-xs"
+            :disabled="linting || !desktopCompileReady"
+            :title="desktopCompileReady ? '' : '桌面版尚未配置大模型，无法执行语义审查'"
+            @click="runLint(true)"
+          >
             <KiwiIcon v-if="linting && lintFull" name="loader" :size="12" spin />
             完整检查
           </button>

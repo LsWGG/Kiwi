@@ -8,6 +8,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { request } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
+import { useDesktopStore } from '@/stores/desktop'
 import { toast } from '@/components/ui/toast'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
@@ -46,6 +47,12 @@ const emit = defineEmits<{
 
 const kbs = useKbsStore()
 const router = useRouter()
+const desktop = useDesktopStore()
+
+/** 仅桌面构建 + 状态就绪 + 未配置大模型时禁用 AI 辅助。 */
+const llmMissing = computed(
+  () => desktop.isDesktop && desktop.ready && !desktop.llmConfigured,
+)
 
 const ACTIONS: { id: AssistAction; label: string; hint: string; icon: string }[] = [
   { id: 'continue', label: '续写', hint: '接着当前内容写', icon: 'sparkle' },
@@ -82,6 +89,10 @@ function refreshSelectionHint() {
 }
 
 async function run(action: AssistAction) {
+  if (llmMissing.value) {
+    toast.error('桌面版尚未配置大模型，请先在「设置 → 模型」中完成配置')
+    return
+  }
   const selection = props.getSelection()
   const context = props.getDocumentText()
   if (action === 'custom' && !instruction.value.trim()) {
@@ -183,6 +194,24 @@ async function copyResult() {
     >
       <KiwiIcon name="close" :size="12" />
     </button>
+
+    <!-- 桌面版未配置模型：保留面板，禁用生成入口并给出配置路径 -->
+    <div v-if="llmMissing" class="flex items-start gap-2 border-b border-slate-100 px-3.5 py-2.5 pr-10">
+      <KiwiIcon name="alert" :size="13" class="mt-0.5 shrink-0 text-amber-500" />
+      <div class="min-w-0 flex-1">
+        <p class="text-[11.5px] font-medium text-slate-600">尚未配置大模型</p>
+        <p class="mt-0.5 text-[10.5px] leading-relaxed text-slate-400">
+          AI 写作辅助需要大模型。正文编辑、搜索与 Wiki 浏览不受影响。
+        </p>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-kiwi-600 hover:bg-kiwi-50"
+        @click="router.push('/settings/models')"
+      >
+        去配置
+      </button>
+    </div>
 
     <!-- 生成结果 -->
     <div v-if="busy || result" class="border-b border-slate-100">
@@ -302,7 +331,7 @@ async function copyResult() {
         type="button"
         class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700 disabled:opacity-40"
         :title="action.hint"
-        :disabled="busy"
+        :disabled="busy || llmMissing"
         @click="run(action.id)"
       >
         <KiwiIcon
@@ -324,8 +353,8 @@ async function copyResult() {
         v-model="instruction"
         rows="1"
         class="agent-input max-h-28 min-h-[34px] flex-1 resize-none rounded-xl border border-transparent bg-transparent px-1 py-1.5 text-[12.5px] leading-relaxed text-slate-700 outline-none placeholder:text-slate-400"
-        placeholder="修改文档，或输入指令…"
-        :disabled="busy"
+        :placeholder="llmMissing ? '配置模型后可用' : '修改文档，或输入指令…'"
+        :disabled="busy || llmMissing"
         @focus="refreshSelectionHint"
         @keydown.enter.exact.prevent="run('custom')"
         @keydown.shift.enter.stop
@@ -334,7 +363,7 @@ async function copyResult() {
       <button
         type="button"
         class="mb-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-kiwi-600 text-white shadow-sm transition-all hover:bg-kiwi-700 active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-        :disabled="busy || !instruction.trim()"
+        :disabled="busy || llmMissing || !instruction.trim()"
         title="执行指令（Enter）"
         @click="run('custom')"
       >

@@ -20,6 +20,7 @@ from app.schemas.llm import (
     TestConnRequest,
     TestConnResult,
 )
+from app.services.desktop_guard import validate_model_url
 from app.services.llm_factory import CryptoError, LLMCrypto, llm_factory
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -59,6 +60,7 @@ async def list_configs(session: AsyncSession = Depends(get_session)):
 
 @router.post("/configs", response_model=LLMConfigOut, status_code=201)
 async def create_config(data: LLMConfigCreate, session: AsyncSession = Depends(get_session)):
+    base_url = validate_model_url(data.base_url)
     encrypted = ""
     if data.api_key:
         try:
@@ -68,7 +70,7 @@ async def create_config(data: LLMConfigCreate, session: AsyncSession = Depends(g
     cfg = LLMConfig(
         name=data.name,
         provider=data.provider,
-        base_url=data.base_url,
+        base_url=base_url,
         model_name=data.model_name,
         encrypted_api_key=encrypted,
         is_default=data.is_default,
@@ -92,7 +94,7 @@ async def update_config(
     if data.provider is not None:
         cfg.provider = data.provider
     if data.base_url is not None:
-        cfg.base_url = data.base_url
+        cfg.base_url = validate_model_url(data.base_url)
     if data.model_name is not None:
         cfg.model_name = data.model_name
     if data.api_key is not None:
@@ -120,13 +122,15 @@ async def delete_config(cfg_id: uuid.UUID, session: AsyncSession = Depends(get_s
 
 @router.post("/test", response_model=TestConnResult)
 async def test_connection(data: TestConnRequest):
+    base_url = validate_model_url(data.base_url)
     api_key = data.api_key or None
-    ok, msg, err_type = await llm_factory.test_connection(data.base_url, api_key, data.model_name)
+    ok, msg, err_type = await llm_factory.test_connection(base_url, api_key, data.model_name)
     return TestConnResult(ok=ok, message=msg, error_type=err_type)
 
 
 @router.post("/models", response_model=list[ModelInfo])
 async def list_models(data: ModelsListRequest, session: AsyncSession = Depends(get_session)):
+    base_url = validate_model_url(data.base_url)
     api_key = data.api_key or None
     if data.config_id and api_key is None:
         cfg = await session.get(LLMConfig, data.config_id)
@@ -136,7 +140,7 @@ async def list_models(data: ModelsListRequest, session: AsyncSession = Depends(g
             except CryptoError:
                 api_key = None
     try:
-        models = await llm_factory.list_models(data.base_url, api_key)
+        models = await llm_factory.list_models(base_url, api_key)
         if not models:
             # Ollama 可能不支持 /models
             return [ModelInfo(id="gpt-oss:20b")]

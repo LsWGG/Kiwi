@@ -7,6 +7,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useStudyStore } from '@/stores/study'
+import { IS_DESKTOP } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 
 type Pane =
@@ -99,7 +100,8 @@ const navItems = computed<{ key: NavKey; label: string; icon: string }[]>(() => 
     { key: 'graph', label: '学习图谱', icon: 'graph' },
     { key: 'plan', label: '学习计划', icon: 'calendar' },
     { key: 'report', label: '学习周报', icon: 'trendingUp' },
-    { key: 'reminders', label: '提醒设置', icon: 'bell' },
+    // 桌面版没有推送服务，隐藏提醒设置。
+    ...(IS_DESKTOP ? [] : [{ key: 'reminders' as const, label: '提醒设置', icon: 'bell' }]),
     { key: 'mistakes', label: '错题本', icon: 'bookOpen' },
     { key: 'profile', label: '我的画像', icon: 'edit' },
   )

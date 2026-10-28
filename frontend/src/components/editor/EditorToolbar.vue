@@ -8,6 +8,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Editor } from '@tiptap/core'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import { IS_DESKTOP } from '@/desktop/env'
 import { useExtensionsStore } from '@/stores/extensions'
 import { usePluginsStore, type PluginBlock } from '@/stores/plugins'
 import {
@@ -521,7 +522,13 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
           v-if="codeRunKind"
           type="button"
           :class="[btn, '!w-auto px-1.5 !text-[10.5px] !text-emerald-600 hover:!bg-emerald-50']"
-          :title="codeRunKind === 'python' ? '运行 Python 代码' : '渲染代码预览'"
+          :title="
+            codeRunKind === 'python'
+              ? IS_DESKTOP
+                ? '运行 Python（本机执行，非隔离）'
+                : '运行 Python 代码'
+              : '渲染代码预览'
+          "
           @click="runCodeBlock"
         >
           <KiwiIcon name="play" :size="10" class="mr-0.5" />
@@ -765,7 +772,13 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
       <button v-if="!docx" type="button" :class="btn" title="折叠块" @click="emit('details')">
         <KiwiIcon name="chevron" :size="14" />
       </button>
-      <button v-if="!docx" type="button" :class="btn" title="YouTube 视频" @click="emit('youtube')">
+      <button
+        v-if="!docx && !IS_DESKTOP"
+        type="button"
+        :class="btn"
+        title="YouTube 视频"
+        @click="emit('youtube')"
+      >
         <KiwiIcon name="video" :size="14" />
       </button>
       <button v-if="!docx" type="button" :class="btn" title="提及笔记或 Wiki（@）" @click="emit('mention')">

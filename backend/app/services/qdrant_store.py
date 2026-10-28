@@ -11,7 +11,7 @@ import uuid
 from qdrant_client import QdrantClient, models
 
 from app.config import settings
-from app.services.embedder import embedding_space, is_remote_provider
+from app.services.embedder import embedding_space, is_disabled, is_remote_provider
 
 EMBED_DIM = settings.embed_dim
 DEFAULT_EMBED_MODEL = settings.embed_model
@@ -100,7 +100,7 @@ def ensure_collections(client: QdrantClient | None = None) -> None:
 
     远程 embedding 的维度由线上模型决定，首次写入向量时再按实际维度建表。
     """
-    if is_remote_provider():
+    if is_disabled() or is_remote_provider():
         return
     client = client or get_client()
     for name in (RAW_COLLECTION, WIKI_COLLECTION, NOTE_COLLECTION):

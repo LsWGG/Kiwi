@@ -1,0 +1,227 @@
+name: Windows 桌面版发布
+
+# 手动触发或推送 v* 标签时构建安装包。
+# 真实 WebView2 窗口、DPI、单实例与离线流量仍需在 Windows 虚拟机上手工验收；
+# 这里覆盖构建、静默安装、安装后 smoke-test、卸载与数据保留。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（留空则取 frontend/package.json）"
+        required: false
+        type: string
+      sign:
+        description: "使用证书签名（需配置 SIGN_PFX_BASE64 / SIGN_PFX_PASSWORD）"
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  windows-tests:
+    name: Windows 专项测试
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          uv sync --frozen --extra dev
+          uv pip install "pgserver==0.1.4"
+      - name: Run Windows-only tests
+        working-directory: backend
+        run: .\.venv\Scripts\python.exe ..\desktop\scripts\run-windows-tests.py
+
+  build:
+    name: 构建与冒烟
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Inno Setup 6
+        run: choco install innosetup --no-progress -y
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($version) -and "${{ github.ref_type }}" -eq "tag") {
+            $version = "${{ github.ref_name }}".TrimStart('v')
+          }
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = (Get-Content frontend/package.json -Raw | ConvertFrom-Json).version
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
+            throw "无效版本号：$version"
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "构建版本：$version"
+
+      - name: Cache third-party downloads
+        uses: actions/cache@v4
+        with:
+          path: desktop/.cache
+          key: desktop-cache-${{ runner.os }}-${{ hashFiles('desktop/versions.json') }}
+          restore-keys: |
+            desktop-cache-${{ runner.os }}-
+
+      - name: Cache pip downloads
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: pip-${{ runner.os }}-${{ hashFiles('desktop/requirements-runner.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Build installer
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+          INPUT_SIGN: ${{ inputs.sign }}
+        run: |
+          $params = @{
+            Version   = "${{ steps.version.outputs.value }}"
+            SkipTests = $true
+          }
+          $wantSign = ("$env:INPUT_SIGN" -eq "true") -or
+            (-not [string]::IsNullOrWhiteSpace($env:SIGN_PFX_BASE64))
+          if ($wantSign) {
+            if ([string]::IsNullOrWhiteSpace($env:SIGN_PFX_BASE64)) {
+              throw "已要求签名，但未配置 SIGN_PFX_BASE64 secret。"
+            }
+            $params.Sign = $true
+            $params.RequireSignature = $true
+          }
+          & ./desktop/build.ps1 @params
+
+      - name: Install, smoke test and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ steps.version.outputs.value }}"
+          $installer = "desktop/dist/Kiwi-Setup-$version.exe"
+          if (-not (Test-Path $installer)) { throw "未找到安装包：$installer" }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "Kiwi Install 中文"
+          $installLog = Join-Path $env:RUNNER_TEMP "kiwi-install.log"
+          $install = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-",
+            "/DIR=`"$installDir`"", "/LOG=`"$installLog`""
+          )
+          if ($install.ExitCode -ne 0) {
+            if (Test-Path $installLog) { Get-Content $installLog -Tail 120 }
+            throw "静默安装失败，退出码 $($install.ExitCode)"
+          }
+
+          $exe = Join-Path $installDir "Kiwi.Desktop.exe"
+          if (-not (Test-Path $exe)) { throw "安装目录缺少 Kiwi.Desktop.exe" }
+          $proc = Start-Process -FilePath $exe -ArgumentList @("--smoke-test") `
+            -PassThru -NoNewWindow
+          if (-not $proc.WaitForExit(900000)) {
+            & taskkill /T /F /PID $proc.Id
+            throw "smoke-test 超过 15 分钟未结束"
+          }
+          $smokeLog = Join-Path $env:LOCALAPPDATA "Kiwi\logs\smoke-test.log"
+          if (Test-Path $smokeLog) { Get-Content $smokeLog }
+          if ($proc.ExitCode -ne 0) {
+            throw "安装后 smoke-test 失败，退出码 $($proc.ExitCode)"
+          }
+
+          $uninstaller = Get-ChildItem -Path $installDir -Filter "unins*.exe" |
+            Select-Object -First 1
+          if (-not $uninstaller) { throw "未找到卸载程序" }
+          $uninstall = Start-Process -FilePath $uninstaller.FullName -Wait -PassThru `
+            -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+          if ($uninstall.ExitCode -ne 0) {
+            throw "卸载失败，退出码 $($uninstall.ExitCode)"
+          }
+          # Inno 的卸载程序可能把自身复制到临时目录后立刻返回；轮询等待文件清理。
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Test-Path $installDir) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
+
+          $dataDir = Join-Path $env:LOCALAPPDATA "Kiwi"
+          if (-not (Test-Path $dataDir)) {
+            throw "卸载删除了用户数据目录：$dataDir"
+          }
+          if (Test-Path $installDir) {
+            Get-ChildItem -Path $installDir -Recurse | Select-Object FullName
+            throw "卸载后安装目录仍有文件：$installDir"
+          }
+          Write-Host "静默安装、smoke-test、卸载与数据保留均通过。"
+
+          New-Item -ItemType Directory -Force -Path "desktop/dist/logs" | Out-Null
+          foreach ($log in @($smokeLog, (Join-Path $env:LOCALAPPDATA "Kiwi\logs\runtime.log"),
+                             (Join-Path $env:LOCALAPPDATA "Kiwi\logs\desktop.log"))) {
+            if (Test-Path $log) {
+              Copy-Item $log "desktop/dist/logs" -Force
+            }
+          }
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-windows-${{ steps.version.outputs.value }}
+          path: |
+            desktop/dist/Kiwi-Setup-*.exe
+            desktop/dist/Kiwi-Setup-*.exe.sha256
+            desktop/dist/logs/*.log
+          if-no-files-found: warn
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/Kiwi-Setup-*.exe
+            desktop/dist/Kiwi-Setup-*.exe.sha256
+          generate_release_notes: true
+          body: |
+            Kiwi Windows 桌面版安装包（x64，Windows 10 22H2+ / Windows 11）。
+
+            - 当前用户安装，数据保存在 `%LOCALAPPDATA%\Kiwi`，卸载不删除。
+            - 默认不发起外网请求；AI 功能需自行配置本机或线上 OpenAI 兼容接口。
+            - 本机代码执行默认关闭，且不是文件系统沙箱。
+            - 安装说明与故障排查见 `docs/WINDOWS.md`。
+            - 未签名构建可能触发 SmartScreen；请用随附的 `.sha256` 校验下载。

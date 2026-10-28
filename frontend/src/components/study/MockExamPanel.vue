@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // MockExamPanel：仿真考试 —— 组卷列表、计时答题、自动保存、交卷批阅与成绩报告。
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   useStudyStore,
   QUESTION_TYPE_LABEL,
   type MockExamItem,
   type QuestionType,
 } from '@/stores/study'
+import { useDesktopStore } from '@/stores/desktop'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import ExamTemplateManager from '@/components/study/ExamTemplateManager.vue'
@@ -20,6 +22,13 @@ const emit = defineEmits<{
 }>()
 
 const study = useStudyStore()
+const desktop = useDesktopStore()
+const router = useRouter()
+
+/** 组卷与主观题批阅都需要大模型。 */
+const llmMissing = computed(
+  () => desktop.isDesktop && desktop.ready && !desktop.llmConfigured,
+)
 
 type View = 'list' | 'intro' | 'taking' | 'report'
 const view = ref<View>('list')
@@ -94,6 +103,10 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 }
 
 async function createExam() {
+  if (llmMissing.value) {
+    toast.error('桌面版尚未配置大模型，无法自动组卷')
+    return
+  }
   if (!createTemplateId.value) return
   creating.value = true
   try {
@@ -512,11 +525,34 @@ onBeforeUnmount(() => {
           <button class="kiwi-btn-ghost !text-xs !py-1.5" title="刷新" @click="refreshList">
             <KiwiIcon name="refresh" :size="14" />
           </button>
-          <button class="kiwi-btn-primary !py-2" @click="showCreate = true">
+          <button
+            v-if="!llmMissing"
+            class="kiwi-btn-primary !py-2"
+            @click="showCreate = true"
+          >
             <KiwiIcon name="plus" :size="14" />
             新建试卷
           </button>
+          <button
+            v-else
+            class="kiwi-btn-primary !py-2"
+            @click="router.push('/settings/models')"
+          >
+            <KiwiIcon name="settings" :size="14" />
+            去配置模型
+          </button>
         </div>
+      </div>
+
+      <!-- 桌面版未配置模型 -->
+      <div
+        v-if="llmMissing"
+        class="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3"
+      >
+        <KiwiIcon name="alert" :size="15" class="mt-0.5 shrink-0 text-amber-500" />
+        <p class="text-[12px] leading-relaxed text-amber-700">
+          桌面版尚未配置大模型，无法按模板组卷或批阅主观题。已有试卷仍可查看；配置模型后即可新建与批阅。
+        </p>
       </div>
 
       <!-- 新建试卷 -->

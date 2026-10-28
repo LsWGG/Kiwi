@@ -5,10 +5,13 @@ import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import ImageCropDialog from './ImageCropDialog.vue'
 import { toast } from '@/components/ui/toast'
+import { isBlockedExternalAsset } from '@/desktop/env'
 
 const props = defineProps(nodeViewProps)
 
 const src = computed(() => String(props.node.attrs.src || ''))
+/** 桌面版不加载远程图片，改为本地占位，且不提供裁剪 / 下载等会发起请求的操作。 */
+const externalBlocked = computed(() => isBlockedExternalAsset(src.value))
 const alt = computed(() => String(props.node.attrs.alt || ''))
 const caption = computed(() => String(props.node.attrs.title || ''))
 const width = computed(() => {
@@ -113,7 +116,7 @@ function cancelCaption() {
 
 // ---------- 放大 / 下载 ----------
 function openLightbox() {
-  if (resizing.value) return
+  if (resizing.value || externalBlocked.value) return
   lightboxOpen.value = true
 }
 
@@ -127,6 +130,10 @@ watch(lightboxOpen, (open) => {
 })
 
 async function download() {
+  if (externalBlocked.value) {
+    toast.error('桌面版不加载外部图片')
+    return
+  }
   try {
     const res = await fetch(src.value)
     if (!res.ok) throw new Error()
@@ -182,8 +189,9 @@ function onCropped(file: File) {
       class="group/image relative max-w-full"
       :style="figureStyle"
     >
-      <!-- 悬浮工具栏 -->
+      <!-- 悬浮工具栏：外部图片被阻止时不提供任何会发起请求的操作 -->
       <div
+        v-if="!externalBlocked"
         class="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-lg border border-white/20 bg-slate-900/70 p-0.5 opacity-0 shadow-lifted backdrop-blur transition-opacity group-hover/image:opacity-100"
         :class="selected || resizing ? '!opacity-100' : ''"
         contenteditable="false"
@@ -236,6 +244,7 @@ function onCropped(file: File) {
       </div>
 
       <img
+        v-if="!externalBlocked"
         ref="imageEl"
         :src="src"
         :alt="alt"
@@ -245,6 +254,18 @@ function onCropped(file: File) {
         draggable="false"
         @click.stop="openLightbox"
       />
+      <div
+        v-else
+        class="flex min-h-[120px] w-full min-w-[240px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-6 text-center"
+        data-external-blocked="image"
+        role="img"
+        :aria-label="alt ? `外部图片已禁用：${alt}` : '外部图片已禁用'"
+      >
+        <KiwiIcon name="image" :size="22" class="text-slate-300" />
+        <span class="text-[12px] font-medium text-slate-500">外部图片已禁用</span>
+        <span v-if="alt" class="max-w-full truncate text-[11px] text-slate-400">{{ alt }}</span>
+        <span class="text-[10.5px] text-slate-400">桌面版只加载本机与笔记内的图片</span>
+      </div>
 
       <figcaption
         v-if="caption && !captionEditing"
@@ -270,6 +291,7 @@ function onCropped(file: File) {
 
       <!-- 右下角缩放柄 -->
       <button
+        v-if="!externalBlocked"
         type="button"
         class="absolute -bottom-1.5 -right-1.5 grid h-4 w-4 cursor-nwse-resize place-items-center rounded-sm border border-white bg-kiwi-500 text-white opacity-0 shadow transition-opacity group-hover/image:opacity-100"
         :class="selected || resizing ? '!opacity-100' : ''"
@@ -328,7 +350,7 @@ function onCropped(file: File) {
 
     <ImageCropDialog
       :open="cropOpen"
-      :src="src"
+      :src="externalBlocked ? '' : src"
       :filename="imageFileName()"
       @close="cropOpen = false"
       @cropped="onCropped"

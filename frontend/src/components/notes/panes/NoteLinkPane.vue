@@ -28,6 +28,7 @@ import {
 import { downloadNoteDocx } from '@/components/editor/docx'
 import { toast } from '@/components/ui/toast'
 import { useKbsStore } from '@/stores/kbs'
+import { IS_DESKTOP } from '@/desktop/env'
 
 const props = defineProps<{ note: NoteOut }>()
 const notes = useNotesStore()
@@ -178,6 +179,8 @@ const link = computed<Partial<LinkMeta>>(
 const failed = computed(() => link.value.fetch_status === 'failed')
 /* 图标磁贴优先用站点 logo；没有记录时尝试根目录 favicon，失败再回退默认图标。 */
 const faviconSrc = computed(() => {
+  // 桌面版不加载远程 favicon，直接使用内置链接图标。
+  if (IS_DESKTOP) return ''
   const saved = String(link.value.favicon ?? '').trim()
   if (/^https?:\/\//i.test(saved)) return saved
   try {
@@ -375,6 +378,10 @@ watch([readMode, editorMode], () => {
 })
 
 async function refresh() {
+  if (IS_DESKTOP) {
+    toast.error('桌面版不发起外网请求，无法重新抓取网页')
+    return
+  }
   refreshing.value = true
   try {
     const fresh = await notes.refreshLink(props.note.id)
@@ -415,6 +422,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
       <NoteTagButton :note="note" />
       <template v-if="!readMode">
         <button
+          v-if="!IS_DESKTOP"
           class="kiwi-btn-ghost !py-1 !px-2 !text-[11px]"
           :disabled="refreshing"
           @click="refresh"

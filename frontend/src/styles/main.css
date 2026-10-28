@@ -48,6 +48,25 @@ body.theme-learn {
     radial-gradient(30rem 20rem at 50% 110%, var(--ambient-c), transparent 60%);
 }
 
+/* 桌面构建：不加载 Google Fonts，使用 Windows 自带字体。
+   放在 html 类下覆盖 Tailwind 的 font-sans / font-mono，Docker 构建不受影响。 */
+.kiwi-desktop body {
+  font-family: system-ui, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  font-feature-settings: normal;
+}
+
+.kiwi-desktop .font-sans {
+  font-family: system-ui, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+}
+
+.kiwi-desktop .font-mono,
+.kiwi-desktop code,
+.kiwi-desktop kbd,
+.kiwi-desktop pre,
+.kiwi-desktop samp {
+  font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+}
+
 html {
   height: 100%;
   margin: 0;
@@ -477,6 +496,21 @@ html.kiwi-sticky-expanding .page-enter-from {
   border-color: rgba(52, 211, 153, 0.45) !important;
   background: rgba(16, 185, 129, 0.2) !important;
   color: #a7f3d0 !important;
+}
+/* 桌面版本机执行徽标：提醒代码没有文件系统隔离。 */
+.kiwi-editor .ProseMirror .code-run-badge {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.18);
+  color: #fcd34d;
+  font-size: 9.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+  user-select: none;
+}
+.kiwi-editor.code-theme-light .ProseMirror .code-run-badge {
+  background: #fef3c7;
+  color: #b45309;
 }
 .kiwi-editor .ProseMirror .code-run-btn:hover {
   background: rgba(16, 185, 129, 0.34) !important;

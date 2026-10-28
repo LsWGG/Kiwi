@@ -13,6 +13,7 @@ from typing import Any
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import settings
+from app.services import offline_guard
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ class LLMFactory:
         base = base_url.strip().rstrip("/")
         if not base.endswith("/v1"):
             base = f"{base}/v1"
+        # 桌面离线模式：只放行显式允许并登记过的模型主机。
+        offline_guard.register_endpoint(base)
         cache_key = (base, key)
         if cache_key not in self._clients:
             self._clients[cache_key] = AsyncOpenAI(

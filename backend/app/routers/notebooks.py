@@ -12,10 +12,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import KnowledgeBase, Note, NoteFolder
 from app.db.session import get_session
 from app.routers.note_guard import require_unlocked_note
 from app.schemas.note import NoteOut
+from app.services import desktop_settings
+from app.services.desktop_guard import require_local_execution
 from app.services.notebook_format import doc_from_ipynb, doc_to_ipynb
 from app.services.notebook_kernel import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -50,6 +53,8 @@ class ExecuteOut(BaseModel):
     kernel_restarted: bool = False
     busy: bool = False
     error: str | None = None
+    engine: str = "bubblewrap"
+    warning: str | None = None
 
 
 class KernelStatusOut(BaseModel):
@@ -89,13 +94,18 @@ async def execute_cell(
     session: AsyncSession = Depends(get_session),
 ):
     await _get_notebook(session, kb_id, note_id)
-    # 内核执行是阻塞的（select 等待子进程），放到线程池避免卡住事件循环。
+    require_local_execution()
+    timeout = payload.timeout_seconds
+    if settings.desktop_mode:
+        limit = desktop_settings.load().local_code_timeout_seconds
+        timeout = min(timeout, float(limit))
+    # 内核执行是阻塞的（等待子进程输出），放到线程池避免卡住事件循环。
     result = await asyncio.to_thread(
         kernel_manager.execute,
         str(kb_id),
         str(note_id),
         payload.code,
-        timeout=payload.timeout_seconds,
+        timeout=timeout,
     )
     return ExecuteOut(
         ok=result.ok,
@@ -107,6 +117,8 @@ async def execute_cell(
         kernel_restarted=result.kernel_restarted,
         busy=result.busy,
         error=result.error,
+        engine=result.engine,
+        warning=result.warning,
     )
 
 
@@ -130,6 +142,7 @@ async def restart_kernel(
     session: AsyncSession = Depends(get_session),
 ):
     await _get_notebook(session, kb_id, note_id)
+    require_local_execution()
     try:
         data = await asyncio.to_thread(
             kernel_manager.restart, str(kb_id), str(note_id)

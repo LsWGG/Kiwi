@@ -2,6 +2,7 @@
 /** 提醒设置：每日复习 / 待办提醒、每周学习报告与本设备推送订阅。 */
 import { computed, onMounted, ref } from 'vue'
 import { usePushStore } from '@/stores/push'
+import { IS_DESKTOP } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { toast } from '@/components/ui/toast'
 
@@ -137,8 +138,22 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- 桌面版没有推送服务：提醒调度与 Web Push 后端均被禁用。 -->
+    <section v-if="IS_DESKTOP" class="kiwi-card flex items-start gap-3 p-5">
+      <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-400">
+        <KiwiIcon name="bell" :size="16" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <p class="text-[13px] font-medium text-slate-700">桌面版不提供推送提醒</p>
+        <p class="mt-1 text-[11.5px] leading-relaxed text-slate-400">
+          每日提醒、每周报告与设备通知依赖在线推送服务，桌面版默认不发起外网请求，因此该功能已关闭。
+          到期复习与未完成待办仍会显示在「今日复习」和「学习计划」中。
+        </p>
+      </div>
+    </section>
+
     <div
-      v-if="push.loading && !push.status"
+      v-else-if="push.loading && !push.status"
       class="kiwi-card flex items-center justify-center gap-2 p-12 text-[12px] text-slate-400"
     >
       <KiwiIcon name="loader" :size="15" :spin="true" />

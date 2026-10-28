@@ -15,6 +15,7 @@ from app.db.session import get_session
 from app.routers.chat import resolve_llm
 from app.schemas.note import NoteAssistIn, NoteAssistOut, NoteAssistReference
 from app.services.docx_export import markdown_to_docx, resolve_note_mentions
+from app.services.embedder import is_disabled
 from app.services.llm_factory import llm_factory
 from app.services.note_lock import note_body, token_is_valid
 from app.services.pdf_export import markdown_to_pdf
@@ -135,6 +136,10 @@ async def assist(
     references: list[NoteAssistReference] = []
     system_prompt = SYSTEM_PROMPT
     if data.action == "explain":
+        if is_disabled():
+            raise HTTPException(
+                409, "向量模型已关闭，无法检索知识库引用；请先在设置中启用向量模型。"
+            )
         references = await _explain_references(
             session,
             kb_id,

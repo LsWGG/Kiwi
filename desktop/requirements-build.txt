@@ -1,0 +1,7 @@
+# 仅用于构建 Windows 桌面 runtime（PyInstaller）。
+#
+# 这些包不进 backend/uv.lock：锁定文件由 Linux CI 以 --frozen 使用，
+# 而 pgserver 的 PostgreSQL 二进制只在 Windows 构建时需要。build.ps1 会把
+# 它们安装到构建用虚拟环境，不影响 Docker / 源码部署。
+pyinstaller==6.16.0
+pgserver==0.1.4

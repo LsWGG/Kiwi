@@ -17,7 +17,7 @@ from app.db.models import IngestJob, Job, KnowledgeBase, Note, Source, WikiPage
 from app.db.session import async_session_factory
 from app.event_hub import hub
 from app.services import job_queue, qdrant_store
-from app.services.embedder import embed_texts_async
+from app.services.embedder import embed_texts_async, is_disabled
 from app.services.metrics import compile_job
 from app.services.ocr_formatter import format_ocr_document
 from app.services.parser import ParseError, parse_file
@@ -510,30 +510,43 @@ async def _process_ingest(
         await _emit(job_id, "chunk_done", {"chunk_count": len(chunks), "title": parsed.title})
 
         if embed_raw:
-            model = kb.embedding_model or settings.embed_model
-            # 重新导入时先清空该素材旧向量，避免重复 chunk 累积
-            qdrant_store.delete_source_chunks(source_id, model)
-            # 嵌入（按知识库配置的模型）
-            await _emit(job_id, "embed_progress", {"status": "embedding", "total": len(chunks)})
-            texts = [c["content"] for c in chunks]
-            vecs = await embed_texts_async(texts, model)
-            await _update_job(job_id, progress=0.6)
+            if is_disabled():
+                # 未配置向量模型（桌面版）：解析、分块与笔记正文仍照常，
+                # 只跳过向量写入；任务保持成功，检索能力由设置页提示。
+                await _emit(
+                    job_id,
+                    "embed_progress",
+                    {"status": "disabled", "total": len(chunks)},
+                )
+            else:
+                model = kb.embedding_model or settings.embed_model
+                # 重新导入时先清空该素材旧向量，避免重复 chunk 累积
+                qdrant_store.delete_source_chunks(source_id, model)
+                # 嵌入（按知识库配置的模型）
+                await _emit(
+                    job_id,
+                    "embed_progress",
+                    {"status": "embedding", "total": len(chunks)},
+                )
+                texts = [c["content"] for c in chunks]
+                vecs = await embed_texts_async(texts, model)
+                await _update_job(job_id, progress=0.6)
 
-            # 入库 raw_chunks
-            points = [
-                {
-                    "vector": v,
-                    "payload": {
-                        "source_id": str(source_id),
-                        "chunk_index": i,
-                        "title": chunks[i]["title"],
-                        "text": chunks[i]["content"],
-                        "source_title": parsed.title,
-                    },
-                }
-                for i, v in enumerate(vecs)
-            ]
-            qdrant_store.upsert_chunks(kb_id, points, model)
+                # 入库 raw_chunks
+                points = [
+                    {
+                        "vector": v,
+                        "payload": {
+                            "source_id": str(source_id),
+                            "chunk_index": i,
+                            "title": chunks[i]["title"],
+                            "text": chunks[i]["content"],
+                            "source_title": parsed.title,
+                        },
+                    }
+                    for i, v in enumerate(vecs)
+                ]
+                qdrant_store.upsert_chunks(kb_id, points, model)
         # 编译任务复用已入库的向量，不重复写入
         await _update_job(
             job_id, progress=0.8, status="succeeded" if not compile_now else "running"

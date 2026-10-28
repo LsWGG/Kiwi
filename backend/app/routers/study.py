@@ -84,6 +84,7 @@ from app.services.anki_export import (
     sanitize_deck_segment,
 )
 from app.services.anki_import import AnkiImportError, import_anki_package
+from app.services.desktop_guard import require_online_feature
 from app.services.study_engine import (
     WEAK_THRESHOLD,
     StudyEngineError,
@@ -463,6 +464,8 @@ async def question_feedback(
     q.question_json = qj
     q.cache_status = "invalid"
     if payload.kind == "source":
+        # 桌面版不联网核查；直接拒绝，避免记录一条「已验证」的误导状态。
+        require_online_feature("study_web_search")
         await research_question(session, kb_id, q)
     await session.commit()
     return QuestionFeedbackOut(
@@ -478,6 +481,7 @@ async def question_verify(
     kb_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
 ):
+    require_online_feature("study_web_search")
     q = await session.get(StudyQuestion, question_id)
     if q is None or q.kb_id != kb_id:
         raise HTTPException(404, "题目不存在。")

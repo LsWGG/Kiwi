@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { IS_DESKTOP } from '@/desktop/env'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -75,6 +76,16 @@ const router = createRouter({
           name: 'settings-plugins',
           component: () => import('@/views/settings/PluginSettingsView.vue'),
         },
+        // 桌面运行状态与离线开关：Docker 构建不注册，访问时回落到首页。
+        ...(IS_DESKTOP
+          ? [
+              {
+                path: 'settings/desktop',
+                name: 'settings-desktop',
+                component: () => import('@/views/settings/DesktopSettingsView.vue'),
+              },
+            ]
+          : []),
         // 旧地址保留跳转
         { path: 'settings/system', redirect: '/settings' },
         // 学习模式（阶段一核心闭环：画像→训练→掌握度→错题）

@@ -13,6 +13,10 @@ export interface ExecuteResult {
   kernel_restarted: boolean
   busy: boolean
   error: string | null
+  /** 执行引擎：Linux / Docker 为 bubblewrap，Windows 桌面为 windows-job。 */
+  engine?: string
+  /** 非隔离执行的提示；仅 Windows 桌面版返回。 */
+  warning?: string | null
 }
 
 export interface KernelStatus {
@@ -26,6 +30,8 @@ export interface KernelStatus {
     available: boolean
     engine: string | null
     network: boolean
+    sandboxed?: boolean
+    warning?: string | null
     writable_paths: string[]
     venv: string
     python_version: string

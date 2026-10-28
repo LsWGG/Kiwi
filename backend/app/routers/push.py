@@ -14,6 +14,7 @@ from app.schemas.push import (
     PushUnsubscribeIn,
 )
 from app.services import push_service
+from app.services.desktop_guard import require_online_feature
 from app.services.push_service import PushUnavailable
 
 router = APIRouter(prefix="/api/push", tags=["push"])
@@ -49,6 +50,7 @@ async def subscribe(
     session: AsyncSession = Depends(get_session),
 ):
     """保存（或刷新）当前浏览器的推送订阅。"""
+    require_online_feature("web_push")
     if not payload.endpoint.startswith(("https://", "http://")):
         raise HTTPException(status_code=400, detail="推送订阅地址无效")
     try:
@@ -81,6 +83,7 @@ async def update_settings(
     session: AsyncSession = Depends(get_session),
 ):
     """开关每日提醒、调整提醒时间与周报推送。"""
+    require_online_feature("web_push")
     try:
         row = await push_service.ensure_vapid(session)
     except PushUnavailable as e:
@@ -98,6 +101,7 @@ async def update_settings(
 @router.post("/test", response_model=PushResultOut)
 async def send_test(session: AsyncSession = Depends(get_session)):
     """向所有已订阅设备发送一条测试通知。"""
+    require_online_feature("web_push")
     if not await push_service.active_subscription_count(session):
         raise HTTPException(
             status_code=400,

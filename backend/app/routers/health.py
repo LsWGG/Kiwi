@@ -11,6 +11,7 @@ from app.build_info import info as build_info
 from app.db.models import Job, LLMConfig
 from app.db.session import async_session_factory
 from app.services import backup_service, qdrant_store
+from app.services.embedder import is_disabled, runtime_config
 
 logger = logging.getLogger("kiwi.health")
 router = APIRouter(prefix="/api/health", tags=["health"])
@@ -90,11 +91,20 @@ async def health_detail():
     except Exception as e:  # noqa: BLE001
         logger.warning("健康检查数据库探测失败：%s", e)
 
-    try:
-        await asyncio.to_thread(qdrant_store.count_raw_points)
-        result["qdrant"] = "up"
-    except Exception as e:  # noqa: BLE001
-        logger.warning("健康检查 Qdrant 探测失败：%s", e)
+    vectors_disabled = is_disabled()
+    result["embedding"] = {
+        "enabled": not vectors_disabled,
+        "provider": runtime_config().provider.strip().lower() or "local",
+    }
+    if vectors_disabled:
+        # 桌面版可以完全不启动 Qdrant：这是主动禁用，不算降级。
+        result["qdrant"] = "disabled"
+    else:
+        try:
+            await asyncio.to_thread(qdrant_store.count_raw_points)
+            result["qdrant"] = "up"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("健康检查 Qdrant 探测失败：%s", e)
 
     try:
         latest = await asyncio.to_thread(backup_service.latest_backup)
@@ -109,7 +119,7 @@ async def health_detail():
 
     degraded = (
         result["postgres"] != "up"
-        or result["qdrant"] != "up"
+        or (not vectors_disabled and result["qdrant"] != "up")
         or result["jobs"].get("failed", 0) > 0
     )
     result["status"] = "degraded" if degraded else "ok"

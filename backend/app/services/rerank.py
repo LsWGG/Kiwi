@@ -28,6 +28,9 @@ def _document(hit: dict) -> str:
 
 
 def enabled() -> bool:
+    # 桌面版不配置外部重排接口；审计钩子还会拦截未登记的外联。
+    if settings.desktop_mode:
+        return False
     return bool(settings.rerank_api_base.strip())
 
 

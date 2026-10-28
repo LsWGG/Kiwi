@@ -20,12 +20,19 @@ REMOTE_PROVIDERS = {"openai", "remote", "api"}
 
 
 def normalize_provider(provider: str) -> str:
-    """把 openai / remote / api 归一为 openai，其余为 local。"""
-    return "openai" if provider.strip().lower() in REMOTE_PROVIDERS else "local"
+    """把 openai / remote / api 归一为 openai；none 保留，其余为 local。"""
+    value = provider.strip().lower()
+    if value == "none":
+        return "none"
+    return "openai" if value in REMOTE_PROVIDERS else "local"
 
 
 def is_remote(provider: str) -> bool:
     return normalize_provider(provider) == "openai"
+
+
+def is_disabled(provider: str) -> bool:
+    return normalize_provider(provider) == "none"
 
 
 def runtime_from_row(row: EmbeddingConfig) -> EmbeddingRuntimeConfig:
@@ -62,6 +69,8 @@ def active_space() -> str:
 
 def space_for(provider: str, api_model: str) -> str:
     """按待保存配置计算向量空间，用于保存后的提示。"""
+    if is_disabled(provider):
+        return "disabled"
     if is_remote(provider):
         return f"remote:{api_model.strip()}"
     return settings.embed_model

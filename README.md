@@ -86,6 +86,18 @@ cd Kiwi
 
 On first launch, Kiwi seeds the built-in **“Kiwi Quick Start · Feature Demo”** knowledge base, containing 22 notes, 29 Wiki pages, and complete learning and exam data. You can edit, delete, or restore it at any time.
 
+## Windows desktop (optional)
+
+A standalone Windows x64 build wraps the same app in a WebView2 window and bundles PostgreSQL, Qdrant, and a portable Python runtime. No LLM, embedding, Whisper, or OCR models are included; all data stays local by default and AI features activate only after you configure a local or OpenAI-compatible endpoint. Docker remains the primary deployment.
+
+Download `Kiwi-Setup-<version>.exe` from Releases, or build it on Windows 10/11 x64:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.0.0
+```
+
+See [docs/WINDOWS.md](docs/WINDOWS.md) for installation, offline boundaries, local code execution, backup/restore, and troubleshooting.
+
 ## Docker deployment
 
 Production uses a separate Compose file with non-standard ports by default: Web `18473`, API `18474`, PostgreSQL `15432`, Qdrant `16333 / 16334`.
@@ -115,8 +127,12 @@ Playwright expects a backend at `http://127.0.0.1:8000` using an isolated test d
 
 ---
 
-## Copyright
+## License
 
-Copyright © 2026 LsWGG. All rights reserved.
+Copyright © 2026 LsWGG.
 
-No part of this project may be copied, modified, distributed, or used commercially without permission. See [LICENSE](LICENSE) for the full terms.
+Kiwi is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License, version 3 (SPDX: AGPL-3.0-only), as published by the Free Software Foundation.
+
+Kiwi is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full license text.
+
+The distributed application bundles PyMuPDF under AGPL-3.0, so the combined work is provided under the AGPL-3.0. The corresponding source is available at <https://github.com/LsWGG/Kiwi>; third-party notices are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

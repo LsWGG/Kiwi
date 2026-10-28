@@ -4,6 +4,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
 import { useSystemStore } from '@/stores/system'
+import { useDesktopStore } from '@/stores/desktop'
 import { useRoute } from 'vue-router'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
 import SideNav from '@/components/layout/SideNav.vue'
@@ -24,6 +25,7 @@ import { uiScaleForWidth } from '@/utils/uiScale'
 const kbs = useKbsStore()
 const mode = useModeStore()
 const system = useSystemStore()
+const desktop = useDesktopStore()
 const auth = useAuthStore()
 const commandPalette = useCommandPaletteStore()
 const route = useRoute()
@@ -41,6 +43,8 @@ function loadAppData() {
   kbs.fetchKbs()
   // 品牌信息与主题色来自后端系统设置；失败时保留内置默认值。
   void system.fetchSettings().catch(() => undefined)
+  // 桌面运行状态：Docker 构建内部直接返回，不发起请求。
+  void desktop.load()
 }
 
 async function boot() {

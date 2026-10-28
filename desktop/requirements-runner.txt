@@ -1,0 +1,11 @@
+# 桌面版本机执行（Notebook / 代码块）使用的便携 Python 运行包。
+#
+# 这些版本与 backend/uv.lock 对齐；升级时请同步检查 uv.lock，并在 Windows 上
+# 跑一次 `python -c "import numpy, pandas, matplotlib, openpyxl, PIL"` 冒烟。
+# 不包含 fastembed / faster-whisper / torch 等模型运行时，也不支持运行期安装
+# 新包：桌面版不能联网，`%pip` / `%uv` 已在 Notebook 内核中禁用。
+numpy==2.5.4
+pandas==3.0.6
+matplotlib==3.11.2
+openpyxl==3.1.5
+pillow==12.3.0

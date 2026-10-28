@@ -11,6 +11,7 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import OfficeFilePreview from '@/components/attachments/OfficeFilePreview.vue'
 import AttachmentPreview from '@/components/notes/database/AttachmentPreview.vue'
 import type { DbAttachment } from '@/stores/noteDatabase'
+import { IS_DESKTOP } from '@/desktop/env'
 import { useEditorEditable } from './useEditorEditable'
 
 const props = defineProps(nodeViewProps)
@@ -24,6 +25,8 @@ const title = computed(() => String(attrs.value.title ?? attrs.value.filename ??
 /* 站点图标：优先用抓取到的 favicon；旧数据缺图标时尝试站点根目录，加载失败再回退默认图标。 */
 const faviconFailed = ref(false)
 const faviconSrc = computed(() => {
+  // 桌面版不请求任何远程 favicon，统一显示内置图标。
+  if (IS_DESKTOP) return ''
   const saved = String(attrs.value.favicon ?? '').trim()
   if (/^https?:\/\//i.test(saved)) return saved
   if (!isLink.value) return ''
@@ -272,7 +275,14 @@ function openExternal(event: MouseEvent) {
           <button type="button" class="embed-action" title="以内容卡片展示" @mousedown.prevent @click="setDisplay('content')">
             <KiwiIcon name="panelLeft" :size="12" />
           </button>
-          <button type="button" class="embed-action" title="嵌入网页内容" @mousedown.prevent @click="setDisplay('web')">
+          <button
+            v-if="!IS_DESKTOP"
+            type="button"
+            class="embed-action"
+            title="嵌入网页内容"
+            @mousedown.prevent
+            @click="setDisplay('web')"
+          >
             <KiwiIcon name="globe" :size="12" />
           </button>
           <button type="button" class="embed-action" title="删除链接" @mousedown.prevent @click="removeNode">
@@ -326,7 +336,16 @@ function openExternal(event: MouseEvent) {
             </button>
           </span>
         </div>
+        <div v-if="IS_DESKTOP" class="embed-web-disabled">
+          <KiwiIcon name="globe" :size="24" class="text-slate-300" />
+          <p class="text-[12.5px] font-medium text-slate-500">外部网页嵌入已禁用</p>
+          <p class="max-w-full break-all text-center text-[10.5px] text-slate-400">
+            {{ url }}
+          </p>
+          <p class="text-[10.5px] text-slate-400">桌面版只加载本机与同源内容</p>
+        </div>
         <iframe
+          v-else
           :src="url"
           :title="title"
           class="embed-web-frame"
@@ -334,7 +353,9 @@ function openExternal(event: MouseEvent) {
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
           @mousedown.stop
         />
-        <p class="embed-web-tip">部分网站禁止被嵌入，若显示空白可点击标题在新窗口打开</p>
+        <p v-if="!IS_DESKTOP" class="embed-web-tip">
+          部分网站禁止被嵌入，若显示空白可点击标题在新窗口打开
+        </p>
         <div
           v-if="editable"
           class="embed-resize-handle"
@@ -378,7 +399,14 @@ function openExternal(event: MouseEvent) {
           <button type="button" class="embed-action" title="以标题超链接展示" @mousedown.prevent @click="setDisplay('title')">
             <KiwiIcon name="link2" :size="12" />
           </button>
-          <button type="button" class="embed-action" title="嵌入网页内容" @mousedown.prevent @click="setDisplay('web')">
+          <button
+            v-if="!IS_DESKTOP"
+            type="button"
+            class="embed-action"
+            title="嵌入网页内容"
+            @mousedown.prevent
+            @click="setDisplay('web')"
+          >
             <KiwiIcon name="globe" :size="12" />
           </button>
           <button type="button" class="embed-action" title="删除链接卡片" @mousedown.prevent @click="removeNode">
@@ -562,6 +590,9 @@ function openExternal(event: MouseEvent) {
 }
 .embed-web-tip {
   @apply border-t border-slate-100 px-3 py-1 text-[10.5px] text-slate-400;
+}
+.embed-web-disabled {
+  @apply flex h-[220px] flex-col items-center justify-center gap-2 bg-slate-50/60 px-6;
 }
 .embed-link-card {
   @apply relative flex items-start gap-3 overflow-hidden rounded-xl border border-slate-200/80 bg-white px-3.5 py-3 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all hover:-translate-y-px hover:border-kiwi-300 hover:shadow-[0_10px_26px_-16px_rgba(15,23,42,0.4)];

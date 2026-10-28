@@ -33,6 +33,7 @@ import { orderedListStyleClass } from './orderedListStyles'
 import { foldImageCaptionTokens } from './imageCaptions'
 import PluginReadonlyBlock from './PluginReadonlyBlock.vue'
 import { usePluginsStore } from '@/stores/plugins'
+import { IS_DESKTOP, isBlockedExternalAsset } from '@/desktop/env'
 
 const props = withDefaults(
   defineProps<{
@@ -163,6 +164,16 @@ function escapeAttr(value: string): string {
   return escapeHtml(value).replace(/"/g, '&quot;').replace(/\n/g, '&#10;')
 }
 
+function blockedAssetHtml(label: string, kind = '图片'): string {
+  const text = `外部${kind}已禁用`
+  return (
+    `<span class="md-external-blocked" role="img" aria-label="${escapeAttr(text)}">` +
+    `<span class="md-external-blocked-label">${escapeHtml(text)}</span>` +
+    (label ? `<span class="md-external-blocked-alt">${escapeHtml(label)}</span>` : '') +
+    `</span>`
+  )
+}
+
 /** 与 fence 渲染端的 encodeURIComponent 配对；兼容未编码的历史值。 */
 function decodeDataAttr(value: string): string {
   try {
@@ -220,9 +231,18 @@ function galleryHtml(content: string): string {
     const carousel = data.layout === 'carousel'
     const items = images
       .map((item: any) => {
-        const url = escapeAttr(String(item?.url || ''))
+        const rawUrl = String(item?.url || '')
+        const url = escapeAttr(rawUrl)
         const caption = escapeHtml(String(item?.caption || ''))
         const name = escapeHtml(String(item?.name || '图片'))
+        if (isBlockedExternalAsset(rawUrl)) {
+          return (
+            `<figure class="md-gallery-item">` +
+            blockedAssetHtml(String(item?.caption || item?.name || '')) +
+            (caption ? `<figcaption>${caption}</figcaption>` : '') +
+            `</figure>`
+          )
+        }
         return (
           `<figure class="md-gallery-item">` +
           `<a href="${url}" target="_blank" rel="noopener noreferrer">` +
@@ -246,10 +266,19 @@ function galleryHtml(content: string): string {
 function imageFigureHtml(data: Record<string, unknown>): string {
   const src = String(data.src || '')
   if (!src) return ''
-  const alt = escapeHtml(String(data.alt || ''))
+  const rawAlt = String(data.alt || '')
+  const alt = escapeHtml(rawAlt)
   const title = escapeHtml(String(data.title || ''))
   const width = Number(data.width) || 0
   const style = width > 0 ? ` style="width:min(${Math.round(width)}px,100%)"` : ''
+  if (isBlockedExternalAsset(src)) {
+    return (
+      `<figure class="md-image"${style}>` +
+      blockedAssetHtml(rawAlt) +
+      (title ? `<figcaption>${title}</figcaption>` : '') +
+      `</figure>`
+    )
+  }
   return (
     `<figure class="md-image"${style}>` +
     `<img src="${escapeAttr(src)}" alt="${alt}" loading="lazy" data-zoom="1"` +
@@ -296,13 +325,16 @@ function embedHtml(content: string): string {
   const site = escapeHtml(String(data.site || ''))
   const excerpt = escapeHtml(String(data.excerpt || ''))
   const faviconRaw = String(data.favicon || '')
-  let faviconSrc = /^https?:\/\//i.test(faviconRaw) ? faviconRaw : ''
-  if (!faviconSrc) {
-    // 旧卡片没有保存图标：先尝试站点根目录的 favicon，加载失败由装饰逻辑回退默认图标。
-    try {
-      faviconSrc = `${new URL(url).origin}/favicon.ico`
-    } catch {
-      faviconSrc = ''
+  let faviconSrc = ''
+  if (!IS_DESKTOP) {
+    faviconSrc = /^https?:\/\//i.test(faviconRaw) ? faviconRaw : ''
+    if (!faviconSrc) {
+      // 旧卡片没有保存图标：先尝试站点根目录的 favicon，加载失败由装饰逻辑回退默认图标。
+      try {
+        faviconSrc = `${new URL(url).origin}/favicon.ico`
+      } catch {
+        faviconSrc = ''
+      }
     }
   }
   const favicon = faviconSrc
@@ -326,6 +358,14 @@ function embedHtml(content: string): string {
     )
   }
   if (display === 'web') {
+    if (IS_DESKTOP) {
+      return (
+        `<div class="md-embed-blocked">` +
+        `<span class="md-embed-blocked-title">${title}</span>` +
+        `<span class="md-embed-blocked-hint">外部网页嵌入已在桌面版禁用</span>` +
+        `</div>`
+      )
+    }
     const height = Math.min(1600, Math.max(240, Number(data.height) || 480))
     return (
       `<div class="md-embed-web">` +
@@ -683,7 +723,9 @@ function dbGalleryHtml(model: DataTableModel, view: DbView): string {
         const coverRaw = coverField ? row.data[coverField.id] : ''
         const cover =
           typeof coverRaw === 'string' && /^https?:\/\//i.test(coverRaw)
-            ? `<img src="${escapeAttr(coverRaw)}" alt="" loading="lazy" />`
+            ? isBlockedExternalAsset(coverRaw)
+              ? blockedAssetHtml('')
+              : `<img src="${escapeAttr(coverRaw)}" alt="" loading="lazy" />`
             : ''
         const chips = selectFields
           .map((field) => {
@@ -807,6 +849,14 @@ md.renderer.rules.image = (tokens, idx, options, _env, self) => {
   const token = tokens[idx]
   const src = token.attrGet('src') || ''
   if (!src) return ''
+  // YouTube 块持久化为 ![youtube](url)；桌面版不创建远程 iframe。
+  if (IS_DESKTOP && token.content === 'youtube') {
+    return (
+      `<figure class="md-image">` +
+      blockedAssetHtml(token.attrGet('title') || 'YouTube', '视频') +
+      `</figure>`
+    )
+  }
   return imageFigureHtml({
     src,
     alt: token.content || '',
@@ -1467,6 +1517,53 @@ function onClick(event: MouseEvent) {
   color: rgb(148 163 184);
   font-size: 0.78em;
   line-height: 1.55;
+}
+/* 桌面版：远程图片 / 视频与 iframe 不加载，显示本地占位 */
+.markdown-view .md-external-blocked {
+  display: inline-flex;
+  min-height: 88px;
+  min-width: 180px;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px dashed rgb(203 213 225);
+  border-radius: 0.6rem;
+  background: rgb(248 250 252 / 0.8);
+  padding: 1rem 1.25rem;
+  color: rgb(148 163 184);
+}
+.markdown-view .md-external-blocked-label {
+  font-size: 0.78em;
+  font-weight: 500;
+  color: rgb(100 116 139);
+}
+.markdown-view .md-external-blocked-alt {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7em;
+}
+.markdown-view .md-embed-blocked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px dashed rgb(203 213 225);
+  border-radius: 0.75rem;
+  background: rgb(248 250 252 / 0.8);
+  padding: 1rem 1.25rem;
+  margin: 0.85rem 0;
+}
+.markdown-view .md-embed-blocked-title {
+  font-size: 0.86em;
+  font-weight: 600;
+  color: rgb(71 85 105);
+}
+.markdown-view .md-embed-blocked-hint {
+  font-size: 0.75em;
+  color: rgb(148 163 184);
 }
 
 .markdown-view .md-gallery {

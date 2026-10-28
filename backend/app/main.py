@@ -19,6 +19,7 @@ from app.routers import (
     chat,
     chat_sessions,
     code_run,
+    desktop,
     editor_extensions,
     health,
     ingest,
@@ -44,8 +45,10 @@ from app.routers import (
 from app.security import AccessControlMiddleware, RateLimitMiddleware
 from app.services import (
     backup_service,
+    embedder,
     embedding_settings,
     job_queue,
+    offline_guard,
     ops_retention,
     qdrant_store,
     system_settings,
@@ -58,6 +61,10 @@ from app.services.notebook_kernel import kernel_manager
 
 setup_logging()
 logger = logging.getLogger("kiwi")
+
+# 桌面 runtime 会在导入本模块前安装；这里兜底覆盖直接以 uvicorn 启动的场景。
+# KIWI_OFFLINE_MODE=false（Docker / 源码部署）时为空操作。
+offline_guard.install()
 
 
 @contextlib.asynccontextmanager
@@ -79,11 +86,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("系统设置加载失败，OCR 回退本地 tesseract：%s", e)
 
-    try:
-        await asyncio.to_thread(qdrant_store.ensure_collections)
-        logger.info("Qdrant collections ready (raw_chunks / wiki_pages, kb_id tenant index)")
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Qdrant 初始化失败（服务仍启动，摄入时重试）：%s", e)
+    vectors_enabled = not embedder.is_disabled()
+    if vectors_enabled:
+        try:
+            await asyncio.to_thread(qdrant_store.ensure_collections)
+            logger.info("Qdrant collections ready (raw_chunks / wiki_pages, kb_id tenant index)")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Qdrant 初始化失败（服务仍启动，摄入时重试）：%s", e)
+    else:
+        logger.info("向量模型已关闭（provider=none）：跳过 Qdrant collection 初始化")
 
     builtin_task: asyncio.Task[None] | None = None
     note_index_task: asyncio.Task[None] | None = None
@@ -96,14 +107,19 @@ async def lifespan(app: FastAPI):
         try:
             async with async_session_factory() as db:
                 await ensure_builtin_demo(db)
-            builtin_task = start_vector_seed_task()
+            if vectors_enabled:
+                builtin_task = start_vector_seed_task()
         except Exception as e:  # noqa: BLE001
             logger.warning("内置演示库初始化失败（不影响启动）：%s", e)
 
         # 后台核对笔记索引：只对变更过的笔记重新嵌入。
-        note_index_task = start_note_index_task()
-        # 知识库定时任务：Wiki 周期编译 + 待办聚合。
-        scheduler_task = start_scheduler_task()
+        if vectors_enabled:
+            note_index_task = start_note_index_task()
+        # 知识库定时任务：Wiki 周期编译 + 待办聚合；桌面模式默认关闭。
+        if settings.kb_scheduler_enabled:
+            scheduler_task = start_scheduler_task()
+        else:
+            logger.info("KIWI_KB_SCHEDULER_ENABLED=false：跳过定时 Wiki 编译与待办同步")
         # 自动备份：pg_dump + uploads + manifest。
         backup_task = backup_service.start_backup_task()
         # 运维数据保留：后台任务与审计日志仅保留近 N 天。
@@ -185,6 +201,11 @@ app.include_router(audit.router)
 app.include_router(maintenance.router)
 app.include_router(maintenance.metrics_router)
 
+# 桌面模式专用接口：Docker 部署不注册。
+if settings.desktop_mode:
+    app.include_router(desktop.router)
+    app.include_router(desktop.internal_router)
+
 
 # 附件 / 编辑器内嵌媒体
 _media_dir = settings.upload_dir / "media"
@@ -192,6 +213,14 @@ _media_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(_media_dir)), name="media")
 
 
-@app.get("/")
-async def root():
-    return {"name": "Kiwi", "docs": "/docs", "status": "/api/health"}
+# 桌面模式：FastAPI 直接提供打包后的 SPA。Docker / 源码部署不设置
+# KIWI_FRONTEND_DIST，`/` 保持原有 JSON 探针响应，由 nginx / Vite 提供前端。
+if settings.frontend_dist is not None:
+    from app.spa import setup_spa
+
+    setup_spa(app)
+else:
+
+    @app.get("/")
+    async def root():
+        return {"name": "Kiwi", "docs": "/docs", "status": "/api/health"}

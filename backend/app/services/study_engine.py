@@ -1062,6 +1062,10 @@ async def _generate_question(
 # ---------- 会话 ----------
 def _raw_fallback_page(db: AsyncSession, kb: KnowledgeBase) -> WikiPage | None:
     """Wiki 尚未编译时，用原始素材 chunk 兜底出题（README 14.4.1）。"""
+    from app.services.embedder import is_disabled
+
+    if is_disabled():
+        return None
     try:
         from app.services import qdrant_store
 

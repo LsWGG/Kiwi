@@ -38,6 +38,11 @@ uploads/
 pgdata/
 qdrantdata/
 
+# windows desktop build artifacts
+desktop/.cache/
+desktop/build/
+desktop/dist/
+
 # os
 .DS_Store
 

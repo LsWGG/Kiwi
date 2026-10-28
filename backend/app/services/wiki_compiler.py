@@ -20,7 +20,7 @@ from app.db.session import async_session_factory
 from app.event_hub import hub
 from app.repositories import WikiPageRepo
 from app.services import qdrant_store
-from app.services.embedder import embed_one_async, embed_texts_async
+from app.services.embedder import embed_one_async, embed_texts_async, is_disabled
 from app.services.llm_factory import LLMCrypto, LLMFactory
 from app.services.wiki_links import WIKI_LINK_RE, WIKI_MENTION_RE, strip_code
 from app.services.wiki_schema import load_schema
@@ -169,6 +169,8 @@ async def _related_wiki_pages(
     这是 README 中 compile 流程的 retrieve_related_pages 步骤；检索失败不应
     阻断编译，降级为仅依据标题清单判断。
     """
+    if is_disabled():
+        return []
     query = "\n".join(str(c.get("content") or "")[:800] for c in chunks[:3]).strip()[:2000]
     if not query:
         return []
@@ -468,7 +470,7 @@ async def compile_source(
             else []
         )
 
-    if pages:
+    if pages and not is_disabled():
         texts = [f"{p.title}\n{p.body_md[:2000]}" for p in pages]
         vecs = await embed_texts_async(texts, kb.embedding_model)
         # 先清除旧向量，避免同一页面在 collection 中产生重复点

@@ -3,6 +3,7 @@ import { Extension, type Editor } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import Suggestion from '@tiptap/suggestion'
 import { iconSVG } from '@/components/ui/icons'
+import { IS_DESKTOP } from '@/desktop/env'
 import type { PluginBlock } from '@/stores/plugins'
 
 /** @tiptap/suggestion 默认共用一个 PluginKey，多个 Suggestion 同时启用会冲突。 */
@@ -17,6 +18,8 @@ export interface SlashItem {
   group: string
   /** 内置扩展组件 key；在「插件与区块」停用后隐藏 */
   extension?: string
+  /** 桌面构建隐藏（依赖外部网络 / iframe） */
+  desktopDisabled?: boolean
   run: (editor: Editor) => void
 }
 
@@ -377,6 +380,7 @@ export function buildSlashItems(
       icon: 'video',
       keywords: 'youtube video embed 油管 视频',
       group: '媒体与嵌入',
+      desktopDisabled: true,
       run: (e) => actions.onYoutube(e),
     },
     {
@@ -453,10 +457,13 @@ export function buildSlashItems(
     ...pluginItems,
   ]
   // 内置扩展组件被停用后，斜杠菜单与工具栏「扩展组件」同步隐藏。
+  const available = IS_DESKTOP
+    ? items.filter((item) => !item.desktopDisabled)
+    : items
   const extensionEnabled = actions.extensionEnabled
   return extensionEnabled
-    ? items.filter((item) => !item.extension || extensionEnabled(item.extension))
-    : items
+    ? available.filter((item) => !item.extension || extensionEnabled(item.extension))
+    : available
 }
 
 function escapeHtml(text: string) {

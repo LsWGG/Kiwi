@@ -13,6 +13,8 @@ import os
 import time
 import uuid
 from contextvars import ContextVar
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -52,8 +54,19 @@ class JsonLogFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+def _log_file_path() -> Path | None:
+    """桌面 runtime 通过 ``KIWI_LOG_FILE`` 指定滚动日志；Docker 不设置。"""
+    from app.config import settings
+
+    return settings.log_file
+
+
 def setup_logging() -> None:
-    """安装统一日志格式；保留 uvicorn 自己的 access log。"""
+    """安装统一日志格式；保留 uvicorn 自己的 access log。
+
+    ``KIWI_LOG_FILE`` 非空时额外写滚动文件（桌面版）；文件不可写时退回
+    控制台日志，不影响启动。Docker 未设置该变量，行为与之前一致。
+    """
     root = logging.getLogger()
     handler = logging.StreamHandler()
     handler.addFilter(RequestIdLogFilter())
@@ -65,7 +78,23 @@ def setup_logging() -> None:
                 "%(asctime)s %(levelname)s [%(request_id)s] %(name)s: %(message)s"
             )
         )
-    root.handlers[:] = [handler]
+    handlers: list[logging.Handler] = [handler]
+    log_file = _log_file_path()
+    if log_file is not None:
+        try:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+            )
+        except OSError as exc:
+            logging.getLogger("kiwi.logging").warning(
+                "无法写入日志文件 %s：%s", log_file, exc
+            )
+        else:
+            file_handler.addFilter(RequestIdLogFilter())
+            file_handler.setFormatter(handler.formatter)
+            handlers.append(file_handler)
+    root.handlers[:] = handlers
     root.setLevel(logging.INFO)
     # 这些库的 INFO 日志过于嘈杂，统一降级；错误仍会输出。
     for noisy in ("httpx", "httpcore", "qdrant_client", "urllib3"):

@@ -8,6 +8,7 @@ import Image, { type ImageOptions } from '@tiptap/extension-image'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import ImageNodeView from './ImageNodeView.vue'
 import { foldImageCaptionTokens } from '../imageCaptions'
+import { IS_DESKTOP, isBlockedExternalAsset } from '@/desktop/env'
 
 const IMAGE_LANGUAGE = 'kiwi-image'
 
@@ -77,6 +78,33 @@ export const KiwiImage = Image.extend<KiwiImageOptions>({
 
   addNodeView() {
     return VueNodeViewRenderer(ImageNodeView)
+  },
+
+  renderHTML(props) {
+    const { HTMLAttributes } = props
+    const src = String(HTMLAttributes.src || '')
+    if (!IS_DESKTOP || !isBlockedExternalAsset(src)) {
+      return this.parent?.(props) ?? ['img', HTMLAttributes]
+    }
+    // TipTap 创建 EditorView 时会先用 renderHTML 渲染一帧，随后才挂载
+    // NodeView。桌面版这一帧不能把远程 src 交给浏览器，否则图片会立即外联；
+    // 地址保留在 data 属性中，NodeView 与复制 / 粘贴仍能拿到原始地址。
+    const { src: _blocked, ...rest } = HTMLAttributes
+    return ['img', { ...rest, 'data-kiwi-blocked-src': src }]
+  },
+
+  parseHTML() {
+    return [
+      ...(this.parent?.() ?? []),
+      {
+        tag: 'img[data-kiwi-blocked-src]',
+        getAttrs: (element: HTMLElement) => ({
+          src: element.getAttribute('data-kiwi-blocked-src') || '',
+          alt: element.getAttribute('alt') || null,
+          title: element.getAttribute('title') || null,
+        }),
+      },
+    ]
   },
 
   addStorage() {

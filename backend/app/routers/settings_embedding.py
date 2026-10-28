@@ -12,6 +12,7 @@ from app.schemas.embedding import (
     EmbeddingTestResult,
 )
 from app.services import embedding_settings
+from app.services.desktop_guard import validate_model_url
 from app.services.embedder import configure_runtime, env_runtime_config, test_remote_connection
 from app.services.llm_factory import CryptoError, LLMCrypto
 
@@ -75,6 +76,7 @@ async def save_embedding_config(
             raise HTTPException(400, "线上接口地址必须以 http:// 或 https:// 开头")
         if not api_model:
             raise HTTPException(400, "请填写线上模型名")
+        api_base = validate_model_url(api_base)
 
     row = await _get_row(session)
     is_new = row is None
@@ -126,6 +128,10 @@ async def test_embedding(
     data: EmbeddingTestRequest, session: AsyncSession = Depends(get_session)
 ):
     provider = embedding_settings.normalize_provider(data.provider)
+    if provider == "none":
+        return EmbeddingTestResult(
+            ok=True, message="向量模型已关闭，检索与问答将不可用。"
+        )
     if provider != "openai":
         return EmbeddingTestResult(
             ok=True, message="本地 fastembed 模型无需在线测试，导入素材时会自动加载。"
@@ -137,6 +143,10 @@ async def test_embedding(
         return EmbeddingTestResult(ok=False, message="请填写以 http:// 或 https:// 开头的接口地址")
     if not api_model:
         return EmbeddingTestResult(ok=False, message="请填写线上模型名")
+    try:
+        api_base = validate_model_url(api_base)
+    except HTTPException as exc:
+        return EmbeddingTestResult(ok=False, message=str(exc.detail))
 
     api_key = data.api_key
     if api_key is None:

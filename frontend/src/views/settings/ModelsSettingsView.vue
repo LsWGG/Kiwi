@@ -7,6 +7,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
+import { IS_DESKTOP } from '@/desktop/env'
 import LlmConfigView from './LlmConfigView.vue'
 import EmbeddingConfigView from './EmbeddingConfigView.vue'
 import OcrConfigView from './OcrConfigView.vue'
@@ -87,6 +88,18 @@ function select(key: ModelTab) {
     </div>
 
     <SettingsTabs />
+
+    <!-- 桌面版模型策略 -->
+    <div
+      v-if="IS_DESKTOP"
+      class="mb-4 rounded-xl border border-kiwi-200/70 bg-kiwi-50/50 px-4 py-3 text-[11.5px] leading-relaxed text-slate-600"
+    >
+      <p class="font-medium text-slate-700">桌面版未内置任何模型</p>
+      <p class="mt-1">
+        大模型与向量模型可连接本机 Ollama / LM Studio 或线上 OpenAI 兼容接口；
+        在线 OCR、语音转写与飞书妙记在桌面版已禁用。连接非本机地址前会要求确认数据外发风险。
+      </p>
+    </div>
 
     <!-- 子页签：说明每类模型在系统中的用途，切换时保持 URL 可分享 -->
     <div class="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

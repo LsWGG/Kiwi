@@ -139,6 +139,9 @@ _FACTUAL_RE = re.compile(
 
 
 def provider_enabled() -> bool:
+    # 桌面版默认离线：联网核查强制关闭，即使环境变量里配置了搜索服务。
+    if settings.desktop_mode:
+        return False
     return (settings.study_search_provider or "disabled").lower() in PROVIDERS
 
 
@@ -170,6 +173,8 @@ async def research_question(
     db, kb_id: uuid.UUID, q: StudyQuestion
 ) -> tuple[list[dict], str]:
     """对题目做一次联网核查，写日志并返回 (sources, outcome)。"""
+    if settings.desktop_mode:
+        return [], "disabled"
     provider = (settings.study_search_provider or "disabled").lower()
     query = (q.question_json or {}).get("question", "")[:240]
     if provider not in PROVIDERS:
