@@ -248,18 +248,22 @@ function addFiles(list: FileList | File[] | null) {
   for (const file of incoming) {
     if (rows.value.length >= MAX_FILES) {
       error.value = `单批最多 ${MAX_FILES} 个文件`
+      toast.error(error.value)
       break
     }
     if (!ACCEPT.includes(extOf(file.name))) {
       error.value = `不支持的文件类型：${file.name}`
+      toast.error(error.value)
       continue
     }
     if (file.size > MAX_BYTES) {
-      error.value = `${file.name} 超过 200MB`
+      error.value = `${file.name} 超过 200MB，无法作为笔记导入；可改用「插入附件」上传大文件`
+      toast.error(error.value)
       continue
     }
     if (isNotebookFile(file.name) && file.size > MAX_TABLE_BYTES) {
       error.value = `${file.name} 超过 20MB`
+      toast.error(error.value)
       continue
     }
     if (rows.value.some((r) => r.file.name === file.name && r.file.size === file.size)) {

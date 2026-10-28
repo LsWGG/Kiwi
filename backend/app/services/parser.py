@@ -40,17 +40,20 @@ def parse_file(
     path: Path,
     file_type: str | None = None,
     force_ocr: bool = False,
+    figure_sink: "ocr_service.FigureSink | None" = None,
 ) -> ParsedDocument:
     """按文件类型路由解析。
 
     ``force_ocr`` 仅对 PDF 生效：即使文本层完整也强制走 OCR；图片本身即走 OCR。
+    ``figure_sink`` 仅在强制 OCR 时由导入流程传入：PDF 中的图片会裁剪到
+    上传目录，并以 Markdown 链接写入正文。
     """
     ft = (file_type or path.suffix.lstrip(".")).lower()
     # note：工作区笔记编译前会序列化为 Markdown 快照，按文本解析。
     if ft in ("md", "markdown", "txt", "text", "note"):
         return _parse_text(path)
     if ft == "pdf":
-        return _parse_pdf(path, force_ocr=force_ocr)
+        return _parse_pdf(path, force_ocr=force_ocr, figure_sink=figure_sink)
     if ft in IMAGE_TYPES:
         return _parse_image(path, ft)
     if ft == "docx":
@@ -104,7 +107,12 @@ def _local_tesseract_image(image) -> tuple[str, list[str]]:
         return "", [f"本地 OCR 失败：{exc}"]
 
 
-def _ocr_pdf(path: Path) -> tuple[str, str, list[str], list[str]]:
+def _ocr_pdf(
+    path: Path,
+    *,
+    native_pages: list[str] | None = None,
+    figure_sink: "ocr_service.FigureSink | None" = None,
+) -> tuple[str, str, list[str], list[str]]:
     """尝试 OCR。返回 (text, engine, warnings, errors)。"""
     warnings: list[str] = []
     errors: list[str] = []
@@ -112,7 +120,12 @@ def _ocr_pdf(path: Path) -> tuple[str, str, list[str], list[str]]:
     # 1) 线上 OCR（用户配置的视觉模型）
     if ocr_service.is_available():
         try:
-            text, ocr_warnings = ocr_service.ocr_pdf_pages(path)
+            text, ocr_warnings = ocr_service.ocr_pdf_pages(
+                path,
+                native_pages=native_pages,
+                figure_sink=figure_sink,
+                extract_figures=figure_sink is not None,
+            )
             warnings.extend(ocr_warnings)
             if text.strip():
                 cfg = ocr_service.current_config()
@@ -135,22 +148,83 @@ def _ocr_pdf(path: Path) -> tuple[str, str, list[str], list[str]]:
     import fitz
 
     doc = fitz.open(path)
-    pages: list[str] = []
+    page_texts: list[str] = []
+    page_figures: list[list[str]] = []
+    saved_paths: list[Path] = []
+    skip_xrefs = ocr_service.repeated_logo_xrefs(doc) if figure_sink is not None else set()
+    text_pages = 0
     try:
-        for page in doc:
+        for index, page in enumerate(doc, start=1):
             pix = page.get_pixmap(dpi=200)
             image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             text, image_warnings = _local_tesseract_image(image)
+            page_failed = not text.strip() and bool(image_warnings)
             for warning in image_warnings:
                 if warning not in warnings:
                     warnings.append(warning)
-            pages.append(text)
+            if not text.strip() and native_pages is not None and index <= len(native_pages):
+                fallback = (native_pages[index - 1] or "").strip()
+                if fallback:
+                    text = fallback
+                    warnings.append(f"第 {index} 页 OCR 无结果，已回退 PDF 原生文本层")
+            if text.strip():
+                text_pages += 1
+
+            figures: list[str] = []
+            if figure_sink is not None:
+                embedded, embedded_paths = ocr_service.extract_embedded_figures(
+                    page,
+                    figure_sink,
+                    dpi=200,
+                    page_no=index,
+                    skip_xrefs=skip_xrefs,
+                    warnings=warnings,
+                )
+                figures.extend(embedded)
+                saved_paths.extend(embedded_paths)
+                if page_failed and not text.strip() and not figures:
+                    saved = ocr_service.save_page_image(
+                        page,
+                        figure_sink,
+                        dpi=200,
+                        page_no=index,
+                        warnings=warnings,
+                    )
+                    if saved is not None:
+                        markdown, saved_path = saved
+                        figures.append(markdown)
+                        saved_paths.append(saved_path)
+            if page_failed and not text.strip() and not figures:
+                text = f"> 第 {index} 页 OCR 未识别，请对照原文件。"
+            page_texts.append(text)
+            page_figures.append(figures)
     finally:
         doc.close()
-    pages, removed = ocr_service.strip_repeated_headers_footers(pages)
+
+    if text_pages == 0:
+        for saved in saved_paths:
+            try:
+                saved.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return "", "tesseract-ocr", warnings, errors
+
+    page_texts, removed = ocr_service.strip_repeated_headers_footers(page_texts)
     if removed:
         warnings.append(f"已移除重复页眉/页脚 {len(removed)} 项：{removed[0][:60]}")
-    return "\n\n".join(page for page in pages if page.strip()).strip(), "tesseract-ocr", warnings, errors
+    assembled: list[str] = []
+    for text, figures in zip(page_texts, page_figures):
+        parts = [text.strip(), *figures]
+        assembled.append("\n\n".join(part for part in parts if part))
+    figure_count = sum(len(items) for items in page_figures)
+    if figure_count:
+        warnings.append(f"已从 PDF 裁剪 {figure_count} 张图片并插入笔记")
+    return (
+        "\n\n".join(part for part in assembled if part).strip(),
+        "tesseract-ocr",
+        warnings,
+        errors,
+    )
 
 
 def _parse_image(path: Path, file_type: str) -> ParsedDocument:
@@ -205,7 +279,11 @@ def _parse_image(path: Path, file_type: str) -> ParsedDocument:
     )
 
 
-def _parse_pdf(path: Path, force_ocr: bool = False) -> ParsedDocument:
+def _parse_pdf(
+    path: Path,
+    force_ocr: bool = False,
+    figure_sink: "ocr_service.FigureSink | None" = None,
+) -> ParsedDocument:
     try:
         import fitz  # PyMuPDF
     except ImportError as e:
@@ -228,7 +306,11 @@ def _parse_pdf(path: Path, force_ocr: bool = False) -> ParsedDocument:
     # 即使文本层完整也优先使用 OCR 结果（部分 PDF 文本层乱码 / 不可读）。
     ocr_errors: list[str] = []
     if force_ocr or coverage < 30:
-        ocr_text, ocr_engine, ocr_warnings, ocr_errors = _ocr_pdf(path)
+        ocr_text, ocr_engine, ocr_warnings, ocr_errors = _ocr_pdf(
+            path,
+            native_pages=pages,
+            figure_sink=figure_sink if force_ocr else None,
+        )
         warnings.extend(ocr_warnings)
         if ocr_text:
             text = ocr_text
@@ -397,6 +479,7 @@ def parse_bytes(
     filename: str,
     file_type: str | None = None,
     force_ocr: bool = False,
+    figure_sink: "ocr_service.FigureSink | None" = None,
 ) -> ParsedDocument:
     """从字节流解析（上传直传，不落盘）。"""
     suffix = Path(filename).suffix or f".{file_type or 'bin'}"
@@ -404,5 +487,8 @@ def parse_bytes(
         tmp.write(data)
         tmp.flush()
         return parse_file(
-            Path(tmp.name), file_type or suffix.lstrip("."), force_ocr=force_ocr
+            Path(tmp.name),
+            file_type or suffix.lstrip("."),
+            force_ocr=force_ocr,
+            figure_sink=figure_sink,
         )

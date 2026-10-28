@@ -17,6 +17,7 @@ const database = useNoteDatabaseStore()
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(0)
+const percent = ref(0)
 const previewFile = ref<DbAttachment | null>(null)
 const previewOpen = ref(false)
 const list = ref<DbAttachment[]>([])
@@ -32,7 +33,7 @@ watch(
 )
 
 const uploadingLabel = computed(() =>
-  uploading.value > 0 ? `上传中 ${uploading.value}…` : '',
+  uploading.value > 0 ? `上传中 ${Math.round(percent.value * 100)}%` : '',
 )
 
 function pickFiles() {
@@ -42,7 +43,8 @@ function pickFiles() {
 function sizeLabel(size: number) {
   if (!Number.isFinite(size) || size < 1024) return `${size || 0} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
 function commit(next: DbAttachment[]) {
@@ -58,8 +60,28 @@ async function onFilesPicked(event: Event) {
 
   for (const file of files) {
     uploading.value += 1
+    percent.value = 0
+    const controller = new AbortController()
+    const handle = toast.progress(
+      `正在上传 ${file.name}`,
+      0,
+      () => controller.abort(),
+    )
     try {
-      const uploaded = await uploadAttachment(file, database.noteId, kbs.currentKbId)
+      const uploaded = await uploadAttachment(
+        file,
+        database.noteId,
+        kbs.currentKbId,
+        (loaded, total) => {
+          percent.value = total > 0 ? Math.min(1, loaded / total) : 0
+          const message =
+            percent.value >= 1
+              ? `正在处理 ${file.name}（${sizeLabel(file.size)}）`
+              : `正在上传 ${file.name}（${sizeLabel(file.size)}）`
+          handle.update(message, percent.value)
+        },
+        controller.signal,
+      )
       const item: DbAttachment = {
         id: uploaded.id,
         filename: uploaded.filename,
@@ -71,9 +93,12 @@ async function onFilesPicked(event: Event) {
       list.value = [...list.value, item]
       emit('update', list.value)
     } catch (e: any) {
-      toast.error(e?.message || `${file.name} 上传失败`)
+      if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
+      else toast.error(e?.message || `${file.name} 上传失败`)
     } finally {
+      handle.dismiss()
       uploading.value -= 1
+      if (uploading.value === 0) percent.value = 0
     }
   }
 }

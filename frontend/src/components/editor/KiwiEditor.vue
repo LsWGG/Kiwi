@@ -118,7 +118,7 @@ import {
   type PagePrefs,
 } from './modes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
-import { request, upload } from '@/api/client'
+import { request, uploadWithProgress } from '@/api/client'
 import { runPython, type RunCodeResult } from '@/api/run'
 import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
@@ -1115,11 +1115,26 @@ async function uploadFile(file: File): Promise<AttachmentOut> {
   if (!props.noteId) throw new Error('请先保存笔记后再插入文件')
   const fd = new FormData()
   fd.append('file', file)
-  return upload<AttachmentOut>(
-    `/attachments?note_id=${encodeURIComponent(props.noteId)}`,
-    fd,
-    kbs.currentKbId,
-  )
+  const controller = new AbortController()
+  const handle = toast.progress(`正在上传 ${file.name}`, 0, () => controller.abort())
+  try {
+    return await uploadWithProgress<AttachmentOut>(
+      // 编辑器附件允许多媒体与压缩包，和后端 any_type 的“不限类型”语义一致
+      `/attachments?note_id=${encodeURIComponent(props.noteId)}&any_type=true`,
+      fd,
+      kbs.currentKbId,
+      (loaded, total) => {
+        const progress = total > 0 ? Math.min(1, loaded / total) : 0
+        handle.update(
+          progress >= 1 ? `正在处理 ${file.name}…` : `正在上传 ${file.name}`,
+          progress,
+        )
+      },
+      controller.signal,
+    )
+  } finally {
+    handle.dismiss()
+  }
 }
 
 /** 上传并插入图片（粘贴 / 拖拽图片走这里） */
@@ -1141,7 +1156,8 @@ async function uploadAndInsert(file: File, asImage: boolean) {
         .run()
     }
   } catch (e: any) {
-    toast.error(e.message || '上传失败')
+    if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
+    else toast.error(e.message || '上传失败')
   }
 }
 
@@ -1266,7 +1282,8 @@ async function insertAttachmentEmbeds(payload: { files: File[] }) {
         }),
       )
     } catch (e: any) {
-      toast.error(e.message || `${file.name} 上传失败`)
+      if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
+      else toast.error(e.message || `${file.name} 上传失败`)
     }
   }
 }

@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKbsStore, type KbOverview } from '@/stores/kbs'
 import { useLlmStore } from '@/stores/llm'
-import { request, upload } from '@/api/client'
+import { request, uploadWithProgress } from '@/api/client'
 import type { NoteFolder, NoteKind, NoteSummary } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
@@ -649,13 +649,27 @@ async function onImportKbFile(event: Event) {
     return
   }
   importingKb.value = true
+  const controller = new AbortController()
+  const handle = toast.progress(`正在导入 ${file.name}`, 0, () => controller.abort())
   try {
     const data = new FormData()
     data.append('file', file)
-    const result = await upload<{
+    const result = await uploadWithProgress<{
       kb: KbOverview
       stats: Record<string, number>
-    }>('/kbs/import', data)
+    }>(
+      '/kbs/import',
+      data,
+      null,
+      (loaded, total) => {
+        const ratio = total > 0 ? Math.min(1, loaded / total) : 0
+        handle.update(
+          ratio >= 1 ? `正在处理 ${file.name}…` : `正在导入 ${file.name}`,
+          ratio,
+        )
+      },
+      controller.signal,
+    )
     await Promise.all([kbs.fetchKbs(), kbs.fetchBuiltinStatus()])
     kbs.currentKbId = result.kb.id
     const stats = Object.entries(result.stats || {})
@@ -664,8 +678,10 @@ async function onImportKbFile(event: Event) {
       .join(' · ')
     toast.success(stats ? `知识库已导入：${stats}` : '知识库已导入')
   } catch (e: any) {
-    toast.error(e.message || '导入知识库失败')
+    if (e?.name === 'AbortError') toast.info(`已取消导入 ${file.name}`)
+    else toast.error(e.message || '导入知识库失败')
   } finally {
+    handle.dismiss()
     importingKb.value = false
   }
 }

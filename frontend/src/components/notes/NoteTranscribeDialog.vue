@@ -6,7 +6,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
-import { request, upload } from '@/api/client'
+import { request, upload, uploadWithProgress } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 import { toast } from '@/components/ui/toast'
 
@@ -659,20 +659,41 @@ async function submitBlob(blob: Blob, name: string) {
   jobStatus.value = ''
   progress.value = 0
   jobProvider.value = ''
+  const controller = new AbortController()
+  const handle = toast.progress(`正在上传 ${name}`, 0, () => controller.abort())
   try {
     const form = new FormData()
     form.append('file', new File([blob], name, { type: blob.type || 'audio/webm' }))
     form.append('language', language.value)
     form.append('title', title.value.trim())
     form.append('summarize', summarize.value ? 'true' : 'false')
-    const resp = await upload<{ job_id: string; provider?: string }>('/transcribe', form, kbId)
+    const resp = await uploadWithProgress<{ job_id: string; provider?: string }>(
+      '/transcribe',
+      form,
+      kbId,
+      (loaded, total) => {
+        const ratio = total > 0 ? Math.min(1, loaded / total) : 0
+        handle.update(
+          ratio >= 1 ? `正在提交 ${name}…` : `正在上传 ${name}`,
+          ratio,
+        )
+      },
+      controller.signal,
+    )
     jobId.value = resp.job_id
     jobProvider.value = resp.provider || ''
     jobStatus.value = 'pending'
     pollTimer = window.setTimeout(() => void poll(resp.job_id), 600)
   } catch (e) {
     uploading.value = false
-    error.value = e instanceof Error ? e.message : '上传音频失败'
+    if (e instanceof Error && e.name === 'AbortError') {
+      error.value = ''
+      toast.info(`已取消上传 ${name}`)
+    } else {
+      error.value = e instanceof Error ? e.message : '上传音频失败'
+    }
+  } finally {
+    handle.dismiss()
   }
 }
 

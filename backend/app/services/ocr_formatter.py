@@ -32,9 +32,13 @@ FORMAT_PROMPT = (
     "3. 合理使用标题、段落、列表、引用、表格和公式；没有把握时不要编造表格；\n"
     "4. 删除 JSON 花括号、控制标记、重复乱码等噪声；\n"
     "5. 删除页眉、页脚、页码、水印等与正文无关的内容，不要把它们当作正文保留；\n"
-    "6. 不要输出任何解释、前言或结语，也不要用代码围栏包裹整篇文档。"
+    "6. 如果原文包含 Markdown 图片链接（形如 ![说明](/media/...)），必须原样保留"
+    "每个链接及其相对顺序，不得删除、改写、合并或用文字替代；\n"
+    "7. 不要输出任何解释、前言或结语，也不要用代码围栏包裹整篇文档。"
 )
 _FENCE_RE = re.compile(r"^```(?:markdown|md)?\s*\n?(.*?)\n?```$", re.S | re.I)
+_IMAGE_MD_RE = re.compile(r"!\[[^\]]*\]\([^)\s]+(?:\s+[\"'][^\"']*[\"'])?\)")
+_IMAGE_URL_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")
 
 
 def is_ocr_engine(engine: str) -> bool:
@@ -114,6 +118,7 @@ async def format_ocr_document(parsed: ParsedDocument, kb_id: uuid.UUID) -> Parse
         }
         return parsed
 
+    source_images = _IMAGE_MD_RE.findall(parsed.text)
     chunks = _split_chunks(parsed.text)
     if not chunks:
         return parsed
@@ -150,6 +155,21 @@ async def format_ocr_document(parsed: ParsedDocument, kb_id: uuid.UUID) -> Parse
 
     formatted = await asyncio.gather(*(format_chunk(chunk) for chunk in chunks))
     text = "\n\n".join(part.strip() for part in formatted if part.strip()).strip()
+    if source_images:
+        # 排版模型有时会「顺手」删掉图片链接；按 URL 检查后把遗漏的补回，
+        # 宁可位置不完美，也不能让裁剪出来的图凭空消失。
+        present = set(_IMAGE_URL_RE.findall(text))
+        missing: list[str] = []
+        for image in source_images:
+            match = _IMAGE_URL_RE.search(image)
+            url = match.group(1) if match else image
+            if url not in present:
+                missing.append(image)
+        if missing:
+            text = "\n\n".join([text, *missing]).strip()
+            parsed.warnings.append(
+                f"已补回 {len(missing)} 个被排版模型遗漏的图片链接"
+            )
     parsed.text = text or parsed.text
     parsed.quality_report = {
         **(parsed.quality_report or {}),

@@ -120,6 +120,33 @@ async def test_format_ocr_document_uses_llm_and_preserves_text(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
+async def test_format_ocr_document_restores_dropped_images(monkeypatch) -> None:
+    cfg = SimpleNamespace(base_url="http://127.0.0.1:11434", model_name="test-model")
+    fake_client = _fake_client(["整理后的正文"])
+
+    async def config(_kb_id):
+        return cfg, "key"
+
+    image = "![第 1 页图 1](/media/kb/ocr-abc.png)"
+    monkeypatch.setattr(ocr_formatter, "_resolve_llm_config", config)
+    monkeypatch.setattr(
+        ocr_formatter.LLMFactory,
+        "get_client",
+        lambda self, base_url, api_key=None, model="": fake_client,
+    )
+    parsed = ParsedDocument(
+        title="scan",
+        text=f"正文\n\n{image}",
+        parse_engine="online-ocr:test-model",
+        quality_report={},
+    )
+    result = await ocr_formatter.format_ocr_document(parsed, uuid.uuid4())
+
+    assert image in result.text
+    assert any("补回" in item for item in result.warnings)
+
+
+@pytest.mark.asyncio
 async def test_format_ocr_document_falls_back_on_llm_failure(monkeypatch) -> None:
     cfg = SimpleNamespace(base_url="http://127.0.0.1:11434", model_name="test-model")
 

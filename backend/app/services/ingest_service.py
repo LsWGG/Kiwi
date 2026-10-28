@@ -16,7 +16,7 @@ from app.config import settings
 from app.db.models import IngestJob, Job, KnowledgeBase, Note, Source, WikiPage
 from app.db.session import async_session_factory
 from app.event_hub import hub
-from app.services import job_queue, qdrant_store
+from app.services import job_queue, ocr_service, qdrant_store
 from app.services.embedder import embed_texts_async, is_disabled
 from app.services.metrics import compile_job
 from app.services.ocr_formatter import format_ocr_document
@@ -24,6 +24,14 @@ from app.services.parser import ParseError, parse_file
 from app.services.source_paths import resolve_raw_path
 from app.services.splitter import split_markdown
 from app.services.wiki_compiler import CompileError, compile_source
+
+
+def _ocr_figure_sink(kb_id: uuid.UUID) -> ocr_service.FigureSink:
+    """强制 OCR 导入时，把 PDF 图片保存到该知识库的媒体目录。"""
+    return ocr_service.FigureSink(
+        directory=Path(settings.upload_dir) / "media" / str(kb_id),
+        url_prefix=f"/media/{kb_id}",
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +171,11 @@ async def _process_note_from_existing_source(
             kb_id = source.kb_id
 
         parsed = await asyncio.to_thread(
-            parse_file, raw_path, source_type, force_ocr=use_ocr
+            parse_file,
+            raw_path,
+            source_type,
+            force_ocr=use_ocr,
+            figure_sink=_ocr_figure_sink(kb_id) if use_ocr else None,
         )
         parsed = await format_ocr_document(parsed, kb_id)
         await _update_import_note(
@@ -472,7 +484,13 @@ async def _process_ingest(
 
         await _emit(job_id, "parse_progress", {"status": "starting"})
         parsed = await asyncio.to_thread(
-            parse_file, raw_path, source.type, force_ocr=use_ocr
+            parse_file,
+            raw_path,
+            source.type,
+            force_ocr=use_ocr,
+            figure_sink=(
+                _ocr_figure_sink(kb.id) if use_ocr and note_id is not None else None
+            ),
         )
         parsed = await format_ocr_document(parsed, kb.id)
         await _update_job(job_id, progress=0.2)
