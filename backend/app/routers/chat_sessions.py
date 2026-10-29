@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ChatSession
@@ -91,22 +91,36 @@ async def _get_session(
     return session
 
 
+def _kb_scope_filter(kb_id: uuid.UUID):
+    """会话按知识库隔离：属于该库，或检索范围为全局（所有库）。
+
+    ``scope_json`` 是 JSONB：global 的会话在每个库下都可见；kb / multi 的
+    会话凭 ``kb_ids`` 数组归属。没有 kb 参数的调用保持旧行为（返回全部）。
+    """
+    return or_(
+        ChatSession.scope_json["scope"].astext == "global",
+        ChatSession.scope_json.contains({"kb_ids": [str(kb_id)]}),
+    )
+
+
 @router.get("", response_model=ChatSessionList)
 async def list_sessions(
     limit: int = Query(100, ge=1, le=500),
+    kb_id: uuid.UUID | None = Query(None, description="只看该知识库的会话"),
     session: AsyncSession = Depends(get_session),
 ):
     """按最近消息时间倒序列出会话（不含消息正文）。"""
+    stmt = select(ChatSession)
+    if kb_id is not None:
+        stmt = stmt.where(_kb_scope_filter(kb_id))
     rows = (
         (
             await session.execute(
-                select(ChatSession)
-                .order_by(
+                stmt.order_by(
                     func.coalesce(
                         ChatSession.last_message_at, ChatSession.updated_at
                     ).desc()
-                )
-                .limit(limit)
+                ).limit(limit)
             )
         )
         .scalars()
@@ -193,8 +207,14 @@ async def delete_session(
 
 
 @router.delete("", response_model=dict)
-async def clear_sessions(session: AsyncSession = Depends(get_session)):
-    """清空全部会话历史。"""
-    result = await session.execute(delete(ChatSession))
+async def clear_sessions(
+    kb_id: uuid.UUID | None = Query(None, description="只清空该知识库的会话"),
+    session: AsyncSession = Depends(get_session),
+):
+    """清空会话历史；指定 kb_id 时只删该库可见的会话。"""
+    stmt = delete(ChatSession)
+    if kb_id is not None:
+        stmt = stmt.where(_kb_scope_filter(kb_id))
+    result = await session.execute(stmt)
     await session.commit()
     return {"deleted": result.rowcount or 0}

@@ -5,7 +5,6 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import { useAuthStore } from '@/stores/auth'
 
-const emit = defineEmits<{ (e: 'success'): void }>()
 const auth = useAuthStore()
 const token = ref('')
 const error = ref('')
@@ -25,9 +24,9 @@ async function submit() {
   }
   error.value = ''
   try {
+    // 登录成功后 App.vue 会监听 auth.blocked 的变化自动加载业务数据。
     await auth.login(value)
     token.value = ''
-    emit('success')
   } catch (e: any) {
     error.value = e.message || '访问令牌不正确'
     token.value = ''

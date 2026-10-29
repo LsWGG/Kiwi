@@ -32,15 +32,28 @@ const route = useRoute()
 
 const shortcutsOpen = ref(false)
 const booted = ref(false)
+/**
+ * 业务数据就绪标记。首次登录后必须先拿到知识库列表再渲染主布局：
+ * 之前 kb 列表还是空的，页面按「无知识库」渲染，密钥登录后看起来像
+ * 没有刷新加载数据。
+ */
+const appReady = ref(false)
 
 /** 公开分享页使用独立布局，不加载业务数据、不弹登录页。 */
 const isPublicShare = computed(() => route.name === 'note-share')
 
 /** 登录成功后再拉取业务数据，避免访问控制开启时首屏刷出一串 401。 */
-function loadAppData() {
+async function loadAppData() {
   if (booted.value) return
   booted.value = true
-  kbs.fetchKbs()
+  appReady.value = false
+  try {
+    await kbs.fetchKbs()
+  } catch {
+    // 拉取失败也放行到主布局：页面内有重试入口，不能把用户卡在启动页。
+  } finally {
+    appReady.value = true
+  }
   // 品牌信息与主题色来自后端系统设置；失败时保留内置默认值。
   void system.fetchSettings().catch(() => undefined)
   // 桌面运行状态：Docker 构建内部直接返回，不发起请求。
@@ -53,24 +66,36 @@ async function boot() {
     return
   }
   await auth.check()
-  if (!auth.blocked) loadAppData()
+  if (!auth.blocked) await loadAppData()
 }
 
-async function onLoginSuccess() {
-  await auth.check()
-  if (!auth.blocked) loadAppData()
-}
+/**
+ * 登录成功后由 auth 状态变化驱动加载业务数据。
+ *
+ * 不能依赖 AuthLoginView 的 `success` 事件：`auth.login()` 会先写入
+ * authenticated，Vue 随即卸载登录组件并清空其事件监听，等 `await login()`
+ * 返回后再 `emit` 已被忽略，导致首次登录后知识库列表一直为空。
+ */
+watch(
+  () => auth.blocked,
+  (blocked) => {
+    if (blocked || auth.checking || booted.value) return
+    void loadAppData()
+  },
+)
 
 async function onLogout() {
   commandPalette.close()
   await auth.logout()
   booted.value = false
+  appReady.value = false
 }
 
 function onUnauthorized() {
   commandPalette.close()
   auth.markUnauthorized()
   booted.value = false
+  appReady.value = false
 }
 
 /** 输入框 / 编辑器内不抢占 `?`，保证正常输入问号。 */
@@ -193,7 +218,15 @@ onBeforeUnmount(() => {
     </span>
   </div>
 
-  <AuthLoginView v-else-if="auth.blocked" @success="onLoginSuccess" />
+  <!-- 登录成功后的数据加载由 auth.blocked 的 watcher 触发，不依赖组件事件 -->
+  <AuthLoginView v-else-if="auth.blocked" />
+
+  <div v-else-if="!appReady" class="grid h-full place-items-center text-sm text-slate-400">
+    <span class="flex items-center gap-2">
+      <KiwiIcon name="loader" :size="16" :spin="true" />
+      正在加载知识库…
+    </span>
+  </div>
 
   <div v-else class="h-full flex flex-col">
     <!-- 全局顶栏：渐变玻璃条 -->

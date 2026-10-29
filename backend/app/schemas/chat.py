@@ -16,8 +16,10 @@ class SearchScope(BaseModel):
     tag_ids: list[uuid.UUID] = []
     updated_from: datetime | None = None
     updated_to: datetime | None = None
-    # 「问这篇笔记」：只在这些笔记范围内检索。
+    # 「问这篇笔记」：只在这些笔记范围内检索（与 folder_ids 取并集）。
     note_ids: list[uuid.UUID] = []
+    # 「@ 目录」：只在这些目录（含子目录）的笔记范围内检索。
+    folder_ids: list[uuid.UUID] = []
 
 
 class SearchRequest(BaseModel):
@@ -44,9 +46,10 @@ class SearchResponse(BaseModel):
 
 
 class Citation(BaseModel):
-    kb_id: uuid.UUID
+    # 网页来源不属于任何知识库，此时为 None。
+    kb_id: uuid.UUID | None = None
     kb_name: str = ""
-    collection: str  # wiki / note
+    collection: str  # wiki / note / web
     title: str
     slug: str | None = None
     chunk_text: str = ""
@@ -56,6 +59,8 @@ class Citation(BaseModel):
     chunk_index: int = 0
     heading: str = ""
     quote: str = ""
+    # 联网检索来源的原始地址；知识库内引用为空。
+    url: str = ""
 
 
 class ChatRequest(BaseModel):
@@ -65,6 +70,9 @@ class ChatRequest(BaseModel):
     llm_config_id: uuid.UUID | None = None  # 页面级临时指定
     model_override: str | None = Field(default=None, max_length=200)  # 仅本次请求
     stream: bool = True
+    # Agent 能力：多角度检索（拆分问题里的并列子问题）与联网检索。
+    agent: bool = False
+    web_search: bool = False
 
 
 class ChatEvent(BaseModel):

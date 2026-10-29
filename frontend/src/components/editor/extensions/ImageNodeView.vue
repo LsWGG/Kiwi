@@ -251,6 +251,8 @@ function onCropped(file: File) {
         :title="caption"
         class="block h-auto max-w-full cursor-zoom-in rounded-lg"
         :style="imageStyle"
+        loading="lazy"
+        decoding="async"
         draggable="false"
         @click.stop="openLightbox"
       />

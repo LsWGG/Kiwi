@@ -145,6 +145,35 @@ def provider_enabled() -> bool:
     return (settings.study_search_provider or "disabled").lower() in PROVIDERS
 
 
+async def search_web(query: str, limit: int = 5) -> list[dict]:
+    """问答里的显式联网检索。
+
+    与学习核查不同，这里是用户主动打开「联网」开关触发的：即使没有配置
+    provider 也回退到 DuckDuckGo；桌面版仍然拒绝。返回按 URL 去重后的
+    ``{title,url,snippet,provider}``，调用方负责包成引用与上下文。
+    """
+    if settings.desktop_mode:
+        raise RuntimeError("桌面版已禁用联网检索")
+    text = (query or "").strip()[:240]
+    if not text:
+        return []
+    provider = (settings.study_search_provider or "disabled").lower()
+    if provider not in PROVIDERS:
+        provider = "duckduckgo"
+    results = await PROVIDERS[provider](text)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in results:
+        url = str(item.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append({**item, "url": url})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def needs_research(question_json: dict | None) -> bool:
     """题目是否涉及可核验的事实性内容（README 14.4.4）。"""
     qj = question_json or {}

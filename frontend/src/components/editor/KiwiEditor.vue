@@ -74,6 +74,7 @@ import {
   SearchHighlight,
   clearSearchHighlight,
   highlightSearchTerm,
+  replaceSearchMatches,
 } from './extensions/searchHighlight'
 import {
   applyParagraphFormat,
@@ -984,6 +985,30 @@ function syncOutline() {
   headings.value = items
   void nextTick(() => scheduleHeadingSpy())
 }
+
+// 长文档里每次按键都全量遍历 doc 收集目录 / 段落格式开销很大：
+// 目录只在可见时按需刷新，格式收集等输入停顿后再发。
+let outlineTimer: number | undefined
+function scheduleOutlineSync() {
+  if (!props.showOutline) return
+  window.clearTimeout(outlineTimer)
+  outlineTimer = window.setTimeout(() => syncOutline(), 200)
+}
+
+let formatTimer: number | undefined
+function scheduleFormatEmit(ed: Editor) {
+  window.clearTimeout(formatTimer)
+  formatTimer = window.setTimeout(() => {
+    if (!editor.value) return
+    emit('paragraph-formats', collectParagraphFormats(ed))
+    emit('text-formats', collectTextFormats(ed))
+  }, 300)
+}
+
+onBeforeUnmount(() => {
+  window.clearTimeout(outlineTimer)
+  window.clearTimeout(formatTimer)
+})
 
 function nearestScrollParent(el: HTMLElement | null): HTMLElement | null {
   let node = el?.parentElement ?? null
@@ -2099,10 +2124,9 @@ const editor = useEditor({
     if (applyingSavedFormats) return
     chars.value = ed.storage.characterCount.characters()
     editorRevision.value += 1
-    syncOutline()
+    scheduleOutlineSync()
     emit('update', (ed.storage.markdown as any)?.getMarkdown?.() ?? '')
-    emit('paragraph-formats', collectParagraphFormats(ed))
-    emit('text-formats', collectTextFormats(ed))
+    scheduleFormatEmit(ed)
   },
   onSelectionUpdate: () => {
     editorRevision.value += 1
@@ -2110,7 +2134,7 @@ const editor = useEditor({
   },
   onCreate: ({ editor: ed }) => {
     chars.value = ed.storage.characterCount.characters()
-    syncOutline()
+    if (props.showOutline) syncOutline()
     applySavedParagraphFormats(ed)
     // NodeView 内的右击不会走 ProseMirror 的 handleDOMEvents
     contextMenuDom = ed.view.dom
@@ -2232,6 +2256,11 @@ defineExpose({
   clearSearchHighlight: () => {
     const ed = editor.value
     if (ed) clearSearchHighlight(ed)
+  },
+  /** 页内替换：替换当前命中或全部命中，返回替换数量。 */
+  replaceSearchMatches: (term: string, replacement: string, active = 0, all = false) => {
+    const ed = editor.value
+    return ed ? replaceSearchMatches(ed, term, replacement, active, all) : 0
   },
   /** 在纸张上直接进入页眉 / 页脚编辑（页面设置里的快捷按钮使用） */
   startHeaderEdit,

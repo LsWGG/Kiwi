@@ -21,6 +21,16 @@ export const useNoteFindStore = defineStore('noteFind', () => {
   const revision = ref(0)
   /** 请求聚焦输入框（Ctrl/⌘+F 再次按下时选中已有查询词）。 */
   const focusRevision = ref(0)
+  /** 当前笔记面板是否可以执行替换（只读 / 原始文件视图为 false）。 */
+  const replaceable = ref(false)
+
+  /**
+   * 替换执行器由当前笔记面板注册：查找条只负责 UI，真正的文本修改
+   * 必须走编辑器事务，才能同步 body_md 并触发自动保存。
+   */
+  let replaceHandler:
+    | ((replacement: string, all: boolean) => number | null)
+    | null = null
 
   const position = computed(() =>
     total.value ? activeIndex.value + 1 : 0,
@@ -70,6 +80,24 @@ export const useNoteFindStore = defineStore('noteFind', () => {
     revision.value += 1
   }
 
+  /** 正文被替换后重新扫描命中，并同步编辑器高亮。 */
+  function refresh() {
+    revision.value += 1
+  }
+
+  function registerReplaceHandler(
+    handler: ((replacement: string, all: boolean) => number | null) | null,
+  ) {
+    replaceHandler = handler
+    replaceable.value = !!handler
+  }
+
+  /** 返回替换的命中数；null 表示当前视图不支持替换。 */
+  function runReplace(replacement: string, all: boolean): number | null {
+    if (!replaceHandler) return null
+    return replaceHandler(replacement, all)
+  }
+
   return {
     open,
     noteId,
@@ -79,11 +107,15 @@ export const useNoteFindStore = defineStore('noteFind', () => {
     truncated,
     revision,
     focusRevision,
+    replaceable,
     position,
     show,
     close,
     setQuery,
     report,
     step,
+    refresh,
+    registerReplaceHandler,
+    runReplace,
   }
 })

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import CollectionRow, Note, NoteCollection
 from app.db.session import get_session
 from app.routers.note_guard import require_unlocked_note
-from app.routers.notes_shared import _record_tree_tombstones
 from app.schemas.note_database import (
     CollectionContextOut,
     DatabaseOut,
@@ -294,6 +293,15 @@ async def generate_row_notes(
     return out
 
 
+def _detach_row_note(note: Note) -> None:
+    """删行时保留行笔记：清掉集合属性，降级为普通文档留在原目录。"""
+    props = dict(note.props_json or {})
+    props.pop("collection_id", None)
+    props.pop("collection_note_id", None)
+    props.pop("collection_row_id", None)
+    note.props_json = props
+
+
 @router.post("/{note_id}/rows/batch-delete", response_model=dict)
 async def delete_rows(
     note_id: uuid.UUID,
@@ -301,7 +309,7 @@ async def delete_rows(
     payload: RowBatchDeleteIn,
     session: AsyncSession = Depends(get_session),
 ):
-    """批量删除记录；每行对应的笔记一并删除（外键级联行）。"""
+    """批量删除记录；对应的笔记保留为普通文档，不再随行删除。"""
     _, coll = await _get_database(session, kb_id, note_id)
     rows = list(
         (
@@ -316,19 +324,17 @@ async def delete_rows(
         .all()
     )
     deleted = 0
-    deleted_note_ids: list[uuid.UUID] = []
+    notes_kept = 0
     for row in rows:
         note = await session.get(Note, row.note_id) if row.note_id else None
         if note is not None:
-            await session.delete(note)
-            deleted_note_ids.append(note.id)
-        else:
-            await session.delete(row)
+            _detach_row_note(note)
+            notes_kept += 1
+        await session.delete(row)
         deleted += 1
-    await _record_tree_tombstones(session, kb_id, note_ids=deleted_note_ids)
     await session.commit()
     todo_sync.schedule_kb_sync(kb_id)
-    return {"deleted": deleted}
+    return {"deleted": deleted, "notes_kept": notes_kept}
 
 
 @router.delete("/{note_id}/rows/{row_id}", status_code=204)
@@ -339,12 +345,10 @@ async def delete_row(
     session: AsyncSession = Depends(get_session),
 ):
     _, _, row = await _get_row(session, kb_id, note_id, row_id)
-    # 行笔记随行一起删除；外键级联会移除 collection_row
+    # 记录笔记可能包含用户补充的正文：删行只解除集合关系，笔记保留。
     note = await session.get(Note, row.note_id) if row.note_id else None
     if note is not None:
-        await session.delete(note)
-        await _record_tree_tombstones(session, kb_id, note_ids=[note.id])
-    else:
-        await session.delete(row)
+        _detach_row_note(note)
+    await session.delete(row)
     await session.commit()
     todo_sync.schedule_kb_sync(kb_id)

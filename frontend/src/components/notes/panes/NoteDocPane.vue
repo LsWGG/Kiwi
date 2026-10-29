@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 文档 / 导入笔记主面板：标题、自动保存、编辑/阅读、导入进度、反向链接。 */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
 import { useKbsStore } from '@/stores/kbs'
@@ -499,6 +499,23 @@ const progressPct = computed(() =>
   Math.round((importInfo.value?.progress ?? 0) * 100),
 )
 
+// 页内替换：只有可编辑的正文才注册执行器，替换走编辑器事务并进入撤销历史。
+watchEffect(() => {
+  const available = !readMode.value && !importing.value && !readonlyImport.value
+  noteFind.registerReplaceHandler(
+    available
+      ? (replacement, all) =>
+          editorRef.value?.replaceSearchMatches(
+            noteFind.query.trim(),
+            replacement,
+            noteFind.activeIndex,
+            all,
+          ) ?? 0
+      : null,
+  )
+})
+onBeforeUnmount(() => noteFind.registerReplaceHandler(null))
+
 // 阅读模式使用演示层，原始文件分栏在阅读态下收起。
 watch(readMode, (on) => {
   if (on) sourceOpen.value = false
@@ -513,6 +530,18 @@ const updatedText = computed(() => {
     minute: '2-digit',
   })}`
 })
+
+/** 超长文档阅读时改用轻量 Markdown 渲染：ProseMirror 解析整篇正文在平板
+ * 上会明显卡顿，只读预览不需要编辑器节点树。 */
+const HUGE_READ_CHARS = 120_000
+const liteRead = computed(
+  () =>
+    readMode.value &&
+    !importing.value &&
+    editorMode.value !== 'docx' &&
+    readBody.value.length > HUGE_READ_CHARS,
+)
+const liteReadChars = computed(() => readBody.value.length.toLocaleString('zh-CN'))
 
 watch(
   () => props.note.body_md,
@@ -1420,7 +1449,45 @@ async function copyMarkdown() {
             />
           </div>
 
+          <div v-if="liteRead" class="mx-auto w-full max-w-[880px] flex-1 px-3 pb-24 pt-1">
+            <div class="flex items-center gap-1.5">
+              <span
+                v-if="note.props_json?.emoji"
+                class="w-9 shrink-0 text-center text-[24px] leading-none"
+              >{{ note.props_json.emoji }}</span>
+              <h1
+                class="min-w-0 flex-1 text-[27px] leading-[1.22] font-semibold tracking-[-0.022em] text-slate-900"
+              >
+                {{ title || '无标题文档' }}
+              </h1>
+            </div>
+            <p class="mb-3 mt-2.5 flex items-center gap-1.5 text-[11px] text-slate-400">
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full bg-gradient-to-br from-kiwi-300 to-kiwi-500"
+                aria-hidden="true"
+              />
+              {{ updatedText }}
+            </p>
+            <div
+              class="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-[11.5px] leading-relaxed text-amber-700"
+            >
+              <KiwiIcon name="alert" :size="12" />
+              <span>
+                超长正文（{{ liteReadChars }} 字符）已启用轻量阅读模式，优先保证打开速度。
+              </span>
+              <button
+                type="button"
+                class="ml-auto rounded-md border border-amber-300/80 px-2 py-0.5 text-[11px] font-medium text-amber-800 transition hover:bg-amber-100"
+                @click="setView('edit')"
+              >
+                切换编辑视图
+              </button>
+            </div>
+            <MarkdownView :content="readBody" :plugins="true" />
+          </div>
+
           <KiwiEditor
+            v-else
             :key="editorMode"
             ref="editorRef"
             class="flex-1"
@@ -1552,7 +1619,7 @@ async function copyMarkdown() {
         :area-el="readingAreaRef"
         :scroller-el="readingScrollRef"
         :outline-open="readOutlineOpen"
-        outline-available
+        :outline-available="!liteRead"
         @toggle-outline="readOutlineOpen = !readOutlineOpen"
         :zoom="readZoom"
         :zen="readZen"

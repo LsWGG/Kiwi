@@ -53,6 +53,8 @@ const router = useRouter()
 const pluginsStore = usePluginsStore()
 const root = ref<HTMLElement | null>(null)
 const orderedListClass = computed(() => orderedListStyleClass(props.orderedListStyle))
+/** 超长正文：对顶层块启用 content-visibility，跳过屏幕外布局与绘制。 */
+const isLong = computed(() => props.content.length > 120_000)
 
 const md = new MarkdownIt({
   // 原始 HTML 表格（语雀 / Notion 粘贴或历史模板）需要按 HTML 渲染；
@@ -1381,7 +1383,7 @@ function onClick(event: MouseEvent) {
   <div
     ref="root"
     class="prose-wiki markdown-view"
-    :class="[orderedListClass, { 'is-interactive': interactive }]"
+    :class="[orderedListClass, { 'is-interactive': interactive, 'is-long': isLong }]"
     @click="onClick"
     v-html="html"
   />
@@ -1425,6 +1427,13 @@ function onClick(event: MouseEvent) {
 </template>
 
 <style>
+/* 超长正文：屏幕外的顶层块跳过布局与绘制；auto 会记住实际高度，
+   滚动条不会随渲染反复跳动。 */
+.markdown-view.is-long > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+
 /* 问答引用角标：与引用卡片一一对应，可点击定位 */
 .markdown-view .md-cite-ref {
   display: inline-flex;

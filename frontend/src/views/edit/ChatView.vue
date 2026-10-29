@@ -19,7 +19,8 @@ import KiwiModal from '@/components/ui/KiwiModal.vue'
 import { toast } from '@/components/ui/toast'
 
 interface Citation {
-  kb_id: string
+  /** 网页来源没有知识库归属。 */
+  kb_id?: string | null
   kb_name: string
   collection: string
   title: string
@@ -30,6 +31,27 @@ interface Citation {
   chunk_index?: number
   heading?: string
   quote?: string
+  /** 联网检索来源的原始链接。 */
+  url?: string
+}
+
+/** @ 指定的笔记 / 目录（仅作为本轮检索范围，不改变知识库选择）。 */
+interface MentionRef {
+  type: 'note' | 'folder'
+  id: string
+  title: string
+}
+
+interface MentionNote {
+  id: string
+  title: string
+  kind: string
+}
+
+interface MentionFolder {
+  id: string
+  name: string
+  parent_id: string | null
 }
 
 interface ScopeFilters {
@@ -63,6 +85,9 @@ interface SessionSummary {
     tag_ids?: string[]
     updated_from?: string | null
     updated_to?: string | null
+    note_ids?: string[]
+    folder_ids?: string[]
+    mentions?: MentionRef[]
   }
   /** 兼容旧数据：早期会话可能保存 raw，前端统一按 note 处理 */
   intent: Intent | 'raw'
@@ -108,6 +133,17 @@ const filterKinds = ref<string[]>([])
 const filterTagIds = ref<string[]>([])
 const filterFrom = ref('')
 const filterTo = ref('')
+
+// ---------- @ 笔记 / 目录与 Agent 开关 ----------
+const mentions = ref<MentionRef[]>([])
+const mentionOpen = ref(false)
+const mentionQuery = ref('')
+const mentionLoading = ref(false)
+const mentionNotes = ref<MentionNote[]>([])
+const mentionFolders = ref<MentionFolder[]>([])
+const agentMode = ref(false)
+const webSearch = ref(false)
+let mentionTimer: number | undefined
 const NOTE_KIND_OPTIONS = [
   { id: 'doc', label: '文档' },
   { id: 'import', label: '导入' },
@@ -169,6 +205,8 @@ function loadSettings() {
       multiIds?: string[]
       intent?: Intent | 'raw'
       llmConfigId?: string
+      agentMode?: boolean
+      webSearch?: boolean
       filters?: Partial<ScopeFilters>
     }
     if (saved.scopeMode) scopeMode.value = saved.scopeMode
@@ -183,6 +221,8 @@ function loadSettings() {
     if (saved.intent === 'raw') intent.value = 'note'
     else if (saved.intent) intent.value = saved.intent
     if (typeof saved.llmConfigId === 'string') llmConfigId.value = saved.llmConfigId
+    if (typeof saved.agentMode === 'boolean') agentMode.value = saved.agentMode
+    if (typeof saved.webSearch === 'boolean') webSearch.value = saved.webSearch
   } catch {
     /* 隐私模式忽略 */
   }
@@ -197,6 +237,8 @@ function saveSettings() {
         multiIds: multiIds.value,
         intent: intent.value,
         llmConfigId: llmConfigId.value,
+        agentMode: agentMode.value,
+        webSearch: webSearch.value,
         filters: {
           note_kinds: filterKinds.value,
           tag_ids: filterTagIds.value,
@@ -242,8 +284,26 @@ onMounted(async () => {
     llm.configs.length ? Promise.resolve() : llm.fetchConfigs().catch(() => undefined),
   ])
   await bootstrapSessions()
+  bootstrappedSessions = true
   scrollToBottom(true)
 })
+let bootstrappedSessions = false
+
+/** 切换知识库后刷新会话列表：会话按知识库隔离，旧会话不应留在新库下。 */
+watch(
+  () => kbs.currentKbId,
+  async (id, previous) => {
+    if (!bootstrappedSessions || sessionLoading.value || !id || id === previous) return
+    if (streaming.value) return
+    mentions.value = []
+    currentSessionId.value = ''
+    messages.value = []
+    activeCite.value = null
+    expandedCites.value = {}
+    await fetchSessions()
+    if (sessions.value.length) await loadSession(sessions.value[0].id)
+  },
+)
 onUnmounted(() => {
   saveSettings()
   window.clearTimeout(saveTimer)
@@ -261,6 +321,24 @@ function scopeFromSession(item: SessionSummary) {
   filterTagIds.value = Array.isArray(scope.tag_ids) ? scope.tag_ids.map(String) : []
   filterFrom.value = typeof scope.updated_from === 'string' ? scope.updated_from.slice(0, 10) : ''
   filterTo.value = typeof scope.updated_to === 'string' ? scope.updated_to.slice(0, 10) : ''
+  // @ 笔记 / 目录：优先用会话里保存的标题；旧会话只有 id 时给通用名称。
+  const savedMentions = Array.isArray(scope.mentions) ? scope.mentions : []
+  if (savedMentions.length) {
+    mentions.value = savedMentions
+      .filter((m) => m && (m.type === 'note' || m.type === 'folder') && m.id)
+      .map((m) => ({
+        type: m.type,
+        id: String(m.id),
+        title: String(m.title || (m.type === 'note' ? '笔记' : '目录')),
+      }))
+  } else {
+    const noteIds = Array.isArray(scope.note_ids) ? scope.note_ids : []
+    const folderIds = Array.isArray(scope.folder_ids) ? scope.folder_ids : []
+    mentions.value = [
+      ...noteIds.map((id) => ({ type: 'note' as const, id: String(id), title: '笔记' })),
+      ...folderIds.map((id) => ({ type: 'folder' as const, id: String(id), title: '目录' })),
+    ]
+  }
   if (item.intent === 'raw') intent.value = 'note'
   else if (item.intent) intent.value = item.intent
   llmConfigId.value = item.llm_config_id || ''
@@ -270,13 +348,18 @@ let hydratingSession = false
 function applySession(detail: SessionDetail) {
   hydratingSession = true
   currentSessionId.value = detail.id
-  messages.value = (detail.messages || []).map((m) => ({
+  const loaded: Msg[] = (detail.messages || []).map((m) => ({
     role: m.role,
     content: String(m.content || ''),
     citations: Array.isArray(m.citations) ? m.citations : [],
     streaming: false,
     created_at: m.created_at,
   }))
+  // 历史消息同样只展示正文实际引用的来源；旧数据里的编号一并重排。
+  for (const message of loaded) {
+    if (message.role === 'assistant') normalizeCitations(message, message.citations)
+  }
+  messages.value = loaded
   scopeFromSession(detail)
   saveSettings()
   sidebarOpen.value = false
@@ -287,10 +370,15 @@ function applySession(detail: SessionDetail) {
   })
 }
 
+function sessionsPath(): string {
+  const kb = kbs.currentKbId
+  return kb ? `/chat/sessions?kb_id=${encodeURIComponent(kb)}` : '/chat/sessions'
+}
+
 async function fetchSessions() {
   sessionsLoading.value = true
   try {
-    const res = await request<{ items: SessionSummary[] }>('/chat/sessions')
+    const res = await request<{ items: SessionSummary[] }>(sessionsPath())
     sessions.value = res.items || []
   } catch (e: any) {
     toast.error(e.message || '会话列表加载失败')
@@ -371,6 +459,8 @@ function sessionScopePayload() {
     kb_ids: scopeKbIds.value,
     scope: scopeMode.value,
     ...filtersPayload(),
+    // 保存标题，刷新后 @ 选择器仍能显示可读名称（后端检索只用 id）。
+    mentions: mentions.value.map((m) => ({ ...m })),
   }
 }
 
@@ -382,6 +472,9 @@ function filtersPayload() {
     tag_ids: [...filterTagIds.value],
     updated_from: filterFrom.value ? new Date(`${filterFrom.value}T00:00:00`).toISOString() : null,
     updated_to: filterTo.value ? new Date(`${filterTo.value}T23:59:59`).toISOString() : null,
+    // @ 指定笔记 / 目录：两者取并集，作为本轮检索的笔记范围。
+    note_ids: mentions.value.filter((m) => m.type === 'note').map((m) => m.id),
+    folder_ids: mentions.value.filter((m) => m.type === 'folder').map((m) => m.id),
   }
 }
 
@@ -426,6 +519,83 @@ async function toggleFilterMenu() {
   } finally {
     filterTagsLoading.value = false
   }
+}
+
+// ---------- @ 笔记 / 目录选择器 ----------
+const mentionFolderOptions = computed(() => {
+  const query = mentionQuery.value.trim().toLowerCase()
+  const byId = new Map(mentionFolders.value.map((folder) => [folder.id, folder]))
+  return mentionFolders.value
+    .map((folder) => {
+      const names = [folder.name]
+      let parent = folder.parent_id
+      let guard = 0
+      while (parent && guard < 12) {
+        const node = byId.get(parent)
+        if (!node) break
+        names.unshift(node.name)
+        parent = node.parent_id
+        guard += 1
+      }
+      return { ...folder, path: names.join(' / ') }
+    })
+    .filter((folder) => !query || folder.path.toLowerCase().includes(query))
+})
+
+async function loadMentionCandidates() {
+  const kb = kbs.currentKbId
+  if (!kb) return
+  mentionLoading.value = true
+  try {
+    const query = mentionQuery.value.trim()
+    const [tree, search] = await Promise.all([
+      request<{ folders: MentionFolder[] }>('/notes/tree', { kbId: kb }),
+      request<{ items: { note: MentionNote }[] }>(
+        `/notes/search?q=${encodeURIComponent(query)}&limit=12`,
+        { kbId: kb },
+      ),
+    ])
+    mentionFolders.value = tree.folders || []
+    mentionNotes.value = (search.items || []).map((item) => item.note)
+  } catch {
+    /* 候选加载失败不阻断提问；当前范围仍可继续使用 */
+  } finally {
+    mentionLoading.value = false
+  }
+}
+
+function scheduleMentionSearch() {
+  window.clearTimeout(mentionTimer)
+  mentionTimer = window.setTimeout(() => void loadMentionCandidates(), 250)
+}
+
+function toggleMentionOpen() {
+  mentionOpen.value = !mentionOpen.value
+  if (mentionOpen.value) void loadMentionCandidates()
+}
+
+function isMentioned(type: MentionRef['type'], id: string): boolean {
+  return mentions.value.some((item) => item.type === type && item.id === id)
+}
+
+function toggleMention(type: MentionRef['type'], id: string, title: string) {
+  const index = mentions.value.findIndex((item) => item.type === type && item.id === id)
+  if (index >= 0) mentions.value.splice(index, 1)
+  else mentions.value.push({ type, id, title })
+}
+
+function removeMention(index: number) {
+  mentions.value.splice(index, 1)
+}
+
+function toggleAgent() {
+  agentMode.value = !agentMode.value
+  saveSettings()
+}
+
+function toggleWebSearch() {
+  webSearch.value = !webSearch.value
+  saveSettings()
 }
 
 async function createSession(): Promise<SessionDetail | null> {
@@ -568,10 +738,10 @@ async function deleteSession() {
 async function clearAllSessions() {
   clearOpen.value = false
   try {
-    await request('/chat/sessions', { method: 'DELETE' })
+    await request(sessionsPath(), { method: 'DELETE' })
     sessions.value = []
     newConversation()
-    toast.success('会话历史已清空')
+    toast.success('当前知识库的会话历史已清空')
   } catch (e: any) {
     toast.error(e.message || '清空失败')
   }
@@ -704,6 +874,9 @@ async function ask() {
   // 先保存用户问题：即使页面中途关闭，历史里仍保留提问。
   scheduleSave(0)
 
+  // 引用先暂存，等回答完成后再按正文实际引用过滤，避免先闪出 10 条。
+  let pendingCitations: Citation[] = []
+
   openSSE(
     '/chat/stream',
     {
@@ -711,6 +884,8 @@ async function ask() {
       scope: requestScope(),
       intent: intent.value,
       llm_config_id: llmConfigId.value || null,
+      agent: agentMode.value,
+      web_search: webSearch.value,
     },
     {
       onMessage: (msg) => {
@@ -718,10 +893,14 @@ async function ask() {
           assistant.content += msg.data?.text ?? ''
           scrollToBottom()
         } else if (msg.event === 'citation') {
-          assistant.citations = msg.data?.citations ?? []
+          pendingCitations = msg.data?.citations ?? []
+        } else if (msg.event === 'notice') {
+          const notice = String(msg.data?.message || '').trim()
+          if (notice) toast.info(notice)
         } else if (msg.event === 'done') {
           assistant.streaming = false
           streaming.value = false
+          normalizeCitations(assistant, pendingCitations)
           assistant.created_at = new Date().toISOString()
           scrollToBottom(true)
           void saveSessionNow()
@@ -768,10 +947,17 @@ const NOTE_KIND_LABEL: Record<string, string> = {
 }
 
 function citationLabel(citation: Citation): string {
+  if (citation.collection === 'web') return '网页'
   if (citation.collection === 'note') {
     return NOTE_KIND_LABEL[citation.kind || ''] || '笔记'
   }
   return 'Wiki'
+}
+
+/** 引用卡片配色：笔记 / Wiki / 网页三种来源。 */
+function citationTone(citation: Citation): 'web' | 'note' | 'wiki' {
+  if (citation.collection === 'web') return 'web'
+  return citation.collection === 'note' ? 'note' : 'wiki'
 }
 
 /** 来源预览去掉 Markdown 标记，避免卡片里出现 #、[[ ]]、``` 等噪声。 */
@@ -786,12 +972,69 @@ function citationPreview(text: string): string {
     .trim()
 }
 
+// 正文里的引用标记：[1] / [1,2] / [1-3] / 【1】 / ［1］。
+const CITE_REF_RE =
+  /(?:\[|【|［)(\d+(?:\s*[-–]\s*\d+)?(?:\s*[,，、]\s*\d+(?:\s*[-–]\s*\d+)?)*)(?:\]|】|］)/g
+
+function expandCitationGroup(group: string): number[] {
+  const numbers: number[] = []
+  for (const part of group.split(/[,，、]/)) {
+    const range = part.split(/[-–]/)
+    if (range.length === 2) {
+      const start = Number(range[0].trim())
+      const end = Number(range[1].trim())
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue
+      const low = Math.min(start, end)
+      const high = Math.max(start, end)
+      // 防御异常范围（如 [1-999999]），最多展开 20 个。
+      for (let n = low; n <= high && n - low < 20; n += 1) numbers.push(n)
+    } else {
+      const n = Number(part.trim())
+      if (Number.isFinite(n)) numbers.push(n)
+    }
+  }
+  return numbers
+}
+
+/**
+ * 引用列表只保留回答正文真正提到的来源，并按出现顺序重新编号。
+ * 检索每次最多返回 10 条，但模型通常只用其中几条；直接展示全部会让
+ * 引用区看起来像检索结果列表，而不是依据。
+ */
+function normalizeCitations(msg: Msg, all: Citation[]) {
+  const content = msg.content || ''
+  const order: number[] = []
+  let match: RegExpExecArray | null
+  CITE_REF_RE.lastIndex = 0
+  while ((match = CITE_REF_RE.exec(content))) {
+    for (const n of expandCitationGroup(match[1])) {
+      if (n >= 1 && n <= all.length && !order.includes(n)) order.push(n)
+    }
+  }
+  if (!order.length) {
+    msg.citations = []
+    return
+  }
+  const mapping = new Map(order.map((n, index) => [n, index + 1]))
+  msg.content = content.replace(CITE_REF_RE, (whole, group: string) => {
+    const mapped = expandCitationGroup(group)
+      .map((n) => mapping.get(n))
+      .filter((n): n is number => typeof n === 'number')
+    return mapped.length ? mapped.map((n) => `[${n}]`).join('') : whole
+  })
+  msg.citations = order.map((n) => all[n - 1])
+}
+
 function openCitation(citation: Citation) {
   const query: Record<string, string> = {}
   const quote = (citation.quote || citation.chunk_text || '').slice(0, 200)
   if (quote) query.quote = quote
   if (citation.heading) query.heading = citation.heading.slice(0, 120)
   if (citation.chunk_index) query.chunk = String(citation.chunk_index)
+  if (citation.collection === 'web' && citation.url) {
+    window.open(citation.url, '_blank', 'noopener,noreferrer')
+    return
+  }
   if (citation.collection === 'wiki' && citation.target_id) {
     void router.push({
       name: 'wiki-page',
@@ -879,7 +1122,11 @@ function citationMarkdown(msg: Msg): string {
   const lines = msg.citations.map((c, i) => {
     const kind = citationLabel(c)
     const href =
-      c.collection === 'wiki' ? `/wiki/${c.target_id}` : `/notes/${c.target_id}`
+      c.collection === 'web'
+        ? c.url || c.target_id
+        : c.collection === 'wiki'
+          ? `/wiki/${c.target_id}`
+          : `/notes/${c.target_id}`
     return `${i + 1}. [${kind}：${c.title}](${href})` + (c.kb_name ? `（${c.kb_name}）` : '')
   })
   return `\n\n---\n\n## 引用来源\n\n${lines.join('\n')}`
@@ -1087,7 +1334,7 @@ watch(
           @click="clearOpen = true"
         >
           <KiwiIcon name="trash" :size="11" />
-          清空全部历史
+          清空本库历史
         </button>
       </div>
     </aside>
@@ -1417,9 +1664,11 @@ watch(
                       type="button"
                       class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-left transition-colors duration-150"
                       :class="[
-                        c.collection === 'note'
+                        citationTone(c) === 'note'
                           ? 'hover:bg-sky-50'
-                          : 'hover:bg-kiwi-50',
+                          : citationTone(c) === 'web'
+                            ? 'hover:bg-amber-50'
+                            : 'hover:bg-kiwi-50',
                         activeCite?.msg === i && activeCite?.cite === ci
                           ? 'bg-kiwi-50 ring-1 ring-kiwi-400/80'
                           : '',
@@ -1429,14 +1678,22 @@ watch(
                     >
                       <span
                         class="grid h-4 w-4 shrink-0 place-items-center rounded text-[9px] font-semibold"
-                        :class="c.collection === 'note' ? 'bg-sky-100 text-sky-700' : 'bg-kiwi-100 text-kiwi-700'"
+                        :class="citationTone(c) === 'note'
+                          ? 'bg-sky-100 text-sky-700'
+                          : citationTone(c) === 'web'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-kiwi-100 text-kiwi-700'"
                       >
                         {{ ci + 1 }}
                       </span>
                       <span class="max-w-[15rem] truncate text-[11px] text-slate-600">{{ c.title }}</span>
                       <span
                         class="shrink-0 rounded px-1 text-[9px]"
-                        :class="c.collection === 'note' ? 'bg-sky-50 text-sky-600' : 'bg-kiwi-50 text-kiwi-600'"
+                        :class="citationTone(c) === 'note'
+                          ? 'bg-sky-50 text-sky-600'
+                          : citationTone(c) === 'web'
+                            ? 'bg-amber-50 text-amber-600'
+                            : 'bg-kiwi-50 text-kiwi-600'"
                       >
                         {{ citationLabel(c) }}
                       </span>
@@ -1502,36 +1759,217 @@ watch(
       <!-- 输入区：透明背景，与聊天区的环境渐变保持连续 -->
       <div class="px-4 pb-4 pt-2 sm:px-6">
         <div class="mx-auto w-full" style="max-width: min(1120px, 100%)">
-          <div
-            class="flex items-end gap-2 rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
-          >
-            <textarea
-              ref="composerEl"
-              v-model="input"
-              rows="1"
-              placeholder="输入问题，Enter 发送（Shift+Enter 换行）…"
-              class="max-h-36 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
-              @input="resizeComposer"
-              @keydown.enter.exact.prevent="ask"
-            />
-            <button
-              class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-35 active:scale-95"
-              :class="canSend ? 'bg-gradient-to-br from-kiwi-500 to-kiwi-700 shadow-glow hover:brightness-105' : 'bg-slate-300'"
-              :disabled="!canSend"
-              @click="ask"
-              title="发送"
+          <!-- 已选 @ 范围：只作用于本轮检索，不改变知识库选择 -->
+          <div v-if="mentions.length" class="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <span
+              v-for="(mention, mi) in mentions"
+              :key="`${mention.type}:${mention.id}`"
+              class="inline-flex max-w-[16rem] items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px]"
+              :class="mention.type === 'folder'
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-sky-200 bg-sky-50 text-sky-700'"
+              :title="mention.type === 'folder' ? `目录：${mention.title}` : `笔记：${mention.title}`"
             >
-              <KiwiIcon name="send" :size="15" />
+              <KiwiIcon :name="mention.type === 'folder' ? 'folder' : 'note'" :size="10" />
+              <span class="truncate">{{ mention.title }}</span>
+              <button
+                type="button"
+                class="grid h-3.5 w-3.5 place-items-center rounded-full opacity-70 transition hover:bg-white/70 hover:opacity-100"
+                title="移除"
+                @click="removeMention(mi)"
+              >
+                <KiwiIcon name="close" :size="8" />
+              </button>
+            </span>
+            <button
+              type="button"
+              class="rounded px-1 text-[10px] text-slate-400 transition hover:text-kiwi-600"
+              @click="mentions = []"
+            >
+              清空
             </button>
           </div>
-          <p class="mt-2 flex items-center gap-1.5 text-[10.5px] text-slate-400">
+
+          <div
+            class="relative rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
+          >
+            <!-- 工具条：@ 范围 + Agent / 联网开关 -->
+            <div class="flex flex-wrap items-center gap-1 px-1">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10.5px] transition-colors"
+                :class="mentionOpen || mentions.length
+                  ? 'bg-kiwi-50 text-kiwi-700'
+                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
+                :title="mentions.length ? `已选 ${mentions.length} 项检索范围` : '指定笔记或目录进行提问'"
+                @click="toggleMentionOpen"
+              >
+                <KiwiIcon name="at" :size="12" />
+                笔记 / 目录
+                <span v-if="mentions.length" class="rounded-full bg-white/80 px-1 text-[9.5px]">{{ mentions.length }}</span>
+              </button>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="agentMode"
+                class="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10.5px] transition-colors"
+                :class="agentMode
+                  ? 'bg-kiwi-50 text-kiwi-700'
+                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
+                title="Agent：自动拆分问题并多轮检索笔记 / 目录 / Wiki"
+                @click="toggleAgent"
+              >
+                <KiwiIcon name="sparkle" :size="12" />
+                Agent
+              </button>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="webSearch"
+                class="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10.5px] transition-colors"
+                :class="webSearch
+                  ? 'bg-amber-50 text-amber-700'
+                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
+                title="联网检索：在知识库之外补充网页结果（需后端配置检索服务）"
+                @click="toggleWebSearch"
+              >
+                <KiwiIcon name="globe" :size="12" />
+                联网
+              </button>
+            </div>
+
+            <div class="flex items-end gap-2">
+              <textarea
+                ref="composerEl"
+                v-model="input"
+                rows="1"
+                placeholder="输入问题，Enter 发送（Shift+Enter 换行）…"
+                class="max-h-36 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                @input="resizeComposer"
+                @keydown.enter.exact.prevent="ask"
+              />
+              <button
+                class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-35 active:scale-95"
+                :class="canSend ? 'bg-gradient-to-br from-kiwi-500 to-kiwi-700 shadow-glow hover:brightness-105' : 'bg-slate-300'"
+                :disabled="!canSend"
+                @click="ask"
+                title="发送"
+              >
+                <KiwiIcon name="send" :size="15" />
+              </button>
+            </div>
+
+            <!-- @ 笔记 / 目录选择器 -->
+            <div
+              v-if="mentionOpen"
+              class="absolute bottom-full left-0 z-30 mb-1.5 w-[min(32rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lifted"
+            >
+              <div class="flex items-center gap-2 border-b border-slate-100 px-2.5 py-1.5">
+                <KiwiIcon name="search" :size="12" class="shrink-0 text-slate-400" />
+                <input
+                  v-model="mentionQuery"
+                  class="min-w-0 flex-1 bg-transparent text-[11.5px] text-slate-700 outline-none placeholder:text-slate-400"
+                  placeholder="搜索笔记标题，勾选目录可包含整棵子树…"
+                  @input="scheduleMentionSearch"
+                />
+                <KiwiIcon v-if="mentionLoading" name="loader" :size="11" :spin="true" class="shrink-0 text-slate-400" />
+                <button
+                  type="button"
+                  class="shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                  @click="mentionOpen = false"
+                >
+                  完成
+                </button>
+              </div>
+              <div class="max-h-72 overflow-y-auto p-1.5">
+                <template v-if="mentionFolderOptions.length">
+                  <p class="px-1.5 pb-1 pt-1 text-[10px] font-medium text-slate-400">目录（含子目录）</p>
+                  <button
+                    v-for="folder in mentionFolderOptions"
+                    :key="folder.id"
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
+                    :class="isMentioned('folder', folder.id)
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'text-slate-600 hover:bg-slate-50'"
+                    @click="toggleMention('folder', folder.id, folder.path)"
+                  >
+                    <KiwiIcon
+                      name="folder"
+                      :size="12"
+                      class="shrink-0"
+                      :class="isMentioned('folder', folder.id) ? 'text-amber-500' : 'text-slate-400'"
+                    />
+                    <span class="min-w-0 flex-1 truncate">{{ folder.path }}</span>
+                    <KiwiIcon
+                      v-if="isMentioned('folder', folder.id)"
+                      name="check"
+                      :size="12"
+                      class="shrink-0 text-amber-500"
+                    />
+                  </button>
+                </template>
+                <template v-if="mentionNotes.length">
+                  <p class="px-1.5 pb-1 pt-2 text-[10px] font-medium text-slate-400">笔记</p>
+                  <button
+                    v-for="note in mentionNotes"
+                    :key="note.id"
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
+                    :class="isMentioned('note', note.id)
+                      ? 'bg-sky-50 text-sky-700'
+                      : 'text-slate-600 hover:bg-slate-50'"
+                    @click="toggleMention('note', note.id, note.title)"
+                  >
+                    <KiwiIcon
+                      name="note"
+                      :size="12"
+                      class="shrink-0"
+                      :class="isMentioned('note', note.id) ? 'text-sky-500' : 'text-slate-400'"
+                    />
+                    <span class="min-w-0 flex-1 truncate">{{ note.title }}</span>
+                    <span class="shrink-0 text-[9.5px] text-slate-400">
+                      {{ NOTE_KIND_OPTIONS.find((k) => k.id === note.kind)?.label || note.kind }}
+                    </span>
+                    <KiwiIcon
+                      v-if="isMentioned('note', note.id)"
+                      name="check"
+                      :size="12"
+                      class="shrink-0 text-sky-500"
+                    />
+                  </button>
+                </template>
+                <p
+                  v-if="!mentionFolderOptions.length && !mentionNotes.length && !mentionLoading"
+                  class="px-2 py-6 text-center text-[11px] text-slate-400"
+                >
+                  没有匹配的笔记或目录
+                </p>
+              </div>
+              <p class="border-t border-slate-100 px-2.5 py-1.5 text-[10px] leading-relaxed text-slate-400">
+                只检索勾选的笔记与目录；目录自动包含子目录。未勾选时按顶部「范围」检索。
+              </p>
+            </div>
+          </div>
+
+          <p class="mt-2 flex flex-wrap items-center gap-1.5 text-[10.5px] text-slate-400">
             <span
               class="inline-block h-1.5 w-1.5 rounded-full"
               :class="scopeMode === 'global' || kbs.currentKb ? 'animate-pulse-ring bg-kiwi-500' : 'bg-slate-300'"
             />
             检索范围：{{ scopeLabel }}
+            <span v-if="mentions.length" class="text-slate-300">·</span>
+            <span v-if="mentions.length">@ {{ mentions.length }} 项</span>
             <span class="text-slate-300">·</span>
             {{ intent === 'wiki' ? 'Wiki 优先' : intent === 'note' ? '笔记优先' : '自动路由' }}
+            <span v-if="agentMode" class="inline-flex items-center gap-0.5 rounded bg-kiwi-50 px-1 text-kiwi-600">
+              <KiwiIcon name="sparkle" :size="9" />
+              Agent
+            </span>
+            <span v-if="webSearch" class="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-amber-600">
+              <KiwiIcon name="globe" :size="9" />
+              联网
+            </span>
             <span class="ml-auto hidden sm:inline">Enter 发送 · Shift + Enter 换行</span>
           </p>
         </div>
@@ -1555,9 +1993,9 @@ watch(
     </KiwiModal>
 
     <!-- 清空历史确认 -->
-    <KiwiModal :open="clearOpen" title="清空会话历史" max-w="max-w-md" @close="clearOpen = false">
+    <KiwiModal :open="clearOpen" title="清空本库会话历史" max-w="max-w-md" @close="clearOpen = false">
       <p class="text-sm text-slate-600">
-        确定清空全部 {{ sessions.length }} 个会话吗？所有历史消息都会被删除，且不可恢复。
+        确定清空当前知识库的全部 {{ sessions.length }} 个会话吗？其他知识库的会话不受影响，历史消息删除后不可恢复。
       </p>
       <div class="mt-4 flex justify-end gap-2">
         <button type="button" class="kiwi-btn-secondary" @click="clearOpen = false">取消</button>

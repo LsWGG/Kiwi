@@ -35,25 +35,22 @@ PASSWORD_MAX_FAILURES = 10
 MEDIA_SIGN_TTL_SECONDS = 6 * 60 * 60
 # 数据表公开分享最多带出的行数，避免一次请求序列化整张大表。
 MAX_SHARED_DB_ROWS = 500
-SAFE_MEDIA_SUFFIXES = {
+# 分享正文里可以内联展示的文件类型；其余附件一律以 download 返回，
+# 避免把 .html / .js 等主动内容以分享站点的源内联执行。
+INLINE_MEDIA_SUFFIXES = {
     ".jpg",
     ".jpeg",
     ".png",
     ".gif",
     ".webp",
-    ".svg",
     ".avif",
+    ".bmp",
+    ".ico",
+    ".svg",
     ".pdf",
     ".txt",
     ".md",
     ".csv",
-    ".doc",
-    ".docx",
-    ".xls",
-    ".xlsx",
-    ".ppt",
-    ".pptx",
-    ".zip",
 }
 
 # 进程内密码失败计数：单人部署足够，重启后清零。
@@ -252,7 +249,12 @@ async def shared_media(
     sig: str,
     session: AsyncSession = Depends(get_session),
 ):
-    """分享正文引用的本地媒体；必须携带内容响应中下发的签名。"""
+    """分享正文引用的本地媒体与附件；必须携带内容响应中下发的签名。
+
+    图片 / PDF / 纯文本内联展示；其他任意后缀（压缩包、Office 文件等）
+    以附件下载，保证「只读分享」里的附件可用，同时避免 HTML / JS 之类
+    的主动内容在分享域名下以内联文档执行。
+    """
     share = await _load_share(session, token)
     if exp < int(time.time()):
         raise _error(410, "share_media_expired", "图片地址已过期，请刷新分享页")
@@ -266,17 +268,30 @@ async def shared_media(
         target.relative_to(root)
     except ValueError:
         raise _error(404, "share_media_not_found", "图片不存在") from None
-    if not target.is_file() or target.suffix.lower() not in SAFE_MEDIA_SUFFIXES:
+    if not target.is_file():
         raise _error(404, "share_media_not_found", "图片不存在")
 
-    media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    suffix = target.suffix.lower()
+    headers = {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if suffix in INLINE_MEDIA_SUFFIXES:
+        media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        # SVG 可以携带脚本：CSP sandbox 让它在被直接打开时也失去脚本能力，
+        # 作为 <img> 加载时不受影响。
+        if suffix == ".svg":
+            headers["Content-Security-Policy"] = "sandbox"
+        return FileResponse(target, media_type=media_type, headers=headers)
+
+    filename = target.name
+    fallback = filename.encode("ascii", "ignore").decode() or "download"
+    headers["Content-Disposition"] = (
+        f"attachment; filename=\"{fallback}\"; "
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
     return FileResponse(
-        target,
-        media_type=media_type,
-        headers={
-            "Cache-Control": "private, no-store",
-            "X-Content-Type-Options": "nosniff",
-        },
+        target, media_type="application/octet-stream", headers=headers
     )
 
 

@@ -86,6 +86,48 @@ export function highlightSearchTerm(
   return (searchHighlightKey.getState(view.state)?.find().length ?? 0) > 0
 }
 
+/**
+ * 页内替换：与查找高亮保持同一匹配语义（单个文本节点内、忽略大小写），
+ * 一次替换当前项或全部命中。所有改动放进一个事务，Ctrl+Z 可整体撤销。
+ * 返回实际替换的数量。
+ */
+export function replaceSearchMatches(
+  editor: Editor,
+  raw: string,
+  replacement: string,
+  active = 0,
+  all = false,
+): number {
+  const keyword = raw.trim()
+  if (!keyword) return 0
+  const needle = keyword.toLocaleLowerCase()
+  const matches: { from: number; to: number }[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return true
+    const haystack = node.text.toLocaleLowerCase()
+    let from = 0
+    while (matches.length < MAX_SEARCH_MATCHES) {
+      const index = haystack.indexOf(needle, from)
+      if (index < 0) break
+      matches.push({ from: pos + index, to: pos + index + keyword.length })
+      from = index + needle.length
+    }
+    return matches.length < MAX_SEARCH_MATCHES
+  })
+  if (!matches.length) return 0
+  const targets = all
+    ? matches
+    : [matches[Math.min(Math.max(active, 0), matches.length - 1)]]
+  let tr = editor.state.tr
+  // 从后往前改，前面命中的位置不受影响。
+  for (let i = targets.length - 1; i >= 0; i -= 1) {
+    const { from, to } = targets[i]
+    tr = replacement ? tr.insertText(replacement, from, to) : tr.delete(from, to)
+  }
+  editor.view.dispatch(tr.scrollIntoView())
+  return targets.length
+}
+
 export function clearSearchHighlight(editor: Editor) {
   const view = editor.view
   const current = searchHighlightKey.getState(view.state)

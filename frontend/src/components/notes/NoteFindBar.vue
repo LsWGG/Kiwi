@@ -9,11 +9,16 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { useNoteFindStore } from '@/stores/noteFind'
+import { toast } from '@/components/ui/toast'
 
 const props = defineProps<{ scope: HTMLElement | null }>()
 
 const noteFind = useNoteFindStore()
 const inputRef = ref<HTMLInputElement | null>(null)
+/** 替换行：默认收起，Ctrl/⌘+F 的查找行为保持不变。 */
+const replaceOpen = ref(false)
+const replaceQuery = ref('')
+const replaceInputRef = ref<HTMLInputElement | null>(null)
 
 const MAX_MATCHES = 200
 const FIND_HIGHLIGHT = 'kiwi-note-find'
@@ -203,6 +208,50 @@ function close() {
   noteFind.close()
 }
 
+async function toggleReplace() {
+  if (!noteFind.replaceable) {
+    toast.info('当前视图为只读，切换到编辑视图后再替换')
+    return
+  }
+  replaceOpen.value = !replaceOpen.value
+  if (!replaceOpen.value) return
+  await nextTick()
+  replaceInputRef.value?.focus()
+  replaceInputRef.value?.select()
+}
+
+/** 执行替换：当前项或全部；替换后重新扫描计数并同步编辑器高亮。 */
+function applyReplace(all: boolean) {
+  const term = noteFind.query.trim()
+  if (!term) {
+    inputRef.value?.focus()
+    return
+  }
+  const count = noteFind.runReplace(replaceQuery.value, all)
+  if (count === null) {
+    toast.info('当前视图为只读，切换到编辑视图后再替换')
+    return
+  }
+  if (!count) {
+    toast.info(`没有找到「${term}」`)
+    return
+  }
+  noteFind.refresh()
+  toast.success(all ? `已替换 ${count} 处` : '已替换当前一处')
+}
+
+function onReplaceKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    applyReplace(event.ctrlKey || event.metaKey)
+    return
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    close()
+  }
+}
+
 function onInputKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter') {
     event.preventDefault()
@@ -254,6 +303,9 @@ watch(
       observer?.disconnect()
       observer = null
       clearPaint()
+      // 关闭查找即收起替换行，避免下次打开时误替换上次的替换词。
+      replaceOpen.value = false
+      replaceQuery.value = ''
     } else {
       startObserver()
     }
@@ -273,61 +325,112 @@ onBeforeUnmount(() => {
   <Transition name="find-bar">
     <div
       v-if="noteFind.open"
-      class="note-find-bar absolute right-4 top-14 z-30 flex w-[min(360px,calc(100%-2rem))] items-center gap-1 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-1.5 shadow-lifted backdrop-blur-xl"
+      class="note-find-bar absolute right-4 top-14 z-30 flex w-[min(430px,calc(100%-2rem))] flex-col gap-1 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-1.5 shadow-lifted backdrop-blur-xl"
       :style="{ zoom: 'var(--ui-scale)' }"
       role="search"
-      aria-label="在当前笔记中查找"
+      aria-label="在当前笔记中查找与替换"
       data-find-skip
     >
-      <KiwiIcon name="search" :size="14" class="shrink-0 text-kiwi-500" />
-      <input
-        ref="inputRef"
-        v-model="query"
-        name="note-find"
-        autocomplete="off"
-        spellcheck="false"
-        class="min-w-0 flex-1 bg-transparent px-0.5 text-[12px] text-slate-700 outline-none placeholder:text-slate-300"
-        placeholder="在当前笔记中查找"
-        @keydown="onInputKeydown"
-      />
-      <span
-        class="shrink-0 whitespace-nowrap tabular-nums text-[10px]"
-        :class="
-          noteFind.query.trim() && !noteFind.total ? 'text-rose-400' : 'text-slate-400'
-        "
+      <div class="flex items-center gap-1">
+        <KiwiIcon name="search" :size="14" class="shrink-0 text-kiwi-500" />
+        <input
+          ref="inputRef"
+          v-model="query"
+          name="note-find"
+          autocomplete="off"
+          spellcheck="false"
+          class="min-w-0 flex-1 bg-transparent px-0.5 text-[12px] text-slate-700 outline-none placeholder:text-slate-300"
+          placeholder="在当前笔记中查找"
+          @keydown="onInputKeydown"
+        />
+        <span
+          class="shrink-0 whitespace-nowrap tabular-nums text-[10px]"
+          :class="
+            noteFind.query.trim() && !noteFind.total ? 'text-rose-400' : 'text-slate-400'
+          "
+        >
+          {{ counter }}
+        </span>
+        <button
+          type="button"
+          class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+          title="上一处（Shift + Enter）"
+          :disabled="!noteFind.total"
+          @mousedown.prevent
+          @click="prev"
+        >
+          <KiwiIcon name="arrowUp" :size="12" />
+        </button>
+        <button
+          type="button"
+          class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+          title="下一处（Enter）"
+          :disabled="!noteFind.total"
+          @mousedown.prevent
+          @click="next"
+        >
+          <KiwiIcon name="arrowDown" :size="12" />
+        </button>
+        <button
+          type="button"
+          class="grid h-6 w-6 shrink-0 place-items-center rounded-md transition-colors disabled:opacity-40"
+          :class="replaceOpen ? 'bg-kiwi-50 text-kiwi-600' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'"
+          :title="noteFind.replaceable ? '替换（展开替换行）' : '当前视图为只读，切换到编辑视图后可替换'"
+          :aria-expanded="replaceOpen"
+          @mousedown.prevent
+          @click="toggleReplace"
+        >
+          <KiwiIcon name="refresh" :size="12" />
+        </button>
+        <span class="h-4 w-px shrink-0 bg-slate-200" />
+        <button
+          type="button"
+          class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+          title="关闭查找（Esc）"
+          @mousedown.prevent
+          @click="close"
+        >
+          <KiwiIcon name="close" :size="12" />
+        </button>
+      </div>
+
+      <!-- 替换行：Enter 替换当前项，Ctrl/⌘+Enter 全部替换 -->
+      <div
+        v-if="replaceOpen"
+        class="flex items-center gap-1 border-t border-slate-100 pt-1"
       >
-        {{ counter }}
-      </span>
-      <button
-        type="button"
-        class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
-        title="上一处（Shift + Enter）"
-        :disabled="!noteFind.total"
-        @mousedown.prevent
-        @click="prev"
-      >
-        <KiwiIcon name="arrowUp" :size="12" />
-      </button>
-      <button
-        type="button"
-        class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
-        title="下一处（Enter）"
-        :disabled="!noteFind.total"
-        @mousedown.prevent
-        @click="next"
-      >
-        <KiwiIcon name="arrowDown" :size="12" />
-      </button>
-      <span class="h-4 w-px shrink-0 bg-slate-200" />
-      <button
-        type="button"
-        class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
-        title="关闭查找（Esc）"
-        @mousedown.prevent
-        @click="close"
-      >
-        <KiwiIcon name="close" :size="12" />
-      </button>
+        <KiwiIcon name="edit" :size="13" class="shrink-0 text-slate-400" />
+        <input
+          ref="replaceInputRef"
+          v-model="replaceQuery"
+          name="note-replace"
+          autocomplete="off"
+          spellcheck="false"
+          class="min-w-0 flex-1 bg-transparent px-0.5 text-[12px] text-slate-700 outline-none placeholder:text-slate-300"
+          placeholder="替换为（留空即删除）"
+          @keydown="onReplaceKeydown"
+        />
+        <button
+          type="button"
+          class="shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] text-slate-500 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700 disabled:pointer-events-none disabled:opacity-40"
+          title="替换当前一处（Enter）"
+          :disabled="!noteFind.total || !noteFind.replaceable"
+          @mousedown.prevent
+          @click="applyReplace(false)"
+        >
+          替换
+        </button>
+        <button
+          type="button"
+          class="shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] text-slate-500 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700 disabled:pointer-events-none disabled:opacity-40"
+          title="替换全部命中（Ctrl/⌘+Enter）"
+          :disabled="!noteFind.total || !noteFind.replaceable"
+          @mousedown.prevent
+          @click="applyReplace(true)"
+        >
+          全部替换
+        </button>
+      </div>
     </div>
   </Transition>
 </template>

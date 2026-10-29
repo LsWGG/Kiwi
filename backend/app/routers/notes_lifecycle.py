@@ -141,7 +141,8 @@ async def delete_note(
             trashed_with_parent=True,
         )
         child.status = "trash"
-    # 数据表行笔记删除时同步删除对应行，避免留下无法打开的空行
+    # 行笔记移入回收站时只解除绑定：行数据（各字段值）保留，恢复时可重新绑定；
+    # 若此时直接删行，用户只是想删笔记却会丢掉整条记录，无法恢复。
     row_id = (note.props_json or {}).get("collection_row_id")
     if row_id:
         try:
@@ -150,7 +151,6 @@ async def delete_note(
             row = None
         if row is not None and row.note_id == note.id:
             row.note_id = None
-            await session.delete(row)
     # 数据表整体移入回收站时，行笔记一并进入回收站
     for child in await _collection_child_notes(session, note):
         if child.status in ("active", "archived"):
@@ -182,6 +182,15 @@ async def permanently_delete_note(
     note = await _get_note(session, kb_id, note_id, include_trash=True)
     if note.status != "trash":
         raise HTTPException(400, "只有回收站中的笔记可以永久删除")
+    # 行笔记先解除绑定，避免 note_id 外键级联把整行数据一起删掉。
+    row_id = (note.props_json or {}).get("collection_row_id")
+    if row_id:
+        try:
+            row = await session.get(CollectionRow, uuid.UUID(str(row_id)))
+        except (ValueError, TypeError):
+            row = None
+        if row is not None and row.note_id == note.id:
+            row.note_id = None
     # 数据表集合 / 行 / 附件由外键级联；导入/链接的 Source 保留
     deleted_ids = [note.id]
     if note.kind == "database":
@@ -271,14 +280,22 @@ async def restore_note(
             trashed_with_parent=None,
             restored_at=_now_iso(),
         )
-    # 行已被删除的行笔记，恢复后降级为普通文档
+    # 行笔记恢复：行仍在且未绑定其他笔记时重新绑定；行已被删除或已绑定
+    # 其他笔记时降级为普通文档，保留正文而不是丢弃内容。
     row_id = (note.props_json or {}).get("collection_row_id")
     if row_id:
         try:
             row = await session.get(CollectionRow, uuid.UUID(str(row_id)))
         except (ValueError, TypeError):
             row = None
-        if row is None or row.note_id is None:
+        coll = (
+            await session.get(NoteCollection, row.collection_id)
+            if row is not None
+            else None
+        )
+        if row is not None and coll is not None and row.note_id in (None, note.id):
+            row.note_id = note.id
+        else:
             props = dict(note.props_json or {})
             props.pop("collection_id", None)
             props.pop("collection_note_id", None)

@@ -11,11 +11,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models import KnowledgeBase, Note, NoteTagLink
+from app.db.models import KnowledgeBase, Note, NoteFolder, NoteTagLink
 from app.services import qdrant_store
 from app.services import rerank as rerank_service
 from app.services.embedder import embed_one_async, embedding_space, is_disabled
@@ -27,6 +27,7 @@ class RetrievalFilters:
     """问答 / 检索的附加筛选条件。"""
 
     note_ids: list[uuid.UUID] = field(default_factory=list)
+    folder_ids: list[uuid.UUID] = field(default_factory=list)
     note_kinds: list[str] = field(default_factory=list)
     tag_ids: list[uuid.UUID] = field(default_factory=list)
     updated_from: datetime | None = None
@@ -36,6 +37,7 @@ class RetrievalFilters:
     def has_note_constraints(self) -> bool:
         return bool(
             self.note_ids
+            or self.folder_ids
             or self.note_kinds
             or self.tag_ids
             or self.updated_from
@@ -118,12 +120,42 @@ def _normalize_kind(collection: str) -> str:
     return "raw"
 
 
+async def folder_subtree_ids(
+    db: AsyncSession, kb_ids: list[uuid.UUID], folder_ids: list[uuid.UUID]
+) -> list[uuid.UUID]:
+    """把目录展开为自身 + 全部子目录（BFS），供「@ 目录提问」使用。"""
+    rows = (
+        await db.execute(
+            select(NoteFolder.id, NoteFolder.parent_id).where(
+                NoteFolder.kb_id.in_(kb_ids)
+            )
+        )
+    ).all()
+    children: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for folder_id, parent_id in rows:
+        if parent_id is not None:
+            children.setdefault(parent_id, []).append(folder_id)
+    allowed = set(folder_ids)
+    frontier = list(folder_ids)
+    while frontier:
+        next_level: list[uuid.UUID] = []
+        for folder_id in frontier:
+            for child_id in children.get(folder_id, []):
+                if child_id not in allowed:
+                    allowed.add(child_id)
+                    next_level.append(child_id)
+        frontier = next_level
+    return list(allowed)
+
+
 async def resolve_note_ids(
     db: AsyncSession, kb_ids: list[uuid.UUID], filters: RetrievalFilters
 ) -> list[str] | None:
-    """把标签 / 类型 / 时间 / 指定笔记解析成允许检索的 note_id。
+    """把标签 / 类型 / 时间 / 指定笔记与目录解析成允许检索的 note_id。
 
-    返回 ``None`` 表示没有笔记级约束；返回空列表表示约束下没有任何笔记。
+    ``note_ids`` 与 ``folder_ids`` 之间是并集（@ 了若干笔记和目录时，任一
+    命中即可）；它们与其他筛选条件仍是交集。返回 ``None`` 表示没有笔记级
+    约束；返回空列表表示约束下没有任何笔记。
     """
     if not filters.has_note_constraints:
         return None
@@ -132,8 +164,14 @@ async def resolve_note_ids(
         Note.status == "active",
         Note.lock_hash.is_(None),
     )
-    if filters.note_ids:
-        stmt = stmt.where(Note.id.in_(filters.note_ids))
+    if filters.note_ids or filters.folder_ids:
+        scope_clauses = []
+        if filters.note_ids:
+            scope_clauses.append(Note.id.in_(filters.note_ids))
+        if filters.folder_ids:
+            subtree = await folder_subtree_ids(db, kb_ids, filters.folder_ids)
+            scope_clauses.append(Note.folder_id.in_(subtree))
+        stmt = stmt.where(or_(*scope_clauses))
     if filters.note_kinds:
         stmt = stmt.where(Note.kind.in_(filters.note_kinds))
     if filters.updated_from:

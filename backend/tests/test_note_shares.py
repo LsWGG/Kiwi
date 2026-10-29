@@ -6,6 +6,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
 from sqlalchemy import update
 
@@ -145,3 +146,63 @@ async def test_share_url_uses_public_base_url(client, kb, note_factory, monkeypa
     listed = await client.get(f"/api/notes/{note['id']}/shares?kb_id={kb['id']}")
     assert listed.status_code == 200, listed.text
     assert listed.json()[0]["url"] is None
+
+
+async def test_share_attachments_download_but_active_content_not_inline(
+    client, kb, note_factory
+):
+    """只读分享的附件可下载；HTML 等主动内容不以内联文档返回。"""
+    prefix = f"pytest-share/{uuid.uuid4().hex}"
+    files = {
+        "archive": (f"{prefix}.zip", b"PK\x03\x04share"),
+        "page": (f"{prefix}.html", b"<script>alert(1)</script>"),
+        "vector": (f"{prefix}.svg", b"<svg xmlns='http://www.w3.org/2000/svg'/>"),
+        "report": (f"{prefix}-报告.docx", b"PK\x03\x04docx"),
+    }
+    paths = []
+    for rel, content in files.values():
+        paths.append(_write_media(rel, content))
+    note = await note_factory(
+        title="附件分享",
+        body_md=(
+            f"[压缩包](/media/{files['archive'][0]})\n\n"
+            f"[网页](/media/{files['page'][0]})\n\n"
+            f"[矢量图](/media/{files['vector'][0]})\n\n"
+            f"[报告](/media/{files['report'][0]})\n"
+        ),
+    )
+    try:
+        share = await _create_share(client, kb["id"], note["id"])
+        body = (await client.get(f"/api/share/{share['token']}")).json()["body_md"]
+        urls = re.findall(r"\((https?://[^)]+|/[^)]+)\)", body)
+        assert len(urls) == 4, body
+
+        def url_for(rel: str) -> str:
+            for url in urls:
+                if rel in unquote(url):
+                    return url
+            raise AssertionError(f"未找到 {rel} 的分享地址：{body}")
+
+        archive = await client.get(url_for(files["archive"][0]))
+        assert archive.status_code == 200, archive.text
+        assert archive.content == files["archive"][1]
+        assert archive.headers["content-type"] == "application/octet-stream"
+        assert archive.headers["content-disposition"].startswith("attachment;")
+
+        page = await client.get(url_for(files["page"][0]))
+        assert page.status_code == 200, page.text
+        assert page.headers["content-type"] == "application/octet-stream"
+        assert page.headers["content-disposition"].startswith("attachment;")
+
+        report = await client.get(url_for(files["report"][0]))
+        assert report.status_code == 200, report.text
+        assert "filename*=UTF-8''" in report.headers["content-disposition"]
+
+        vector = await client.get(url_for(files["vector"][0]))
+        assert vector.status_code == 200, vector.text
+        assert vector.headers["content-type"].startswith("image/svg+xml")
+        assert "content-disposition" not in vector.headers
+        assert vector.headers["content-security-policy"] == "sandbox"
+    finally:
+        for path in paths:
+            path.unlink(missing_ok=True)

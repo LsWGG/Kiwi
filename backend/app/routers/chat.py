@@ -23,6 +23,7 @@ from app.services.lexical import tokenize
 from app.services.llm_factory import LLMCrypto, llm_factory
 from app.services.note_indexer import ensure_notes_indexed
 from app.services.retrieval import RetrievalFilters, route_intent, search
+from app.services.web_research import search_web
 
 logger = logging.getLogger("kiwi.chat")
 
@@ -63,11 +64,70 @@ def _first_heading(text: str) -> str:
 def _retrieval_filters(scope: SearchScope) -> RetrievalFilters:
     return RetrievalFilters(
         note_ids=list(scope.note_ids),
+        folder_ids=list(scope.folder_ids),
         note_kinds=list(scope.note_kinds),
         tag_ids=list(scope.tag_ids),
         updated_from=scope.updated_from,
         updated_to=scope.updated_to,
     )
+
+
+# Agent 模式的多角度检索：按并列连接词拆分问题。不做额外的 LLM 调用，
+# 既避免多一次往返延迟，也保证离线 / 自建模型下行为一致。
+_AGENT_SPLIT_RE = re.compile(r"(?:以及|还有|和|与|、|,|，|;|；|\band\b)", re.IGNORECASE)
+
+
+def _agent_queries(query: str) -> list[str]:
+    """拆出 2–3 个并列子问题；拆不出来时只检索原问题。"""
+    text = query.strip()
+    if not text or len(text) > 160:
+        return [text]
+    parts = [part.strip(" ？?。.!！") for part in _AGENT_SPLIT_RE.split(text)]
+    # 只去掉句末标点的单个问题仍是同一个问题，不重复检索。
+    if len(parts) <= 1:
+        return [text]
+    queries = [text]
+    for part in parts:
+        if len(part) >= 2 and part != text and part not in queries:
+            queries.append(part)
+        if len(queries) >= 3:
+            break
+    return queries
+
+
+async def _search_many(
+    session: AsyncSession,
+    queries: list[str],
+    kb_ids: list[uuid.UUID],
+    *,
+    limit: int,
+    collection: str,
+    filters: RetrievalFilters | None = None,
+) -> list[dict]:
+    """对多个子问题分别检索，按命中分块去重后合并（保持原顺序）。"""
+    if len(queries) == 1:
+        return await search(
+            session, queries[0], kb_ids, limit=limit, collection=collection, filters=filters
+        )
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for query in queries:
+        hits = await search(
+            session, query, kb_ids, limit=limit, collection=collection, filters=filters
+        )
+        for hit in hits:
+            payload = hit.get("payload") or {}
+            key = str(hit.get("id") or "")
+            if not key:
+                key = (
+                    f"{payload.get('note_id') or payload.get('page_id') or ''}:"
+                    f"{payload.get('chunk_index', '')}"
+                )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(hit)
+    return merged[: limit * 2]
 
 
 async def resolve_llm(
@@ -204,25 +264,38 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
     # 只取 8 条会漏掉尾部记录；合并后仍按笔记去重并受上下文预算约束。
     note_limit = 16
     filters = _retrieval_filters(data.scope)
+    queries = _agent_queries(query) if data.agent else [query]
     wiki_hits: list[dict] = []
     if not filters.has_note_constraints:
-        wiki_hits = await search(
-            session, query, kb_ids, limit=wiki_limit, collection="wiki"
+        wiki_hits = await _search_many(
+            session, queries, kb_ids, limit=wiki_limit, collection="wiki"
         )
     try:
         # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
         await ensure_notes_indexed(kb_ids)
     except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
         logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
-    note_hits = await search(
+    note_hits = await _search_many(
         session,
-        query,
+        queries,
         kb_ids,
         limit=note_limit,
         collection="note",
         filters=filters,
     )
     kb_names = await _kb_names(session, kb_ids)
+
+    # 显式开启联网时才发起外网请求；失败不阻断知识库问答，只发 notice。
+    web_results: list[dict] = []
+    web_error = ""
+    if data.web_search:
+        try:
+            web_results = await search_web(query, limit=3)
+            if not web_results:
+                web_error = "联网检索没有返回结果，本次仅使用知识库内容回答。"
+        except Exception as exc:  # noqa: BLE001 —— 网络失败降级为知识库问答
+            logger.warning("问答联网检索失败：%s", exc)
+            web_error = "联网检索失败，本次仅使用知识库内容回答。"
 
     context_parts: list[str] = []
     citations: list[Citation] = []
@@ -307,6 +380,27 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         # 数据表的行内容可能分布在多个分块中，给笔记更宽的上下文预算。
         context_parts.append(
             f"[{len(citations)}] ({prefix}·{kind_label}) {title}\n{(text or '')[:2000]}"
+        )
+
+    def add_web(*, title: str, url: str, snippet: str) -> None:
+        if any(c.collection == "web" and c.url == url for c in citations):
+            return
+        citations.append(
+            Citation(
+                kb_id=None,
+                kb_name="",
+                collection="web",
+                title=title or url,
+                slug=None,
+                chunk_text=(snippet or "")[:300],
+                target_id=url,
+                heading=title or url,
+                quote=(snippet or "")[:180],
+                url=url,
+            )
+        )
+        context_parts.append(
+            f"[{len(citations)}] (联网结果) {title or url}\nURL: {url}\n{(snippet or '')[:800]}"
         )
 
     wiki_entries = [
@@ -415,6 +509,17 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
             )
         feed_notes()
 
+    if data.web_search and web_results:
+        # 给联网来源预留 3 个引用位，知识库结果最多保留 7 条。
+        context_parts = context_parts[:7]
+        citations = citations[: len(context_parts)]
+        for item in web_results[:3]:
+            add_web(
+                title=str(item.get("title") or ""),
+                url=str(item.get("url") or ""),
+                snippet=str(item.get("snippet") or ""),
+            )
+
     # 上下文与引用必须严格等长，否则模型可能引用到未提供的序号。
     context_parts = context_parts[:10]
     citations = citations[: len(context_parts)]
@@ -435,6 +540,8 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         "3. 每个事实性结论都要在句末标注来源 [n]（n 为资料序号），可并列多个如 [1][3]；"
         "不要编造序号，也不要在正文中另列来源清单。\n"
         "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
+        "5. 标注「联网结果」的资料来自互联网，引用时同样使用 [n]；涉及网页时在"
+        "对应结论后附上资料给出的原文链接，不要编造 URL。\n"
         "资料：\n\n"
         + "\n\n---\n\n".join(context_parts)
         + ("\n\n（本次检索未命中任何资料，请如实告知用户。）" if not context_parts else "")
@@ -450,7 +557,10 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         def sse(evt_type: str, payload: dict) -> str:
             return f"event: {evt_type}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
-        # 先发引用
+        # 联网失败等非致命问题先通知前端，回答仍继续。
+        if web_error:
+            yield sse("notice", {"message": web_error})
+        # 再发引用
         yield sse("citation", {"citations": [c.model_dump() for c in citations], "intent": intent})
         try:
             stream = await client.chat.completions.create(
