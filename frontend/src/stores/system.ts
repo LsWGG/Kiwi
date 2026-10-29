@@ -191,11 +191,11 @@ function applyShades(prefix: string, color: string) {
   root.style.setProperty(`${ambient}-c`, `rgba(${rgb.replace(/ /g, ', ')}, 0.06)`)
   root.style.setProperty(
     `--${prefix ? `${prefix}` : ''}selection-bg`,
-    `rgba(${rgb.replace(/ /g, ', ')}, 0.18)`,
+    `rgba(${rgb.replace(/ /g, ', ')}, 0.22)`,
   )
   root.style.setProperty(
     `--${prefix ? `${prefix}` : ''}selection-ink`,
-    hexFromRgb(...hslToRgb(h, clamp(s, 0.32, 0.88), 0.34)),
+    hexFromRgb(...hslToRgb(h, clamp(s, 0.32, 0.88), 0.3)),
   )
 }
 

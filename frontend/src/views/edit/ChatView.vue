@@ -46,12 +46,24 @@ interface MentionNote {
   id: string
   title: string
   kind: string
+  folder_id: string | null
+  parent_note_id: string | null
 }
 
 interface MentionFolder {
   id: string
   name: string
   parent_id: string | null
+}
+
+/** @ 选择器里的层级节点：目录可包含子目录与笔记，笔记可包含子文档。 */
+interface MentionTreeNode {
+  key: string
+  type: 'folder' | 'note'
+  id: string
+  title: string
+  kind?: string
+  children: MentionTreeNode[]
 }
 
 interface ScopeFilters {
@@ -66,11 +78,25 @@ interface TagOption {
   name: string
 }
 
+/** 流式回答的思考阶段：检索、联网、生成等，让等待过程可见。 */
+interface ChatStep {
+  id: string
+  message: string
+  detail?: string
+  status: 'active' | 'done' | 'error'
+}
+
 interface Msg {
   role: 'user' | 'assistant'
   content: string
   citations: Citation[]
   streaming?: boolean
+  steps?: ChatStep[]
+  startedAt?: number
+  /** 流式结束时间，用于在完成后展示「用时」摘要。 */
+  finishedAt?: number
+  /** 完成后是否展开步骤明细；默认收起，点击摘要展开。 */
+  stepsOpen?: boolean
   created_at?: string
 }
 
@@ -118,6 +144,8 @@ const router = useRouter()
 const messages = ref<Msg[]>([])
 const input = ref('')
 const streaming = ref(false)
+/** 流式等待计时器：让「已等待 N 秒」实时跳动，避免看起来卡死。 */
+const nowTick = ref(Date.now())
 const scrollEl = ref<HTMLElement>()
 const autoScroll = ref(true)
 
@@ -127,6 +155,8 @@ const intent = ref<Intent>('auto')
 const llmConfigId = ref('')
 const scopeMenuOpen = ref(false)
 const filterMenuOpen = ref(false)
+const intentMenuOpen = ref(false)
+const modelMenuOpen = ref(false)
 const filterTags = ref<TagOption[]>([])
 const filterTagsLoading = ref(false)
 const filterKinds = ref<string[]>([])
@@ -141,9 +171,12 @@ const mentionQuery = ref('')
 const mentionLoading = ref(false)
 const mentionNotes = ref<MentionNote[]>([])
 const mentionFolders = ref<MentionFolder[]>([])
+const mentionExpanded = ref<string[]>([])
+const mentionActiveIndex = ref(0)
+/** 输入框中触发 @ 的那段文本范围，选择后从正文里移除。 */
+const mentionToken = ref<{ start: number; end: number } | null>(null)
 const agentMode = ref(false)
 const webSearch = ref(false)
-let mentionTimer: number | undefined
 const NOTE_KIND_OPTIONS = [
   { id: 'doc', label: '文档' },
   { id: 'import', label: '导入' },
@@ -277,7 +310,12 @@ function readLegacyMessages(): { messages: Msg[]; scopeMode?: ScopeMode; multiId
   }
 }
 
+let streamTickTimer: number | undefined
 onMounted(async () => {
+  streamTickTimer = window.setInterval(() => {
+    if (streaming.value) nowTick.value = Date.now()
+  }, 500)
+  document.addEventListener('click', onDocumentClick)
   loadSettings()
   await Promise.all([
     kbs.kbs.length ? Promise.resolve() : kbs.fetchKbs().catch(() => undefined),
@@ -305,6 +343,8 @@ watch(
   },
 )
 onUnmounted(() => {
+  window.clearInterval(streamTickTimer)
+  document.removeEventListener('click', onDocumentClick)
   saveSettings()
   window.clearTimeout(saveTimer)
   void saveSessionNow()
@@ -506,8 +546,10 @@ function clearFilters() {
 }
 
 async function toggleFilterMenu() {
-  filterMenuOpen.value = !filterMenuOpen.value
-  if (!filterMenuOpen.value || filterTags.value.length) return
+  const next = !filterMenuOpen.value
+  closeHeaderMenus()
+  filterMenuOpen.value = next
+  if (!next || filterTags.value.length) return
   filterTagsLoading.value = true
   try {
     if (!kbs.currentKbId) return
@@ -522,24 +564,115 @@ async function toggleFilterMenu() {
 }
 
 // ---------- @ 笔记 / 目录选择器 ----------
-const mentionFolderOptions = computed(() => {
-  const query = mentionQuery.value.trim().toLowerCase()
+/** 目录的完整路径（用于 chip 标题与搜索匹配）。 */
+const mentionFolderPaths = computed(() => {
   const byId = new Map(mentionFolders.value.map((folder) => [folder.id, folder]))
-  return mentionFolders.value
-    .map((folder) => {
-      const names = [folder.name]
-      let parent = folder.parent_id
-      let guard = 0
-      while (parent && guard < 12) {
-        const node = byId.get(parent)
-        if (!node) break
-        names.unshift(node.name)
-        parent = node.parent_id
-        guard += 1
-      }
-      return { ...folder, path: names.join(' / ') }
+  const paths = new Map<string, string>()
+  for (const folder of mentionFolders.value) {
+    const names = [folder.name]
+    let parent = folder.parent_id
+    let guard = 0
+    while (parent && guard < 12) {
+      const node = byId.get(parent)
+      if (!node) break
+      names.unshift(node.name)
+      parent = node.parent_id
+      guard += 1
+    }
+    paths.set(folder.id, names.join(' / '))
+  }
+  return paths
+})
+
+/** 目录树：目录可嵌套目录，笔记挂在目录或父笔记下。 */
+const mentionTree = computed<MentionTreeNode[]>(() => {
+  const folderNodes = new Map<string, MentionTreeNode>()
+  const noteNodes = new Map<string, MentionTreeNode>()
+  for (const folder of mentionFolders.value) {
+    folderNodes.set(folder.id, {
+      key: `folder:${folder.id}`,
+      type: 'folder',
+      id: folder.id,
+      title: folder.name,
+      children: [],
     })
-    .filter((folder) => !query || folder.path.toLowerCase().includes(query))
+  }
+  for (const note of mentionNotes.value) {
+    noteNodes.set(note.id, {
+      key: `note:${note.id}`,
+      type: 'note',
+      id: note.id,
+      title: note.title || '未命名笔记',
+      kind: note.kind,
+      children: [],
+    })
+  }
+  const roots: MentionTreeNode[] = []
+  for (const folder of mentionFolders.value) {
+    const node = folderNodes.get(folder.id)
+    if (!node) continue
+    const parent = folder.parent_id ? folderNodes.get(folder.parent_id) : undefined
+    if (parent && parent !== node) parent.children.push(node)
+    else roots.push(node)
+  }
+  for (const note of mentionNotes.value) {
+    const node = noteNodes.get(note.id)
+    if (!node) continue
+    const parentNote = note.parent_note_id ? noteNodes.get(note.parent_note_id) : undefined
+    const parentFolder = note.folder_id ? folderNodes.get(note.folder_id) : undefined
+    if (parentNote && parentNote !== node) parentNote.children.push(node)
+    else if (parentFolder) parentFolder.children.push(node)
+    else roots.push(node)
+  }
+  return roots
+})
+
+/** 搜索时保留命中节点及其祖先；命中目录时保留整棵子树。 */
+const mentionTreeView = computed<MentionTreeNode[]>(() => {
+  const query = mentionQuery.value.trim().toLowerCase()
+  if (!query) return mentionTree.value
+  const filter = (nodes: MentionTreeNode[]): MentionTreeNode[] => {
+    const out: MentionTreeNode[] = []
+    for (const node of nodes) {
+      const children = filter(node.children)
+      const path = node.type === 'folder' ? mentionFolderPaths.value.get(node.id) || '' : ''
+      const hit =
+        node.title.toLowerCase().includes(query) || path.toLowerCase().includes(query)
+      if (!hit && !children.length) continue
+      out.push({ ...node, children: hit ? node.children : children })
+    }
+    return out
+  }
+  return filter(mentionTree.value)
+})
+
+function isMentionExpanded(key: string): boolean {
+  return Boolean(mentionQuery.value.trim()) || mentionExpanded.value.includes(key)
+}
+
+function toggleMentionExpand(key: string) {
+  const index = mentionExpanded.value.indexOf(key)
+  if (index >= 0) mentionExpanded.value.splice(index, 1)
+  else mentionExpanded.value.push(key)
+}
+
+/** 当前可见行（用于渲染和键盘上下选择）。 */
+const mentionRows = computed(() => {
+  const rows: { node: MentionTreeNode; depth: number }[] = []
+  const walk = (nodes: MentionTreeNode[], depth: number) => {
+    for (const node of nodes) {
+      rows.push({ node, depth })
+      if (node.children.length && isMentionExpanded(node.key)) {
+        walk(node.children, depth + 1)
+      }
+    }
+  }
+  walk(mentionTreeView.value, 0)
+  return rows
+})
+
+watch(mentionQuery, () => {
+  mentionActiveIndex.value = 0
 })
 
 async function loadMentionCandidates() {
@@ -547,16 +680,18 @@ async function loadMentionCandidates() {
   if (!kb) return
   mentionLoading.value = true
   try {
-    const query = mentionQuery.value.trim()
-    const [tree, search] = await Promise.all([
-      request<{ folders: MentionFolder[] }>('/notes/tree', { kbId: kb }),
-      request<{ items: { note: MentionNote }[] }>(
-        `/notes/search?q=${encodeURIComponent(query)}&limit=12`,
-        { kbId: kb },
-      ),
-    ])
+    const tree = await request<{ folders: MentionFolder[]; notes: MentionNote[] }>(
+      '/notes/tree',
+      { kbId: kb },
+    )
     mentionFolders.value = tree.folders || []
-    mentionNotes.value = (search.items || []).map((item) => item.note)
+    mentionNotes.value = (tree.notes || []).map((note) => ({
+      id: String(note.id),
+      title: note.title,
+      kind: note.kind,
+      folder_id: note.folder_id ? String(note.folder_id) : null,
+      parent_note_id: note.parent_note_id ? String(note.parent_note_id) : null,
+    }))
   } catch {
     /* 候选加载失败不阻断提问；当前范围仍可继续使用 */
   } finally {
@@ -564,14 +699,37 @@ async function loadMentionCandidates() {
   }
 }
 
-function scheduleMentionSearch() {
-  window.clearTimeout(mentionTimer)
-  mentionTimer = window.setTimeout(() => void loadMentionCandidates(), 250)
+/** 读取光标前最后一个 `@关键词`，没有则返回 null。 */
+function findMentionToken(): { query: string; start: number; end: number } | null {
+  const el = composerEl.value
+  const caret = el?.selectionStart ?? input.value.length
+  const before = input.value.slice(0, caret)
+  const match = before.match(/(?:^|[\s(（])@([^\s@]*)$/)
+  if (!match) return null
+  return { query: match[1], start: caret - match[1].length - 1, end: caret }
 }
 
-function toggleMentionOpen() {
-  mentionOpen.value = !mentionOpen.value
-  if (mentionOpen.value) void loadMentionCandidates()
+function onComposerInput() {
+  resizeComposer()
+  const token = findMentionToken()
+  if (!token) {
+    if (mentionOpen.value) closeMention()
+    return
+  }
+  mentionToken.value = { start: token.start, end: token.end }
+  mentionQuery.value = token.query
+  if (!mentionOpen.value) {
+    mentionOpen.value = true
+    mentionActiveIndex.value = 0
+    void loadMentionCandidates()
+  }
+}
+
+function closeMention() {
+  mentionOpen.value = false
+  mentionQuery.value = ''
+  mentionToken.value = null
+  mentionActiveIndex.value = 0
 }
 
 function isMentioned(type: MentionRef['type'], id: string): boolean {
@@ -582,6 +740,78 @@ function toggleMention(type: MentionRef['type'], id: string, title: string) {
   const index = mentions.value.findIndex((item) => item.type === type && item.id === id)
   if (index >= 0) mentions.value.splice(index, 1)
   else mentions.value.push({ type, id, title })
+}
+
+/** 选中节点：把输入框里的 `@关键词` 替换为已选 chip。 */
+function chooseMention(node: MentionTreeNode) {
+  const token = mentionToken.value ?? findMentionToken()
+  if (token) {
+    input.value = input.value.slice(0, token.start) + input.value.slice(token.end)
+  }
+  const title =
+    node.type === 'folder'
+      ? mentionFolderPaths.value.get(node.id) || node.title
+      : node.title
+  toggleMention(node.type, node.id, title)
+  const caret = token?.start ?? input.value.length
+  closeMention()
+  void nextTick(() => {
+    resizeComposer()
+    composerEl.value?.focus()
+    composerEl.value?.setSelectionRange(caret, caret)
+  })
+}
+
+function mentionMove(delta: number) {
+  const total = mentionRows.value.length
+  if (!total) return
+  mentionActiveIndex.value =
+    (mentionActiveIndex.value + delta + total) % total
+  void nextTick(() => {
+    document
+      .querySelector('[data-mention-active="true"]')
+      ?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function onComposerKeydown(event: KeyboardEvent) {
+  if (event.isComposing) return
+  if (mentionOpen.value) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeMention()
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      mentionMove(event.key === 'ArrowDown' ? 1 : -1)
+      return
+    }
+    if (event.key === 'Tab') {
+      // Tab 展开目录；已展开时再按 Tab 跳到第一个子节点，Shift+Tab 折叠。
+      const row = mentionRows.value[mentionActiveIndex.value]
+      if (row?.node.children.length) {
+        event.preventDefault()
+        if (!isMentionExpanded(row.node.key)) toggleMentionExpand(row.node.key)
+        else if (event.shiftKey) toggleMentionExpand(row.node.key)
+        else mentionMove(1)
+      } else {
+        // 面板打开时不让 Tab 把焦点移出输入框。
+        event.preventDefault()
+      }
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      const row = mentionRows.value[mentionActiveIndex.value]
+      if (row) chooseMention(row.node)
+      return
+    }
+  }
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void ask()
+  }
 }
 
 function removeMention(index: number) {
@@ -763,6 +993,8 @@ function pushAssistant() {
     content: '',
     citations: [],
     streaming: true,
+    steps: [],
+    startedAt: Date.now(),
     created_at: new Date().toISOString(),
   }
   messages.value.push(msg)
@@ -846,6 +1078,65 @@ const intentOptions: { id: Intent; label: string; hint: string }[] = [
   { id: 'note', label: '笔记优先', hint: '精确引用、事实核验，优先检索笔记与出处' },
 ]
 
+const intentLabel = computed(
+  () => intentOptions.find((opt) => opt.id === intent.value)?.label || '自动路由',
+)
+const intentHint = computed(
+  () => intentOptions.find((opt) => opt.id === intent.value)?.hint || '',
+)
+const currentLlmConfig = computed(() =>
+  llm.configs.find((cfg) => cfg.id === llmConfigId.value),
+)
+const modelLabel = computed(() => currentLlmConfig.value?.name || '默认模型')
+const modelHint = computed(() =>
+  currentLlmConfig.value
+    ? `${currentLlmConfig.value.name} · ${currentLlmConfig.value.model_name}`
+    : '使用知识库或全局默认模型',
+)
+
+function closeHeaderMenus() {
+  scopeMenuOpen.value = false
+  filterMenuOpen.value = false
+  intentMenuOpen.value = false
+  modelMenuOpen.value = false
+}
+
+function toggleScopeMenu() {
+  const next = !scopeMenuOpen.value
+  closeHeaderMenus()
+  scopeMenuOpen.value = next
+}
+
+function toggleIntentMenu() {
+  const next = !intentMenuOpen.value
+  closeHeaderMenus()
+  intentMenuOpen.value = next
+}
+
+function toggleModelMenu() {
+  const next = !modelMenuOpen.value
+  closeHeaderMenus()
+  modelMenuOpen.value = next
+}
+
+function chooseIntent(id: Intent) {
+  intent.value = id
+  closeHeaderMenus()
+}
+
+function chooseModel(id: string) {
+  llmConfigId.value = id
+  closeHeaderMenus()
+}
+
+/** 点击菜单与输入区之外时关闭所有浮层（@ 选择器由 composer 自行管理）。 */
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('[data-chat-menu]')) return
+  closeHeaderMenus()
+  if (mentionOpen.value) closeMention()
+}
+
 function historyMessages() {
   return messages.value
     .filter((m) => !m.streaming && m.content.trim())
@@ -853,10 +1144,75 @@ function historyMessages() {
     .map((m) => ({ role: m.role, content: m.content }))
 }
 
+// ---------- 流式思考过程 ----------
+function applyStage(msg: Msg, data: any) {
+  const id = String(data?.stage || '').trim()
+  if (!id) return
+  const status: ChatStep['status'] =
+    data?.status === 'done' ? 'done' : data?.status === 'error' ? 'error' : 'active'
+  const message = String(data?.message || '').trim()
+  const detail = String(data?.detail || '').trim()
+  if (!msg.steps) msg.steps = []
+  const existing = msg.steps.find((step) => step.id === id)
+  if (existing) {
+    if (message) existing.message = message
+    if (detail) existing.detail = detail
+    existing.status = status
+  } else {
+    msg.steps.push({ id, message: message || '处理中', detail, status })
+  }
+}
+
+function finishSteps(msg: Msg, status: 'done' | 'error') {
+  for (const step of msg.steps || []) {
+    if (step.status === 'active') step.status = status
+  }
+  msg.finishedAt = Date.now()
+  // 完成后收起明细，只保留一行「已完成 N 个步骤」；出错时展开便于排查。
+  msg.stepsOpen = status === 'error'
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`
+}
+
+function stepSummary(msg: Msg): string {
+  const steps = msg.steps || []
+  const failed = steps.some((step) => step.status === 'error')
+  const span = msg.startedAt && msg.finishedAt ? msg.finishedAt - msg.startedAt : 0
+  const used = span > 0 ? ` · 用时 ${formatDuration(span)}` : ''
+  return `${failed ? '执行中断' : '已完成'} ${steps.length} 个步骤${used}`
+}
+
+function currentStep(msg: Msg): ChatStep | undefined {
+  return [...(msg.steps || [])].reverse().find((step) => step.status === 'active')
+}
+
+function streamStatusLabel(msg: Msg): string {
+  const step = currentStep(msg)
+  if (step) return `${step.message}…`
+  if (msg.content) return '正在生成回答'
+  return '正在思考'
+}
+
+function elapsedLabel(msg: Msg): string {
+  if (!msg.startedAt) return ''
+  const seconds = Math.max(0, Math.floor((nowTick.value - msg.startedAt) / 1000))
+  return seconds >= 1 ? `${seconds}s` : ''
+}
+
+function isSlowStream(msg: Msg): boolean {
+  if (!msg.startedAt) return false
+  return nowTick.value - msg.startedAt >= 20_000
+}
+
 // ---------- 提问 ----------
 async function ask() {
   const text = input.value.trim()
   if (!text || streaming.value) return
+  closeMention()
   if (llmMissing.value) {
     toast.error('尚未配置大模型，请先在「设置 → 模型」中完成配置')
     return
@@ -889,7 +1245,10 @@ async function ask() {
     },
     {
       onMessage: (msg) => {
-        if (msg.event === 'chunk') {
+        if (msg.event === 'stage') {
+          applyStage(assistant, msg.data)
+          scrollToBottom()
+        } else if (msg.event === 'chunk') {
           assistant.content += msg.data?.text ?? ''
           scrollToBottom()
         } else if (msg.event === 'citation') {
@@ -898,6 +1257,7 @@ async function ask() {
           const notice = String(msg.data?.message || '').trim()
           if (notice) toast.info(notice)
         } else if (msg.event === 'done') {
+          finishSteps(assistant, 'done')
           assistant.streaming = false
           streaming.value = false
           normalizeCitations(assistant, pendingCitations)
@@ -905,6 +1265,7 @@ async function ask() {
           scrollToBottom(true)
           void saveSessionNow()
         } else if (msg.event === 'error') {
+          finishSteps(assistant, 'error')
           assistant.content += `\n\n⚠️ ${msg.data?.message ?? '出错了'}`
           assistant.streaming = false
           streaming.value = false
@@ -912,6 +1273,7 @@ async function ask() {
         }
       },
       onError: (e) => {
+        finishSteps(assistant, 'error')
         assistant.content += `\n\n⚠️ 连接失败：${e.message}`
         assistant.streaming = false
         streaming.value = false
@@ -1372,11 +1734,11 @@ watch(
           </div>
 
           <div class="flex shrink-0 items-center gap-1.5">
-            <div class="relative">
+            <div class="relative" data-chat-menu>
               <button
                 type="button"
-                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
-                @click="scopeMenuOpen = !scopeMenuOpen"
+                class="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
+                @click="toggleScopeMenu"
               >
                 <KiwiIcon name="database" :size="12" class="text-slate-400" />
                 <span class="max-w-[11rem] truncate">范围：{{ scopeLabel }}</span>
@@ -1445,10 +1807,10 @@ watch(
               </div>
             </div>
 
-            <div class="relative">
+            <div class="relative" data-chat-menu>
               <button
                 type="button"
-                class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] transition"
+                class="inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition"
                 :class="activeFilterCount
                   ? 'border-kiwi-300 bg-kiwi-50/70 text-kiwi-700'
                   : 'border-slate-200 bg-white/80 text-slate-600 hover:border-kiwi-300 hover:text-kiwi-700'"
@@ -1521,26 +1883,94 @@ watch(
               </div>
             </div>
 
-            <select
-              v-model="intent"
-              class="kiwi-input !w-auto !py-1 text-[11px]"
-              title="检索侧重"
-            >
-              <option v-for="opt in intentOptions" :key="opt.id" :value="opt.id" :title="opt.hint">
-                {{ opt.label }}
-              </option>
-            </select>
+            <div class="relative" data-chat-menu>
+              <button
+                type="button"
+                class="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
+                :title="intentHint"
+                @click="toggleIntentMenu"
+              >
+                <KiwiIcon name="layers" :size="12" class="text-slate-400" />
+                <span>{{ intentLabel }}</span>
+                <KiwiIcon name="chevron" :size="11" class="text-slate-400" />
+              </button>
+              <div
+                v-if="intentMenuOpen"
+                class="absolute right-0 top-full z-30 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lifted"
+              >
+                <button
+                  v-for="opt in intentOptions"
+                  :key="opt.id"
+                  type="button"
+                  class="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
+                  :class="intent === opt.id ? 'bg-kiwi-50 text-kiwi-800' : 'text-slate-600 hover:bg-slate-50'"
+                  @click="chooseIntent(opt.id)"
+                >
+                  <span class="min-w-0 flex-1">
+                    <span class="block font-medium">{{ opt.label }}</span>
+                    <span class="mt-0.5 block text-[10px] leading-snug text-slate-400">{{ opt.hint }}</span>
+                  </span>
+                  <KiwiIcon
+                    v-if="intent === opt.id"
+                    name="check"
+                    :size="12"
+                    class="mt-0.5 shrink-0 text-kiwi-500"
+                  />
+                </button>
+              </div>
+            </div>
 
-            <select
-              v-model="llmConfigId"
-              class="kiwi-input hidden !w-auto !py-1 text-[11px] sm:block"
-              title="仅本次对话覆盖模型"
-            >
-              <option value="">默认模型</option>
-              <option v-for="cfg in llm.configs" :key="cfg.id" :value="cfg.id">
-                {{ cfg.name }} · {{ cfg.model_name }}
-              </option>
-            </select>
+            <div class="relative hidden sm:block" data-chat-menu>
+              <button
+                type="button"
+                class="inline-flex h-7 max-w-[14rem] items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
+                :title="`本次对话模型：${modelHint}`"
+                @click="toggleModelMenu"
+              >
+                <KiwiIcon name="bot" :size="12" class="text-slate-400" />
+                <span class="max-w-[9rem] truncate">{{ modelLabel }}</span>
+                <KiwiIcon name="chevron" :size="11" class="text-slate-400" />
+              </button>
+              <div
+                v-if="modelMenuOpen"
+                class="absolute right-0 top-full z-30 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lifted"
+              >
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
+                  :class="!llmConfigId ? 'bg-kiwi-50 text-kiwi-800' : 'text-slate-600 hover:bg-slate-50'"
+                  @click="chooseModel('')"
+                >
+                  <span class="min-w-0 flex-1">
+                    <span class="block font-medium">默认模型</span>
+                    <span class="mt-0.5 block text-[10px] text-slate-400">使用知识库或全局默认模型</span>
+                  </span>
+                  <KiwiIcon v-if="!llmConfigId" name="check" :size="12" class="shrink-0 text-kiwi-500" />
+                </button>
+                <button
+                  v-for="cfg in llm.configs"
+                  :key="cfg.id"
+                  type="button"
+                  class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
+                  :class="llmConfigId === cfg.id ? 'bg-kiwi-50 text-kiwi-800' : 'text-slate-600 hover:bg-slate-50'"
+                  @click="chooseModel(cfg.id)"
+                >
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate font-medium">{{ cfg.name }}</span>
+                    <span class="mt-0.5 block truncate text-[10px] text-slate-400">{{ cfg.model_name }}</span>
+                  </span>
+                  <KiwiIcon
+                    v-if="llmConfigId === cfg.id"
+                    name="check"
+                    :size="12"
+                    class="shrink-0 text-kiwi-500"
+                  />
+                </button>
+                <p v-if="!llm.configs.length" class="px-2 py-3 text-center text-[10.5px] text-slate-400">
+                  尚未配置模型，请到「设置 → 模型」新增
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -1607,7 +2037,7 @@ watch(
             <!-- 用户问题 -->
             <div
               v-if="m.role === 'user'"
-              class="max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-gradient-to-br from-kiwi-500 to-kiwi-700 px-4 py-2.5 text-[13.5px] leading-relaxed text-white shadow-sm sm:max-w-[80%]"
+              class="chat-user-bubble max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-gradient-to-br from-kiwi-500 to-kiwi-700 px-4 py-2.5 text-[13.5px] leading-relaxed text-white shadow-sm sm:max-w-[80%]"
             >
               {{ m.content }}
             </div>
@@ -1622,11 +2052,75 @@ watch(
               <div class="min-w-0 flex-1">
                 <div class="mb-1 flex items-center gap-2 text-[10.5px] text-slate-400">
                   <span class="font-medium text-slate-500">Kiwi</span>
-                  <span v-if="m.streaming" class="inline-flex items-center gap-1 text-kiwi-500">
-                    <span class="h-1 w-1 animate-pulse rounded-full bg-kiwi-500" />
-                    正在检索并生成回答…
+                  <span v-if="m.streaming" class="inline-flex min-w-0 items-center gap-1 text-kiwi-500">
+                    <KiwiIcon name="loader" :size="9" :spin="true" />
+                    <span class="kiwi-thinking-shimmer truncate font-medium">{{ streamStatusLabel(m) }}</span>
+                    <span v-if="elapsedLabel(m)" class="shrink-0 text-slate-400">· {{ elapsedLabel(m) }}</span>
                   </span>
                   <span v-else-if="m.citations?.length">{{ m.citations.length }} 个引用来源</span>
+                </div>
+
+                <!-- 思考过程：检索 / 联网 / 生成阶段实时打勾；完成后保留摘要可展开回看 -->
+                <div
+                  v-if="m.steps?.length"
+                  class="mb-2.5 overflow-hidden rounded-xl border border-kiwi-100/80 bg-gradient-to-br from-kiwi-50/60 via-white/80 to-sky-50/40 px-3 py-2"
+                >
+                  <button
+                    v-if="!m.streaming"
+                    type="button"
+                    class="flex w-full items-center gap-1.5 text-[10.5px] text-slate-500 transition-colors hover:text-kiwi-600"
+                    @click="m.stepsOpen = !m.stepsOpen"
+                  >
+                    <KiwiIcon
+                      :name="m.steps.some((step) => step.status === 'error') ? 'alert' : 'check'"
+                      :size="9"
+                      :class="m.steps.some((step) => step.status === 'error') ? 'text-amber-500' : 'text-emerald-500'"
+                    />
+                    <span class="flex-1 text-left">{{ stepSummary(m) }}</span>
+                    <KiwiIcon
+                      :name="m.stepsOpen ? 'chevron' : 'chevronRight'"
+                      :size="9"
+                      class="shrink-0 text-slate-400"
+                    />
+                  </button>
+                  <template v-if="m.streaming || m.stepsOpen">
+                    <div
+                      v-if="m.streaming"
+                      class="mb-1.5 h-0.5 w-full overflow-hidden rounded-full bg-kiwi-100/80"
+                    >
+                      <div class="kiwi-thinking-bar h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-kiwi-400 to-transparent" />
+                    </div>
+                    <ol class="space-y-1" :class="m.streaming ? '' : 'pt-1.5'">
+                      <li
+                        v-for="step in m.steps || []"
+                        :key="step.id"
+                        class="flex items-start gap-1.5 text-[10.5px] leading-relaxed"
+                      >
+                        <span
+                          class="mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full"
+                          :class="step.status === 'done'
+                            ? 'bg-emerald-100 text-emerald-600'
+                            : step.status === 'error'
+                              ? 'bg-amber-100 text-amber-600'
+                              : 'bg-kiwi-100 text-kiwi-600'"
+                        >
+                          <KiwiIcon v-if="step.status === 'done'" name="check" :size="8" />
+                          <span v-else-if="step.status === 'error'" class="text-[8px] font-bold leading-none">!</span>
+                          <span v-else class="h-1 w-1 animate-pulse rounded-full bg-current" />
+                        </span>
+                        <span class="min-w-0">
+                          <span :class="step.status === 'active' ? 'font-medium text-slate-600' : 'text-slate-500'">
+                            {{ step.message }}
+                          </span>
+                          <span v-if="step.detail" class="text-slate-400"> · {{ step.detail }}</span>
+                        </span>
+                      </li>
+                    </ol>
+                    <p v-if="m.streaming && isSlowStream(m)" class="mt-1.5 flex items-center gap-1 text-[10px] text-amber-600">
+                      <KiwiIcon name="alert" :size="10" />
+                      模型响应较慢，仍在处理，请稍候…
+                    </p>
+                  </template>
                 </div>
 
                 <div class="text-[13.5px] leading-7 text-slate-700">
@@ -1636,13 +2130,9 @@ watch(
                     @citation-click="(n: number) => focusCitation(m, n)"
                   />
                   <span
-                    v-if="m.streaming"
-                    class="ml-1 inline-flex items-center gap-0.5 align-baseline text-kiwi-500"
-                  >
-                    <span class="h-1 w-1 animate-blink rounded-full bg-current" :style="{ animationDelay: '0ms' }" />
-                    <span class="h-1 w-1 animate-blink rounded-full bg-current" :style="{ animationDelay: '200ms' }" />
-                    <span class="h-1 w-1 animate-blink rounded-full bg-current" :style="{ animationDelay: '400ms' }" />
-                  </span>
+                    v-if="m.streaming && m.content"
+                    class="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse rounded-full bg-kiwi-400 align-baseline"
+                  />
                 </div>
 
                 <!-- 引用来源：紧凑单行，悬浮查看摘要，点击打开原文 -->
@@ -1790,24 +2280,13 @@ watch(
             </button>
           </div>
 
+          <!-- data-chat-menu：点击输入区时不应关闭 @ 选择器 -->
           <div
+            data-chat-menu
             class="relative rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
           >
-            <!-- 工具条：@ 范围 + Agent / 联网开关 -->
+            <!-- 工具条：Agent / 联网开关；@ 范围在输入框内触发 -->
             <div class="flex flex-wrap items-center gap-1 px-1">
-              <button
-                type="button"
-                class="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10.5px] transition-colors"
-                :class="mentionOpen || mentions.length
-                  ? 'bg-kiwi-50 text-kiwi-700'
-                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
-                :title="mentions.length ? `已选 ${mentions.length} 项检索范围` : '指定笔记或目录进行提问'"
-                @click="toggleMentionOpen"
-              >
-                <KiwiIcon name="at" :size="12" />
-                笔记 / 目录
-                <span v-if="mentions.length" class="rounded-full bg-white/80 px-1 text-[9.5px]">{{ mentions.length }}</span>
-              </button>
               <button
                 type="button"
                 role="switch"
@@ -1843,10 +2322,10 @@ watch(
                 ref="composerEl"
                 v-model="input"
                 rows="1"
-                placeholder="输入问题，Enter 发送（Shift+Enter 换行）…"
+                placeholder="输入问题，@ 引用笔记或目录，Enter 发送…"
                 class="max-h-36 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                @input="resizeComposer"
-                @keydown.enter.exact.prevent="ask"
+                @input="onComposerInput"
+                @keydown="onComposerKeydown"
               />
               <button
                 class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-35 active:scale-95"
@@ -1859,95 +2338,89 @@ watch(
               </button>
             </div>
 
-            <!-- @ 笔记 / 目录选择器 -->
+            <!-- @ 笔记 / 目录选择器：在输入框中键入 @ 触发，按层级展示 -->
             <div
               v-if="mentionOpen"
+              data-chat-menu
               class="absolute bottom-full left-0 z-30 mb-1.5 w-[min(32rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lifted"
             >
               <div class="flex items-center gap-2 border-b border-slate-100 px-2.5 py-1.5">
-                <KiwiIcon name="search" :size="12" class="shrink-0 text-slate-400" />
-                <input
-                  v-model="mentionQuery"
-                  class="min-w-0 flex-1 bg-transparent text-[11.5px] text-slate-700 outline-none placeholder:text-slate-400"
-                  placeholder="搜索笔记标题，勾选目录可包含整棵子树…"
-                  @input="scheduleMentionSearch"
-                />
+                <KiwiIcon name="at" :size="12" class="shrink-0 text-kiwi-500" />
+                <span class="shrink-0 text-[11px] font-medium text-slate-600">引用笔记 / 目录</span>
+                <span v-if="mentionQuery" class="min-w-0 flex-1 truncate text-[11px] text-slate-400">
+                  “{{ mentionQuery }}”
+                </span>
+                <span v-else class="flex-1" />
                 <KiwiIcon v-if="mentionLoading" name="loader" :size="11" :spin="true" class="shrink-0 text-slate-400" />
-                <button
-                  type="button"
-                  class="shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                  @click="mentionOpen = false"
-                >
-                  完成
-                </button>
+                <span class="shrink-0 text-[9.5px] text-slate-400">↑↓ 选择 · Tab 展开 · Enter 确认 · Esc 关闭</span>
               </div>
-              <div class="max-h-72 overflow-y-auto p-1.5">
-                <template v-if="mentionFolderOptions.length">
-                  <p class="px-1.5 pb-1 pt-1 text-[10px] font-medium text-slate-400">目录（含子目录）</p>
+              <div class="max-h-72 overflow-y-auto p-1">
+                <div
+                  v-for="(row, idx) in mentionRows"
+                  :key="row.node.key"
+                  class="flex cursor-pointer items-center gap-1 rounded-lg py-1 pr-1.5 text-[11.5px] transition-colors"
+                  :class="[
+                    idx === mentionActiveIndex ? 'bg-kiwi-50/80 text-kiwi-800' : 'text-slate-600',
+                    row.node.type === 'folder'
+                      ? (isMentioned('folder', row.node.id) ? 'bg-amber-50/70 text-amber-700' : '')
+                      : (isMentioned('note', row.node.id) ? 'bg-sky-50/70 text-sky-700' : ''),
+                  ]"
+                  :style="{ paddingLeft: `${row.depth * 14 + 3}px` }"
+                  :data-mention-active="idx === mentionActiveIndex ? 'true' : undefined"
+                  @mousedown.prevent
+                  @click="chooseMention(row.node)"
+                  @mouseenter="mentionActiveIndex = idx"
+                >
                   <button
-                    v-for="folder in mentionFolderOptions"
-                    :key="folder.id"
+                    v-if="row.node.children.length"
                     type="button"
-                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
-                    :class="isMentioned('folder', folder.id)
-                      ? 'bg-amber-50 text-amber-700'
-                      : 'text-slate-600 hover:bg-slate-50'"
-                    @click="toggleMention('folder', folder.id, folder.path)"
+                    class="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-400 transition hover:bg-white/70 hover:text-slate-600"
+                    :title="isMentionExpanded(row.node.key) ? '折叠' : '展开'"
+                    @click.stop="toggleMentionExpand(row.node.key)"
                   >
                     <KiwiIcon
-                      name="folder"
-                      :size="12"
-                      class="shrink-0"
-                      :class="isMentioned('folder', folder.id) ? 'text-amber-500' : 'text-slate-400'"
-                    />
-                    <span class="min-w-0 flex-1 truncate">{{ folder.path }}</span>
-                    <KiwiIcon
-                      v-if="isMentioned('folder', folder.id)"
-                      name="check"
-                      :size="12"
-                      class="shrink-0 text-amber-500"
+                      :name="isMentionExpanded(row.node.key) ? 'chevron' : 'chevronRight'"
+                      :size="10"
                     />
                   </button>
-                </template>
-                <template v-if="mentionNotes.length">
-                  <p class="px-1.5 pb-1 pt-2 text-[10px] font-medium text-slate-400">笔记</p>
-                  <button
-                    v-for="note in mentionNotes"
-                    :key="note.id"
-                    type="button"
-                    class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors"
-                    :class="isMentioned('note', note.id)
-                      ? 'bg-sky-50 text-sky-700'
-                      : 'text-slate-600 hover:bg-slate-50'"
-                    @click="toggleMention('note', note.id, note.title)"
-                  >
-                    <KiwiIcon
-                      name="note"
-                      :size="12"
-                      class="shrink-0"
-                      :class="isMentioned('note', note.id) ? 'text-sky-500' : 'text-slate-400'"
-                    />
-                    <span class="min-w-0 flex-1 truncate">{{ note.title }}</span>
-                    <span class="shrink-0 text-[9.5px] text-slate-400">
-                      {{ NOTE_KIND_OPTIONS.find((k) => k.id === note.kind)?.label || note.kind }}
-                    </span>
-                    <KiwiIcon
-                      v-if="isMentioned('note', note.id)"
-                      name="check"
-                      :size="12"
-                      class="shrink-0 text-sky-500"
-                    />
-                  </button>
-                </template>
+                  <span v-else class="h-4 w-4 shrink-0" />
+                  <KiwiIcon
+                    :name="row.node.type === 'folder'
+                      ? (isMentionExpanded(row.node.key) ? 'folderOpen' : 'folder')
+                      : 'note'"
+                    :size="12"
+                    class="shrink-0"
+                    :class="row.node.type === 'folder'
+                      ? (isMentioned('folder', row.node.id) ? 'text-amber-500' : 'text-amber-400/80')
+                      : (isMentioned('note', row.node.id) ? 'text-sky-500' : 'text-slate-400')"
+                  />
+                  <span class="min-w-0 flex-1 truncate">{{ row.node.title }}</span>
+                  <span v-if="row.node.type === 'note'" class="shrink-0 text-[9.5px] text-slate-400">
+                    {{ NOTE_KIND_OPTIONS.find((k) => k.id === row.node.kind)?.label || row.node.kind }}
+                  </span>
+                  <KiwiIcon
+                    v-if="isMentioned(row.node.type, row.node.id)"
+                    name="check"
+                    :size="12"
+                    class="shrink-0"
+                    :class="row.node.type === 'folder' ? 'text-amber-500' : 'text-sky-500'"
+                  />
+                </div>
                 <p
-                  v-if="!mentionFolderOptions.length && !mentionNotes.length && !mentionLoading"
+                  v-if="!mentionRows.length && !mentionLoading"
                   class="px-2 py-6 text-center text-[11px] text-slate-400"
                 >
                   没有匹配的笔记或目录
                 </p>
+                <p
+                  v-else-if="!mentionRows.length"
+                  class="px-2 py-6 text-center text-[11px] text-slate-400"
+                >
+                  正在加载目录…
+                </p>
               </div>
               <p class="border-t border-slate-100 px-2.5 py-1.5 text-[10px] leading-relaxed text-slate-400">
-                只检索勾选的笔记与目录；目录自动包含子目录。未勾选时按顶部「范围」检索。
+                继续输入可筛选；勾选目录包含整棵子树。未勾选时按顶部「范围」检索。
               </p>
             </div>
           </div>

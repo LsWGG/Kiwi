@@ -5,10 +5,13 @@
 error / keepalive。引用严格限定在用户检索范围内（kb_id 边界由检索层强制）。
 """
 
+import asyncio
 import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -240,24 +243,42 @@ async def _wiki_neighbors(
     return found
 
 
-@router.post("/stream")
-async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_session)):
-    """流式问答。返回 SSE 事件流。"""
-    kb_ids = await _resolve_scope(session, data.scope)
-    query = str(data.messages[-1].get("content", "")) if data.messages else ""
-    if not query.strip():
-        raise HTTPException(400, "问题不能为空")
-    if is_disabled():
-        raise HTTPException(
-            409, "向量模型已关闭，问答检索不可用；请先在设置中启用向量模型。"
+async def _safe_search_many(*args, **kwargs) -> tuple[list[dict], str]:
+    """检索失败（Qdrant 超时等）时降级为空结果，不让整个问答 500。"""
+    try:
+        return await _search_many(*args, **kwargs), ""
+    except Exception as exc:  # noqa: BLE001 —— 向量层故障不应中断问答
+        logger.warning(
+            "知识库检索失败（collection=%s）：%s",
+            kwargs.get("collection"),
+            exc,
+            exc_info=True,
         )
+        return [], "知识库检索暂时不可用，本次将基于联网结果或对话上下文回答。"
 
-    intent = route_intent(query) if data.intent in (None, "auto") else data.intent
-    # 兼容旧客户端：raw 意图改由笔记承载（笔记是素材整理后的最终形态）。
-    if intent == "raw":
-        intent = "note"
-    if intent not in ("wiki", "note"):
-        raise HTTPException(400, "无效的检索意图")
+
+@dataclass
+class _PreparedChat:
+    openai_msgs: list[dict]
+    citations: list[Citation]
+    intent: str
+    cfg: LLMConfig
+    client: Any
+    model_name: str
+    notices: list[str]
+
+
+async def _prepare_chat(
+    session: AsyncSession,
+    data: ChatRequest,
+    query: str,
+    intent: str,
+    stage: Callable[[str, str, str, str], None],
+) -> _PreparedChat:
+    """检索资料并组装 LLM 请求；耗时步骤通过 stage 回调实时上报。"""
+    stage("understand", "start", "正在理解问题")
+    kb_ids = await _resolve_scope(session, data.scope)
+    stage("understand", "done", "已理解问题")
     # 意图路由：Wiki 优先（概念/综合）或笔记优先（精确定位、事实核验）
     wiki_limit = 8 if intent == "wiki" else 4
     # 多取一些笔记分块：数据表 / 长文档的相邻行可能排在稍后的名次，
@@ -265,17 +286,23 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
     note_limit = 16
     filters = _retrieval_filters(data.scope)
     queries = _agent_queries(query) if data.agent else [query]
+    notices: list[str] = []
     wiki_hits: list[dict] = []
+    stage("search", "start", "正在检索 Wiki 与笔记")
     if not filters.has_note_constraints:
-        wiki_hits = await _search_many(
+        wiki_hits, wiki_error = await _safe_search_many(
             session, queries, kb_ids, limit=wiki_limit, collection="wiki"
         )
+        if wiki_error:
+            notices.append(wiki_error)
+    stage("index", "start", "正在同步最新笔记")
     try:
         # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
         await ensure_notes_indexed(kb_ids)
     except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
         logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
-    note_hits = await _search_many(
+    stage("index", "done", "笔记已同步")
+    note_hits, note_error = await _safe_search_many(
         session,
         queries,
         kb_ids,
@@ -283,19 +310,48 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         collection="note",
         filters=filters,
     )
+    if note_error and note_error not in notices:
+        notices.append(note_error)
     kb_names = await _kb_names(session, kb_ids)
+    stage(
+        "search",
+        "done",
+        "知识库检索完成",
+        f"命中 {len(wiki_hits) + len(note_hits)} 个片段",
+    )
+
+    # 先解析本次模型：联网检索可复用 DeepSeek 的 Key 调用官方 Search 接口，
+    # 无需用户再配置一份搜索凭据。
+    bound_kb_id = kb_ids[0] if data.scope.scope == "kb" and kb_ids else None
+    cfg, api_key = await resolve_llm(session, bound_kb_id, data.llm_config_id)
 
     # 显式开启联网时才发起外网请求；失败不阻断知识库问答，只发 notice。
     web_results: list[dict] = []
     web_error = ""
     if data.web_search:
+        stage("web", "start", "正在联网检索")
         try:
-            web_results = await search_web(query, limit=3)
+            web_results = await search_web(
+                query,
+                limit=3,
+                llm_base_url=cfg.base_url,
+                llm_api_key=api_key or "",
+            )
             if not web_results:
                 web_error = "联网检索没有返回结果，本次仅使用知识库内容回答。"
+                stage("web", "done", "联网检索完成", "未返回结果")
+            else:
+                stage("web", "done", "联网检索完成", f"获得 {len(web_results)} 条结果")
         except Exception as exc:  # noqa: BLE001 —— 网络失败降级为知识库问答
             logger.warning("问答联网检索失败：%s", exc)
-            web_error = "联网检索失败，本次仅使用知识库内容回答。"
+            web_error = (
+                "联网检索失败：搜索服务不可用。请检查网络，或在 .env 配置 "
+                "KIWI_STUDY_SEARCH_PROVIDER（bing/duckduckgo/searxng/tavily/deepseek）。"
+                "本次仅使用知识库内容回答。"
+            )
+            stage("web", "error", "联网检索失败", "本次仅使用知识库内容")
+    if web_error:
+        notices.append(web_error)
 
     context_parts: list[str] = []
     citations: list[Citation] = []
@@ -382,7 +438,9 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
             f"[{len(citations)}] ({prefix}·{kind_label}) {title}\n{(text or '')[:2000]}"
         )
 
-    def add_web(*, title: str, url: str, snippet: str) -> None:
+    def add_web(
+        *, title: str, url: str, snippet: str, content: str = ""
+    ) -> None:
         if any(c.collection == "web" and c.url == url for c in citations):
             return
         citations.append(
@@ -392,15 +450,16 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 collection="web",
                 title=title or url,
                 slug=None,
-                chunk_text=(snippet or "")[:300],
+                chunk_text=(snippet or content or "")[:300],
                 target_id=url,
                 heading=title or url,
-                quote=(snippet or "")[:180],
+                quote=(snippet or content or "")[:180],
                 url=url,
             )
         )
         context_parts.append(
-            f"[{len(citations)}] (联网结果) {title or url}\nURL: {url}\n{(snippet or '')[:800]}"
+            f"[{len(citations)}] (联网结果) {title or url}\nURL: {url}\n"
+            f"{(content or snippet or '')[:1200]}"
         )
 
     wiki_entries = [
@@ -518,6 +577,7 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 title=str(item.get("title") or ""),
                 url=str(item.get("url") or ""),
                 snippet=str(item.get("snippet") or ""),
+                content=str(item.get("content") or ""),
             )
 
     # 上下文与引用必须严格等长，否则模型可能引用到未提供的序号。
@@ -525,11 +585,10 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
     citations = citations[: len(context_parts)]
 
     # LLM 生成（页面级模型覆盖仅对本次请求生效）
-    # 模型级联：页面级 > 单库绑定 > 全局默认；多库 / 全局不做任意单库绑定推断
-    bound_kb_id = kb_ids[0] if data.scope.scope == "kb" and kb_ids else None
-    cfg, api_key = await resolve_llm(session, bound_kb_id, data.llm_config_id)
+    # 模型已在检索前解析（联网检索复用其凭据），这里只确定实际使用的模型。
     model_name = (data.model_override or "").strip() or cfg.model_name
     client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
+    stage("generate", "start", "正在生成回答")
 
     system_prompt = (
         "你是 Kiwi 个人知识库助手。基于提供的 Wiki 页面与工作区笔记回答用户问题。\n"
@@ -551,33 +610,108 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         if m.get("role") in ("user", "assistant"):
             openai_msgs.append({"role": m["role"], "content": str(m.get("content", ""))})
 
+    return _PreparedChat(
+        openai_msgs=openai_msgs,
+        citations=citations,
+        intent=intent,
+        cfg=cfg,
+        client=client,
+        model_name=model_name,
+        notices=notices,
+    )
+
+
+@router.post("/stream")
+async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_session)):
+    """流式问答。返回 SSE 事件流。"""
+    query = str(data.messages[-1].get("content", "")) if data.messages else ""
+    if not query.strip():
+        raise HTTPException(400, "问题不能为空")
+    if is_disabled():
+        raise HTTPException(
+            409, "向量模型已关闭，问答检索不可用；请先在设置中启用向量模型。"
+        )
+
+    intent = route_intent(query) if data.intent in (None, "auto") else data.intent
+    # 兼容旧客户端：raw 意图改由笔记承载（笔记是素材整理后的最终形态）。
+    if intent == "raw":
+        intent = "note"
+    if intent not in ("wiki", "note"):
+        raise HTTPException(400, "无效的检索意图")
+
     async def gen():
         from openai import APIConnectionError, APIError
 
         def sse(evt_type: str, payload: dict) -> str:
             return f"event: {evt_type}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
-        # 联网失败等非致命问题先通知前端，回答仍继续。
-        if web_error:
-            yield sse("notice", {"message": web_error})
-        # 再发引用
-        yield sse("citation", {"citations": [c.model_dump() for c in citations], "intent": intent})
+        queue: asyncio.Queue[tuple[str, dict]] = asyncio.Queue()
+
+        def stage(name: str, status: str, message: str, detail: str = "") -> None:
+            queue.put_nowait(
+                (
+                    "stage",
+                    {
+                        "stage": name,
+                        "status": status,
+                        "message": message,
+                        "detail": detail,
+                    },
+                )
+            )
+
+        task = asyncio.create_task(_prepare_chat(session, data, query, intent, stage))
         try:
-            stream = await client.chat.completions.create(
-                model=model_name,
-                messages=openai_msgs,
+            # 检索期间持续把阶段事件推给前端；等待时发注释帧保持连接。
+            while True:
+                if task.done() and queue.empty():
+                    break
+                try:
+                    evt_type, payload = await asyncio.wait_for(queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield sse(evt_type, payload)
+        finally:
+            if not task.done():
+                task.cancel()
+
+        try:
+            prepared = task.result()
+        except HTTPException as exc:
+            yield sse("error", {"message": str(exc.detail)})
+            return
+        except Exception:  # noqa: BLE001 —— 流已开始，只能通过 SSE 通知
+            logger.exception("问答检索准备失败")
+            yield sse("error", {"message": "检索资料时出现异常，请稍后重试。"})
+            return
+
+        # 非致命问题先通知前端，回答仍继续。
+        for notice in prepared.notices:
+            yield sse("notice", {"message": notice})
+        yield sse(
+            "citation",
+            {
+                "citations": [c.model_dump() for c in prepared.citations],
+                "intent": prepared.intent,
+            },
+        )
+        try:
+            stream = await prepared.client.chat.completions.create(
+                model=prepared.model_name,
+                messages=prepared.openai_msgs,
                 stream=True,
-                temperature=cfg.extra_params.get("temperature", 0.3),
+                temperature=prepared.cfg.extra_params.get("temperature", 0.3),
             )
             async for chunk in stream:
                 # 部分 OpenAI 兼容服务（如 DeepSeek）会在末尾追加仅含 usage、
-                # choices 为空的分片；直接取 choices[0] 会抛 IndexError，
-                # 导致流在最后一段被中断且客户端收不到 done 事件。
+                # choices 为空的分片；直接取 choices[0] 会抛 IndexError。
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
                 if delta and delta.content:
                     yield sse("chunk", {"text": delta.content})
+            yield sse("stage", {"stage": "generate", "status": "done", "message": "回答生成完成"})
             yield sse("done", {"ok": True})
         except (APIError, APIConnectionError) as e:
             yield sse("error", {"message": f"LLM 调用失败：{e}"})

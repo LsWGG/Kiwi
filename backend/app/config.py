@@ -111,9 +111,10 @@ class Settings(BaseSettings):
         return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
 
     # --- 学习模式联网核查（可选）---
-    # 取值：disabled / duckduckgo / searxng / tavily
+    # 取值：disabled / bing / duckduckgo / searxng / tavily
+    # base_url 留空时各提供方使用自己的默认地址；仅 SearXNG 必须显式配置。
     study_search_provider: str = "disabled"
-    study_search_base_url: str = "https://html.duckduckgo.com/html/"
+    study_search_base_url: str = ""
     study_search_api_key: str = ""
 
     # --- 语音转写（本地 faster-whisper）---

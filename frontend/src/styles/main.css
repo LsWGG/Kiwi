@@ -20,8 +20,8 @@
   --ambient-a: rgba(90, 85, 199, 0.09);
   --ambient-b: rgba(111, 114, 220, 0.08);
   --ambient-c: rgba(184, 190, 240, 0.06);
-  --selection-bg: rgba(90, 85, 199, 0.18);
-  --selection-ink: #4c46a6;
+  --selection-bg: rgba(90, 85, 199, 0.22);
+  --selection-ink: #3f3896;
 }
 
 /* 学习模式：使用独立配置的品牌色（默认青绿），与编辑模式明确区分。
@@ -110,6 +110,59 @@ body.kiwi-tree-dragging * {
 ::selection {
   background: var(--selection-bg);
   color: var(--selection-ink);
+}
+
+/* 紫色/深色气泡内：沿用气泡文字颜色 + 半透明白底，避免深紫字压浅紫底。 */
+.chat-user-bubble::selection,
+.chat-user-bubble *::selection {
+  background: rgba(255, 255, 255, 0.38);
+  color: #fff;
+}
+
+/* 聊天等待态：文字流光 + 不确定进度条，让长等待看起来仍在推进。 */
+@keyframes kiwi-thinking-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.kiwi-thinking-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--kiwi-600)) 0%,
+    rgb(var(--kiwi-500)) 35%,
+    rgb(var(--kiwi-400)) 50%,
+    rgb(var(--kiwi-500)) 65%,
+    rgb(var(--kiwi-600)) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: kiwi-thinking-sweep 2.4s linear infinite;
+}
+
+@keyframes kiwi-thinking-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.kiwi-thinking-bar {
+  animation: kiwi-thinking-bar 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kiwi-thinking-shimmer,
+  .kiwi-thinking-bar {
+    animation: none;
+  }
 }
 
 /* ---------- 玻璃拟态 ---------- */
