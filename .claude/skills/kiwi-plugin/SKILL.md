@@ -13,7 +13,8 @@ Kiwi 只支持**组件插件**（`kind: "component"`），通过「设置 → �
 
 - `counter/`：最小可运行计数器，适合首次上手；
 - `pomodoro/`：番茄钟，演示时间戳持久化、阶段切换、`host.toast` 与定时器清理；
-- `countdown/`：倒计时，演示预设、进度条与 `@container` 窄容器适配。
+- `countdown/`：倒计时，演示预设、指定年月日时分秒、Web Audio 结束提示音与进度条；
+- `timeline/`：竖向时间轴，演示数组型 props、展开 / 收起与文本编辑。
 
 ## 交付物
 
@@ -112,7 +113,13 @@ export function setup(host) {
 | `vue` | Vue 运行时命名空间（`defineComponent` / `h` / `ref` / `computed` 等） |
 | `toast` | 全局轻提示：`toast.success(text)` / `toast.error(text)` |
 | `theme` | 主题色访问器：`version` / `accent` / `accentStrong` / `accentSoft` / `shade(step, alpha)` |
+| `components` | 可复用 UI 组件；`NoteEditor` 是 Markdown 富文本编辑器，支持待办勾选框、列表、标题等 |
 | `apiVersion` | 宿主 API 版本，当前为 `1` |
+
+需要在区块里写「和文本笔记一样」的正文时，用 `host.components?.NoteEditor`：
+`modelValue` 绑定 Markdown 字符串，`readonly` 切换阅读态，监听
+`update:modelValue` 写回 props；使用前做特性检测，旧宿主可回退 textarea。
+完整 props 见 `PLUGIN_SPEC.md` §4.2.1。
 
 ### 主题色（必须遵循）
 
@@ -165,7 +172,7 @@ export function setup(host) {
 ## 开发流程
 
 1. 复制 `docs/examples/plugins/counter/` 作为起点；需要计时、持久化交互时参考
-   `pomodoro/` 与 `countdown/`。
+   `pomodoro/` 与 `countdown/`，需要数组型 props 与展开 / 收起时参考 `timeline/`。
 2. 修改 `plugin.json`、`index.js`、`style.css`；保持类名前缀唯一。
 3. 压缩为 zip（`plugin.json` 可在 zip 根目录或单一子目录内）：
 
@@ -190,8 +197,9 @@ export function setup(host) {
 ## 参考
 
 - 完整规范：`docs/PLUGIN_SPEC.md`
-- 示例插件：`docs/examples/plugins/counter/`、`pomodoro/`、`countdown/`
+- 示例插件：`docs/examples/plugins/counter/`、`pomodoro/`、`countdown/`、`timeline/`
 - 内置组件导出包：设置页「内置扩展组件 → 导出」，或在 `GET /api/editor/extensions/{key}/export`
   下载参考 manifest / 预览数据 / 源码。
-- 开发套件：`GET /api/plugins/dev-kit`（含本 skill、规范与示例）。
+- 开发套件：`GET /api/plugins/dev-kit`（根目录 `PLUGIN_SPEC.md`、`examples/plugins/`、
+  `skill/kiwi-plugin/SKILL.md` 与 `AI_PROMPT.md`）。
 - 影响面与安全边界：`docs/PLUGIN_IMPACT.md`。

@@ -1044,6 +1044,12 @@ async function locateTodo(todoId: string) {
       source_ref: string
       source_text: string
       task_index: number
+      plugin_block_index?: number
+      plugin_point_id?: string
+      plugin_point_index?: number
+      plugin_point_time?: string
+      plugin_point_summary?: string
+      plugin_task_index?: number
     }>(`/kbs/${kbId}/todos/${todoId}`)
     if (seq !== todoSeq) return
     // 镜像可能已随来源改动而归属别的笔记：以服务端结果为准重新跳转一次。
@@ -1061,12 +1067,94 @@ async function locateTodo(todoId: string) {
       })
       return
     }
+    if (data.source_kind === 'plugin_task') {
+      // 组件插件里的任务（如时间轴时间点正文）：先找到区块，再展开时间点，
+      // 最后定位到时间点里的任务复选框。编辑态与阅读态的 DOM 容器不同。
+      const blockIndex = Number(data.plugin_block_index ?? 0)
+      const pointId = String(data.plugin_point_id || '')
+      const pointIndex = Number(data.plugin_point_index ?? -1)
+      const taskIndex = Number(data.plugin_task_index ?? -1)
+      let expandClicked = false
+      function retryPlugin(attempt: number, delay = 150) {
+        if (attempt >= 26 || seq !== todoSeq) return
+        todoRetry = window.setTimeout(() => {
+          todoRetry = null
+          attemptPlugin(attempt + 1)
+        }, delay)
+      }
+      function attemptPlugin(attempt = 0) {
+        if (seq !== todoSeq) return
+        const blocks = Array.from(
+          paneRef.value?.querySelectorAll<HTMLElement>(
+            '[data-type="kiwi-plugin-block"], [data-kiwi-plugin-embed]',
+          ) || [],
+        )
+        const block = blocks[blockIndex]
+        if (!block) {
+          retryPlugin(attempt)
+          return
+        }
+        let point: HTMLElement | null = null
+        if (pointId) {
+          point =
+            Array.from(
+              block.querySelectorAll<HTMLElement>('[data-kiwi-point-id]'),
+            ).find((el) => el.dataset.kiwiPointId === pointId) || null
+        }
+        if (!point && pointIndex >= 0) {
+          point =
+            block.querySelectorAll<HTMLElement>('.kiwi-timeline__item')[
+              pointIndex
+            ] || null
+        }
+        if (!point) {
+          // 插件运行时 / 组件尚未挂载完成时继续等待，避免只闪一下空区块。
+          if (attempt < 26) retryPlugin(attempt)
+          else flashTodoTarget(block)
+          return
+        }
+        const tasks = Array.from(
+          point.querySelectorAll<HTMLElement>(
+            'ul[data-type="taskList"] > li, li[data-type="taskItem"], li.task-list-item',
+          ),
+        )
+        const target =
+          (taskIndex >= 0 ? tasks[taskIndex] : undefined) || tasks[0]
+        if (target) {
+          // 嵌套编辑器初始化时可能重建任务节点，任务本身的高亮会随之丢失；
+          // 时间点卡片由 Vue 托管，稳定可见，两处一起闪。
+          const card =
+            point.querySelector<HTMLElement>('.kiwi-timeline__card') || point
+          flashTodoTarget(card)
+          target.classList.add('kiwi-cite-flash')
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          return
+        }
+        const expander = point.querySelector<HTMLElement>(
+          'button[title="展开时间点"]',
+        )
+        if (expander && !expandClicked) {
+          expandClicked = true
+          expander.click()
+          retryPlugin(attempt, 80)
+          return
+        }
+        // 展开后嵌套编辑器初始化需要一点时间。
+        if (expandClicked && attempt < 12) {
+          retryPlugin(attempt, 80)
+          return
+        }
+        flashTodoTarget(point)
+      }
+      void nextTick(() => attemptPlugin())
+      return
+    }
     if (data.task_index < 0) return
     const attemptScroll = (attempt = 0) => {
       if (seq !== todoSeq) return
       const items = Array.from(
         paneRef.value?.querySelectorAll<HTMLElement>(
-          'li[data-type="taskItem"], li.task-list-item',
+          'ul[data-type="taskList"] > li, li[data-type="taskItem"], li.task-list-item',
         ) || [],
       )
       const target = items[data.task_index]

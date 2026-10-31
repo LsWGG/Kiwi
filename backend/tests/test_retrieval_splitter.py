@@ -57,3 +57,13 @@ def test_split_markdown_preserves_heading_structure():
 def test_split_markdown_empty():
     assert split_markdown("") == []
     assert split_markdown("   \n\n") == []
+
+
+def test_split_markdown_strips_inline_data_image_payload():
+    payload = "data:image/png;base64," + "A" * 400
+    blocks = split_markdown(f"截图：\n\n![界面]({payload})\n\n正文")
+    assert all("base64" not in block["content"] for block in blocks)
+    assert any("界面" in block["content"] for block in blocks)
+    # 普通图片地址不受影响。
+    blocks = split_markdown("![界面](/media/kb/pic.png)")
+    assert any("/media/kb/pic.png" in block["content"] for block in blocks)

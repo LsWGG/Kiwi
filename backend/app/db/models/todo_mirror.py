@@ -11,9 +11,10 @@ from app.db.base import Base, UUIDPkMixin
 class TodoMirror(UUIDPkMixin, Base):
     """一条待办在收件箱中的镜像记录。
 
-    ``source_kind`` 为 ``task``（文档中的 Markdown 任务项）或
+    ``source_kind`` 为 ``task``（文档中的 Markdown 任务项）、
+    ``plugin_task``（时间轴组件时间点正文中的任务项）或
     ``database_row``（数据表中状态为待办的行）。``source_ref`` 是任务项的
-    文本指纹或行 ID，用于在源内容更新后重新匹配。
+    文本指纹 / 组件位置或行 ID，用于在源内容更新后重新匹配。
     """
 
     __tablename__ = "todo_mirrors"

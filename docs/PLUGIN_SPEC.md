@@ -181,7 +181,40 @@ export function setup(host) {
 | `vue` | Vue 运行时命名空间（`defineComponent` / `h` / `ref` / `computed` 等） |
 | `toast` | 全局轻提示：`toast.success(text)` / `toast.error(text)` |
 | `theme` | 主题色访问器：`version` / `accent` / `accentStrong` / `accentSoft` / `shade(step, alpha)` |
+| `components` | 宿主可复用 UI 组件；当前提供 `NoteEditor`（Markdown 富文本编辑器，支持待办勾选框等） |
 | `apiVersion` | 宿主 API 版本，当前为 `1` |
+
+### 4.2.1 富文本编辑器 `host.components.NoteEditor`
+
+需要在区块内编写「和文本笔记一样」的正文时，直接渲染宿主提供的
+`NoteEditor`，无需（也不能）import 应用代码。内容以 Markdown 字符串双向绑定：
+
+```js
+const NoteEditor = host.components?.NoteEditor
+
+h(NoteEditor, {
+  modelValue: point.content,
+  readonly: props.readonly,
+  placeholder: '记录这个时间点的笔记；可插入待办勾选框、列表…',
+  minHeight: '86px',
+  'onUpdate:modelValue': (value) => {
+    if (props.readonly) return
+    updatePoint(point.id, { content: String(value).slice(0, 20000) })
+  },
+})
+```
+
+| prop / 事件 | 类型 | 说明 |
+|---|---|---|
+| `modelValue` | `string` | Markdown 正文；待办存储为 `- [ ] 条目` / `- [x] 条目` |
+| `readonly` | `boolean` | 阅读态：隐藏工具栏并禁止修改，仍按 Markdown 渲染 |
+| `placeholder` | `string` | 空内容时的占位提示 |
+| `minHeight` | `string` | 编辑区最小高度，默认 `72px` |
+| `update:modelValue` | `(value: string) => void` | 输入停止 300ms 或失焦后触发，避免每次按键都写 props |
+
+编辑器工具栏包含标题、加粗 / 斜体 / 下划线 / 删除线、引用、行内代码、无序 /
+有序列表、**勾选框**与撤销 / 重做。`components` 是新增的宿主能力：插件应在使用前
+做 `host.components?.NoteEditor` 特性检测，旧版 Kiwi 可回退为 textarea 或纯文本。
 
 ### 4.3 主题色
 
@@ -268,7 +301,7 @@ export function setup(host) {
 | `GET` | `/api/plugins` | 组件插件列表（入口、脚本大小、区块） |
 | `GET` | `/api/plugins/blocks` | 仅已启用组件插件的扁平区块列表，编辑器使用 |
 | `GET` | `/api/plugins/spec` | 开发规范摘要、组件示例、AI 提示词与 skill 名 |
-| `GET` | `/api/plugins/dev-kit` | 开发套件 zip（规范 + counter 示例 + skill + AI 提示词） |
+| `GET` | `/api/plugins/dev-kit` | 开发套件 zip（规范 + counter / pomodoro / countdown / timeline 示例 + skill + AI 提示词） |
 | `POST` | `/api/plugins/inspect` | 解析上传包但不落库，返回导入预检信息 |
 | `POST` | `/api/plugins/import?overwrite=false` | multipart 导入 zip（不接受裸 JSON） |
 | `GET` | `/api/plugins/{id}` | 插件详情 |
@@ -318,11 +351,12 @@ skill）交给支持 skill 的大模型，即可按同一契约生成插件包�
 - 规范摘要中的 `skill` / `ai_prompt`：`GET /api/plugins/spec`
 - 推荐提示词：
 
-  > 使用 kiwi-plugin skill 为 Kiwi 开发一个组件插件。先阅读 docs/PLUGIN_SPEC.md 与
-  > docs/examples/plugins/（counter 最小示例、pomodoro / countdown 计时器示例），
-  > 生成可直接压缩为 zip 的 plugin.json、入口 ESM 与可选
-  > style.css；入口必须导出 setup(host)，且只使用 host.vue / host.toast / host.theme，
-  > 颜色需跟随系统主题色。完成后用 `/api/plugins/inspect` 与导入接口验证 manifest。
+  > 使用 kiwi-plugin skill 为 Kiwi 开发一个组件插件。先阅读 PLUGIN_SPEC.md、
+  > skill/kiwi-plugin/SKILL.md 与 examples/plugins/（counter 最小示例、pomodoro /
+  > countdown 计时器、timeline 时间轴示例），生成可直接压缩为 zip 的 plugin.json、
+  > 入口 ESM 与可选 style.css；入口必须导出 setup(host)，且只使用
+  > host.vue / host.toast / host.theme，颜色需跟随系统主题色。完成后用
+  > `/api/plugins/inspect` 与导入接口验证 manifest。
 
 生成后务必先在预检接口和设置页预览中验证，再插入真实笔记。
 
@@ -344,7 +378,7 @@ skill）交给支持 skill 的大模型，即可按同一契约生成插件包�
 ## 9. 本地开发流程
 
 1. 复制 `docs/examples/plugins/counter/`，修改 manifest 与入口脚本；计时 / 持久化交互
-   可参考 `pomodoro/` 与 `countdown/`。
+   可参考 `pomodoro/`、`countdown/`，数组型 props 与展开 / 收起可参考 `timeline/`。
 2. 压缩为 zip；先调用 `POST /api/plugins/inspect` 预检。
 3. 在 **设置 → 插件与区块 → 导入插件** 导入，确认风险提示后自动打开预览。
 4. 打开任意文档，输入 `/`，在「插件区块」分组插入并验证交互 / 持久化。
@@ -354,5 +388,6 @@ skill）交给支持 skill 的大模型，即可按同一契约生成插件包�
    - `docs/examples/plugins/counter/`
    - `docs/examples/plugins/pomodoro/`
    - `docs/examples/plugins/countdown/`
+   - `docs/examples/plugins/timeline/`
    - `.claude/skills/kiwi-plugin/SKILL.md`
    - `GET /api/plugins/dev-kit`

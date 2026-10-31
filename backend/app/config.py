@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # --- LLM ---
     # 本地大模型（Ollama 等）冷启动与长文编译可能远超 60s，默认放宽到 10 分钟。
     llm_timeout: float = 600.0
+    # 问答 Agent 的检索规划：容器默认 UTC，必须显式指定业务时区，
+    # 否则「今天 / 这周」会被解析成错误日期。
+    timezone: str = "Asia/Shanghai"
+    # 规划只做工具选择与查询生成，超时后回退到规则解析，不阻塞问答。
+    agent_planner_timeout: float = 20.0
 
     # --- 上传 ---
     # 绝对路径：相对路径会随进程 CWD 漂移，导致同一数据库记录在开发实例与

@@ -745,6 +745,59 @@ function expand(id: string) {
   expanded.value = set
 }
 
+// ---------- 一键展开 / 收起 ----------
+const expandingAll = ref(false)
+const anyExpanded = computed(() => expanded.value.size > 0)
+
+function allTreeIds(): string[] {
+  return [
+    ...notes.folders.map((folder) => folder.id),
+    ...notes.notes.map((note) => note.id),
+  ]
+}
+
+/**
+ * 懒加载目录一次展开到底：先逐层拉取子节点，再把「有子项」的节点写入
+ * expanded，避免把叶子节点也塞进 localStorage。
+ */
+async function toggleExpandAll() {
+  if (expandingAll.value) return
+  if (expanded.value.size) {
+    expanded.value = new Set()
+    return
+  }
+  expandingAll.value = true
+  try {
+    const seen = new Set<string>()
+    for (let round = 0; round < 20; round += 1) {
+      const pending = allTreeIds().filter((id) => !seen.has(id))
+      if (!pending.length) break
+      pending.forEach((id) => seen.add(id))
+      await notes.ensureTreeChildren(pending)
+    }
+    const next = new Set<string>()
+    for (const folder of notes.folders) {
+      const hasChildFolder = notes.folders.some(
+        (child) => child.parent_id === folder.id,
+      )
+      const hasRootNote = notes.notes.some(
+        (note) => note.folder_id === folder.id && !note.parent_note_id,
+      )
+      if (hasChildFolder || hasRootNote) next.add(folder.id)
+    }
+    for (const note of notes.notes) {
+      if (notes.notes.some((child) => child.parent_note_id === note.id)) {
+        next.add(note.id)
+      }
+    }
+    expanded.value = next
+  } catch (e: any) {
+    toast.error(e?.message || '展开目录失败')
+  } finally {
+    expandingAll.value = false
+  }
+}
+
 function isDescendant(candidateId: string, ancestorId: string): boolean {
   let current = notes.folders.find((f) => f.id === candidateId)
   let guard = 0
@@ -1977,6 +2030,20 @@ const createFolderMenu = () => openFolderDialog(null)
       <span class="text-[13px] font-semibold text-slate-700">工作区</span>
       <span class="text-[10px] text-slate-400 tabular-nums">{{ total }}</span>
       <div class="flex-1" />
+      <button
+        type="button"
+        class="w-7 h-7 grid place-items-center rounded-lg text-slate-400 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700 disabled:opacity-40"
+        :title="expandingAll ? '正在展开目录…' : anyExpanded ? '全部收起' : '全部展开'"
+        :aria-label="expandingAll ? '正在展开目录' : anyExpanded ? '全部收起' : '全部展开'"
+        :disabled="expandingAll"
+        @click="toggleExpandAll"
+      >
+        <KiwiIcon
+          :name="expandingAll ? 'loader' : anyExpanded ? 'chevronsUp' : 'chevronsDown'"
+          :size="14"
+          :class="expandingAll ? 'animate-spin' : ''"
+        />
+      </button>
       <NoteCreateMenu
         @template="openTemplates()"
         @doc="createDoc()"

@@ -350,15 +350,24 @@ async def get_todo_source(
     # 任务项在正文中的序号（0 起）：前端据此滚动到对应复选框，
     # 不依赖展示文本，避免任务里含有颜色/字号等内联标记时匹配失败。
     task_index = -1
-    if mirror.source_kind == "task":
+    plugin_location: dict = {}
+    if mirror.source_kind in ("task", "plugin_task"):
         source_note = await session.get(Note, mirror.source_note_id)
         if source_note is not None:
-            for index, (ref, _text, _checked) in enumerate(
-                todo_sync.task_items(source_note.body_md or "")
-            ):
-                if ref == mirror.source_ref:
-                    task_index = index
-                    break
+            if mirror.source_kind == "task":
+                for index, (ref, _text, _checked) in enumerate(
+                    todo_sync.task_items(source_note.body_md or "")
+                ):
+                    if ref == mirror.source_ref:
+                        task_index = index
+                        break
+            else:
+                plugin_location = (
+                    todo_sync.plugin_task_location(
+                        source_note.body_md or "", mirror.source_ref
+                    )
+                    or {}
+                )
     return {
         "id": str(mirror.id),
         "source_note_id": str(mirror.source_note_id),
@@ -368,6 +377,7 @@ async def get_todo_source(
         "title": mirror.title,
         "status": mirror.status,
         "task_index": task_index,
+        **plugin_location,
     }
 
 

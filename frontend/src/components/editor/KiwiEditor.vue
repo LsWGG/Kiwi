@@ -1891,7 +1891,8 @@ const editor = useEditor({
     }),
     KiwiImage.configure({
       inline: false,
-      allowBase64: false,
+      // 粘贴 / 导入的内联截图（data:image）不再被静默丢弃。
+      allowBase64: true,
       upload: async (file: File) => {
         const att = await uploadFile(file)
         return { url: att.url, filename: att.filename }

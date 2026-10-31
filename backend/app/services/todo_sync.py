@@ -2,6 +2,7 @@
 
 来源：
 - 笔记正文中的 Markdown 任务项（``- [ ]`` / ``- [x]``）；
+- 时间轴组件时间点正文中的任务项（``props.points[].content``）；
 - 数据表中带状态字段的行（状态为待办 / 进行中 / 已完成）。
 
 收件箱是一篇自动维护的笔记：每条待办都带来源笔记链接（正向追溯），
@@ -12,9 +13,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
 
@@ -44,6 +47,16 @@ TASK_RE = re.compile(
     r"\[(?P<state>[ xX])\]\s+(?P<text>.+?)\s*$"
 )
 TODO_LINK_RE = re.compile(r"kiwi://todo/([0-9a-fA-F-]{36})")
+PLUGIN_LANGUAGE = "kiwi-plugin"
+PLUGIN_FENCE_OPEN_RE = re.compile(
+    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*" + PLUGIN_LANGUAGE + r"[ \t]*$"
+)
+PLUGIN_FENCE_CLOSE_RE = re.compile(r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[ \t]*$")
+# source_ref 形如 plugin:<区块序号>:<时间点指纹>:<任务文本指纹>:<同文序号>
+PLUGIN_TASK_REF_RE = re.compile(
+    r"^plugin:(?P<block>\d+):(?P<point>[0-9a-f]{12}|i\d+):"
+    r"(?P<digest>[0-9a-f]{16}):(?P<ordinal>\d+)$"
+)
 DONE_NAMES = {
     "done",
     "complete",
@@ -72,6 +85,34 @@ OPEN_NAMES = {
 
 # KB → 延迟同步任务（合并短时间内的大量编辑）
 _pending: dict[uuid.UUID, asyncio.Task[None]] = {}
+
+
+@dataclass(frozen=True)
+class PluginFence:
+    """正文中的一个 ```kiwi-plugin 围栏（序号按文档顺序，包含无法解析的围栏）。"""
+
+    index: int
+    open_line: int
+    content_start: int
+    close_line: int
+    fence: str
+    payload: dict | None
+
+
+@dataclass(frozen=True)
+class PluginTask:
+    """组件插件里的一个任务项（目前来自时间轴的时间点正文）。"""
+
+    ref: str
+    text: str
+    checked: bool
+    block_index: int
+    block_title: str
+    point_id: str
+    point_index: int
+    point_time: str
+    point_summary: str
+    task_index: int
 
 
 def _norm(value: str) -> str:
@@ -144,11 +185,11 @@ def _find_open_option(status_field: dict) -> dict | None:
     return None
 
 
-def task_items(body: str) -> list[tuple[str, str, bool]]:
-    """提取任务项：[(ref, text, checked)]，相同文本按出现顺序编号。"""
+def _task_matches(markdown: str) -> list[tuple[str, int, str, bool]]:
+    """提取 Markdown 任务项：[(文本指纹, 同文序号, 文本, 是否完成)]。"""
     counters: dict[str, int] = {}
-    items: list[tuple[str, str, bool]] = []
-    for line in (body or "").splitlines():
+    items: list[tuple[str, int, str, bool]] = []
+    for line in (markdown or "").splitlines():
         match = TASK_RE.match(line)
         if not match:
             continue
@@ -158,13 +199,231 @@ def task_items(body: str) -> list[tuple[str, str, bool]]:
         digest = sha1(text.encode("utf-8")).hexdigest()[:16]
         counters[digest] = counters.get(digest, 0) + 1
         items.append(
-            (
-                _task_ref(text, counters[digest]),
-                text,
-                match.group("state").lower() == "x",
-            )
+            (digest, counters[digest], text, match.group("state").lower() == "x")
         )
     return items
+
+
+def task_items(body: str) -> list[tuple[str, str, bool]]:
+    """提取正文任务项：[(ref, text, checked)]，相同文本按出现顺序编号。"""
+    return [
+        (_task_ref(text, ordinal), text, checked)
+        for _digest, ordinal, text, checked in _task_matches(body)
+    ]
+
+
+def plugin_fences(body: str) -> list[PluginFence]:
+    """按文档顺序解析 ```kiwi-plugin 围栏；解析失败时 payload 为 None。"""
+    lines = (body or "").splitlines(keepends=True)
+    fences: list[PluginFence] = []
+    index = 0
+    line_no = 0
+    while line_no < len(lines):
+        open_match = PLUGIN_FENCE_OPEN_RE.match(lines[line_no].rstrip("\r\n"))
+        if not open_match:
+            line_no += 1
+            continue
+        fence = open_match.group("fence")
+        close_line = line_no + 1
+        while close_line < len(lines):
+            close_match = PLUGIN_FENCE_CLOSE_RE.match(
+                lines[close_line].rstrip("\r\n")
+            )
+            if (
+                close_match
+                and close_match.group("fence")[0] == fence[0]
+                and len(close_match.group("fence")) >= len(fence)
+            ):
+                break
+            close_line += 1
+        payload = None
+        if close_line < len(lines):
+            raw = "".join(lines[line_no + 1 : close_line]).strip()
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict):
+                payload = parsed
+        fences.append(
+            PluginFence(
+                index=index,
+                open_line=line_no,
+                content_start=line_no + 1,
+                close_line=close_line,
+                fence=fence,
+                payload=payload,
+            )
+        )
+        index += 1
+        line_no = close_line + 1 if close_line < len(lines) else len(lines)
+    return fences
+
+
+def _point_ref(point: dict, index: int) -> str:
+    point_id = str(point.get("id") or "").strip()
+    if point_id:
+        return sha1(point_id.encode("utf-8")).hexdigest()[:12]
+    # 旧数据可能没有 id：退回位置序号，位置变化时镜像会自然重建。
+    return f"i{index}"
+
+
+def plugin_task_items(body: str) -> list[PluginTask]:
+    """提取时间轴时间点正文中的任务项。"""
+    items: list[PluginTask] = []
+    for fence in plugin_fences(body):
+        payload = fence.payload
+        if not payload:
+            continue
+        plugin = str(payload.get("plugin") or "").strip()
+        block = str(payload.get("block") or "").strip()
+        if plugin != "timeline" and block != "timeline":
+            continue
+        props = payload.get("props")
+        if not isinstance(props, dict):
+            continue
+        points = props.get("points")
+        if not isinstance(points, list):
+            continue
+        title = str(props.get("title") or "").strip()
+        for point_index, point in enumerate(points):
+            if not isinstance(point, dict):
+                continue
+            content = point.get("content")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            point_ref = _point_ref(point, point_index)
+            for task_index, (digest, ordinal, text, checked) in enumerate(
+                _task_matches(content)
+            ):
+                items.append(
+                    PluginTask(
+                        ref=f"plugin:{fence.index}:{point_ref}:{digest}:{ordinal}",
+                        text=text,
+                        checked=checked,
+                        block_index=fence.index,
+                        block_title=title,
+                        point_id=str(point.get("id") or "").strip(),
+                        point_index=point_index,
+                        point_time=str(point.get("time") or "").strip(),
+                        point_summary=str(point.get("summary") or "").strip(),
+                        task_index=task_index,
+                    )
+                )
+    return items
+
+
+def plugin_task_label(task: PluginTask) -> str:
+    """收件箱中展示的来源前缀，带上时间轴标题与时间点摘要。"""
+    title = task.block_title or "时间轴"
+    meta = " · ".join(
+        part for part in (task.point_time, task.point_summary) if part
+    )
+    return f"{title} · {meta}：{task.text}" if meta else f"{title}：{task.text}"
+
+
+def plugin_task_location(body: str, source_ref: str) -> dict | None:
+    """镜像 → 时间轴位置：供前端展开并定位到具体时间点的任务。"""
+    for task in plugin_task_items(body):
+        if task.ref != source_ref:
+            continue
+        return {
+            "plugin_block_index": task.block_index,
+            "plugin_point_id": task.point_id,
+            "plugin_point_index": task.point_index,
+            "plugin_point_time": task.point_time,
+            "plugin_point_summary": task.point_summary,
+            "plugin_task_index": task.task_index,
+        }
+    return None
+
+
+def _toggle_task_markdown(
+    markdown: str, digest: str, ordinal: int, done: bool
+) -> str | None:
+    """在 Markdown 中切换指定任务项；已是目标状态或找不到时返回 None。"""
+    counters: dict[str, int] = {}
+    lines = (markdown or "").splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        task = TASK_RE.match(line)
+        if not task:
+            continue
+        text = task.group("text").strip()
+        if not text:
+            continue
+        item_digest = sha1(text.encode("utf-8")).hexdigest()[:16]
+        if item_digest != digest:
+            continue
+        counters[digest] = counters.get(digest, 0) + 1
+        if counters[digest] != ordinal:
+            continue
+        checked = task.group("state").lower() == "x"
+        if checked == done:
+            return None
+        newline = "\n" if line.endswith("\n") else ""
+        core = line[: -1] if newline else line
+        new_state = "x" if done else " "
+        lines[index] = TASK_RE.sub(
+            lambda m: (
+                f"{m.group('quote')}{m.group('indent')}- [{new_state}] {m.group('text')}"
+            ),
+            core,
+        ) + newline
+        return "".join(lines)
+    return None
+
+
+def set_plugin_task_state(body: str, source_ref: str, done: bool) -> str | None:
+    """把时间轴时间点正文中的任务切换到目标状态，返回新的笔记正文。"""
+    match = PLUGIN_TASK_REF_RE.match(source_ref or "")
+    if not match:
+        return None
+    block_index = int(match.group("block"))
+    point_ref = match.group("point")
+    digest = match.group("digest")
+    ordinal = int(match.group("ordinal"))
+
+    lines = (body or "").splitlines(keepends=True)
+    fences = plugin_fences(body)
+    # 优先按记录时的区块序号查找；区块被移动 / 增删时再全量搜索。
+    ordered = sorted(fences, key=lambda fence: fence.index != block_index)
+    for fence in ordered:
+        payload = fence.payload
+        if payload is None:
+            continue
+        props = payload.get("props")
+        if not isinstance(props, dict):
+            continue
+        points = props.get("points")
+        if not isinstance(points, list):
+            continue
+        for point_index, point in enumerate(points):
+            if not isinstance(point, dict):
+                continue
+            if _point_ref(point, point_index) != point_ref:
+                continue
+            content = point.get("content")
+            new_content = _toggle_task_markdown(
+                content if isinstance(content, str) else "",
+                digest,
+                ordinal,
+                done,
+            )
+            if new_content is None:
+                return None
+            point["content"] = new_content
+            payload_json = json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":")
+            )
+            open_line = lines[fence.open_line]
+            indent_match = re.match(r"^[ \t]*", open_line)
+            indent = indent_match.group(0) if indent_match else ""
+            newline = "\r\n" if open_line.endswith("\r\n") else "\n"
+            lines[fence.content_start : fence.close_line] = [
+                f"{indent}{payload_json}{newline}"
+            ]
+            return "".join(lines)
+    return None
 
 
 async def _ensure_hub(session: AsyncSession, kb: KnowledgeBase) -> Note:
@@ -211,7 +470,7 @@ async def _ensure_hub(session: AsyncSession, kb: KnowledgeBase) -> Note:
     hub = Note(
         kb_id=kb.id,
         title=HUB_NOTE_TITLE,
-        body_md=_render_hub([], []),
+        body_md=_render_hub([]),
         kind="doc",
         folder_id=folder.id,
         status="active",
@@ -226,7 +485,9 @@ async def _ensure_hub(session: AsyncSession, kb: KnowledgeBase) -> Note:
     return hub
 
 
-def _render_hub(open_items: list[TodoMirror], done_items: list[TodoMirror]) -> str:
+def _render_hub(open_items: list[TodoMirror]) -> str:
+    # 只汇总未完成待办。已完成项仍保留在 todo_mirrors 中用于双向状态核对，
+    # 但不再渲染「近期完成」，避免收件箱被刚勾选的任务反复占满。
     # 标题由笔记头部展示，正文不再重复一级标题（编辑态会重复显示）。
     lines = [
         "> 由 Kiwi 自动汇总当前知识库中的全部待办。勾选后会同步回来源笔记或数据表；",
@@ -266,8 +527,6 @@ def _render_hub(open_items: list[TodoMirror], done_items: list[TodoMirror]) -> s
         section("待办", open_items, False)
     else:
         lines.extend(["_暂无待办，去笔记里添加任务或更新数据表状态吧。_", ""])
-    if done_items:
-        section("近期完成", done_items, True)
     return "\n".join(lines)
 
 
@@ -301,6 +560,15 @@ async def collect_sources(
                 "source_text": text,
                 "title": note.title or "未命名笔记",
                 "status": "done" if checked else "open",
+            }
+        for task in plugin_task_items(note.body_md or ""):
+            found[(note.id, "plugin_task", task.ref)] = {
+                "source_note_id": note.id,
+                "source_kind": "plugin_task",
+                "source_ref": task.ref,
+                "source_text": plugin_task_label(task),
+                "title": note.title or "未命名笔记",
+                "status": "done" if task.checked else "open",
             }
         if note.kind == "database":
             database_notes.append(note)
@@ -421,9 +689,9 @@ async def sync_kb_todos(session: AsyncSession, kb_id: uuid.UUID) -> dict:
     )
     open_items = [m for m in mirrors if m.status == "open"]
     done_items = [m for m in mirrors if m.status == "done"]
-    for index, mirror in enumerate(open_items + done_items):
+    for index, mirror in enumerate(open_items):
         mirror.sort_order = index
-    body = _render_hub(open_items, done_items)
+    body = _render_hub(open_items)
     if hub.body_md != body:
         hub.body_md = body
 
@@ -476,40 +744,23 @@ async def _set_task_state(
     match = re.match(r"task:([0-9a-f]{16}):(\d+)$", source_ref)
     if not match:
         return False
-    digest, ordinal_text = match.group(1), int(match.group(2))
-    counters: dict[str, int] = {}
-    lines = (note.body_md or "").splitlines(keepends=True)
-    changed = False
-    for index, line in enumerate(lines):
-        task = TASK_RE.match(line)
-        if not task:
-            continue
-        text = task.group("text").strip()
-        if not text:
-            continue
-        item_digest = sha1(text.encode("utf-8")).hexdigest()[:16]
-        if item_digest != digest:
-            continue
-        counters[digest] = counters.get(digest, 0) + 1
-        if counters[digest] != ordinal_text:
-            continue
-        checked = task.group("state").lower() == "x"
-        if checked == done:
-            return False
-        newline = "\n" if line.endswith("\n") else ""
-        core = line[: -1] if newline else line
-        new_state = "x" if done else " "
-        lines[index] = TASK_RE.sub(
-            lambda m: (
-                f"{m.group('quote')}{m.group('indent')}- [{new_state}] {m.group('text')}"
-            ),
-            core,
-        ) + newline
-        changed = True
-        break
-    if changed:
-        note.body_md = "".join(lines)
-    return changed
+    body = _toggle_task_markdown(
+        note.body_md or "", match.group(1), int(match.group(2)), done
+    )
+    if body is None:
+        return False
+    note.body_md = body
+    return True
+
+
+async def _set_plugin_task_state(
+    session: AsyncSession, note: Note, source_ref: str, done: bool
+) -> bool:
+    body = set_plugin_task_state(note.body_md or "", source_ref, done)
+    if body is None:
+        return False
+    note.body_md = body
+    return True
 
 
 async def _set_row_state(
@@ -585,6 +836,10 @@ async def apply_hub_checks(session: AsyncSession, hub: Note) -> dict:
             continue
         if mirror.source_kind == "task":
             changed = await _set_task_state(
+                session, source_note, mirror.source_ref, done
+            )
+        elif mirror.source_kind == "plugin_task":
+            changed = await _set_plugin_task_state(
                 session, source_note, mirror.source_ref, done
             )
         else:

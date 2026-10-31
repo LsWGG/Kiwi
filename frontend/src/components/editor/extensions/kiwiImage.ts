@@ -55,6 +55,8 @@ export const KiwiImage = Image.extend<KiwiImageOptions>({
     return {
       ...this.parent?.(),
       upload: undefined,
+      // 允许 data:image 内联图片（截图粘贴、离线记录等）。
+      allowBase64: true,
     }
   },
 

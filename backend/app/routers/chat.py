@@ -21,6 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
+from app.services.agent_planner import (
+    AgentPlan,
+    apply_time_window,
+    contextualize_query,
+    in_time_window,
+    plan_with_llm,
+    rules_plan,
+    split_queries,
+)
 from app.services.embedder import is_disabled
 from app.services.lexical import tokenize
 from app.services.llm_factory import LLMCrypto, llm_factory
@@ -75,27 +84,80 @@ def _retrieval_filters(scope: SearchScope) -> RetrievalFilters:
     )
 
 
-# Agent 模式的多角度检索：按并列连接词拆分问题。不做额外的 LLM 调用，
-# 既避免多一次往返延迟，也保证离线 / 自建模型下行为一致。
-_AGENT_SPLIT_RE = re.compile(r"(?:以及|还有|和|与|、|,|，|;|；|\band\b)", re.IGNORECASE)
-
-
 def _agent_queries(query: str) -> list[str]:
-    """拆出 2–3 个并列子问题；拆不出来时只检索原问题。"""
-    text = query.strip()
-    if not text or len(text) > 160:
-        return [text]
-    parts = [part.strip(" ？?。.!！") for part in _AGENT_SPLIT_RE.split(text)]
-    # 只去掉句末标点的单个问题仍是同一个问题，不重复检索。
-    if len(parts) <= 1:
-        return [text]
-    queries = [text]
-    for part in parts:
-        if len(part) >= 2 and part != text and part not in queries:
-            queries.append(part)
-        if len(queries) >= 3:
+    """兼容旧调用方：多角度检索的并列子问题拆分。"""
+    return split_queries(query)
+
+
+async def _plan_request(
+    data: ChatRequest,
+    query: str,
+    *,
+    client: Any,
+    model: str,
+    current_query: str = "",
+    history: list[dict] | None = None,
+) -> AgentPlan:
+    """按开关选择规划方式：Agent 模式用模型规划，其余用规则规划。
+
+    规则规划始终先解析时间窗口；即使 Agent 关闭，「这周我干嘛了」也会先转成
+    日期范围再检索，而不是把原句直接丢给检索或联网。``query`` 是补全上下文
+    后的检索问题，``current_query`` 是用户这一轮的原话。
+    """
+    if data.agent:
+        return await plan_with_llm(
+            query,
+            client=client,
+            model=model,
+            web_allowed=bool(data.web_search),
+            current_query=current_query or None,
+            history=history,
+        )
+    return rules_plan(
+        query,
+        agent=False,
+        web_allowed=bool(data.web_search),
+        current_query=current_query or None,
+    )
+
+
+async def _search_web_many(
+    queries: list[str],
+    *,
+    limit: int,
+    llm_base_url: str,
+    llm_api_key: str,
+) -> list[dict]:
+    """按规划出的联网查询逐条搜索并去重；单条失败不影响其它查询。"""
+    merged: list[dict] = []
+    seen: set[str] = set()
+    errors: list[Exception] = []
+    for query in queries[:2]:
+        if not query.strip():
+            continue
+        try:
+            results = await search_web(
+                query,
+                limit=limit,
+                llm_base_url=llm_base_url,
+                llm_api_key=llm_api_key,
+            )
+        except Exception as exc:  # noqa: BLE001 —— 一条查询失败仍可尝试下一条
+            errors.append(exc)
+            continue
+        for item in results:
+            key = str(item.get("url") or "") or (
+                f"{item.get('title') or ''}:{str(item.get('snippet') or '')[:60]}"
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        if len(merged) >= limit:
             break
-    return queries
+    if not merged and errors:
+        raise errors[-1]
+    return merged[:limit]
 
 
 async def _search_many(
@@ -279,14 +341,58 @@ async def _prepare_chat(
     stage("understand", "start", "正在理解问题")
     kb_ids = await _resolve_scope(session, data.scope)
     stage("understand", "done", "已理解问题")
+
+    # 先解析本次模型：Agent 规划与联网检索都复用同一个连接与凭据。
+    bound_kb_id = kb_ids[0] if data.scope.scope == "kb" and kb_ids else None
+    cfg, api_key = await resolve_llm(session, bound_kb_id, data.llm_config_id)
+    model_name = (data.model_override or "").strip() or cfg.model_name
+    client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
+
+    # 规划检索路径：时间窗口、知识库查询、是否联网。规则解析先跑；
+    # Agent 模式再让模型补充查询，模型失败 / 超时会回退到规则结果。
+    # 追问（「北京」「那上周呢」）先补全成完整问题，再交给规则 / 模型规划。
+    context_query = contextualize_query(data.messages) or query
+    contextual = context_query != query
+    stage(
+        "plan",
+        "start",
+        "正在结合上下文规划检索路径" if contextual else "正在规划检索路径",
+    )
+    plan = await _plan_request(
+        data,
+        context_query,
+        client=client,
+        model=model_name,
+        current_query=query,
+        history=data.messages[:-1],
+    )
+    filters = _retrieval_filters(data.scope)
+    time_window_ok = apply_time_window(filters, plan.time_window)
+    plan_message = "已结合上下文补全追问" if contextual else "检索计划已生成"
+    if plan.time_window:
+        plan_message = f"已应用时间范围：{plan.time_window.label}"
+        if not time_window_ok:
+            plan_message = "时间范围与筛选没有交集"
+    plan_detail = plan.describe()
+    if contextual:
+        plan_detail += f" · 补全问题：{context_query[:80]}"
+    stage("plan", "done", plan_message, plan_detail)
+
+    # 「这周我干嘛了」这类个人时间问题优先按笔记回答；显式意图仍以用户选择为准。
+    if plan.personal and plan.time_window and data.intent in (None, "auto"):
+        intent = "note"
     # 意图路由：Wiki 优先（概念/综合）或笔记优先（精确定位、事实核验）
     wiki_limit = 8 if intent == "wiki" else 4
     # 多取一些笔记分块：数据表 / 长文档的相邻行可能排在稍后的名次，
     # 只取 8 条会漏掉尾部记录；合并后仍按笔记去重并受上下文预算约束。
     note_limit = 16
-    filters = _retrieval_filters(data.scope)
-    queries = _agent_queries(query) if data.agent else [query]
+    queries = plan.queries or [context_query]
     notices: list[str] = []
+    if plan.time_window and not time_window_ok:
+        notices.append(
+            f"问题中的时间范围（{plan.time_window.describe()}）与当前筛选没有交集，"
+            "本次未检索到内容。"
+        )
     wiki_hits: list[dict] = []
     stage("search", "start", "正在检索 Wiki 与笔记")
     if not filters.has_note_constraints:
@@ -320,19 +426,15 @@ async def _prepare_chat(
         f"命中 {len(wiki_hits) + len(note_hits)} 个片段",
     )
 
-    # 先解析本次模型：联网检索可复用 DeepSeek 的 Key 调用官方 Search 接口，
-    # 无需用户再配置一份搜索凭据。
-    bound_kb_id = kb_ids[0] if data.scope.scope == "kb" and kb_ids else None
-    cfg, api_key = await resolve_llm(session, bound_kb_id, data.llm_config_id)
-
-    # 显式开启联网时才发起外网请求；失败不阻断知识库问答，只发 notice。
+    # 只有规划判断确实需要外部信息时才联网，并使用规划出的具体查询词，
+    # 不再把「这周我干嘛了」这类个人问题原句丢给搜索引擎。
     web_results: list[dict] = []
     web_error = ""
-    if data.web_search:
+    if data.web_search and plan.use_web:
         stage("web", "start", "正在联网检索")
         try:
-            web_results = await search_web(
-                query,
+            web_results = await _search_web_many(
+                plan.web_queries or [context_query],
                 limit=3,
                 llm_base_url=cfg.base_url,
                 llm_api_key=api_key or "",
@@ -341,7 +443,10 @@ async def _prepare_chat(
                 web_error = "联网检索没有返回结果，本次仅使用知识库内容回答。"
                 stage("web", "done", "联网检索完成", "未返回结果")
             else:
-                stage("web", "done", "联网检索完成", f"获得 {len(web_results)} 条结果")
+                detail = f"获得 {len(web_results)} 条结果"
+                if plan.web_queries:
+                    detail += f" · {plan.web_queries[0][:60]}"
+                stage("web", "done", "联网检索完成", detail)
         except Exception as exc:  # noqa: BLE001 —— 网络失败降级为知识库问答
             logger.warning("问答联网检索失败：%s", exc)
             web_error = (
@@ -350,6 +455,15 @@ async def _prepare_chat(
                 "本次仅使用知识库内容回答。"
             )
             stage("web", "error", "联网检索失败", "本次仅使用知识库内容")
+    elif data.web_search:
+        # 用户开了联网，但规划判断问题属于个人记录 / 无需外部信息。
+        stage("web", "done", "已跳过联网", plan.reason or "问题优先使用知识库")
+    elif plan.wants_web and data.agent:
+        # Agent 判断需要联网，但用户没有开启联网开关：只提示，不擅自外联。
+        stage("web", "done", "未开启联网", "该问题可能需要外部信息")
+        notices.append(
+            "该问题可能需要联网信息，但联网开关未开启，本次仅使用知识库回答。"
+        )
     if web_error:
         notices.append(web_error)
 
@@ -497,7 +611,7 @@ async def _prepare_chat(
             )
 
     # 以数据库为准过滤已删除 / 回收站笔记，并取最新标题（向量 payload 可能滞后）。
-    note_meta: dict[str, tuple[str, str]] = {}
+    note_meta: dict[str, tuple[str, str, dict]] = {}
     note_ids: list[uuid.UUID] = []
     for note_id in note_groups:
         try:
@@ -507,20 +621,36 @@ async def _prepare_chat(
     if note_ids:
         rows = (
             await session.execute(
-                select(Note.id, Note.title, Note.kind).where(
+                select(Note.id, Note.title, Note.kind, Note.props_json).where(
                     Note.id.in_(note_ids),
                     Note.kb_id.in_(kb_ids),
                     Note.status == "active",
                 )
             )
         ).all()
-        note_meta = {str(row.id): (row.title, row.kind) for row in rows}
+        note_meta = {
+            str(row.id): (row.title, row.kind, dict(row.props_json or {}))
+            for row in rows
+        }
 
     note_entries = [
         (note_id, group)
         for note_id, group in note_groups.items()
         if note_id in note_meta and group["chunks"]
     ]
+
+    # 时间范围检索：日记按标题日期判断（updated_at 会被待办同步等元数据刷新），
+    # 个人回顾时排除自动生成的待办汇总，避免把历史完成项当成这周的产出。
+    if plan.time_window:
+        kept_entries: list[tuple[str, dict]] = []
+        for note_id, group in note_entries:
+            title, _kind, props = note_meta[note_id]
+            if plan.personal and props.get("todo_hub"):
+                continue
+            if not in_time_window(title or group["title"], plan.time_window):
+                continue
+            kept_entries.append((note_id, group))
+        note_entries = kept_entries
 
     def feed_wiki() -> None:
         for hit, page_id in wiki_entries:
@@ -535,7 +665,7 @@ async def _prepare_chat(
 
     def feed_notes() -> None:
         for note_id, group in note_entries:
-            title, kind = note_meta[note_id]
+            title, kind, _props = note_meta[note_id]
             add_note(
                 note_id=note_id,
                 title=title or group["title"] or "未命名笔记",
@@ -584,10 +714,7 @@ async def _prepare_chat(
     context_parts = context_parts[:10]
     citations = citations[: len(context_parts)]
 
-    # LLM 生成（页面级模型覆盖仅对本次请求生效）
-    # 模型已在检索前解析（联网检索复用其凭据），这里只确定实际使用的模型。
-    model_name = (data.model_override or "").strip() or cfg.model_name
-    client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
+    # LLM 生成（页面级模型覆盖仅对本次请求生效；模型已在规划前解析）
     stage("generate", "start", "正在生成回答")
 
     system_prompt = (
@@ -601,7 +728,15 @@ async def _prepare_chat(
         "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
         "5. 标注「联网结果」的资料来自互联网，引用时同样使用 [n]；涉及网页时在"
         "对应结论后附上资料给出的原文链接，不要编造 URL。\n"
-        "资料：\n\n"
+        + (
+            f"对话上下文：用户当前消息「{query}」是对上一轮的追问，"
+            f"已按补全后的问题「{context_query}」检索；回答时请延续上文主题，"
+            "不要只按当前几个字作答。\n"
+            if contextual
+            else ""
+        )
+        + plan.prompt_context()
+        + "\n资料：\n\n"
         + "\n\n---\n\n".join(context_parts)
         + ("\n\n（本次检索未命中任何资料，请如实告知用户。）" if not context_parts else "")
     )

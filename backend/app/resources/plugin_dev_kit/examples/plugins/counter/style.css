@@ -1,0 +1,82 @@
+/*
+ * 示例插件样式。
+ *
+ * 所有强调色都使用 Kiwi 的 --kiwi-* 主题变量（RGB 三元组），
+ * 系统切换主题色或进入学习模式时会自动跟随，无需监听 JS 事件。
+ * 插件加载时样式注入全局，类名请统一加前缀避免污染编辑器。
+ */
+.kiwi-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ffffff, rgb(var(--kiwi-50)));
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  font-size: 13px;
+  color: rgb(51 65 85);
+  user-select: none;
+}
+
+.kiwi-counter.is-selected {
+  border-color: rgb(var(--kiwi-500) / 0.55);
+  box-shadow: 0 0 0 2px rgb(var(--kiwi-500) / 0.18);
+}
+
+.kiwi-counter__label {
+  font-weight: 600;
+  color: rgb(71 85 105);
+}
+
+.kiwi-counter__value {
+  min-width: 2.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgb(var(--kiwi-600));
+}
+
+.kiwi-counter__btn,
+.kiwi-counter__reset,
+.kiwi-counter__remove {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid rgb(226 232 240);
+  background: #fff;
+  color: rgb(71 85 105);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.kiwi-counter__btn:hover {
+  border-color: rgb(var(--kiwi-500) / 0.5);
+  background: rgb(var(--kiwi-100) / 0.65);
+  color: rgb(var(--kiwi-700));
+}
+
+.kiwi-counter__reset {
+  color: rgb(100 116 139);
+}
+
+/* 删除属于语义化的危险操作，保留红色而不跟随主题色。 */
+.kiwi-counter__remove {
+  border-color: rgb(254 202 202);
+  color: rgb(225 29 72);
+}
+
+.kiwi-counter__remove:hover {
+  background: rgb(254 242 242);
+}
+
+.kiwi-counter.is-readonly {
+  background: rgb(248 250 252);
+  box-shadow: none;
+}

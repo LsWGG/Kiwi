@@ -15,6 +15,8 @@ CHUNK_SIZE = 800
 OVERLAP = 50
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+# 内联 data:image 的 base64 会污染分块与向量检索，只保留 alt 文本。
+_DATA_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(\s*<?data:image/[^\s)]*?>?\s*\)")
 
 
 def _split_long_text(text: str) -> list[str]:
@@ -55,6 +57,7 @@ def split_markdown(text: str) -> list[dict]:
     """
     if not text.strip():
         return []
+    text = _DATA_IMAGE_RE.sub(r"\1", text)
     lines = text.splitlines()
     blocks: list[dict] = []
     current_heading: str | None = None

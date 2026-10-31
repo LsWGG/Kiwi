@@ -231,11 +231,18 @@ async def test_dev_kit_and_builtin_exports(client):
     assert dev_kit.status_code == 200
     with zipfile.ZipFile(io.BytesIO(dev_kit.content)) as archive:
         names = set(archive.namelist())
-        assert "kiwi-plugin-dev-kit/docs/PLUGIN_SPEC.md" in names
-        assert "kiwi-plugin-dev-kit/docs/examples/plugins/README.md" in names
-        assert "kiwi-plugin-dev-kit/docs/examples/plugins/counter/index.js" in names
-        assert "kiwi-plugin-dev-kit/docs/examples/plugins/pomodoro/index.js" in names
-        assert "kiwi-plugin-dev-kit/docs/examples/plugins/countdown/style.css" in names
-        assert "kiwi-plugin-dev-kit/.claude/skills/kiwi-plugin/SKILL.md" in names
+        assert "kiwi-plugin-dev-kit/PLUGIN_SPEC.md" in names
+        assert "kiwi-plugin-dev-kit/examples/plugins/README.md" in names
+        assert "kiwi-plugin-dev-kit/examples/plugins/counter/index.js" in names
+        assert "kiwi-plugin-dev-kit/examples/plugins/pomodoro/index.js" in names
+        assert "kiwi-plugin-dev-kit/examples/plugins/countdown/style.css" in names
+        assert "kiwi-plugin-dev-kit/examples/plugins/countdown/index.js" in names
+        assert "kiwi-plugin-dev-kit/examples/plugins/timeline/index.js" in names
+        assert "kiwi-plugin-dev-kit/skill/kiwi-plugin/SKILL.md" in names
+        # 压缩包必须包含可运行示例与 skill，不能只有 AI 提示词。
+        assert len(
+            [name for name in names if name.startswith("kiwi-plugin-dev-kit/examples/")]
+        ) >= 12
         prompt = archive.read("kiwi-plugin-dev-kit/AI_PROMPT.md").decode("utf-8")
         assert "pomodoro" in prompt and "countdown" in prompt
+        assert "timeline" in prompt

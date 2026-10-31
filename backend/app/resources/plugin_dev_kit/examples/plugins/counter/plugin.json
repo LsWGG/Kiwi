@@ -1,0 +1,27 @@
+{
+  "manifest_version": 1,
+  "kind": "component",
+  "key": "counter",
+  "name": "计数器",
+  "version": "1.0.0",
+  "description": "可增减、可重置的计数卡片，演示组件插件的 props 持久化与只读降级。",
+  "author": "Kiwi",
+  "icon": "checkSquare",
+  "homepage": "",
+  "entry": "index.js",
+  "style": "style.css",
+  "blocks": [
+    {
+      "type": "counter",
+      "label": "计数器",
+      "icon": "checkSquare",
+      "description": "插入一个可交互的计数卡片",
+      "category": "效率",
+      "default_props": {
+        "label": "计数",
+        "count": 0
+      }
+    }
+  ],
+  "settings": []
+}

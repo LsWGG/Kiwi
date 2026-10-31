@@ -47,23 +47,31 @@ MAX_IMPORT_BYTES = 5 * 1024 * 1024
 MAX_MANIFEST_FILE_BYTES = 1024 * 1024
 MAX_SCRIPT_BYTES = 2 * 1024 * 1024
 MAX_STYLE_BYTES = 512 * 1024
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+# 开发套件随后端代码一起打包，避免运行时镜像只复制 backend/ 时丢失 docs / .claude。
+# 资源目录由 `scripts/sync_plugin_dev_kit.py` 从仓库的规范与示例同步。
+DEV_KIT_ROOT = (
+    Path(__file__).resolve().parents[1] / "resources" / "plugin_dev_kit"
+)
 DEV_KIT_FILES = (
-    "docs/PLUGIN_SPEC.md",
-    "docs/examples/plugins/README.md",
-    "docs/examples/plugins/counter/plugin.json",
-    "docs/examples/plugins/counter/index.js",
-    "docs/examples/plugins/counter/style.css",
-    "docs/examples/plugins/counter/README.md",
-    "docs/examples/plugins/pomodoro/plugin.json",
-    "docs/examples/plugins/pomodoro/index.js",
-    "docs/examples/plugins/pomodoro/style.css",
-    "docs/examples/plugins/pomodoro/README.md",
-    "docs/examples/plugins/countdown/plugin.json",
-    "docs/examples/plugins/countdown/index.js",
-    "docs/examples/plugins/countdown/style.css",
-    "docs/examples/plugins/countdown/README.md",
-    ".claude/skills/kiwi-plugin/SKILL.md",
+    "PLUGIN_SPEC.md",
+    "examples/plugins/README.md",
+    "examples/plugins/counter/plugin.json",
+    "examples/plugins/counter/index.js",
+    "examples/plugins/counter/style.css",
+    "examples/plugins/counter/README.md",
+    "examples/plugins/pomodoro/plugin.json",
+    "examples/plugins/pomodoro/index.js",
+    "examples/plugins/pomodoro/style.css",
+    "examples/plugins/pomodoro/README.md",
+    "examples/plugins/countdown/plugin.json",
+    "examples/plugins/countdown/index.js",
+    "examples/plugins/countdown/style.css",
+    "examples/plugins/countdown/README.md",
+    "examples/plugins/timeline/plugin.json",
+    "examples/plugins/timeline/index.js",
+    "examples/plugins/timeline/style.css",
+    "examples/plugins/timeline/README.md",
+    "skill/kiwi-plugin/SKILL.md",
 )
 
 
@@ -434,20 +442,31 @@ async def plugin_spec():
 
 @router.get("/dev-kit", response_model=None)
 async def plugin_dev_kit():
-    """下载插件开发套件：完整规范、可运行示例与 AI skill。"""
+    """下载插件开发套件：完整规范、可运行示例与 AI skill。
+
+    资源目录随 `app/resources/plugin_dev_kit` 一起进入后端镜像；缺文件时直接
+    报错，避免再次返回只有 AI_PROMPT.md 的残缺压缩包。
+    """
+    missing = [
+        relative for relative in DEV_KIT_FILES if not (DEV_KIT_ROOT / relative).is_file()
+    ]
+    if missing:
+        logger.error("插件开发套件资源缺失：%s", ", ".join(missing))
+        raise HTTPException(
+            500,
+            "插件开发套件资源缺失，请确认后端镜像包含 app/resources/plugin_dev_kit。",
+        )
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for relative in DEV_KIT_FILES:
-            path = PROJECT_ROOT / relative
-            if not path.is_file():
-                continue
+            path = DEV_KIT_ROOT / relative
             archive.write(path, arcname=f"kiwi-plugin-dev-kit/{relative}")
         archive.writestr(
             "kiwi-plugin-dev-kit/AI_PROMPT.md",
             "# AI 插件开发提示词\n\n"
-            "请使用 kiwi-plugin skill，并先阅读同目录下的 PLUGIN_SPEC.md 与 "
-            "examples/plugins/（counter 最小示例、pomodoro / countdown 计时器示例）。"
-            "输出一个可压缩为 zip 的 Kiwi 组件插件包，"
+            "请先阅读 skill/kiwi-plugin/SKILL.md 与 PLUGIN_SPEC.md，再参考 "
+            "examples/plugins/（counter 最小示例、pomodoro / countdown 计时器、"
+            "timeline 时间轴）。输出一个可压缩为 zip 的 Kiwi 组件插件包，"
             "包含 plugin.json、index.js（导出 setup(host)）和可选 style.css；"
             "安装前用 `/api/plugins/inspect` 校验。\n",
         )

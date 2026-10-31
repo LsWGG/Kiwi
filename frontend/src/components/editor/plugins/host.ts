@@ -13,6 +13,7 @@
 import * as Vue from 'vue'
 import { computed, ref, type Component, type ComputedRef, type Ref } from 'vue'
 import { toast } from '@/components/ui/toast'
+import PluginNoteEditor from './PluginNoteEditor.vue'
 
 export const PLUGIN_API_VERSION = 1
 
@@ -39,11 +40,21 @@ export interface PluginTheme {
   shade: (step: number, alpha?: number) => string
 }
 
+/** 宿主提供的可复用 UI 组件，插件可直接渲染，无需 import 应用代码。 */
+export interface PluginComponents {
+  /**
+   * 轻量富文本编辑器：`v-model` 绑定 Markdown 字符串，支持标题、列表、
+   * 引用、代码与待办勾选框；`readonly` 时渲染同一内容的阅读态。
+   */
+  NoteEditor: Component
+}
+
 export interface PluginHost {
   apiVersion: number
   vue: typeof Vue
   toast: PluginToast
   theme: PluginTheme
+  components: PluginComponents
 }
 
 const DEFAULT_TRIPLET = '111 114 220'
@@ -142,4 +153,7 @@ export const pluginHost: PluginHost = {
   vue: Vue,
   toast,
   theme,
+  components: {
+    NoteEditor: PluginNoteEditor,
+  },
 }

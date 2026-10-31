@@ -286,6 +286,23 @@ const paragraphFormat = computed(() => {
   void props.revision
   return currentParagraphFormat(props.editor)
 })
+/** 首行缩进开关：中文正文习惯缩进 2 字符。 */
+const firstLineIndented = computed(() => {
+  const value = paragraphFormat.value.firstLineIndent
+  return typeof value === 'number' && value > 0
+})
+
+function toggleFirstLineIndent() {
+  const ed = props.editor
+  if (!ed) return
+  applyParagraphFormat(
+    ed,
+    firstLineIndented.value
+      ? { firstLineIndent: null, hangingIndent: null }
+      : { firstLineIndent: 2, hangingIndent: false },
+  )
+  ed.view.focus()
+}
 /** 选区非空时，字体 / 字号以选区字符格式为准。 */
 const textFormat = computed(() => {
   void props.revision
@@ -820,6 +837,15 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
       </button>
       <button type="button" :class="[btn, editor.isActive({ textAlign: 'justify' }) ? activeBtn : '']" title="两端对齐" @click="run((e) => e.chain().focus().setTextAlign('justify').run())">
         <span class="text-[11px] font-semibold">J</span>
+      </button>
+      <button
+        type="button"
+        :class="[btn, firstLineIndented ? activeBtn : '']"
+        :title="firstLineIndented ? '取消首行缩进' : '首行缩进 2 字符'"
+        :aria-pressed="firstLineIndented"
+        @click="toggleFirstLineIndent"
+      >
+        <KiwiIcon name="firstIndent" :size="14" />
       </button>
     </div>
     </template>
