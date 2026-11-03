@@ -667,11 +667,13 @@ async def _prepare_chat(
     attachment_texts: dict[str, str] = {}
     remaining_chars = attachment_content.MAX_TOTAL_CHARS
     files_read = 0
+    files_skipped = 0
     for note_id, _group in note_entries:
         if files_read >= attachment_content.MAX_FILES or remaining_chars <= 0:
             break
         body_md = note_meta[note_id][3]
-        if "kiwi-embed" not in (body_md or ""):
+        blocks = attachment_content.embedded_file_blocks(body_md or "")
+        if not blocks:
             continue
         items = await asyncio.to_thread(
             attachment_content.read_embedded_attachments,
@@ -682,14 +684,19 @@ async def _prepare_chat(
             total_chars=remaining_chars,
         )
         if not items:
+            files_skipped += len(blocks)
             continue
         attachment_texts[note_id] = attachment_content.format_attachments_for_context(
             items
         )
         remaining_chars -= sum(len(item.text) for item in items)
         files_read += len(items)
-    if files_read:
-        stage("files", "done", f"已读取 {files_read} 个内嵌附件")
+    if files_read or files_skipped:
+        message = f"已读取 {files_read} 个内嵌附件" if files_read else ""
+        if files_skipped:
+            skipped = f"{files_skipped} 个附件不可读取（非文本文件或文件缺失）"
+            message = f"{message}，{skipped}" if message else skipped
+        stage("files", "done", message)
 
     def feed_wiki() -> None:
         for hit, page_id in wiki_entries:

@@ -217,7 +217,8 @@ LANGUAGE_BY_EXT = {
     "proto": "protobuf",
 }
 
-_OPEN_FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)$")
+# 附件常嵌在有序列表 / 引用块里，围栏行前会带缩进或 ``>`` 前缀。
+_OPEN_FENCE_RE = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)$")
 _QUOTE_PREFIX_RE = re.compile(r"^(?:[ \t]*>[ \t]?)+")
 
 
@@ -263,7 +264,9 @@ def embedded_file_blocks(body_md: str) -> list[dict]:
         index += 1
         while index < len(lines):
             inner = _strip_quote_prefix(lines[index])
-            closing = re.fullmatch(rf"{re.escape(fence[0])}{{{len(fence)},}}[ \t]*", inner)
+            closing = re.fullmatch(
+                rf"[ \t]*{re.escape(fence[0])}{{{len(fence)},}}[ \t]*", inner
+            )
             if closing:
                 index += 1
                 break

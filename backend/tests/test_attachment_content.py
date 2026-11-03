@@ -41,6 +41,19 @@ def test_extracts_file_blocks_with_quote_and_tilde_fences():
     assert urls == ["/media/kb/a.py", "/media/kb/b.py", "/media/kb/c.py"]
 
 
+def test_extracts_blocks_nested_in_list_items():
+    # 实际笔记里附件常放在有序列表项下，围栏与 JSON 都带 3 空格缩进。
+    body = (
+        "1. 网片分辨率处理脚本\n\n"
+        "   ```kiwi-embed\n"
+        '   {"kind":"file","url":"/media/kb/resize_images.py",'
+        '"filename":"resize_images.py","contentType":"text/x-python"}\n'
+        "   ```\n"
+    )
+    blocks = embedded_file_blocks(body)
+    assert [item["url"] for item in blocks] == ["/media/kb/resize_images.py"]
+
+
 def test_ignores_link_cards_remote_urls_and_broken_json():
     body = "\n\n".join(
         [
