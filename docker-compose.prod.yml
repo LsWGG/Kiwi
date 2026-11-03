@@ -90,6 +90,10 @@ services:
       qdrant:
         condition: service_healthy
     environment:
+      # 构建信息在运行时注入：后端源码以 bind mount 运行，镜像构建期写入的
+      # ENV 停留在上一次镜像构建的提交，无法反映当前检出的代码。
+      KIWI_BUILD_COMMIT: ${KIWI_BUILD_COMMIT:-}
+      KIWI_BUILD_TIME: ${KIWI_BUILD_TIME:-}
       KIWI_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kiwi}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-kiwi}
       KIWI_QDRANT_URL: http://qdrant:6333
       KIWI_FERNET_KEY: ${KIWI_FERNET_KEY:?请在 .env.prod 中生成 KIWI_FERNET_KEY}

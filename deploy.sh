@@ -1384,8 +1384,9 @@ case "$CMD" in
     ensure_env
     load_env
     apply_cloudflare 0 0
-    # 后端源码以 bind mount 运行，但环境变量变更需要重建容器才能生效。
-    compose up -d backend
+    # 后端源码以 bind mount 运行：配置未变时 `up -d` 不会重建容器，Python
+    # 进程仍加载旧模块。强制重建确保新代码与最新 KIWI_BUILD_* 生效。
+    compose up -d --force-recreate backend
     echo "[kiwi-deploy] backend 已按最新源码与环境变量重建"
     ;;
   restart)
