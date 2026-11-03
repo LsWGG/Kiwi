@@ -164,7 +164,7 @@ const filterTagIds = ref<string[]>([])
 const filterFrom = ref('')
 const filterTo = ref('')
 
-// ---------- @ 笔记 / 目录与 Agent 开关 ----------
+// ---------- @ 笔记 / 目录 ----------
 const mentions = ref<MentionRef[]>([])
 const mentionOpen = ref(false)
 const mentionQuery = ref('')
@@ -175,8 +175,6 @@ const mentionExpanded = ref<string[]>([])
 const mentionActiveIndex = ref(0)
 /** 输入框中触发 @ 的那段文本范围，选择后从正文里移除。 */
 const mentionToken = ref<{ start: number; end: number } | null>(null)
-const agentMode = ref(false)
-const webSearch = ref(false)
 const NOTE_KIND_OPTIONS = [
   { id: 'doc', label: '文档' },
   { id: 'import', label: '导入' },
@@ -238,8 +236,6 @@ function loadSettings() {
       multiIds?: string[]
       intent?: Intent | 'raw'
       llmConfigId?: string
-      agentMode?: boolean
-      webSearch?: boolean
       filters?: Partial<ScopeFilters>
     }
     if (saved.scopeMode) scopeMode.value = saved.scopeMode
@@ -254,8 +250,6 @@ function loadSettings() {
     if (saved.intent === 'raw') intent.value = 'note'
     else if (saved.intent) intent.value = saved.intent
     if (typeof saved.llmConfigId === 'string') llmConfigId.value = saved.llmConfigId
-    if (typeof saved.agentMode === 'boolean') agentMode.value = saved.agentMode
-    if (typeof saved.webSearch === 'boolean') webSearch.value = saved.webSearch
   } catch {
     /* 隐私模式忽略 */
   }
@@ -270,8 +264,6 @@ function saveSettings() {
         multiIds: multiIds.value,
         intent: intent.value,
         llmConfigId: llmConfigId.value,
-        agentMode: agentMode.value,
-        webSearch: webSearch.value,
         filters: {
           note_kinds: filterKinds.value,
           tag_ids: filterTagIds.value,
@@ -818,16 +810,6 @@ function removeMention(index: number) {
   mentions.value.splice(index, 1)
 }
 
-function toggleAgent() {
-  agentMode.value = !agentMode.value
-  saveSettings()
-}
-
-function toggleWebSearch() {
-  webSearch.value = !webSearch.value
-  saveSettings()
-}
-
 async function createSession(): Promise<SessionDetail | null> {
   try {
     const created = await request<SessionDetail>('/chat/sessions', {
@@ -1240,8 +1222,9 @@ async function ask() {
       scope: requestScope(),
       intent: intent.value,
       llm_config_id: llmConfigId.value || null,
-      agent: agentMode.value,
-      web_search: webSearch.value,
+      // Agent 规划与联网能力默认开启；联网仍由规划器按问题决定是否真的发起。
+      agent: true,
+      web_search: true,
     },
     {
       onMessage: (msg) => {
@@ -2285,38 +2268,6 @@ watch(
             data-chat-menu
             class="relative rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
           >
-            <!-- 工具条：Agent / 联网开关；@ 范围在输入框内触发 -->
-            <div class="flex flex-wrap items-center gap-1 px-1">
-              <button
-                type="button"
-                role="switch"
-                :aria-checked="agentMode"
-                class="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10.5px] transition-colors"
-                :class="agentMode
-                  ? 'bg-kiwi-50 text-kiwi-700'
-                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
-                title="Agent：自动拆分问题并多轮检索笔记 / 目录 / Wiki"
-                @click="toggleAgent"
-              >
-                <KiwiIcon name="sparkle" :size="12" />
-                Agent
-              </button>
-              <button
-                type="button"
-                role="switch"
-                :aria-checked="webSearch"
-                class="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[10.5px] transition-colors"
-                :class="webSearch
-                  ? 'bg-amber-50 text-amber-700'
-                  : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'"
-                title="联网检索：在知识库之外补充网页结果（需后端配置检索服务）"
-                @click="toggleWebSearch"
-              >
-                <KiwiIcon name="globe" :size="12" />
-                联网
-              </button>
-            </div>
-
             <div class="flex items-end gap-2">
               <textarea
                 ref="composerEl"
@@ -2435,14 +2386,6 @@ watch(
             <span v-if="mentions.length">@ {{ mentions.length }} 项</span>
             <span class="text-slate-300">·</span>
             {{ intent === 'wiki' ? 'Wiki 优先' : intent === 'note' ? '笔记优先' : '自动路由' }}
-            <span v-if="agentMode" class="inline-flex items-center gap-0.5 rounded bg-kiwi-50 px-1 text-kiwi-600">
-              <KiwiIcon name="sparkle" :size="9" />
-              Agent
-            </span>
-            <span v-if="webSearch" class="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-amber-600">
-              <KiwiIcon name="globe" :size="9" />
-              联网
-            </span>
             <span class="ml-auto hidden sm:inline">Enter 发送 · Shift + Enter 换行</span>
           </p>
         </div>

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
+from app.services import attachment_content
 from app.services.agent_planner import (
     AgentPlan,
     apply_time_window,
@@ -514,6 +515,7 @@ async def _prepare_chat(
         text: str,
         kb_id: str,
         anchor: tuple[int, str, str] | None = None,
+        attachment_text: str = "",
     ) -> None:
         try:
             nid = uuid.UUID(str(note_id))
@@ -548,9 +550,10 @@ async def _prepare_chat(
             )
         )
         # 数据表的行内容可能分布在多个分块中，给笔记更宽的上下文预算。
-        context_parts.append(
-            f"[{len(citations)}] ({prefix}·{kind_label}) {title}\n{(text or '')[:2000]}"
-        )
+        body = (text or "")[:2000]
+        if attachment_text:
+            body = f"{body}\n\n{attachment_text}" if body else attachment_text
+        context_parts.append(f"[{len(citations)}] ({prefix}·{kind_label}) {title}\n{body}")
 
     def add_web(
         *, title: str, url: str, snippet: str, content: str = ""
@@ -611,7 +614,7 @@ async def _prepare_chat(
             )
 
     # 以数据库为准过滤已删除 / 回收站笔记，并取最新标题（向量 payload 可能滞后）。
-    note_meta: dict[str, tuple[str, str, dict]] = {}
+    note_meta: dict[str, tuple[str, str, dict, str]] = {}
     note_ids: list[uuid.UUID] = []
     for note_id in note_groups:
         try:
@@ -621,7 +624,9 @@ async def _prepare_chat(
     if note_ids:
         rows = (
             await session.execute(
-                select(Note.id, Note.title, Note.kind, Note.props_json).where(
+                select(
+                    Note.id, Note.title, Note.kind, Note.props_json, Note.body_md
+                ).where(
                     Note.id.in_(note_ids),
                     Note.kb_id.in_(kb_ids),
                     Note.status == "active",
@@ -629,7 +634,12 @@ async def _prepare_chat(
             )
         ).all()
         note_meta = {
-            str(row.id): (row.title, row.kind, dict(row.props_json or {}))
+            str(row.id): (
+                row.title,
+                row.kind,
+                dict(row.props_json or {}),
+                row.body_md or "",
+            )
             for row in rows
         }
 
@@ -644,13 +654,42 @@ async def _prepare_chat(
     if plan.time_window:
         kept_entries: list[tuple[str, dict]] = []
         for note_id, group in note_entries:
-            title, _kind, props = note_meta[note_id]
+            title, _kind, props, _body = note_meta[note_id]
             if plan.personal and props.get("todo_hub"):
                 continue
             if not in_time_window(title or group["title"], plan.time_window):
                 continue
             kept_entries.append((note_id, group))
         note_entries = kept_entries
+
+    # 检索分块里只有 kiwi-embed 元数据；读回上传文件的正文，模型才能回答
+    # 「这个脚本怎么实现的」这类问题。按笔记顺序读取，受总字符预算约束。
+    attachment_texts: dict[str, str] = {}
+    remaining_chars = attachment_content.MAX_TOTAL_CHARS
+    files_read = 0
+    for note_id, _group in note_entries:
+        if files_read >= attachment_content.MAX_FILES or remaining_chars <= 0:
+            break
+        body_md = note_meta[note_id][3]
+        if "kiwi-embed" not in (body_md or ""):
+            continue
+        items = await asyncio.to_thread(
+            attachment_content.read_embedded_attachments,
+            body_md,
+            query=context_query,
+            max_files=attachment_content.MAX_FILES - files_read,
+            max_chars=min(attachment_content.MAX_FILE_CHARS, remaining_chars),
+            total_chars=remaining_chars,
+        )
+        if not items:
+            continue
+        attachment_texts[note_id] = attachment_content.format_attachments_for_context(
+            items
+        )
+        remaining_chars -= sum(len(item.text) for item in items)
+        files_read += len(items)
+    if files_read:
+        stage("files", "done", f"已读取 {files_read} 个内嵌附件")
 
     def feed_wiki() -> None:
         for hit, page_id in wiki_entries:
@@ -665,7 +704,7 @@ async def _prepare_chat(
 
     def feed_notes() -> None:
         for note_id, group in note_entries:
-            title, kind, _props = note_meta[note_id]
+            title, kind, _props, _body = note_meta[note_id]
             add_note(
                 note_id=note_id,
                 title=title or group["title"] or "未命名笔记",
@@ -677,6 +716,7 @@ async def _prepare_chat(
                 kb_id=group["kb_id"],
                 # 首个分块是分数最高的命中，引用跳转以它为锚点。
                 anchor=group["chunks"][0],
+                attachment_text=attachment_texts.get(note_id, ""),
             )
 
     if intent == "note":
@@ -728,6 +768,8 @@ async def _prepare_chat(
         "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
         "5. 标注「联网结果」的资料来自互联网，引用时同样使用 [n]；涉及网页时在"
         "对应结论后附上资料给出的原文链接，不要编造 URL。\n"
+        "6. 资料中的「笔记内嵌附件」是用户上传文件的正文（可能被截断）；回答文件"
+        "相关问题时，应依据其中的函数、参数与流程说明，而不是只复述文件名和大小。\n"
         + (
             f"对话上下文：用户当前消息「{query}」是对上一轮的追问，"
             f"已按补全后的问题「{context_query}」检索；回答时请延续上文主题，"
@@ -775,7 +817,7 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         raise HTTPException(400, "无效的检索意图")
 
     async def gen():
-        from openai import APIConnectionError, APIError
+        from openai import APIConnectionError, APIError, APIStatusError
 
         def sse(evt_type: str, payload: dict) -> str:
             return f"event: {evt_type}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
@@ -832,12 +874,40 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
             },
         )
         try:
-            stream = await prepared.client.chat.completions.create(
-                model=prepared.model_name,
-                messages=prepared.openai_msgs,
-                stream=True,
-                temperature=prepared.cfg.extra_params.get("temperature", 0.3),
-            )
+            # 上游 503（Service is too busy）、429 与连接中断常是瞬时故障：
+            # 在流开始前做两次短重试，并把重试状态反馈到「生成回答」步骤。
+            stream = None
+            for attempt in range(3):
+                try:
+                    stream = await prepared.client.chat.completions.create(
+                        model=prepared.model_name,
+                        messages=prepared.openai_msgs,
+                        stream=True,
+                        temperature=prepared.cfg.extra_params.get("temperature", 0.3),
+                    )
+                    break
+                except (APIConnectionError, APIStatusError) as exc:
+                    status = getattr(exc, "status_code", None)
+                    retryable = isinstance(exc, APIConnectionError) or status in {
+                        429,
+                        500,
+                        502,
+                        503,
+                        504,
+                    }
+                    if not retryable or attempt >= 2:
+                        raise
+                    yield sse(
+                        "stage",
+                        {
+                            "stage": "generate",
+                            "status": "active",
+                            "message": f"模型服务繁忙，正在重试（{attempt + 1}/2）",
+                        },
+                    )
+                    await asyncio.sleep(1.5 * (attempt + 1))
+            if stream is None:  # pragma: no cover —— 循环必然 break 或抛错
+                raise RuntimeError("模型未返回流式响应")
             async for chunk in stream:
                 # 部分 OpenAI 兼容服务（如 DeepSeek）会在末尾追加仅含 usage、
                 # choices 为空的分片；直接取 choices[0] 会抛 IndexError。
@@ -849,7 +919,17 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
             yield sse("stage", {"stage": "generate", "status": "done", "message": "回答生成完成"})
             yield sse("done", {"ok": True})
         except (APIError, APIConnectionError) as e:
-            yield sse("error", {"message": f"LLM 调用失败：{e}"})
+            status = getattr(e, "status_code", None)
+            if status in (429, 503):
+                message = (
+                    f"模型服务繁忙（HTTP {status}），已自动重试仍失败，"
+                    "请稍后重试或切换模型配置。"
+                )
+            elif status:
+                message = f"LLM 调用失败（HTTP {status}）：{e}"
+            else:
+                message = f"LLM 调用失败：{e}"
+            yield sse("error", {"message": message})
         except Exception:  # noqa: BLE001 —— 流已开始，只能通过 SSE 通知客户端
             logger.exception("问答流式生成异常")
             yield sse("error", {"message": "生成过程中出现异常，请稍后重试。"})
