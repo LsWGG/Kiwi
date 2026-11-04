@@ -1414,9 +1414,14 @@ body.kiwi-row-resizing * {
 .kiwi-editor .ProseMirror .kiwi-mention-node {
   vertical-align: baseline;
 }
+/*
+ * 卡片 / 嵌入独占一行，但节点在 schema 里仍是行内节点。
+ * 若用 display:block，段落会为该块级子节点在上下各生成一个匿名行盒，
+ * 表现为卡片前后多出空行；inline-block + width:100% 可避免行盒撑高。
+ */
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-card,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-embed {
-  display: block;
+  display: inline-block;
   width: 100%;
   margin: 10px 0;
   vertical-align: top;

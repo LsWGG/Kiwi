@@ -9,14 +9,12 @@ import NoteInfoPanel from '@/components/notes/NoteInfoPanel.vue'
 import NoteFindBar from '@/components/notes/NoteFindBar.vue'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useNoteFindStore } from '@/stores/noteFind'
+import { useNotePanesStore } from '@/stores/notePanes'
 import { NOTE_CREATE_TITLES, type CreatableNoteKind } from '@/constants/noteKinds'
 import NoteLockGate from '@/components/notes/NoteLockGate.vue'
-import NoteDocPane from '@/components/notes/panes/NoteDocPane.vue'
-import NoteLinkPane from '@/components/notes/panes/NoteLinkPane.vue'
-import NoteDatabasePane from '@/components/notes/panes/NoteDatabasePane.vue'
-import NoteCanvasPane from '@/components/notes/panes/NoteCanvasPane.vue'
-import NoteNotebookPane from '@/components/notes/panes/NoteNotebookPane.vue'
-import NoteSheetPane from '@/components/notes/panes/NoteSheetPane.vue'
+import NotePaneContent from '@/components/notes/NotePaneContent.vue'
+import PaneWorkspace from '@/components/notes/workspace/PaneWorkspace.vue'
+import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { toast } from '@/components/ui/toast'
@@ -27,17 +25,15 @@ const kbs = useKbsStore()
 const notes = useNotesStore()
 const commandPalette = useCommandPaletteStore()
 const noteFind = useNoteFindStore()
+const panes = useNotePanesStore()
+const paneOpen = usePaneOpen()
 /** 页内查找只扫描当前笔记面板，不含目录树与查找条自身。 */
 const findScopeRef = ref<HTMLElement | null>(null)
+const paneWorkspaceRef = ref<InstanceType<typeof PaneWorkspace> | null>(null)
 
 const activeId = computed(() =>
   typeof route.params.id === 'string' && route.params.id ? route.params.id : null,
 )
-/** 上锁且本次会话未解锁：不挂载编辑器 / 阅读组件，也不展示信息面板。 */
-const contentLocked = computed(() => {
-  const note = notes.currentNote
-  return !!note && !!note.is_locked && !note.unlocked
-})
 const loading = ref(false)
 const creating = ref(false)
 const infoOpen = ref(false)
@@ -51,10 +47,35 @@ function onCompactChange(event: MediaQueryListEvent) {
   compact.value = event.matches
 }
 
+/** 分栏仅在宽屏、已选择知识库且布局存在时接管右侧区域。 */
+const paneMode = computed(
+  () => panes.enabled && !!panes.root && !compact.value && !!kbs.currentKbId,
+)
+
+/** 活动窗口对应的笔记：网页 / 文件窗口没有信息面板；单篇视图仍看 currentNote。 */
+const activeNote = computed<NoteOut | null>(() => {
+  if (!paneMode.value) return notes.currentNote
+  const target = panes.activeTarget
+  if (!target || target.kind !== 'note') return null
+  const cached = notes.noteCache[target.noteId]
+  if (cached) return cached
+  return notes.currentNote?.id === target.noteId ? notes.currentNote : null
+})
+
+/** 上锁且本次会话未解锁：不挂载编辑器 / 阅读组件，也不展示信息面板。 */
+const contentLocked = computed(() => {
+  const note = activeNote.value
+  return !!note && !!note.is_locked && !note.unlocked
+})
+
 let seq = 0
 
 /** 打开页内查找：有选区时以选中文字作为初始关键词。 */
 function showFind() {
+  if (paneMode.value) {
+    paneWorkspaceRef.value?.showFind()
+    return
+  }
   const note = notes.currentNote
   if (!note || contentLocked.value) return
   if (noteFind.open) {
@@ -79,7 +100,7 @@ function onGlobalKey(event: KeyboardEvent) {
   if (event.defaultPrevented) return
   const mod = event.ctrlKey || event.metaKey
   const key = event.key.toLowerCase()
-  if (mod && key === 'f' && notes.currentNote && !contentLocked.value) {
+  if (mod && key === 'f' && (activeNote.value || paneMode.value) && !contentLocked.value) {
     // 拦截浏览器原生查找，改用笔记内查找条（支持计数与上下项）。
     event.preventDefault()
     showFind()
@@ -91,7 +112,7 @@ function onGlobalKey(event: KeyboardEvent) {
     return
   }
   if (!mod) return
-  if (key === 'i' && notes.currentNote && !contentLocked.value) {
+  if (key === 'i' && activeNote.value && !contentLocked.value) {
     event.preventDefault()
     infoOpen.value = !infoOpen.value
   }
@@ -129,7 +150,11 @@ onBeforeUnmount(() => {
 })
 
 watch(compact, (value) => {
-  if (!value) mobileTreeOpen.value = false
+  if (!value) {
+    mobileTreeOpen.value = false
+    // 恢复宽屏后重新把路由对齐到分栏布局（窄屏期间分栏挂起）。
+    if (panes.enabled) void sync()
+  }
 })
 watch(activeId, () => {
   mobileTreeOpen.value = false
@@ -138,6 +163,12 @@ watch(activeId, () => {
 watch(contentLocked, (locked) => {
   if (locked) noteFind.close()
 })
+watch(
+  () => activeNote.value?.id,
+  (id) => {
+    if (!id) infoOpen.value = false
+  },
+)
 watch(
   () => commandPalette.open,
   (open) => {
@@ -149,9 +180,11 @@ async function sync() {
   seq += 1
   const mySeq = seq
   if (!kbs.currentKbId) {
+    panes.load(null)
     notes.currentNote = null
     return
   }
+  panes.load(kbs.currentKbId)
   // PDF 导出的离屏 iframe 通过 URL 带上解锁令牌；读取后立刻从地址栏移除，
   // 避免令牌留在历史记录里。
   const queryToken = route.query.note_token
@@ -179,6 +212,23 @@ async function sync() {
       void router.replace({ name: 'notes' })
       return
     }
+    if (paneMode.value) {
+      notes.stopImportPolling()
+      let note =
+        notes.noteCache[id] ?? (cached && cached.id === id ? cached : null)
+      if (!note || note.kb_id !== kbs.currentKbId) {
+        note = await notes.getNote(id)
+        if (mySeq !== seq) return
+      }
+      if (note.kb_id !== kbs.currentKbId) {
+        void router.replace({ name: 'notes' })
+        return
+      }
+      // 已打开则聚焦，否则新增一栏；超出上限时替换最久未使用的窗口。
+      panes.openNote(kbs.currentKbId, id)
+      notes.selectNote(note)
+      return
+    }
     if (!cached || cached.id !== id || cached.kb_id !== kbs.currentKbId) {
       notes.stopImportPolling()
       const note = await notes.getNote(id)
@@ -204,6 +254,16 @@ watch(
   () => notes.currentNote,
   (note, previous) => {
     if (!note && previous && activeId.value) {
+      // 分栏模式下被删除的若正好是活动窗口，直接关掉这一栏并切到相邻栏。
+      if (
+        paneMode.value &&
+        panes.activeTarget?.kind === 'note' &&
+        panes.activeTarget.noteId === previous.id &&
+        panes.activePaneId
+      ) {
+        closePane(panes.activePaneId)
+        return
+      }
       void router.replace({ name: 'notes' })
     }
   },
@@ -251,7 +311,67 @@ function openCollectionRow(databaseId: string, rowId: string) {
   openNote(databaseId, undefined, rowId)
 }
 
+/** 让路由跟随当前活动窗口的笔记；活动窗口是网页 / 文件时回到空态。 */
+function routeToActivePane() {
+  const target = panes.activeTarget
+  const noteId = target?.kind === 'note' ? target.noteId : null
+  if (noteId) {
+    if (activeId.value !== noteId) {
+      void router.replace({ name: 'notes', params: { id: noteId } })
+    }
+    return
+  }
+  if (activeId.value) void router.replace({ name: 'notes' })
+}
+
+/** 关闭一栏：最后一栏关闭时退出分栏并回到单篇空态。 */
+function closePane(paneId: string) {
+  const activeBefore = panes.activePaneId
+  panes.closePane(paneId)
+  noteFind.close()
+  if (!panes.enabled) {
+    infoOpen.value = false
+    if (activeId.value) void router.replace({ name: 'notes' })
+    return
+  }
+  if (panes.activePaneId !== activeBefore) routeToActivePane()
+}
+
+/** 退出分栏：保留布局快照，单篇视图展示分栏里最后激活的笔记。 */
+function exitPanes() {
+  const target = panes.activeTarget
+  let noteId = target?.kind === 'note' ? target.noteId : null
+  if (!noteId) {
+    const firstNotePane = panes.panes.find((pane) => pane.target.kind === 'note')
+    noteId =
+      firstNotePane && firstNotePane.target.kind === 'note'
+        ? firstNotePane.target.noteId
+        : null
+  }
+  panes.exit()
+  noteFind.close()
+  infoOpen.value = false
+  if (noteId) {
+    if (activeId.value !== noteId) {
+      void router.replace({ name: 'notes', params: { id: noteId } })
+    }
+    return
+  }
+  if (activeId.value) void router.replace({ name: 'notes' })
+}
+
+/** 目录右键 / 嵌入内容：在分栏中打开一篇笔记（未开启分栏时自动进入）。 */
+function openNoteInPane(note: NoteOut | string, kbId?: string) {
+  const id = typeof note === 'string' ? note : note.id
+  const targetKb = kbId || (typeof note === 'string' ? undefined : note.kb_id)
+  paneOpen.openNotePane(id, targetKb)
+}
+
 function closeNote() {
+  if (paneMode.value && panes.activePaneId) {
+    closePane(panes.activePaneId)
+    return
+  }
   void router.replace({ name: 'notes' })
 }
 
@@ -283,6 +403,7 @@ async function create(kind: CreatableNoteKind) {
         :active-id="activeId"
         :drawer="compact"
         @open-note="openNote"
+        @open-note-pane="openNoteInPane"
         @close-note="closeNote"
         @open-search="commandPalette.show()"
         @close="mobileTreeOpen = false"
@@ -298,7 +419,7 @@ async function create(kind: CreatableNoteKind) {
     <!-- 信息面板折叠时预留右侧槽位，避免悬浮入口遮挡数据表行操作等右侧交互 -->
     <section
       class="relative flex-1 min-w-0 flex flex-col overflow-hidden transition-[padding] duration-200"
-      :class="notes.currentNote && !contentLocked && !infoOpen ? 'pr-7' : ''"
+      :class="activeNote && !contentLocked && !infoOpen ? 'pr-7' : ''"
     >
       <!-- 窄屏顶栏：目录入口 + 当前条目标题 -->
       <div
@@ -332,6 +453,17 @@ async function create(kind: CreatableNoteKind) {
         <KiwiEmpty icon="database" title="请先选择知识库" desc="工作区条目按知识库隔离" />
       </div>
 
+      <PaneWorkspace
+        v-else-if="paneMode"
+        ref="paneWorkspaceRef"
+        class="flex-1 min-h-0"
+        @close-pane="closePane"
+        @open-info="infoOpen = true"
+        @open-backlink="openBacklink"
+        @open-note="(id) => openNote(id)"
+        @exit="exitPanes"
+      />
+
       <div v-else-if="loading && !notes.currentNote" class="flex-1 grid place-items-center">
         <div class="flex items-center gap-2 text-sm text-slate-400">
           <KiwiIcon name="loader" :size="16" spin />
@@ -347,38 +479,11 @@ async function create(kind: CreatableNoteKind) {
         />
         <!-- display:contents 不参与布局，只作为页内查找的扫描范围。 -->
         <div v-else ref="findScopeRef" class="contents">
-          <NoteDocPane
-            v-if="notes.currentNote.kind === 'doc' || notes.currentNote.kind === 'import'"
-            :key="notes.currentNote.id"
+          <NotePaneContent
             :note="notes.currentNote"
             @open-info="infoOpen = true"
             @open-backlink="openBacklink"
-          />
-          <NoteLinkPane
-            v-else-if="notes.currentNote.kind === 'link'"
-            :key="notes.currentNote.id"
-            :note="notes.currentNote"
-          />
-          <NoteDatabasePane
-            v-else-if="notes.currentNote.kind === 'database'"
-            :key="notes.currentNote.id"
-            :note="notes.currentNote"
-            @open-note="openNote"
-          />
-          <NoteCanvasPane
-            v-else-if="notes.currentNote.kind === 'canvas'"
-            :key="notes.currentNote.id"
-            :note="notes.currentNote"
-          />
-          <NoteNotebookPane
-            v-else-if="notes.currentNote.kind === 'notebook'"
-            :key="notes.currentNote.id"
-            :note="notes.currentNote"
-          />
-          <NoteSheetPane
-            v-else-if="notes.currentNote.kind === 'sheet'"
-            :key="notes.currentNote.id"
-            :note="notes.currentNote"
+            @open-note="(id) => openNote(id)"
           />
         </div>
         <NoteFindBar :scope="findScopeRef" />
@@ -416,7 +521,7 @@ async function create(kind: CreatableNoteKind) {
 
     <!-- 信息面板折叠态入口 -->
     <button
-      v-if="notes.currentNote && !contentLocked && !infoOpen"
+      v-if="activeNote && !contentLocked && !infoOpen"
       type="button"
       class="absolute right-0 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-1 rounded-l-xl border border-r-0 border-slate-200/70 bg-white/85 backdrop-blur px-1 py-2.5 text-slate-400 shadow-soft transition-colors hover:text-kiwi-600"
       title="笔记信息（Ctrl/⌘ + I）"
@@ -427,13 +532,13 @@ async function create(kind: CreatableNoteKind) {
     </button>
 
     <div
-      v-if="compact && infoOpen && notes.currentNote && !contentLocked"
+      v-if="compact && infoOpen && activeNote && !contentLocked"
       class="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]"
       @click="infoOpen = false"
     />
     <NoteInfoPanel
-      v-if="notes.currentNote && !contentLocked"
-      :note="notes.currentNote"
+      v-if="activeNote && !contentLocked"
+      :note="activeNote"
       :open="infoOpen"
       @close="infoOpen = false"
       @open-note="openBacklink"

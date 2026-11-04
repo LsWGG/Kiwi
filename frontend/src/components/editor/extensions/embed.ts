@@ -35,10 +35,12 @@ export const EMBED_ATTRS = {
   height: 0,
 } as const
 
-export type EmbedDisplay = 'content' | 'title' | 'web'
+export type EmbedDisplay = 'content' | 'card' | 'title' | 'web'
 
 function embedDisplay(kind: string, value: unknown): EmbedDisplay {
   if (value === 'title') return 'title'
+  // 卡片模式目前用于附件：紧凑的文件信息卡，不展开正文预览。
+  if (value === 'card' && kind === 'file') return 'card'
   // 网页内容嵌入仅对链接有效
   if (value === 'web' && kind === 'link') return 'web'
   return 'content'

@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'new-folder'): void
   (e: 'copy'): void
   (e: 'sticky'): void
+  (e: 'open-pane'): void
   (e: 'move-folder'): void
   (e: 'move-kb'): void
   (e: 'emoji'): void
@@ -282,6 +283,15 @@ const createTitle = computed(() =>
             >
               <KiwiIcon name="layers" :size="14" />
               贴一贴（浮窗）
+            </button>
+            <button
+              type="button"
+              class="menu-row"
+              title="在分栏工作区中并排打开这篇笔记"
+              @click="emit('open-pane'); emit('close')"
+            >
+              <KiwiIcon name="columns" :size="14" />
+              在分栏中打开
             </button>
             <button
               v-if="canMindMap"

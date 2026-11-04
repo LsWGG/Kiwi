@@ -40,7 +40,14 @@ import {
   type NotebookDoc,
 } from '@/components/notes/notebook/types'
 
-const props = defineProps<{ note: NoteOut }>()
+const props = withDefaults(
+  defineProps<{
+    note: NoteOut
+    /** 是否为活动窗口：Ctrl/⌘+S 只保存活动窗口。 */
+    active?: boolean
+  }>(),
+  { active: true },
+)
 const notes = useNotesStore()
 const desktop = useDesktopStore()
 
@@ -89,7 +96,10 @@ const autosave = useAutosave(async () => {
   })
 })
 
-useSaveShortcut(() => autosave.flushNow())
+useSaveShortcut(
+  () => autosave.flushNow(),
+  () => props.active,
+)
 
 const codeCount = computed(() => countCodeCells(doc.value))
 const busy = computed(() => runningCellId.value !== null || runningAll.value)

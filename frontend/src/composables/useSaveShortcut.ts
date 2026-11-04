@@ -2,11 +2,16 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { toast } from '@/components/ui/toast'
 
 /** Ctrl/Cmd + S 立即保存当前编辑器（拦截浏览器「保存网页」）。 */
-export function useSaveShortcut(save: () => void | Promise<void>) {
+export function useSaveShortcut(
+  save: () => void | Promise<void>,
+  /** 分栏时只有活动窗口响应，避免一次保存全部笔记。 */
+  enabled: () => boolean = () => true,
+) {
   let running = false
 
   async function onKeydown(event: KeyboardEvent) {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
+    if (!enabled()) return
     event.preventDefault()
     if (running) return
     running = true

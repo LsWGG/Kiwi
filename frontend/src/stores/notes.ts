@@ -336,6 +336,11 @@ export const useNotesStore = defineStore('notes', () => {
   const folders = ref<NoteFolder[]>([])
   const notes = ref<NoteSummary[]>([])
   const currentNote = ref<NoteOut | null>(null)
+  /**
+   * 已加载的笔记正文快照。分栏会同时挂载多个笔记面板，
+   * 后台刷新不能把别处的 currentNote 覆盖掉，因此正文按 id 缓存。
+   */
+  const noteCache = ref<Record<string, NoteOut>>({})
   // 解锁令牌只保存在内存中：刷新 / 关闭页面后需要重新输入密码。
   const unlockTokens = ref<Record<string, string>>({})
 
@@ -400,6 +405,26 @@ export const useNotesStore = defineStore('notes', () => {
     const summary = noteSummary(note)
     if (idx >= 0) notes.value[idx] = { ...notes.value[idx], ...summary }
     else notes.value.push(summary)
+  }
+
+  /** 记录正文快照；只有当前笔记就是它时才同步 currentNote。 */
+  function rememberNote(note: NoteOut) {
+    noteCache.value = { ...noteCache.value, [note.id]: note }
+    upsertSummary(note)
+    if (currentNote.value?.id === note.id) currentNote.value = note
+  }
+
+  function forgetNote(id: string) {
+    if (!(id in noteCache.value)) return
+    const next = { ...noteCache.value }
+    delete next[id]
+    noteCache.value = next
+  }
+
+  /** 显式切换当前笔记（单篇视图 / 工作区活动栏）。 */
+  function selectNote(note: NoteOut | null) {
+    currentNote.value = note
+    if (note) rememberNote(note)
   }
 
   function mergeTreeRows(tree: NoteTree) {
@@ -520,11 +545,26 @@ export const useNotesStore = defineStore('notes', () => {
     }
   }
 
-  async function getNote(id: string) {
+  /**
+   * 拉取笔记正文。分栏中的面板使用本方法：只更新对应 id 的缓存，
+   * 不会把其他窗口正在看的笔记挤下 currentNote。
+   */
+  async function fetchNote(id: string, opts: { force?: boolean } = {}) {
+    const cached = noteCache.value[id]
+    if (cached && !opts.force) {
+      if (currentNote.value?.id === id) currentNote.value = cached
+      return cached
+    }
     const note = await request<NoteOut>(`/notes/${id}`, {
       kbId: kbId(),
       headers: noteHeaders(id),
     })
+    rememberNote(note)
+    return note
+  }
+
+  async function getNote(id: string) {
+    const note = await fetchNote(id, { force: true })
     currentNote.value = note
     if (note.kind === 'import') {
       startImportPolling(note.id)
@@ -556,6 +596,7 @@ export const useNotesStore = defineStore('notes', () => {
     })
     await fetchTree()
     currentNote.value = note
+    rememberNote(note)
     return note
   }
 
@@ -566,8 +607,7 @@ export const useNotesStore = defineStore('notes', () => {
       headers: noteHeaders(id),
       body: JSON.stringify(patch),
     })
-    if (currentNote.value?.id === id) currentNote.value = note
-    upsertSummary(note)
+    rememberNote(note)
     return note
   }
 
@@ -590,6 +630,7 @@ export const useNotesStore = defineStore('notes', () => {
     await request(`/notes/${id}`, { method: 'DELETE', kbId: kbId() })
     if (currentNote.value?.id === id) currentNote.value = null
     if (importNoteId.value === id) stopImportPolling()
+    forgetNote(id)
     notes.value = notes.value.filter((n) => n.id !== id)
   }
 
@@ -627,6 +668,7 @@ export const useNotesStore = defineStore('notes', () => {
     notes.value = notes.value.filter((n) => n.id !== id)
     if (currentNote.value?.id === id) currentNote.value = null
     if (importNoteId.value === id) stopImportPolling()
+    forgetNote(id)
     return note
   }
 
@@ -916,8 +958,7 @@ export const useNotesStore = defineStore('notes', () => {
             if (before !== status.status || status.body_ready) {
               const fresh = await request<NoteOut>(`/notes/${noteId}`, { kbId: kbId() })
               if (importNoteId.value !== noteId) return
-              currentNote.value = fresh
-              upsertSummary(fresh)
+              rememberNote(fresh)
             }
           }
         }
@@ -1011,8 +1052,7 @@ export const useNotesStore = defineStore('notes', () => {
       kbId: kbId(),
       headers: noteHeaders(id),
     })
-    if (currentNote.value?.id === id) currentNote.value = note
-    upsertSummary(note)
+    rememberNote(note)
     await fetchTree()
     return note
   }
@@ -1239,6 +1279,7 @@ export const useNotesStore = defineStore('notes', () => {
     notes.value = notes.value.filter((n) => n.id !== id)
     if (currentNote.value?.id === id) currentNote.value = null
     if (importNoteId.value === id) stopImportPolling()
+    forgetNote(id)
   }
 
   async function archiveNote(id: string) {
@@ -1399,6 +1440,7 @@ export const useNotesStore = defineStore('notes', () => {
     folders.value = []
     notes.value = []
     currentNote.value = null
+    noteCache.value = {}
     tags.value = []
     templates.value = []
     archived.value = []
@@ -1426,7 +1468,10 @@ export const useNotesStore = defineStore('notes', () => {
     treeVersion,
     treeTruncated,
     treeTotal,
+    noteCache,
     getNote,
+    fetchNote,
+    selectNote,
     upsertSummary,
     createNote,
     updateNote,

@@ -107,6 +107,65 @@ test.describe('编辑器增强', () => {
     await expect(page.getByText('Notion-like editor')).toHaveCount(0)
   })
 
+  test('@笔记卡片独占一行但不产生额外空行', async ({ page, kb, notesApi }) => {
+    const target = await notesApi.createNote({ title: '被提及笔记', body_md: '# 被提及' })
+    const host = await notesApi.createNote({
+      title: 'E2E 提及卡片',
+      body_md: `第一段。\n\n[@被提及笔记](kiwi://note/${target.id}?display=card)\n\n第三段。`,
+    })
+    await openWorkspace(page, kb.id, `/notes/${host.id}`)
+
+    const card = page.locator('.ProseMirror .kiwi-mention-node.is-card')
+    await expect(card).toBeVisible()
+    const metrics = await card.evaluate((el) => {
+      const paragraph = el.closest('p')
+      return {
+        display: getComputedStyle(el).display,
+        paragraphHeight: paragraph?.getBoundingClientRect().height ?? 0,
+        cardHeight: el.getBoundingClientRect().height,
+      }
+    })
+    // 节点仍是行内节点；用 inline-block 撑满宽度，避免块级子节点在段落上下
+    // 各生成一个匿名行盒（表现为卡片前后多出空行）。
+    expect(metrics.display).toBe('inline-block')
+    expect(metrics.paragraphHeight - metrics.cardHeight).toBeLessThan(32)
+  })
+
+  test('附件嵌入支持卡片展示，可切换并持久化', async ({ page, kb, notesApi }) => {
+    const embed = JSON.stringify({
+      kind: 'file',
+      url: '/media/e2e-card.pdf',
+      title: '季度报告.pdf',
+      filename: '季度报告.pdf',
+      contentType: 'application/pdf',
+      size: 2345678,
+      display: 'card',
+    })
+    const note = await notesApi.createNote({
+      title: 'E2E 附件卡片',
+      body_md: ['# 附件卡片', '', '```kiwi-embed', embed, '```', '', '结尾段落。'].join('\n'),
+    })
+    await openWorkspace(page, kb.id, `/notes/${note.id}`)
+
+    const card = page.locator('.ProseMirror .embed-file-card')
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('季度报告.pdf')
+    await expect(card).toContainText('PDF')
+    await expect(card).toContainText('2.2 MB')
+
+    // 卡片 → 内容预览 → 标题超链接 → 卡片，三种展示方式可往返切换。
+    await page.locator('.ProseMirror').getByTitle('展开为内容预览').first().click()
+    await expect(page.locator('.ProseMirror .embed-file')).toBeVisible()
+    await page.locator('.ProseMirror .embed-file-bar').getByTitle('以标题超链接展示').click()
+    await expect(page.locator('.ProseMirror .embed-title-link')).toBeVisible()
+    await page.locator('.ProseMirror').getByTitle('以卡片展示').first().click()
+    await expect(page.locator('.ProseMirror .embed-file-card')).toBeVisible()
+
+    await expect
+      .poll(async () => (await notesApi.getNote(note.id)).body_md, { timeout: 15_000 })
+      .toContain('"display":"card"')
+  })
+
   test('阅读模式工具栏可显示目录', async ({ page, kb, notesApi }) => {
     const note = await notesApi.createNote({
       title: 'E2E 阅读目录',

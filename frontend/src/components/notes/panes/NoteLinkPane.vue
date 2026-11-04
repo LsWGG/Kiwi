@@ -30,7 +30,14 @@ import { toast } from '@/components/ui/toast'
 import { useKbsStore } from '@/stores/kbs'
 import { IS_DESKTOP } from '@/desktop/env'
 
-const props = defineProps<{ note: NoteOut }>()
+const props = withDefaults(
+  defineProps<{
+    note: NoteOut
+    /** 是否为活动窗口：Ctrl/⌘+S 只保存活动窗口。 */
+    active?: boolean
+  }>(),
+  { active: true },
+)
 const notes = useNotesStore()
 const kbs = useKbsStore()
 
@@ -214,7 +221,10 @@ const autosave = useAutosave(async () => {
   await notes.updateNote(props.note.id, patch)
 })
 
-useSaveShortcut(() => autosave.flushNow())
+useSaveShortcut(
+  () => autosave.flushNow(),
+  () => props.active,
+)
 
 watch(
   () => props.note.body_md,

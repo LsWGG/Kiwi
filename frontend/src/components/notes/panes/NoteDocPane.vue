@@ -27,10 +27,10 @@ import NoteEmojiButton from '@/components/notes/NoteEmojiButton.vue'
 import NoteTagButton from '@/components/notes/NoteTagButton.vue'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
-import { useSyncedScroll } from '@/composables/useSyncedScroll'
 import { useCitationAnchor } from '@/composables/useCitationAnchor'
 import { useFindHighlight } from '@/composables/useFindHighlight'
 import { useNoteFindStore } from '@/stores/noteFind'
+import { useNotePanesStore } from '@/stores/notePanes'
 import { stripLeadingTitleHeading } from '@/lib/wikiMarkdown'
 import {
   resolveDocxPrefs,
@@ -44,12 +44,22 @@ import { downloadNoteDocx } from '@/components/editor/docx'
 import { request } from '@/api/client'
 import { toast } from '@/components/ui/toast'
 
-const props = defineProps<{ note: NoteOut }>()
+const props = withDefaults(
+  defineProps<{
+    note: NoteOut
+    /** 位于分栏窗口内：不再提供「分栏」入口，避免嵌套。 */
+    inPane?: boolean
+    /** 是否为活动窗口：Ctrl/⌘+S 只保存活动窗口。 */
+    active?: boolean
+  }>(),
+  { inPane: false, active: true },
+)
 const emit = defineEmits<{
   (e: 'open-info'): void
   (e: 'open-backlink', noteId: string, mentionId?: string): void
 }>()
 const notes = useNotesStore()
+const panes = useNotePanesStore()
 const kbs = useKbsStore()
 const router = useRouter()
 const route = useRoute()
@@ -58,21 +68,27 @@ const paneRef = ref<HTMLElement | null>(null)
 const title = ref(props.note.title)
 const body = ref(props.note.body_md || '')
 
-// ---------- 多视图：编辑 / 大纲 / 分屏 / 阅读（按笔记 ID 持久化） ----------
-type DocView = 'edit' | 'outline' | 'split' | 'read'
+// ---------- 多视图：编辑 / 大纲 / 分栏 / 阅读（按笔记 ID 持久化） ----------
+type DocView = 'edit' | 'outline' | 'read'
+type ViewButtonId = DocView | 'panes'
 
 const VIEW_KEY = `kiwi.note.view.${props.note.id}`
-const DOC_VIEWS: { id: DocView; label: string; icon: string; hint: string }[] = [
+const DOC_VIEWS: { id: ViewButtonId; label: string; icon: string; hint: string }[] = [
   { id: 'edit', label: '编辑', icon: 'edit', hint: '全宽编辑，聚焦写作' },
   { id: 'outline', label: '大纲', icon: 'listTree', hint: '左侧大纲，滚动高亮、点击跳转' },
-  { id: 'split', label: '分屏', icon: 'columns', hint: '左编辑 / 右实时预览' },
+  { id: 'panes', label: '分栏', icon: 'columns', hint: '并列打开多个笔记' },
   { id: 'read', label: '阅读', icon: 'bookOpen', hint: '纯渲染阅读，适合长文回顾' },
 ]
 
 function initialView(): DocView {
   try {
     const saved = localStorage.getItem(VIEW_KEY)
-    if (saved === 'edit' || saved === 'outline' || saved === 'split' || saved === 'read') {
+    // 旧的「分屏」已由分栏替代：历史值回退到编辑态。
+    if (saved === 'split') {
+      localStorage.setItem(VIEW_KEY, 'edit')
+      return 'edit'
+    }
+    if (saved === 'edit' || saved === 'outline' || saved === 'read') {
       return saved
     }
   } catch {
@@ -91,13 +107,27 @@ const readOutlineOpen = ref(false)
 const editorOutline = computed(
   () => showOutline.value || (readMode.value && readOutlineOpen.value),
 )
-const splitMode = computed(() => viewMode.value === 'split')
 
 // 头部已经展示标题，阅读态与分屏预览不再重复渲染正文的首个同名一级标题。
 const previewBody = computed(() => stripLeadingTitleHeading(body.value, title.value))
 const readBody = computed(() => (readMode.value ? previewBody.value : body.value))
 
-function setView(mode: DocView) {
+/** 栏内不显示「分栏」按钮：进入分栏会卸载当前窗口，语义上递归。 */
+const viewButtons = computed(() =>
+  props.inPane ? DOC_VIEWS.filter((view) => view.id !== 'panes') : DOC_VIEWS,
+)
+
+function setView(mode: ViewButtonId) {
+  if (mode === 'panes') {
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      toast.info('窄屏不支持分栏，请加宽窗口后重试')
+      return
+    }
+    // 先落盘未保存正文，再切换到工作区分栏（本组件随外层视图切换卸载）。
+    void autosave.flushNow()
+    panes.enter(props.note.kb_id, props.note.id)
+    return
+  }
   if (viewMode.value === mode) return
   try {
     localStorage.setItem(VIEW_KEY, mode)
@@ -223,12 +253,9 @@ onBeforeUnmount(() => {
 const readingAreaRef = ref<HTMLElement | null>(null)
 /** 阅读模式下的实际滚动容器：演示层覆盖其上，需要把滚轮事件转发给它。 */
 const readingScrollRef = ref<HTMLElement | null>(null)
-/** 分屏右侧实时预览的滚动容器。 */
-const previewScrollRef = ref<HTMLElement | null>(null)
 const readZoom = ref(1)
 const readZen = ref(false)
 
-useSyncedScroll(readingScrollRef, previewScrollRef, splitMode)
 useCitationAnchor(readingScrollRef)
 
 // ---------- 编辑器模式 ----------
@@ -367,7 +394,10 @@ const autosave = useAutosave(async () => {
   scheduleHubRefresh()
 })
 
-useSaveShortcut(() => autosave.flushNow())
+useSaveShortcut(
+  () => autosave.flushNow(),
+  () => props.active,
+)
 
 /** 切换编号样式：先落盘未保存的正文，避免 props 回写覆盖正在输入的内容。 */
 async function setOrderedListStyle(key: OrderedListStyleKey) {
@@ -442,7 +472,7 @@ async function syncTodosNow() {
       error?: string
     }>(`/kbs/${kbId}/todos/sync`, { method: 'POST' })
     if (!result.ok) throw new Error(result.error || '同步失败')
-    await notes.getNote(props.note.id)
+    await notes.fetchNote(props.note.id, { force: true })
     if (todoHubNoteId.value && todoHubNoteId.value !== props.note.id) {
       // 来源笔记：刷新树以更新收件箱入口状态。
       await notes.fetchTree()
@@ -477,7 +507,7 @@ function scheduleHubRefresh() {
   hubRefreshTimer = window.setTimeout(async () => {
     if (seq !== hubRefreshSeq) return
     try {
-      const fresh = await notes.getNote(props.note.id)
+      const fresh = await notes.fetchNote(props.note.id, { force: true })
       if (seq !== hubRefreshSeq) return
       title.value = fresh.title
       body.value = fresh.body_md || ''
@@ -503,6 +533,7 @@ const progressPct = computed(() =>
 watchEffect(() => {
   const available = !readMode.value && !importing.value && !readonlyImport.value
   noteFind.registerReplaceHandler(
+    props.note.id,
     available
       ? (replacement, all) =>
           editorRef.value?.replaceSearchMatches(
@@ -514,7 +545,7 @@ watchEffect(() => {
       : null,
   )
 })
-onBeforeUnmount(() => noteFind.registerReplaceHandler(null))
+onBeforeUnmount(() => noteFind.registerReplaceHandler(props.note.id, null))
 
 // 阅读模式使用演示层，原始文件分栏在阅读态下收起。
 watch(readMode, (on) => {
@@ -1312,21 +1343,22 @@ async function copyMarkdown() {
         反向链接
         <span class="tabular-nums text-slate-400">{{ backlinks.length }}</span>
       </button>
-      <!-- 四种视图：编辑 / 大纲 / 分屏 / 阅读，按笔记持久化 -->
+      <!-- 编辑 / 大纲 / 分栏 / 阅读：分栏为工作区入口，按笔记持久化其余视图 -->
       <div
         v-if="!readonlyImport"
         class="flex shrink-0 items-center rounded-lg border border-slate-200/80 bg-white/70 p-0.5"
       >
         <button
-          v-for="view in DOC_VIEWS"
+          v-for="view in viewButtons"
           :key="view.id"
           type="button"
           class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10.5px] transition-colors"
-          :class="
+          :class="[
             viewMode === view.id
               ? 'bg-kiwi-50 font-medium text-kiwi-700'
-              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-          "
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700',
+            view.id === 'panes' ? 'max-md:hidden' : '',
+          ]"
           :title="view.hint"
           @click="setView(view.id)"
         >
@@ -1571,7 +1603,7 @@ async function copyMarkdown() {
                 切换编辑视图
               </button>
             </div>
-            <MarkdownView :content="readBody" :plugins="true" />
+            <MarkdownView :content="readBody" :plugins="true" pane-actions />
           </div>
 
           <KiwiEditor
@@ -1642,7 +1674,7 @@ async function copyMarkdown() {
 
       <!-- 导入笔记：右侧原始文件对照（PDF / 图片 / 文本） -->
       <div
-        v-if="sourceOpen && !readonlyImport && !readMode && viewMode !== 'split'"
+        v-if="sourceOpen && !readonlyImport && !readMode"
         class="flex min-h-0 w-[48%] min-w-[320px] shrink-0 flex-col border-l border-slate-200/70"
         data-find-skip
       >
@@ -1655,34 +1687,9 @@ async function copyMarkdown() {
         />
       </div>
 
-      <!-- 分屏视图：左侧编辑 / 右侧实时渲染预览 -->
-      <div
-        v-if="viewMode === 'split'"
-        class="flex min-h-0 w-[46%] min-w-[320px] shrink-0 flex-col border-l border-slate-200/70 bg-white/60"
-        data-find-skip
-      >
-        <div
-          class="flex shrink-0 items-center gap-1.5 border-b border-slate-200/60 px-4 py-2 text-[10.5px] text-slate-400"
-        >
-          <KiwiIcon name="bookOpen" :size="12" />
-          实时预览
-          <span class="ml-auto tabular-nums">{{ body.length.toLocaleString() }} 字符</span>
-        </div>
-        <div ref="previewScrollRef" class="min-h-0 flex-1 overflow-auto px-6 py-5">
-          <h1 class="mb-3 text-[24px] leading-tight font-semibold text-slate-800">
-            {{ title || '无标题文档' }}
-          </h1>
-          <MarkdownView
-            :content="previewBody"
-            :ordered-list-style="orderedListStyle"
-            plugins
-          />
-        </div>
-      </div>
-
       <!-- DOCX 模式：右侧 Word 导出预览，与正文画布同高 -->
       <div
-        v-if="wordPreview && !readMode && viewMode !== 'split' && editorMode === 'docx'"
+        v-if="wordPreview && !readMode && editorMode === 'docx'"
         class="flex min-h-0 w-[47%] min-w-[360px] shrink-0 pb-6 pr-6"
         :style="{ paddingTop: `${previewTop}px` }"
         data-find-skip

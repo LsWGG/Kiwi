@@ -72,7 +72,14 @@ import {
   unmergeRange,
   type ClipboardSnapshot,
 } from '@/components/notes/sheet/ops'
-const props = defineProps<{ note: NoteOut }>()
+const props = withDefaults(
+  defineProps<{
+    note: NoteOut
+    /** 是否为活动窗口：Ctrl/⌘+S 只保存活动窗口。 */
+    active?: boolean
+  }>(),
+  { active: true },
+)
 const notes = useNotesStore()
 const route = useRoute()
 
@@ -88,7 +95,10 @@ const autosave = useAutosave(async () => {
   })
 })
 
-useSaveShortcut(() => autosave.flushNow())
+useSaveShortcut(
+  () => autosave.flushNow(),
+  () => props.active,
+)
 
 function scheduleSave() {
   autosave.schedule()

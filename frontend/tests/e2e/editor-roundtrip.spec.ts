@@ -48,10 +48,10 @@ test.describe('编辑器 Markdown 往返', () => {
       await expect(card).toContainText('2 / 5')
     }
 
-    // 阅读 / 分屏预览走 MarkdownView，统计口径必须与编辑器一致；
+    // 阅读态使用只读编辑器，统计口径必须与编辑态一致；
     // bind=prev 不能被最后一个二级清单截断。
-    await page.getByRole('button', { name: '分屏', exact: true }).first().click()
-    const previewCards = page.locator('.markdown-view [data-kiwi-task-progress]')
+    await page.getByRole('button', { name: '阅读', exact: true }).first().click()
+    const previewCards = page.locator('.ProseMirror .kiwi-task-progress-card')
     await expect(previewCards).toHaveCount(2)
     for (const card of [previewCards.first(), previewCards.nth(1)]) {
       await expect(card).toHaveAttribute('data-task-done', '2')
@@ -85,9 +85,9 @@ test.describe('编辑器 Markdown 往返', () => {
     await page.reload()
     await expect(page.locator('input[type="checkbox"]')).toHaveCount(4)
 
-    // 阅读 / 分屏预览同样要把空待办识别为复选框。
-    await page.getByRole('button', { name: '分屏', exact: true }).first().click()
-    await expect(page.locator('.markdown-view input[type="checkbox"]')).toHaveCount(4)
+    // 阅读态同样要把空待办识别为复选框。
+    await page.getByRole('button', { name: '阅读', exact: true }).first().click()
+    await expect(page.locator('.ProseMirror input[type="checkbox"]')).toHaveCount(4)
   })
 
   test('原始 HTML 表格与 emoji 短代码正常渲染并保存', async ({ page, kb, notesApi }) => {
@@ -125,9 +125,9 @@ test.describe('编辑器 Markdown 往返', () => {
     expect(saved).not.toContain(':frame_with_picture:')
     expect(saved).toContain('🖼')
 
-    // 分屏预览走 MarkdownView：同样要渲染表格与 emoji，且经过 DOMPurify 清洗。
-    await page.getByRole('button', { name: '分屏', exact: true }).first().click()
-    const preview = page.locator('.markdown-view').first()
+    // 阅读态同样要渲染表格与 emoji，且不能把 HTML 源码当文本显示。
+    await page.getByRole('button', { name: '阅读', exact: true }).first().click()
+    const preview = page.locator('.ProseMirror').first()
     await expect(preview.locator('table')).toHaveCount(1)
     await expect(preview).not.toContainText('<table')
     await expect(preview).toContainText('🖼')

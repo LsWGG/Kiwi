@@ -33,6 +33,7 @@ import { orderedListStyleClass } from './orderedListStyles'
 import { foldImageCaptionTokens } from './imageCaptions'
 import PluginReadonlyBlock from './PluginReadonlyBlock.vue'
 import { usePluginsStore } from '@/stores/plugins'
+import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
 import { IS_DESKTOP, isBlockedExternalAsset } from '@/desktop/env'
 
 const props = withDefaults(
@@ -45,11 +46,20 @@ const props = withDefaults(
     plugins?: boolean
     /** 设置页的内置组件预览：允许勾选待办并实时刷新进度卡，不写回笔记。 */
     interactive?: boolean
+    /** 工作区阅读态：内嵌网页 / 文件显示「在分栏中打开」入口；分享页保持关闭。 */
+    paneActions?: boolean
   }>(),
-  { citationCount: undefined, orderedListStyle: null, plugins: false, interactive: false },
+  {
+    citationCount: undefined,
+    orderedListStyle: null,
+    plugins: false,
+    interactive: false,
+    paneActions: false,
+  },
 )
 const emit = defineEmits<{ (e: 'citation-click', n: number): void }>()
 const router = useRouter()
+const paneOpen = usePaneOpen()
 const pluginsStore = usePluginsStore()
 const root = ref<HTMLElement | null>(null)
 const orderedListClass = computed(() => orderedListStyleClass(props.orderedListStyle))
@@ -313,7 +323,35 @@ function noteCardHtml(content: string): string {
   }
 }
 
-/** 内嵌网页 / 链接卡片：与编辑器内的 EmbedBlock 保持同一份 JSON 数据。 */
+function formatSize(value: number): string {
+  if (!value) return ''
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** 内嵌资源的「在分栏中打开」按钮；分享页不渲染。 */
+function paneButton(kind: 'link' | 'file', data: Record<string, any>): string {
+  if (!props.paneActions) return ''
+  const url = String(data.url || '')
+  if (!url) return ''
+  const attrs: Record<string, string> = {
+    kind,
+    url,
+    title: String(data.title || ''),
+    site: String(data.site || ''),
+    filename: String(data.filename || ''),
+    'content-type': String(data.contentType || ''),
+    size: data.size ? String(data.size) : '',
+  }
+  const body = Object.entries(attrs)
+    .filter(([, value]) => value !== '')
+    .map(([key, value]) => `data-${key}="${escapeAttr(value)}"`)
+    .join(' ')
+  return `<button type="button" class="md-embed-pane" data-kiwi-pane-open="true" ${body} title="在分栏中打开">⧉</button>`
+}
+
+/** 内嵌网页 / 文件 / 链接卡片：与编辑器内的 EmbedBlock 保持同一份 JSON 数据。 */
 function embedHtml(content: string): string {
   let data: Record<string, any> = {}
   try {
@@ -322,7 +360,29 @@ function embedHtml(content: string): string {
     return ''
   }
   const url = String(data.url || '')
-  if (!/^https?:\/\//i.test(url)) return ''
+  if (!url) return ''
+  const kind = data.kind === 'link' || !data.kind ? 'link' : 'file'
+  if (kind === 'link' && !/^https?:\/\//i.test(url)) return ''
+  if (kind === 'file') {
+    // 附件地址可以是同源相对路径（/media/...），阅读态按文件卡片渲染。
+    const filename = escapeHtml(
+      String(data.filename || data.title || url.split('/').pop() || ''),
+    )
+    const sizeText = formatSize(Number(data.size) || 0)
+    return (
+      `<div class="md-embed-card md-embed-file">` +
+      `<span class="md-embed-favicon">▤</span>` +
+      `<span class="md-embed-body">` +
+      `<span class="md-embed-title">${filename}</span>` +
+      (sizeText ? `<span class="md-embed-site">${sizeText}</span>` : '') +
+      `</span>` +
+      paneButton('file', data) +
+      `<a class="md-embed-download" href="${escapeAttr(url)}" download="${escapeAttr(
+        String(data.filename || filename),
+      )}" title="下载文件">↓</a>` +
+      `</div>`
+    )
+  }
   const title = escapeHtml(String(data.title || data.site || url))
   const site = escapeHtml(String(data.site || ''))
   const excerpt = escapeHtml(String(data.excerpt || ''))
@@ -342,13 +402,8 @@ function embedHtml(content: string): string {
   const favicon = faviconSrc
     ? `<span class="md-embed-glyph">▤</span><img src="${escapeAttr(faviconSrc)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
     : '<span class="md-embed-glyph">▤</span>'
-  const kind = data.kind === 'link' || !data.kind ? 'link' : 'file'
   const display =
-    kind === 'link' && data.display === 'web'
-      ? 'web'
-      : kind === 'link' && data.display === 'title'
-        ? 'title'
-        : 'card'
+    data.display === 'web' ? 'web' : data.display === 'title' ? 'title' : 'card'
   if (display === 'title') {
     return (
       `<p class="md-embed-title-line">` +
@@ -356,7 +411,9 @@ function embedHtml(content: string): string {
       `<span class="md-embed-favicon">${favicon}</span>` +
       `<span>${title}</span>` +
       `<span class="md-embed-arrow">↗</span>` +
-      `</a></p>`
+      `</a>` +
+      paneButton('link', data) +
+      `</p>`
     )
   }
   if (display === 'web') {
@@ -377,6 +434,7 @@ function embedHtml(content: string): string {
       `<span class="md-embed-title">${title}</span>` +
       (site ? `<span class="md-embed-site">${site}</span>` : '') +
       `</a>` +
+      paneButton('link', data) +
       `<a class="md-embed-open" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">新窗口打开 ↗</a>` +
       `</div>` +
       `<iframe src="${escapeAttr(url)}" title="${escapeAttr(
@@ -389,6 +447,7 @@ function embedHtml(content: string): string {
     )
   }
   return (
+    `<span class="md-embed-card-wrap">` +
     `<a class="md-embed-card" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">` +
     `<span class="md-embed-favicon">${favicon}</span>` +
     `<span class="md-embed-body">` +
@@ -397,7 +456,9 @@ function embedHtml(content: string): string {
     (excerpt ? `<span class="md-embed-excerpt">${excerpt}</span>` : '') +
     `</span>` +
     `<span class="md-embed-arrow">↗</span>` +
-    `</a>`
+    `</a>` +
+    paneButton('link', data) +
+    `</span>`
   )
 }
 
@@ -1353,6 +1414,30 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onZoomKey))
 /** 站内链接（来源引用、Wiki、笔记卡片）走 SPA 路由，避免整页刷新。 */
 function onClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
+  // 内嵌网页 / 文件的「在分栏中打开」优先于普通链接跳转。
+  const paneBtn = target?.closest<HTMLElement>('[data-kiwi-pane-open]')
+  if (paneBtn) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!props.paneActions) return
+    const url = paneBtn.dataset.url || ''
+    if (!url) return
+    if (paneBtn.dataset.kind === 'file') {
+      paneOpen.openFilePane({
+        url,
+        filename: paneBtn.dataset.filename || '附件',
+        contentType: paneBtn.dataset.contentType || '',
+        size: Number(paneBtn.dataset.size) || undefined,
+      })
+    } else {
+      paneOpen.openUrlPane({
+        url,
+        title: paneBtn.dataset.title || url,
+        site: paneBtn.dataset.site || undefined,
+      })
+    }
+    return
+  }
   const image = target?.closest<HTMLImageElement>('figure.md-image img, .md-gallery-item img')
   if (image) {
     event.preventDefault()
@@ -2096,7 +2181,55 @@ function onClick(event: MouseEvent) {
   color: rgb(148 163 184);
 }
 .markdown-view .md-embed-title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0.6rem 0;
+}
+.markdown-view .md-embed-pane {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  border: 1px solid rgb(226 232 240);
+  background: white;
+  color: rgb(100 116 139);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.markdown-view .md-embed-pane:hover {
+  border-color: rgb(186 230 253);
+  background: rgb(240 249 255);
+  color: rgb(2 132 199);
+}
+.markdown-view .md-embed-card-wrap {
+  position: relative;
+  display: block;
+}
+.markdown-view .md-embed-card-wrap .md-embed-card {
+  padding-right: 46px;
+}
+.markdown-view .md-embed-card-wrap > .md-embed-pane {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+.markdown-view .md-embed-file {
+  align-items: center;
+}
+.markdown-view .md-embed-download {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: rgb(100 116 139);
+  text-decoration: none;
+}
+.markdown-view .md-embed-download:hover {
+  color: rgb(2 132 199);
 }
 .markdown-view .md-embed-title-line > a {
   display: inline-flex;

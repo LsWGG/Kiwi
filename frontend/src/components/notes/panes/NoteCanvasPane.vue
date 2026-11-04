@@ -10,7 +10,14 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import CanvasStage from '@/components/notes/canvas/CanvasStage.vue'
 import { normalizeDoc, type CanvasDoc } from '@/components/notes/canvas/types'
 
-const props = defineProps<{ note: NoteOut }>()
+const props = withDefaults(
+  defineProps<{
+    note: NoteOut
+    /** 是否为活动窗口：Ctrl/⌘+S 只保存活动窗口。 */
+    active?: boolean
+  }>(),
+  { active: true },
+)
 const notes = useNotesStore()
 
 const title = ref(props.note.title)
@@ -23,7 +30,10 @@ const autosave = useAutosave(async () => {
   })
 })
 
-useSaveShortcut(() => autosave.flushNow())
+useSaveShortcut(
+  () => autosave.flushNow(),
+  () => props.active,
+)
 
 function onTitleInput() {
   autosave.schedule()

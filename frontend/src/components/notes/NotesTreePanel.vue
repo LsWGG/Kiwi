@@ -38,6 +38,7 @@ import { toast } from '@/components/ui/toast'
 const props = defineProps<{ activeId: string | null; drawer?: boolean }>()
 const emit = defineEmits<{
   (e: 'open-note', note: NoteOut | string): void
+  (e: 'open-note-pane', noteId: string): void
   (e: 'close-note'): void
   (e: 'open-search'): void
   (e: 'close'): void
@@ -1419,7 +1420,7 @@ async function onLockChanged() {
   await notes.fetchTree()
   // 当前打开的就是这篇笔记时，同步一次状态（上锁 / 解锁都会改变可读性）。
   if (activeTarget && props.activeId) {
-    await notes.getNote(props.activeId).catch(() => {})
+    await notes.fetchNote(props.activeId, { force: true }).catch(() => {})
   }
 }
 
@@ -1960,6 +1961,11 @@ function openStickyFromMenu() {
   if (row?.note) onSticky(row)
 }
 
+function openNotePaneFromMenu() {
+  const row = menu.value.row
+  if (row?.note) emit('open-note-pane', row.note.id)
+}
+
 const createFolderMenu = () => openFolderDialog(null)
 </script>
 
@@ -2441,6 +2447,7 @@ const createFolderMenu = () => openFolderDialog(null)
       @pin="togglePinFromMenu"
       @copy="copyFromMenu"
       @sticky="openStickyFromMenu"
+      @open-pane="openNotePaneFromMenu"
       @mindmap="generateMindMapFromMenu"
       @move-folder="openMoveFolderFromMenu"
       @move-kb="openMoveFromMenu"

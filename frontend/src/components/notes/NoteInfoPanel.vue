@@ -260,7 +260,7 @@ async function updateCollectionProp(field: DbField, value: any) {
     ctx.data = row.data
     // 行标题字段变化时同步笔记标题（服务端已写回，本地刷新展示）
     if (rowDisplayTitle(ctx.data, ctx.fields) !== props.note.title) {
-      await notes.getNote(props.note.id)
+      await notes.fetchNote(props.note.id, { force: true })
       void notes.fetchTree().catch(() => {})
     }
   } catch (e: any) {

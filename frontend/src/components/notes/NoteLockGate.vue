@@ -30,7 +30,7 @@ async function submit() {
   try {
     await notes.unlockNote(props.note.id, value)
     // 重新拉取正文：上锁状态下后端只返回标题与提示。
-    await notes.getNote(props.note.id)
+    await notes.fetchNote(props.note.id, { force: true })
     password.value = ''
     emit('unlocked')
   } catch (e: any) {

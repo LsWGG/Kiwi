@@ -12,6 +12,7 @@ import OfficeFilePreview from '@/components/attachments/OfficeFilePreview.vue'
 import AttachmentPreview from '@/components/notes/database/AttachmentPreview.vue'
 import type { DbAttachment } from '@/stores/noteDatabase'
 import { IS_DESKTOP } from '@/desktop/env'
+import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
 import { useEditorEditable } from './useEditorEditable'
 
 const props = defineProps(nodeViewProps)
@@ -45,12 +46,33 @@ const filename = computed(() => String(attrs.value.filename ?? attrs.value.title
 const contentType = computed(() => String(attrs.value.contentType ?? ''))
 const size = computed(() => Number(attrs.value.size) || 0)
 const editable = useEditorEditable(props.editor)
+const paneOpen = usePaneOpen()
 
-/** 展示方式在正文中随时切换：内容卡片 / 标题超链接 / 网页嵌入。 */
-type EmbedDisplay = 'content' | 'title' | 'web'
+/** 在分栏工作区中并排打开链接网页 / 附件内容。 */
+function openInPane() {
+  if (!url.value) return
+  if (isLink.value) {
+    paneOpen.openUrlPane({
+      url: url.value,
+      title: title.value,
+      site: attrs.value.site ? String(attrs.value.site) : undefined,
+    })
+    return
+  }
+  paneOpen.openFilePane({
+    url: url.value,
+    filename: filename.value,
+    contentType: contentType.value,
+    size: size.value || undefined,
+  })
+}
+
+/** 展示方式在正文中随时切换：内容预览 / 卡片 / 标题超链接 / 网页嵌入。 */
+type EmbedDisplay = 'content' | 'card' | 'title' | 'web'
 const display = computed<EmbedDisplay>(() => {
   const value = String(attrs.value.display ?? 'content')
   if (value === 'title') return 'title'
+  if (value === 'card' && !isLink.value) return 'card'
   if (value === 'web' && isLink.value) return 'web'
   return 'content'
 })
@@ -164,6 +186,30 @@ const viewKind = computed(() => {
   return 'other'
 })
 
+/** 卡片模式里的文件类型标签。 */
+const typeLabel = computed(() => {
+  switch (viewKind.value) {
+    case 'image':
+      return '图片'
+    case 'video':
+      return '视频'
+    case 'audio':
+      return '音频'
+    case 'pdf':
+      return 'PDF'
+    case 'word':
+      return 'Word 文档'
+    case 'excel':
+      return 'Excel 表格'
+    case 'ppt':
+      return 'PPT 演示'
+    case 'text':
+      return '文本文件'
+    default:
+      return '附件'
+  }
+})
+
 const text = ref('')
 const textLoading = ref(false)
 const textError = ref('')
@@ -272,6 +318,9 @@ function openExternal(event: MouseEvent) {
           <KiwiIcon name="external" :size="12" class="shrink-0 text-slate-300" />
         </a>
         <div v-if="editable" class="embed-actions">
+          <button type="button" class="embed-action" title="在分栏中打开" @mousedown.prevent @click="openInPane">
+            <KiwiIcon name="columns" :size="12" />
+          </button>
           <button type="button" class="embed-action" title="以内容卡片展示" @mousedown.prevent @click="setDisplay('content')">
             <KiwiIcon name="panelLeft" :size="12" />
           </button>
@@ -327,6 +376,9 @@ function openExternal(event: MouseEvent) {
             </button>
             <button type="button" class="embed-action" title="以标题超链接展示" @mousedown.prevent @click="setDisplay('title')">
               <KiwiIcon name="link2" :size="12" />
+            </button>
+            <button type="button" class="embed-action" title="在分栏中打开" @mousedown.prevent @click="openInPane">
+              <KiwiIcon name="columns" :size="12" />
             </button>
             <a :href="url" target="_blank" rel="noopener noreferrer" class="embed-action" title="在新窗口打开" @click.stop @mousedown.stop>
               <KiwiIcon name="external" :size="12" />
@@ -396,6 +448,9 @@ function openExternal(event: MouseEvent) {
           <KiwiIcon name="external" :size="14" class="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover/embed:text-kiwi-500" />
         </a>
         <div v-if="editable" class="embed-actions">
+          <button type="button" class="embed-action" title="在分栏中打开" @mousedown.prevent @click="openInPane">
+            <KiwiIcon name="columns" :size="12" />
+          </button>
           <button type="button" class="embed-action" title="以标题超链接展示" @mousedown.prevent @click="setDisplay('title')">
             <KiwiIcon name="link2" :size="12" />
           </button>
@@ -434,8 +489,55 @@ function openExternal(event: MouseEvent) {
           <span v-if="sizeLabel(size)" class="shrink-0 text-[10.5px] tabular-nums text-slate-400">{{ sizeLabel(size) }}</span>
         </a>
         <div v-if="editable" class="embed-actions">
-          <button type="button" class="embed-action" title="展开为内容预览" @mousedown.prevent @click="setDisplay('content')">
+          <button type="button" class="embed-action" title="在分栏中打开" @mousedown.prevent @click="openInPane">
+            <KiwiIcon name="columns" :size="12" />
+          </button>
+          <button type="button" class="embed-action" title="以卡片展示" @mousedown.prevent @click="setDisplay('card')">
             <KiwiIcon name="panelLeft" :size="12" />
+          </button>
+          <button type="button" class="embed-action" title="展开为内容预览" @mousedown.prevent @click="setDisplay('content')">
+            <KiwiIcon name="layoutTemplate" :size="12" />
+          </button>
+          <a :href="url" :download="filename" class="embed-action" title="下载文件" @click.stop @mousedown.stop>
+            <KiwiIcon name="download" :size="12" />
+          </a>
+          <button type="button" class="embed-action" title="删除内嵌附件" @mousedown.prevent @click="removeNode">
+            <KiwiIcon name="trash" :size="12" />
+          </button>
+        </div>
+      </div>
+
+      <!-- 文件卡片：紧凑展示，不加载文件内容 -->
+      <div v-else-if="display === 'card'" class="embed-file-card-wrap group/embed">
+        <a
+          :href="url"
+          :download="filename"
+          class="embed-link-card embed-file-card"
+          :title="filename"
+          @click.stop
+          @mousedown.stop
+        >
+          <span class="embed-favicon embed-file-card-icon">
+            <KiwiIcon name="paperclip" :size="18" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="embed-link-title">{{ filename }}</span>
+            <span class="embed-file-card-meta">
+              <span>{{ typeLabel }}</span>
+              <span v-if="sizeLabel(size)">· {{ sizeLabel(size) }}</span>
+            </span>
+          </span>
+          <KiwiIcon name="download" :size="14" class="mt-0.5 shrink-0 text-slate-300 transition-colors group-hover/embed:text-kiwi-500" />
+        </a>
+        <div v-if="editable" class="embed-actions">
+          <button type="button" class="embed-action" title="在分栏中打开" @mousedown.prevent @click="openInPane">
+            <KiwiIcon name="columns" :size="12" />
+          </button>
+          <button type="button" class="embed-action" title="展开为内容预览" @mousedown.prevent @click="setDisplay('content')">
+            <KiwiIcon name="layoutTemplate" :size="12" />
+          </button>
+          <button type="button" class="embed-action" title="以标题超链接展示" @mousedown.prevent @click="setDisplay('title')">
+            <KiwiIcon name="link2" :size="12" />
           </button>
           <a :href="url" :download="filename" class="embed-action" title="下载文件" @click.stop @mousedown.stop>
             <KiwiIcon name="download" :size="12" />
@@ -459,6 +561,12 @@ function openExternal(event: MouseEvent) {
             <span v-if="sizeLabel(size)" class="embed-file-size">{{ sizeLabel(size) }}</span>
           </span>
           <span class="flex shrink-0 items-center gap-0.5">
+            <button type="button" class="embed-action" title="在分栏中打开" @mousedown.prevent @click="openInPane">
+              <KiwiIcon name="columns" :size="12" />
+            </button>
+            <button type="button" class="embed-action" title="以卡片展示" @mousedown.prevent @click="setDisplay('card')">
+              <KiwiIcon name="panelLeft" :size="12" />
+            </button>
             <button type="button" class="embed-action" title="以标题超链接展示" @mousedown.prevent @click="setDisplay('title')">
               <KiwiIcon name="link2" :size="12" />
             </button>
@@ -623,6 +731,12 @@ function openExternal(event: MouseEvent) {
 }
 .embed-link-excerpt {
   @apply mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-slate-500;
+}
+.embed-file-card-icon {
+  @apply text-kiwi-500;
+}
+.embed-file-card-meta {
+  @apply mt-1 flex items-center gap-1 text-[10.5px] text-slate-400;
 }
 .embed-file {
   @apply relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white;
