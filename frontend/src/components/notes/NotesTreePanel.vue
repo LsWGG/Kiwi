@@ -32,7 +32,8 @@ import { useStickyNotesStore } from '@/stores/stickyNotes'
 import { request } from '@/api/client'
 import type { DropPos, TreeRow } from './types'
 import { exportActionsFor, runNoteExport, type ExportKey } from './noteExport'
-import { outlineToCanvasDoc } from './canvas/mindmap'
+import { outlineToDrawDoc } from '@/components/draw/mindmap'
+import { drawDocStats } from '@/components/draw/types'
 import { toast } from '@/components/ui/toast'
 
 const props = defineProps<{ activeId: string | null; drawer?: boolean }>()
@@ -1319,16 +1320,16 @@ async function generateMindMapFromMenu() {
     if (full.is_locked && !full.unlocked) {
       throw new Error('笔记已上锁，请先解锁后再生成思维导图')
     }
-    const doc = outlineToCanvasDoc(full.body_md || '', full.title || '思维导图')
+    const doc = outlineToDrawDoc(full.body_md || '', full.title || '思维导图')
     if (!doc) throw new Error('正文没有标题，无法生成思维导图')
     const created = await notes.createNote({
       title: `${full.title || '无标题'} · 思维导图`,
       kind: 'canvas',
       folder_id: full.folder_id ?? null,
-      props_json: { canvas_doc: doc, mindmap_source: full.id },
+      props_json: { draw_doc: doc, mindmap_source: full.id },
     })
     emit('open-note', created)
-    toast.success(`已生成思维导图（${doc.nodes.length} 个节点）`)
+    toast.success(`已生成思维导图（${drawDocStats(doc).nodes} 个节点）`)
   } catch (e: any) {
     toast.error(e.message || '生成思维导图失败')
   }

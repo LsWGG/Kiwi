@@ -280,6 +280,8 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   cursor: text;
 }
 .kiwi-mermaid-svg {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   overflow: auto;
 }
@@ -287,6 +289,12 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+/* Mermaid 按无字距的宽度给 foreignObject 定量，正文的 letter-spacing 会让
+   中文标签在节点内意外换行、后半截被裁掉；标签内按 Mermaid 的假定归零。 */
+.kiwi-mermaid-svg :deep(foreignObject div),
+.kiwi-mermaid-svg :deep(foreignObject p) {
+  letter-spacing: 0 !important;
 }
 .kiwi-mermaid-empty {
   color: rgb(148 163 184);

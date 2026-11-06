@@ -453,14 +453,14 @@ export interface CodePrefs {
 }
 
 export const DEFAULT_CODE_PREFS: CodePrefs = {
-  theme: 'dark',
+  theme: 'light',
   lineNumbers: false,
   wrap: false,
 }
 
 export const CODE_THEMES: { id: CodeTheme; label: string }[] = [
-  { id: 'dark', label: '深色' },
   { id: 'light', label: '浅色' },
+  { id: 'dark', label: '深色' },
 ]
 
 /** lowlight common 中已注册、适合作为代码块语言选择的集合。 */
@@ -495,7 +495,7 @@ export const CODE_LANGUAGES: { id: string; label: string }[] = [
 export function resolveCodePrefs(raw: unknown): CodePrefs {
   const value = (raw ?? {}) as Partial<CodePrefs>
   return {
-    theme: value.theme === 'light' ? 'light' : DEFAULT_CODE_PREFS.theme,
+    theme: value.theme === 'dark' || value.theme === 'light' ? value.theme : DEFAULT_CODE_PREFS.theme,
     lineNumbers:
       typeof value.lineNumbers === 'boolean' ? value.lineNumbers : DEFAULT_CODE_PREFS.lineNumbers,
     wrap: typeof value.wrap === 'boolean' ? value.wrap : DEFAULT_CODE_PREFS.wrap,

@@ -28,6 +28,8 @@ import {
   type CalendarEvent,
 } from './extensions/calendar'
 import { normalizeDataTable, type DataTableModel } from './extensions/dataTableModel'
+import { drawDocToSvg } from '@/components/draw/drawSvgExport'
+import { drawDocHasContent, parseDrawFence } from '@/components/draw/types'
 import type { DbField, DbView } from '@/stores/noteDatabase'
 import { orderedListStyleClass } from './orderedListStyles'
 import { foldImageCaptionTokens } from './imageCaptions'
@@ -950,6 +952,18 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
       `</div>\n`
     )
   }
+  if (lang === 'kiwi-draw') {
+    const doc = parseDrawFence(body)
+    if (!doc || !drawDocHasContent(doc)) {
+      return `<div class="md-draw is-empty">这张画布还没有内容</div>\n`
+    }
+    try {
+      // drawDocToSvg 已对文本 / 属性做转义，这里只输出 SVG 结构。
+      return `<div class="md-draw">${drawDocToSvg(doc)}</div>\n`
+    } catch {
+      return `<pre>${escapeHtml(body)}</pre>\n`
+    }
+  }
   if (lang === 'kiwi-plugin') {
     return `${pluginBlockHtml(body)}\n`
   }
@@ -1591,6 +1605,25 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-mermaid.is-error {
   border-color: rgb(254 202 202);
   background: rgb(254 242 242 / 0.6);
+}
+.markdown-view .md-draw {
+  margin: 0.9rem 0;
+  padding: 0;
+  overflow: auto;
+}
+.markdown-view .md-draw svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.markdown-view .md-draw.is-empty {
+  padding: 18px;
+  border: 1px dashed rgb(226 232 240);
+  border-radius: 10px;
+  text-align: center;
+  color: rgb(148 163 184);
+  font-size: 12px;
 }
 /* 正文图片：可点击放大，图注居中弱化 */
 .markdown-view .md-image {

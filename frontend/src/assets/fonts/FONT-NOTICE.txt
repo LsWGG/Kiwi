@@ -1,0 +1,9 @@
+Kiwi 画布手写体
+字体名称：Aa祝你我明媚向春天（AaZhuNiWoMingMeiXiangChunTian）
+PostScript 名称：AaZNWMMXCT
+版本：Version 1.000
+版权：Copyright(c) 2024 HanMeiHutong (XiaMen) Technology Co.Ltd.
+字体厂商：HanMeiHutong (XiaMen) Technology Co.Ltd.
+来源：用户提供的 AaZhuNiWoMingMeiXiangChunTian-2.ttf，转换为 WOFF2 后随前端构建内置。
+
+该字体仅用于本项目画布手绘主题；如需对外分发，请自行确认字体授权。

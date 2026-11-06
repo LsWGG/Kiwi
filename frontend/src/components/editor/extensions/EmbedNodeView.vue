@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import OfficeFilePreview from '@/components/attachments/OfficeFilePreview.vue'
+import AttachmentFileBody from '@/components/attachments/AttachmentFileBody.vue'
 import AttachmentPreview from '@/components/notes/database/AttachmentPreview.vue'
 import type { DbAttachment } from '@/stores/noteDatabase'
 import { IS_DESKTOP } from '@/desktop/env'
@@ -16,8 +17,6 @@ import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
 import { useEditorEditable } from './useEditorEditable'
 
 const props = defineProps(nodeViewProps)
-
-const MAX_TEXT_BYTES = 512 * 1024
 
 const attrs = computed(() => props.node.attrs as Record<string, any>)
 const isLink = computed(() => attrs.value.kind === 'link')
@@ -172,14 +171,48 @@ const viewKind = computed(() => {
   if (mime.startsWith('video/') || ['mp4', 'webm', 'mov', 'm4v'].includes(ext.value)) return 'video'
   if (mime.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext.value)) return 'audio'
   if (mime === 'application/pdf' || ext.value === 'pdf') return 'pdf'
-  if (ext.value === 'docx' || mime.includes('wordprocessingml.document')) return 'word'
-  if (['xlsx', 'xlsm', 'xlsb', 'xls'].includes(ext.value) || mime.includes('spreadsheetml')) return 'excel'
-  if (ext.value === 'pptx' || mime.includes('presentationml.presentation')) return 'ppt'
+  // CSV 有时会被浏览器标成 application/vnd.ms-excel，先于 Office 判断。
+  if (ext.value === 'csv' || ext.value === 'tsv' || mime === 'text/csv') return 'text'
+  if (
+    ['docx', 'docm', 'dotx', 'dotm'].includes(ext.value) ||
+    mime.includes('wordprocessingml') ||
+    mime.includes('ms-word')
+  ) {
+    return 'word'
+  }
+  if (
+    ['xlsx', 'xlsm', 'xlsb', 'xls', 'xltx', 'xltm'].includes(ext.value) ||
+    mime.includes('spreadsheetml') ||
+    mime.includes('ms-excel')
+  ) {
+    return 'excel'
+  }
+  if (
+    ['pptx', 'pptm', 'potx', 'potm', 'ppsx', 'ppsm'].includes(ext.value) ||
+    mime.includes('presentationml') ||
+    mime.includes('ms-powerpoint')
+  ) {
+    return 'ppt'
+  }
+  if (['odt', 'ods', 'odp'].includes(ext.value) || mime.includes('opendocument')) {
+    return 'odf'
+  }
+  if (['zip', 'jar', 'war', 'whl', 'apk'].includes(ext.value) || mime.includes('zip')) {
+    return 'archive'
+  }
   if (
     mime.startsWith('text/') ||
     mime.includes('json') ||
     mime.includes('xml') ||
-    ['txt', 'md', 'markdown', 'csv', 'tsv', 'log', 'json', 'yaml', 'yml', 'xml', 'js', 'ts', 'vue', 'py', 'sh', 'sql', 'css', 'html'].includes(ext.value)
+    mime.includes('yaml') ||
+    mime.includes('toml') ||
+    [
+      'txt', 'md', 'markdown', 'mdx', 'csv', 'tsv', 'log',
+      'json', 'jsonl', 'ndjson', 'yaml', 'yml', 'toml', 'xml',
+      'ini', 'cfg', 'conf', 'env', 'properties',
+      'diff', 'patch', 'ipynb',
+      'js', 'ts', 'vue', 'py', 'sh', 'sql', 'css', 'html',
+    ].includes(ext.value)
   ) {
     return 'text'
   }
@@ -205,15 +238,15 @@ const typeLabel = computed(() => {
       return 'PPT 演示'
     case 'text':
       return '文本文件'
+    case 'archive':
+      return '压缩包'
+    case 'odf':
+      return 'OpenDocument 文档'
     default:
       return '附件'
   }
 })
 
-const text = ref('')
-const textLoading = ref(false)
-const textError = ref('')
-const textTruncated = ref(false)
 const fullscreen = ref(false)
 
 const previewFile = computed<DbAttachment>(() => ({
@@ -230,47 +263,6 @@ function sizeLabel(value: number) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
-
-async function loadText(target: string) {
-  text.value = ''
-  textError.value = ''
-  textTruncated.value = false
-  if (!target) return
-  textLoading.value = true
-  try {
-    const res = await fetch(target)
-    if (!res.ok) throw new Error(`读取失败（${res.status}）`)
-    const blob = await res.blob()
-    if (blob.size > MAX_TEXT_BYTES) {
-      text.value = await blob.slice(0, MAX_TEXT_BYTES).text()
-      textTruncated.value = true
-    } else {
-      text.value = await blob.text()
-    }
-  } catch (e: any) {
-    textError.value = e?.message || '无法读取文件内容'
-  } finally {
-    textLoading.value = false
-  }
-}
-
-let token = 0
-watch(
-  () => [url.value, viewKind.value, editable.value] as const,
-  ([target, kind]) => {
-    if (kind === 'text') {
-      const run = ++token
-      void loadText(target).then(() => {
-        if (run !== token) return
-      })
-    }
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  token += 1
-})
 
 function removeNode() {
   const pos = props.getPos()
@@ -615,11 +607,17 @@ function openExternal(event: MouseEvent) {
           fit="width"
           :class="viewKind === 'ppt' ? 'embed-office-ppt' : 'embed-office'"
         />
-        <div v-else-if="viewKind === 'text'" class="embed-text">
-          <pre class="m-0">{{ textLoading ? '载入中…' : textError || text }}</pre>
-          <p v-if="textTruncated" class="border-t border-slate-200 px-3 py-1 text-[10.5px] text-amber-500">
-            文件较大，仅显示前 512 KB，可下载后查看完整内容。
-          </p>
+        <div
+          v-else-if="viewKind === 'text' || viewKind === 'archive' || viewKind === 'odf'"
+          class="embed-text"
+        >
+          <AttachmentFileBody
+            :url="url"
+            :filename="filename"
+            :content-type="contentType"
+            :size="size"
+            fit="block"
+          />
         </div>
         <div v-else class="embed-fallback">
           <KiwiIcon name="file" :size="30" class="text-slate-300" />
@@ -750,9 +748,6 @@ function openExternal(event: MouseEvent) {
 .embed-file.is-resized .embed-pdf {
   height: 100%;
 }
-.embed-file.is-resized .embed-text pre {
-  max-height: none;
-}
 .embed-web.is-resizing,
 .embed-file.is-resizing {
   user-select: none;
@@ -841,9 +836,6 @@ function openExternal(event: MouseEvent) {
 }
 .embed-text {
   @apply w-full bg-white;
-}
-.embed-text pre {
-  @apply max-h-[560px] overflow-auto p-3 text-[11.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-600;
 }
 .embed-fallback {
   @apply flex w-full flex-col items-center px-6 py-10;

@@ -523,6 +523,13 @@ watch(token, () => {
   font-weight: 400;
   color: #4c46a6;
 }
+/* 代码块内的 code 不沿用行内代码底色，保持浅色代码块整体一致 */
+.share-sheet :deep(.prose-wiki pre code) {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-weight: inherit;
+}
 /* Tailwind Typography 会给行内代码加反引号，编辑器里没有 */
 .share-sheet :deep(.prose-wiki code::before),
 .share-sheet :deep(.prose-wiki code::after) {

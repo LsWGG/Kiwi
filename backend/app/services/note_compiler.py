@@ -15,33 +15,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import CollectionRow, Note, NoteCollection
+from app.services.canvas_legacy import draw_doc_from_props
 
 MAX_TABLE_ROWS = 200
 MAX_SHEET_ROWS = 200
 MAX_SHEET_COLS = 20
 MAX_CANVAS_TEXT = 4000
 
-CANVAS_SHAPE_LABEL = {
-    "rect": "矩形",
-    "round": "圆角框",
+DRAW_TYPE_LABEL = {
+    "rectangle": "矩形",
     "ellipse": "椭圆",
-    "diamond": "菱形判断",
-    "text": "文本",
-    "sticky": "便签",
-    "uml": "UML 类",
-    "table": "表结构",
-    "network": "网络设备",
-}
-
-NETWORK_LABEL = {
+    "diamond": "菱形",
+    "triangle": "三角形",
     "cloud": "云",
-    "server": "服务器",
-    "database": "数据库",
-    "router": "路由器",
-    "firewall": "防火墙",
-    "client": "客户端",
-    "switch": "交换机",
-    "storage": "存储",
+    "cylinder": "存储",
+    "image": "图片",
+    "frame": "分区",
+    "freedraw": "手绘",
 }
 
 FIELD_TYPE_LABEL = {
@@ -173,56 +163,83 @@ def _database_markdown(
     return "\n".join(lines).strip()
 
 
+def _draw_element_text(element: dict) -> str:
+    text = element.get("text")
+    if not isinstance(text, str) or not text.strip():
+        text = element.get("originalText")
+    return text.strip() if isinstance(text, str) else ""
+
+
 def _canvas_markdown(note: Note) -> str:
+    """把 jvs-draw 画布编译成可检索 / 可编译的文字大纲。"""
     props = note.props_json or {}
-    doc = props.get("canvas_doc") if isinstance(props.get("canvas_doc"), dict) else {}
-    nodes = [node for node in doc.get("nodes") or [] if isinstance(node, dict)]
-    edges = [edge for edge in doc.get("edges") or [] if isinstance(edge, dict)]
-    if not nodes and not edges:
+    doc = draw_doc_from_props(props) or {}
+    raw_elements = doc.get("elements") if isinstance(doc.get("elements"), list) else []
+    elements = [
+        element
+        for element in raw_elements
+        if isinstance(element, dict) and not element.get("isDeleted")
+    ]
+    if not elements:
         return ""
 
-    node_text: dict[str, str] = {}
-    lines: list[str] = [f"# {note.title or '画布'}", ""]
-    theme = str(doc.get("theme") or "engineering")
-    theme_label = {
-        "blueprint": "工程蓝图",
-        "engineering": "工程制图",
-        "paper": "纸质草图",
-        "midnight": "深色夜间",
-    }.get(theme, theme)
-    lines.append(f"> 画布（{theme_label}）：{len(nodes)} 个节点，{len(edges)} 条连线。")
-    lines.append("")
+    connector_types = {"arrow", "line", "freedraw"}
+    connectors = [e for e in elements if e.get("type") in connector_types]
+    texts = [e for e in elements if e.get("type") == "text" and _draw_element_text(e)]
+    shapes = [
+        e
+        for e in elements
+        if e.get("type") not in connector_types
+        and not (e.get("type") == "text" and e.get("containerId"))
+    ]
+    if not texts and not connectors and not shapes:
+        return ""
 
-    if nodes:
-        lines.append("## 节点")
-        ordered = sorted(
-            nodes,
-            key=lambda node: (float(node.get("y") or 0), float(node.get("x") or 0)),
+    text_by_container: dict[str, str] = {}
+    for element in texts:
+        container_id = str(element.get("containerId") or "")
+        if container_id:
+            text_by_container.setdefault(container_id, _draw_element_text(element))
+
+    def label_for(element_id: str) -> str:
+        if not element_id:
+            return "自由端点"
+        text = text_by_container.get(element_id, "")
+        if text:
+            return text.splitlines()[0][:120]
+        element = next((item for item in elements if item.get("id") == element_id), None)
+        if element is None:
+            return element_id
+        return DRAW_TYPE_LABEL.get(str(element.get("type")), str(element.get("type") or "图形"))
+
+    lines: list[str] = [
+        f"# {note.title or '画布'}",
+        "",
+        f"> 画布：{len(shapes)} 个节点，{len(connectors)} 条连线。",
+        "",
+    ]
+
+    if texts:
+        lines.append("## 文本")
+        ordered_texts = sorted(
+            texts,
+            key=lambda item: (float(item.get("y") or 0), float(item.get("x") or 0)),
         )
-        for node in ordered:
-            text = str(node.get("text") or "").strip()
+        for element in ordered_texts:
+            text = _draw_element_text(element)
             if len(text) > MAX_CANVAS_TEXT:
                 text = text[:MAX_CANVAS_TEXT] + "…"
-            shape = str(node.get("shape") or "rect")
-            shape_label = CANVAS_SHAPE_LABEL.get(shape, shape)
-            if shape == "network" and node.get("variant"):
-                shape_label = NETWORK_LABEL.get(str(node["variant"]), shape_label)
-            node_id = str(node.get("id") or "")
-            node_text[node_id] = text.splitlines()[0][:120] if text else shape_label
-            if text:
-                lines.append(f"- **{shape_label}**：{text}")
-            else:
-                lines.append(f"- **{shape_label}**（空）")
+            lines.append(f"- {text}")
         lines.append("")
 
-    if edges:
+    if connectors:
         lines.append("## 连线")
-        for edge in edges:
-            from_id = str((edge.get("from") or {}).get("nodeId") or "")
-            to_id = str((edge.get("to") or {}).get("nodeId") or "")
-            source = node_text.get(from_id, from_id or "自由端点")
-            target = node_text.get(to_id, to_id or "自由端点")
-            label = str(edge.get("label") or "").strip()
+        for element in connectors:
+            start = element.get("startBinding") if isinstance(element.get("startBinding"), dict) else {}
+            end = element.get("endBinding") if isinstance(element.get("endBinding"), dict) else {}
+            source = label_for(str(start.get("elementId") or ""))
+            target = label_for(str(end.get("elementId") or ""))
+            label = text_by_container.get(str(element.get("id") or ""), "")
             arrow = f"{source} → {target}"
             lines.append(f"- {arrow}" + (f"（{label}）" if label else ""))
         lines.append("")

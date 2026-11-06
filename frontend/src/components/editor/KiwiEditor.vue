@@ -36,6 +36,7 @@ import { createSlashCommand } from './slashCommands'
 import { KiwiDate, todayISO } from './extensions/date'
 import { KiwiFormula } from './extensions/formula'
 import { KiwiMermaid } from './extensions/mermaid'
+import { KiwiDraw } from './extensions/draw'
 import { KiwiGallery } from './extensions/gallery'
 import { KiwiColumn, KiwiColumns } from './extensions/columns'
 import { KiwiNoteEmbed } from './extensions/noteEmbed'
@@ -44,6 +45,7 @@ import { KiwiDataTable } from './extensions/dataTable'
 import type { NoteSummary } from '@/stores/notes'
 import { Callout } from './extensions/callout'
 import { MarkdownSerializerFix } from './extensions/markdownSerializerFix'
+import { looksLikeMarkdownSource } from './markdownPaste'
 import { Video } from './extensions/video'
 import { KiwiDetails } from './extensions/details'
 import { KiwiYoutube } from './extensions/youtube'
@@ -358,7 +360,8 @@ function onDocxPrefs(next: DocxPrefs) {
 }
 
 // ---------- 代码块显示偏好（主题 / 行号 / 换行，按浏览器记忆） ----------
-const CODE_PREFS_KEY = 'kiwi.editor.code-prefs.v1'
+// v2：默认代码主题改为浅色，旧版本存下的深色偏好不再沿用。
+const CODE_PREFS_KEY = 'kiwi.editor.code-prefs.v2'
 
 function loadCodePrefs(): CodePrefs {
   try {
@@ -1428,7 +1431,7 @@ function insertComponent(key: string) {
   }
   if (key === 'date') chain.insertDate({ date: todayISO() })
   else if (key === 'formula') chain.insertFormula()
-  else if (key === 'mermaid') chain.insertMermaid()
+  else if (key === 'draw') chain.insertDraw()
   else if (key === 'gallery') chain.insertGallery()
   else if (key === 'columns2') chain.insertColumns({ count: 2 })
   else if (key === 'columns3') chain.insertColumns({ count: 3 })
@@ -1946,6 +1949,7 @@ const editor = useEditor({
     KiwiDate,
     KiwiFormula,
     KiwiMermaid,
+    KiwiDraw.configure({ upload: uploadFile }),
     KiwiGallery.configure({ upload: uploadFile }),
     KiwiColumn,
     KiwiColumns,
@@ -1971,6 +1975,7 @@ const editor = useEditor({
               'youtube',
               'kiwiFormula',
               'kiwiMermaid',
+              'kiwiDraw',
               'kiwiGallery',
               'kiwiColumns',
               'kiwiNoteEmbed',
@@ -2099,13 +2104,43 @@ const editor = useEditor({
       }
       return true
     },
-    handlePaste: (_view, event) => {
+    handlePaste: (view, event) => {
       const files = Array.from(event.clipboardData?.files || []).filter((f) =>
         f.type.startsWith('image/'),
       )
-      if (!files.length) return false
+      if (files.length) {
+        event.preventDefault()
+        for (const file of files) void uploadAndInsert(file, true)
+        return true
+      }
+
+      // 粘贴 Markdown 源码：块级解析成标题 / 列表 / 代码块等富文本。
+      // 带块级 HTML 的剪贴板（网页、Word、本编辑器）仍交给 HTML 解析；
+      // 代码块和表格单元格内保持原文，避免拆坏结构。
+      const clipboard = event.clipboardData
+      const html = clipboard?.getData('text/html') || ''
+      if (/<(?:h[1-6]|ul|ol|li|pre|table|blockquote|img|hr)\b/i.test(html)) return false
+      const text = clipboard?.getData('text/markdown') || clipboard?.getData('text/plain') || ''
+      if (!text || !looksLikeMarkdownSource(text)) return false
+      const { $from } = view.state.selection
+      if ($from.parent.type.name === 'codeBlock' || $from.parent.type.spec?.tableRole) {
+        return false
+      }
+      const parser = (editor.value?.storage.markdown as any)?.parser
+      if (typeof parser?.parse !== 'function') return false
+
       event.preventDefault()
-      for (const file of files) void uploadAndInsert(file, true)
+      const content = parser.parse(text.replace(/\r\n?/g, '\n'))
+      const replaceEmptyParagraph =
+        $from.depth === 1 &&
+        $from.parent.type.name === 'paragraph' &&
+        $from.parent.content.size === 0
+      const chain = editor.value!.chain().focus()
+      if (replaceEmptyParagraph) {
+        chain.insertContentAt({ from: $from.before(), to: $from.after() }, content).run()
+      } else {
+        chain.insertContent(content).run()
+      }
       return true
     },
     handleDrop: (_view, event) => {

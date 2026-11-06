@@ -104,14 +104,62 @@ async def test_every_note_kind_produces_markdown(db, kb):
                 kb["id"],
                 kind="canvas",
                 props_json={
-                    "canvas_doc": {
-                        "theme": "engineering",
-                        "nodes": [{"id": "n1", "shape": "rect", "text": "画布节点标题"}],
-                        "edges": [],
+                    "draw_doc": {
+                        "type": "jvs-draw",
+                        "version": 1,
+                        "elements": [
+                            {
+                                "id": "n1",
+                                "type": "rectangle",
+                                "x": 0,
+                                "y": 0,
+                                "width": 160,
+                                "height": 60,
+                                "isDeleted": False,
+                            },
+                            {
+                                "id": "n1-text",
+                                "type": "text",
+                                "x": 10,
+                                "y": 20,
+                                "width": 140,
+                                "height": 20,
+                                "containerId": "n1",
+                                "text": "画布节点标题",
+                                "isDeleted": False,
+                            },
+                        ],
+                        "appState": {"viewBackgroundColor": "#ffffff"},
+                        "files": {},
                     }
                 },
             ),
             "画布节点标题",
+        ),
+        (
+            _note(
+                kb["id"],
+                kind="canvas",
+                props_json={
+                    "canvas_doc": {
+                        "version": 1,
+                        "theme": "engineering",
+                        "nodes": [
+                            {
+                                "id": "old-node",
+                                "shape": "rect",
+                                "x": 0,
+                                "y": 0,
+                                "w": 160,
+                                "h": 60,
+                                "text": "旧画布节点标题",
+                            }
+                        ],
+                        "edges": [],
+                    }
+                },
+            ),
+            "旧画布节点标题",
         ),
         (
             _note(

@@ -1,0 +1,12 @@
+/*
+ * Kiwi 画布手绘字体：Aa祝你我明媚向春天。
+ * 字体文件随前端构建分发；版权与来源见同目录 FONT-NOTICE.txt。
+ * 浏览器只在页面实际使用该字体时下载 woff2。
+ */
+@font-face {
+  font-family: 'Kiwi Hand';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./kiwi-hand.woff2') format('woff2');
+}

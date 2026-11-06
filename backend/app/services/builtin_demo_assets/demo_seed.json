@@ -65,10 +65,20 @@
       "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
       "name": "收件箱",
       "parent_id": null,
-      "sort_order": 6,
+      "sort_order": 7,
       "pinned": false,
       "created_at": "2026-10-18T09:02:00+00:00",
       "updated_at": "2026-10-18T09:02:00+00:00"
+    },
+    {
+      "id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "name": "06 最新能力",
+      "parent_id": null,
+      "sort_order": 6,
+      "pinned": false,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
     }
   ],
   "note_tags": [
@@ -255,6 +265,20 @@
       "parent_id": null,
       "created_at": "2026-10-18T09:03:00+00:00",
       "updated_at": "2026-10-18T09:03:00+00:00"
+    },
+    {
+      "id": "b07f0c9c-f3d9-5739-816c-97ebdf6f849d",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "name": "分栏",
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "048060be-ab2a-5ae7-95f8-572b5e8d9536",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "name": "桌面版",
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
     }
   ],
   "note_templates": [
@@ -354,7 +378,7 @@
       "id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
       "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
       "title": "欢迎使用 Kiwi",
-      "body_md": "# 欢迎使用 Kiwi\n\n这是一个随系统内置的**功能演示知识库**。它不是互不相关的测试数据，而是一份可以照着操作的上手手册：每篇笔记对应 Kiwi 的一个真实能力，并且通过双向链接连成一张可浏览、可检索、可学习的网络。\n\n> 你可以随意编辑或删除本库。删除后，在「知识库」页的内置库卡片上点击「还原」即可恢复出厂内容。\n\n## 这个库能带你走完什么\n\n| 你会用到 | 对应笔记 | 你会看到 |\n|---|---|---|\n| 笔记工作区 | [@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) | 块命令、表格、任务列表、图片 |\n| 画布 | [@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc) | 工程图、思维导图、主题切换 |\n| 数据表 | [@数据表示例 · 功能体验清单](kiwi://note/13c1fd78-4142-5e8a-a29b-0d268fa6e5d6) | 表格 / 看板 / 画册 / 日历 |\n| Notebook | [@Notebook 示例 · 学习记录分析](kiwi://note/72094380-bca5-59bb-9005-d2bcec8171a3) | 代码、输出与结论同页 |\n| 导入与抓取 | [@导入示例 · Kiwi 功能速查表](kiwi://note/e43d92dc-68a4-56c6-aa88-418bead31acc)、[@外链示例 · AntV G6 文档](kiwi://note/ed7978f9-3052-59c1-be16-ad02e1147255) | 文件解析、网页正文 |\n| Wiki 与图谱 | [@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)、[@知识图谱：星图怎么读](kiwi://note/8dc15b62-f2af-534c-8a79-e02c9c0177d1) | 编译、双向链接、星空图谱 |\n| 学习闭环 | [@学习模式：把 Wiki 变成课程](kiwi://note/aacab54d-b1a4-5e24-983d-0fe50fbd0e07)、[@复习与仿真考试](kiwi://note/386e217f-2316-59ac-9f67-e416978fd314) | 出题、复习、仿真考试 |\n\n## 进阶能力\n\n| 能力 | 对应笔记 | 它和普通笔记产品的差别 |\n|---|---|---|\n| 语音转写 | [@语音转写：把会议录音变成笔记](kiwi://note/9482b402-4e68-5bb3-8ea1-05e80388c716) | 录音实时出字幕，停止后自动整理成会议笔记；可接飞书妙记 |\n| 贴一贴 | [@贴一贴：把笔记置顶成便签](kiwi://note/c4e4c696-daef-50da-833c-fada252195f1) | 双击目录即可把笔记浮到最上层，多篇并排，不影响主编辑区 |\n| 组件插件 | [@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954) | 内置组件可导出参考包，第三方 zip 插件可预览、启停、导出 |\n| 只读分享 | [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3) | 免登录只读链接，支持有效期、访问密码、撤销与访问统计 |\n| 表格与 OCR | [@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)、[@表格示例 · 学习时间台账](kiwi://note/ff686634-7914-5980-b52b-eb5785d0d182) | Excel 式多工作表、公式与合并单元格，扫描件可强制 OCR |\n| 问答与检索 | [@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4) | 向量 + BM25 混合检索，回答逐条标注可点击来源 |\n| 待办汇总 | [@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48) | 自动把散落在笔记与数据表里的待办汇总到收件箱，并双向同步 |\n| 导出与交付 | [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89) | 按笔记类型导出 PDF / Word / Excel / Notebook / 画布 |\n| 学习增强 | [@学习增强：FSRS-5、周报与提醒](kiwi://note/86d0b414-0cc4-53de-a24d-32f6ea1ce10c)、[@Anki 互通：题库带进带出](kiwi://note/d48ee7fe-940c-543c-83eb-5d6ba2b1ec6e) | FSRS-5 调度、学习周报、浏览器推送，题库可与 Anki 互导 |\n\n## 建议的体验顺序\n\n1. 先读 [@一分钟上手](kiwi://note/7ad42648-e907-5d92-8220-d849ed552c1c)，用十分钟完成一次完整闭环；\n2. 打开 [@画布示例 · Kiwi 功能全景](kiwi://note/66100948-d2be-54dd-b054-14bfb6d5baaa)，拖动节点，试试智能粘连、对齐辅助与主题切换；\n3. 在数据表里切换四种视图，把一张卡片拖到另一个分组；\n4. 双击目录里的任意笔记，体验「贴一贴」浮窗；再从「+」→「语音转写」录一段 10 秒语音；\n5. 进入「学习」模式完成一次五题练习，再查看复习队列与学习周报；\n6. 回到 Wiki，悬停一颗星球，观察关系如何被点亮。\n\n## 关于示例项目\n\n本库中有一条贯穿主线：[@示例项目：三周搭建团队知识库](kiwi://note/1e01b7b1-ca78-5b5d-bf65-395337a423b0)。它把需求、计划、周会、复盘与学习记录串在一起，展示知识库如何从零散笔记长成可被检索、可被学习的内容资产。\n\n## 开始前的小清单\n\n```kiwi-task-progress\n{\"label\":\"上手检查\",\"showCount\":true,\"showPercent\":true,\"color\":\"violet\",\"bind\":\"next\"}\n```\n\n- [ ] 我已经浏览完欢迎页\n- [ ] 我完成了一次 Wiki 编译\n- [ ] 我在图谱里找到了一个孤立节点\n- [ ] 我完成了一次复习\n\n> 提示：本库的学习画像已经预置了部分掌握度，你可以直接体验复习队列与仿真考试，也可以重置学习数据后从头开始。",
+      "body_md": "# 欢迎使用 Kiwi\n\n这是一个随系统内置的**功能演示知识库**。它不是互不相关的测试数据，而是一份可以照着操作的上手手册：每篇笔记对应 Kiwi 的一个真实能力，并且通过双向链接连成一张可浏览、可检索、可学习的网络。\n\n> 你可以随意编辑或删除本库。删除后，在「知识库」页的内置库卡片上点击「还原」即可恢复出厂内容。\n\n## 这个库能带你走完什么\n\n| 你会用到 | 对应笔记 | 你会看到 |\n|---|---|---|\n| 笔记工作区 | [@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) | 块命令、表格、任务列表、图片 |\n| 画布 | [@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc) | 工程图、思维导图、主题切换 |\n| 数据表 | [@数据表示例 · 功能体验清单](kiwi://note/13c1fd78-4142-5e8a-a29b-0d268fa6e5d6) | 表格 / 看板 / 画册 / 日历 |\n| Notebook | [@Notebook 示例 · 学习记录分析](kiwi://note/72094380-bca5-59bb-9005-d2bcec8171a3) | 代码、输出与结论同页 |\n| 导入与抓取 | [@导入示例 · Kiwi 功能速查表](kiwi://note/e43d92dc-68a4-56c6-aa88-418bead31acc)、[@外链示例 · AntV G6 文档](kiwi://note/ed7978f9-3052-59c1-be16-ad02e1147255) | 文件解析、网页正文 |\n| Wiki 与图谱 | [@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)、[@知识图谱：星图怎么读](kiwi://note/8dc15b62-f2af-534c-8a79-e02c9c0177d1) | 编译、双向链接、星空图谱 |\n| 学习闭环 | [@学习模式：把 Wiki 变成课程](kiwi://note/aacab54d-b1a4-5e24-983d-0fe50fbd0e07)、[@复习与仿真考试](kiwi://note/386e217f-2316-59ac-9f67-e416978fd314) | 出题、复习、仿真考试 |\n\n## 进阶能力\n\n| 能力 | 对应笔记 | 它和普通笔记产品的差别 |\n|---|---|---|\n| 语音转写 | [@语音转写：把会议录音变成笔记](kiwi://note/9482b402-4e68-5bb3-8ea1-05e80388c716) | 录音实时出字幕，停止后自动整理成会议笔记；可接飞书妙记 |\n| 贴一贴 | [@贴一贴：把笔记置顶成便签](kiwi://note/c4e4c696-daef-50da-833c-fada252195f1) | 双击目录即可把笔记浮到最上层，多篇并排，不影响主编辑区 |\n| 组件插件 | [@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954) | 内置组件可导出参考包，第三方 zip 插件可预览、启停、导出 |\n| 只读分享 | [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3) | 免登录只读链接，支持有效期、访问密码、撤销与访问统计 |\n| 表格与 OCR | [@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)、[@表格示例 · 学习时间台账](kiwi://note/ff686634-7914-5980-b52b-eb5785d0d182) | Excel 式多工作表、公式与合并单元格，扫描件可强制 OCR |\n| 问答与检索 | [@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4) | 向量 + BM25 混合检索，回答逐条标注可点击来源 |\n| 待办汇总 | [@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48) | 自动把散落在笔记与数据表里的待办汇总到收件箱，并双向同步 |\n| 导出与交付 | [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89) | 按笔记类型导出 PDF / Word / Excel / Notebook / 画布 |\n| 学习增强 | [@学习增强：FSRS-5、周报与提醒](kiwi://note/86d0b414-0cc4-53de-a24d-32f6ea1ce10c)、[@Anki 互通：题库带进带出](kiwi://note/d48ee7fe-940c-543c-83eb-5d6ba2b1ec6e) | FSRS-5 调度、学习周报、浏览器推送，题库可与 Anki 互导 |\n\n## 最新能力（2026.11）\n\n| 新能力 | 你可以做什么 |\n|---|---|\n| [@最新能力速览](kiwi://note/d7d083a9-0bda-5ce8-81db-ebbba6e0c689) | 一张清单看完这轮更新的入口 |\n| [@分栏工作区：多篇笔记并排](kiwi://note/28335330-d575-5e26-a50c-fc6139d32c74) | 最多 6 篇笔记并排，拖动停靠、布局按库保存 |\n| [@画布增强：模板库、信息图与魔法棒](kiwi://note/da60d516-6c88-5fb4-b8f2-1951445320fb) | 51 个模板、信息图、6 套配色与手绘风 |\n| [@问答 Agent：会规划、会联网、会读附件](kiwi://note/be7ca2f1-a35f-5f90-a486-412769f3c5f5) | 自动规划、多轮追问、@ 范围、读取附件正文 |\n| [@编辑器细节：查找替换与附件卡片](kiwi://note/f8f7bdc2-1101-5f9d-8084-d80936012c1c) | 查找替换、首行缩进、上传进度与附件卡片 |\n| [@插件进阶：时间轴、倒计时与开发套件](kiwi://note/096aca0b-cff0-51ac-971b-0793aa9f5bd1) | 时间轴待办进收件箱、倒计时指定时刻 |\n| [@桌面版与部署：离线与 Windows 安装包](kiwi://note/ec9de589-6d0b-554a-940b-db4fd9456dc5) | 离线边界、桌面设置、Windows 安装包 |\n\n## 建议的体验顺序\n\n1. 先读 [@一分钟上手](kiwi://note/7ad42648-e907-5d92-8220-d849ed552c1c)，用十分钟完成一次完整闭环；\n2. 打开 [@画布示例 · Kiwi 功能全景](kiwi://note/66100948-d2be-54dd-b054-14bfb6d5baaa)，拖动节点，试试智能粘连、对齐辅助与主题切换；\n3. 在数据表里切换四种视图，把一张卡片拖到另一个分组；\n4. 双击目录里的任意笔记，体验「贴一贴」浮窗；再从「+」→「语音转写」录一段 10 秒语音；\n5. 进入「学习」模式完成一次五题练习，再查看复习队列与学习周报；\n6. 回到 Wiki，悬停一颗星球，观察关系如何被点亮。\n\n## 关于示例项目\n\n本库中有一条贯穿主线：[@示例项目：三周搭建团队知识库](kiwi://note/1e01b7b1-ca78-5b5d-bf65-395337a423b0)。它把需求、计划、周会、复盘与学习记录串在一起，展示知识库如何从零散笔记长成可被检索、可被学习的内容资产。\n\n## 开始前的小清单\n\n```kiwi-task-progress\n{\"label\":\"上手检查\",\"showCount\":true,\"showPercent\":true,\"color\":\"violet\",\"bind\":\"next\"}\n```\n\n- [ ] 我已经浏览完欢迎页\n- [ ] 我完成了一次 Wiki 编译\n- [ ] 我在图谱里找到了一个孤立节点\n- [ ] 我完成了一次复习\n\n> 提示：本库的学习画像已经预置了部分掌握度，你可以直接体验复习队列与仿真考试，也可以重置学习数据后从头开始。",
       "kind": "doc",
       "folder_id": "7f35561b-a6c0-58ca-b677-a8f91aed364e",
       "source_id": null,
@@ -374,7 +398,7 @@
       "id": "7ad42648-e907-5d92-8220-d849ed552c1c",
       "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
       "title": "一分钟上手",
-      "body_md": "# 一分钟上手\n\n这条路线覆盖「记下来 → 连起来 → 编译 → 学习」四步。每一步都能在本库中找到完整示例。\n\n## 1. 记下来\n\n在左侧目录点击「+」新建文档，输入标题后直接写作。输入 `/` 打开块命令，可以插入标题、任务列表、表格、代码块、图片与附件。\n\n> 试一试：在下一行输入 `/table`，插入一张 3×3 的表格。\n\n## 2. 连起来\n\n输入 `@` 从下拉列表选择一篇笔记或 Wiki 页面。引用按 ID 保存，目标改名后仍然有效；保存后，被引用页面的「反向链接」会出现本文。示例见 [@双向链接与反向链接](kiwi://note/1fb9212c-0067-5827-ac1b-53fff6d72ce6)。\n\n## 3. 编译成 Wiki\n\n打开任意笔记，在条目菜单选择「编译 Wiki」。系统会把笔记整理成概念页，并建立引用关系；待办汇总、只读导入材料与数据表行笔记会自动跳过。编译完成后：\n\n- 在「Wiki」页看到页面网络；\n- 在「知识图谱」看到节点与边；\n- 在「学习」中看到可学习的知识点。\n\n## 4. 学习与复习\n\n进入「学习」→ 选择模式 → 完成练习。答错或不确定的知识点会进入复习队列，由 FSRS-5 安排下一次出现；「学习周报」会汇总正确率、薄弱点与留存曲线。\n\n## 5. 贴一贴与语音\n\n- 双击目录中的任意笔记，会弹出「贴一贴」浮窗；可以同时打开多篇，拖动标题栏与右下角调整位置和大小。\n- 目录「+」→「语音转写」可以直接录音，录音过程中每 12 秒显示本地实时字幕，停止后生成带时间戳的会议笔记。\n\n## 一页检查清单\n\n```kiwi-task-progress\n{\"label\":\"上手进度\",\"showCount\":true,\"showPercent\":true,\"color\":\"indigo\",\"bind\":\"next\"}\n```\n\n- [x] 新建并保存一篇文档\n- [ ] 插入一个表格和一张图片\n- [ ] 用 `@` 提及建立一条双向链接\n- [ ] 切换一次画布主题\n- [ ] 在数据表里新建一行\n- [ ] 编译一次 Wiki\n- [ ] 在星图上悬停一个节点\n- [ ] 双击笔记打开「贴一贴」浮窗\n- [ ] 录一段语音并生成会议笔记\n- [ ] 完成一次五题练习\n- [ ] 查看一次学习周报\n- [ ] 完成一次仿真考试\n\n下一步：[@界面地图](kiwi://note/c33ea347-9c1e-503b-9b88-83fd8feec08b)",
+      "body_md": "# 一分钟上手\n\n这条路线覆盖「记下来 → 连起来 → 编译 → 学习」四步。每一步都能在本库中找到完整示例。\n\n## 1. 记下来\n\n在左侧目录点击「+」新建文档，输入标题后直接写作。输入 `/` 打开块命令，可以插入标题、任务列表、表格、代码块、图片与附件。\n\n> 试一试：在下一行输入 `/table`，插入一张 3×3 的表格。\n\n## 2. 连起来\n\n输入 `@` 从下拉列表选择一篇笔记或 Wiki 页面。引用按 ID 保存，目标改名后仍然有效；保存后，被引用页面的「反向链接」会出现本文。示例见 [@双向链接与反向链接](kiwi://note/1fb9212c-0067-5827-ac1b-53fff6d72ce6)。\n\n## 3. 编译成 Wiki\n\n打开任意笔记，在条目菜单选择「编译 Wiki」。系统会把笔记整理成概念页，并建立引用关系；待办汇总、只读导入材料与数据表行笔记会自动跳过。编译完成后：\n\n- 在「Wiki」页看到页面网络；\n- 在「知识图谱」看到节点与边；\n- 在「学习」中看到可学习的知识点。\n\n## 4. 学习与复习\n\n进入「学习」→ 选择模式 → 完成练习。答错或不确定的知识点会进入复习队列，由 FSRS-5 安排下一次出现；「学习周报」会汇总正确率、薄弱点与留存曲线。\n\n## 5. 贴一贴与语音\n\n- 双击目录中的任意笔记，会弹出「贴一贴」浮窗；可以同时打开多篇，拖动标题栏与右下角调整位置和大小。\n- 目录「+」→「语音转写」可以直接录音，录音过程中每 12 秒显示本地实时字幕，停止后生成带时间戳的会议笔记。\n\n## 6. 并排与追问\n\n- 打开一篇文档，点工具栏「分栏」，再从目录点开第二篇：两篇笔记会并排显示。拖动分隔条或标题可以重新排布；\n- 在「问答」里先问一个宽泛的问题，再补一句「那上周呢」之类的短追问，系统会沿用上文主题；\n- 需要限定范围时，在输入框输入 `@` 选择笔记或目录，只在这部分内容里检索。\n\n## 一页检查清单\n\n```kiwi-task-progress\n{\"label\":\"上手进度\",\"showCount\":true,\"showPercent\":true,\"color\":\"indigo\",\"bind\":\"next\"}\n```\n\n- [x] 新建并保存一篇文档\n- [ ] 插入一个表格和一张图片\n- [ ] 用 `@` 提及建立一条双向链接\n- [ ] 切换一次画布主题\n- [ ] 在数据表里新建一行\n- [ ] 编译一次 Wiki\n- [ ] 在星图上悬停一个节点\n- [ ] 双击笔记打开「贴一贴」浮窗\n- [ ] 录一段语音并生成会议笔记\n- [ ] 完成一次五题练习\n- [ ] 查看一次学习周报\n- [ ] 完成一次仿真考试\n- [ ] 用分栏并排打开两篇笔记\n- [ ] 在问答里完成一次多轮追问\n\n下一步：[@界面地图](kiwi://note/c33ea347-9c1e-503b-9b88-83fd8feec08b)",
       "kind": "doc",
       "folder_id": "7f35561b-a6c0-58ca-b677-a8f91aed364e",
       "source_id": null,
@@ -394,7 +418,7 @@
       "id": "c33ea347-9c1e-503b-9b88-83fd8feec08b",
       "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
       "title": "界面地图",
-      "body_md": "# 界面地图\n\nKiwi 的导航按「输入 → 整理 → 理解 → 掌握」组织。第一次使用时，可以按下面的地图逐项体验。\n\n| 导航 | 你在这里做什么 | 关键动作 |\n|---|---|---|\n| 知识库 | 切换、创建、隐藏与还原知识库 | 内置库删除后可还原 |\n| 笔记 | 多文档目录树 + 正文编辑 | 文档 / 画布 / 数据表 / 表格 / Notebook / 导入 / 外链 |\n| Wiki | 浏览编译后的页面网络 | 搜索、反向链接、笔记溯源 |\n| 图谱 | 查看笔记与 Wiki 的关系 | 精要 / 完整、聚焦、掌握度模式 |\n| 学习 | 练习、复习、周报与考试 | 画像、计划、错题、批注与提醒 |\n| 问答 | 基于知识库内容提问 | 混合检索、筛选、可点击引用 |\n| 设置 | 模型、Embedding、插件、语音转写 | 修改前先阅读说明 |\n\n## 输入与整理\n\n- 文档与画布：[@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55)、[@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc)\n- 结构与数据：[@数据表示例 · 功能体验清单](kiwi://note/13c1fd78-4142-5e8a-a29b-0d268fa6e5d6)、[@表格示例 · 学习时间台账](kiwi://note/ff686634-7914-5980-b52b-eb5785d0d182)、[@Notebook 示例 · 学习记录分析](kiwi://note/72094380-bca5-59bb-9005-d2bcec8171a3)\n- 资料进入系统：[@导入示例 · Kiwi 功能速查表](kiwi://note/e43d92dc-68a4-56c6-aa88-418bead31acc)、[@外链示例 · AntV G6 文档](kiwi://note/ed7978f9-3052-59c1-be16-ad02e1147255)\n\n## 理解与掌握\n\n- 页面网络：[@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)\n- 关系可视化：[@知识图谱：星图怎么读](kiwi://note/8dc15b62-f2af-534c-8a79-e02c9c0177d1)\n- 学习闭环：[@学习模式：把 Wiki 变成课程](kiwi://note/aacab54d-b1a4-5e24-983d-0fe50fbd0e07)、[@复习与仿真考试](kiwi://note/386e217f-2316-59ac-9f67-e416978fd314)、[@学习增强：FSRS-5、周报与提醒](kiwi://note/86d0b414-0cc4-53de-a24d-32f6ea1ce10c)\n\n## 进阶入口\n\n- 语音记录：[@语音转写：把会议录音变成笔记](kiwi://note/9482b402-4e68-5bb3-8ea1-05e80388c716)\n- 多窗对照：[@贴一贴：把笔记置顶成便签](kiwi://note/c4e4c696-daef-50da-833c-fada252195f1)\n- 可交互区块：[@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954)\n- 免登录阅读：[@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3)\n- 结构化资料：[@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)\n- 提问与定位：[@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4)\n- 跨笔记待办：[@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48)\n- 交付与背单词：[@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)、[@Anki 互通：题库带进带出](kiwi://note/d48ee7fe-940c-543c-83eb-5d6ba2b1ec6e)\n\n> 小技巧：在任何页面按 `Ctrl / ⌘ + K` 打开全局搜索，输入标题即可跳转。",
+      "body_md": "# 界面地图\n\nKiwi 的导航按「输入 → 整理 → 理解 → 掌握」组织。第一次使用时，可以按下面的地图逐项体验。\n\n| 导航 | 你在这里做什么 | 关键动作 |\n|---|---|---|\n| 知识库 | 切换、创建、隐藏与还原知识库 | 内置库删除后可还原 |\n| 笔记 | 多文档目录树 + 正文编辑 | 文档 / 画布 / 数据表 / 表格 / Notebook / 导入 / 外链 |\n| Wiki | 浏览编译后的页面网络 | 搜索、反向链接、笔记溯源 |\n| 图谱 | 查看笔记与 Wiki 的关系 | 精要 / 完整、聚焦、掌握度模式 |\n| 学习 | 练习、复习、周报与考试 | 画像、计划、错题、批注与提醒 |\n| 问答 | 基于知识库内容提问 | 混合检索、筛选、可点击引用 |\n| 设置 | 模型、Embedding、插件、语音转写 | 修改前先阅读说明 |\n\n## 输入与整理\n\n- 文档与画布：[@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55)、[@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc)\n- 结构与数据：[@数据表示例 · 功能体验清单](kiwi://note/13c1fd78-4142-5e8a-a29b-0d268fa6e5d6)、[@表格示例 · 学习时间台账](kiwi://note/ff686634-7914-5980-b52b-eb5785d0d182)、[@Notebook 示例 · 学习记录分析](kiwi://note/72094380-bca5-59bb-9005-d2bcec8171a3)\n- 资料进入系统：[@导入示例 · Kiwi 功能速查表](kiwi://note/e43d92dc-68a4-56c6-aa88-418bead31acc)、[@外链示例 · AntV G6 文档](kiwi://note/ed7978f9-3052-59c1-be16-ad02e1147255)\n\n## 理解与掌握\n\n- 页面网络：[@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)\n- 关系可视化：[@知识图谱：星图怎么读](kiwi://note/8dc15b62-f2af-534c-8a79-e02c9c0177d1)\n- 学习闭环：[@学习模式：把 Wiki 变成课程](kiwi://note/aacab54d-b1a4-5e24-983d-0fe50fbd0e07)、[@复习与仿真考试](kiwi://note/386e217f-2316-59ac-9f67-e416978fd314)、[@学习增强：FSRS-5、周报与提醒](kiwi://note/86d0b414-0cc4-53de-a24d-32f6ea1ce10c)\n\n## 进阶入口\n\n- 并排对照：[@分栏工作区：多篇笔记并排](kiwi://note/28335330-d575-5e26-a50c-fc6139d32c74)\n- 画布增强：[@画布增强：模板库、信息图与魔法棒](kiwi://note/da60d516-6c88-5fb4-b8f2-1951445320fb)\n- 智能问答：[@问答 Agent：会规划、会联网、会读附件](kiwi://note/be7ca2f1-a35f-5f90-a486-412769f3c5f5)\n\n- 语音记录：[@语音转写：把会议录音变成笔记](kiwi://note/9482b402-4e68-5bb3-8ea1-05e80388c716)\n- 多窗对照：[@贴一贴：把笔记置顶成便签](kiwi://note/c4e4c696-daef-50da-833c-fada252195f1)\n- 可交互区块：[@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954)\n- 免登录阅读：[@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3)\n- 结构化资料：[@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)\n- 提问与定位：[@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4)\n- 跨笔记待办：[@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48)\n- 交付与背单词：[@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)、[@Anki 互通：题库带进带出](kiwi://note/d48ee7fe-940c-543c-83eb-5d6ba2b1ec6e)\n\n> 小技巧：在任何页面按 `Ctrl / ⌘ + K` 打开全局搜索，输入标题即可跳转。",
       "kind": "doc",
       "folder_id": "7f35561b-a6c0-58ca-b677-a8f91aed364e",
       "source_id": null,
@@ -1960,6 +1984,139 @@
       },
       "created_at": "2026-10-18T11:19:00+00:00",
       "updated_at": "2026-10-18T11:22:00+00:00"
+    },
+    {
+      "id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "最新能力速览",
+      "body_md": "# 最新能力速览 🚀\n\n> 这一组笔记汇总 2026 年 10–11 月新增的能力，按「怎么用、什么时候用」整理。每条都能在本库找到可操作的示例。\n\n```kiwi-task-progress\n{\"label\":\"新能力体验进度\",\"showCount\":true,\"showPercent\":true,\"color\":\"indigo\",\"bind\":\"next\"}\n```\n\n- [ ] 用分栏并排打开两篇笔记\n- [ ] 在画布里试一次模板库或魔法棒\n- [ ] 问一个需要多轮追问的问题\n- [ ] 插入一张附件卡片\n- [ ] 在时间轴插件里写一条待办\n- [ ] 打开桌面版设置页\n\n## 一张图看懂变化\n\n```mermaid\nflowchart LR\n  A[收集资料] --> B[分栏对照]\n  B --> C[画布表达]\n  C --> D[问答检索]\n  D --> E[沉淀 Wiki]\n```\n\n## 去哪看\n\n| 能力 | 一句话 | 展开阅读 |\n|---|---|---|\n| 分栏工作区 | 最多 6 篇笔记并排，拖动停靠、按库保存布局 | [@分栏工作区：多篇笔记并排](kiwi://note/28335330-d575-5e26-a50c-fc6139d32c74) |\n| 画布增强 | 51 个模板、信息图、魔法棒、手绘风、内嵌预览缩放 | [@画布增强：模板库、信息图与魔法棒](kiwi://note/da60d516-6c88-5fb4-b8f2-1951445320fb) |\n| 问答 Agent | 自动规划、联网、多轮追问、读取附件正文 | [@问答 Agent：会规划、会联网、会读附件](kiwi://note/be7ca2f1-a35f-5f90-a486-412769f3c5f5) |\n| 编辑器细节 | 查找替换、首行缩进、上传进度、附件卡片、表格拖拽 | [@编辑器细节：查找替换与附件卡片](kiwi://note/f8f7bdc2-1101-5f9d-8084-d80936012c1c) |\n| 插件进阶 | 时间轴、倒计时指定时刻、NoteEditor 宿主与开发套件 | [@插件进阶：时间轴、倒计时与开发套件](kiwi://note/096aca0b-cff0-51ac-971b-0793aa9f5bd1) |\n| 桌面版 | 离线构建、Windows 安装包、桌面设置与部署 | [@桌面版与部署：离线与 Windows 安装包](kiwi://note/ec9de589-6d0b-554a-940b-db4fd9456dc5) |\n\n> 建议先读分栏与问答：它们改变的是「怎么用知识库」，其余能力都是在各自模块里的增强。\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 0,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "分栏工作区：多篇笔记并排",
+      "body_md": "# 分栏工作区：多篇笔记并排 🪟\n\n> 分栏把工作区拆成最多 6 个平铺窗口，替代了原来的「左编辑 / 右预览」分屏：现在是多篇笔记各自完整地并排打开。\n\n## 进入与打开\n\n1. 打开任意文档，点击顶部工具栏的「分栏」；\n2. 在左侧目录点击另一篇笔记，会自动在右侧新增一栏；已打开则直接聚焦；\n3. 正文里 @ 提及笔记、点击网页 / 文件的「在分栏中打开」，同样会新增一栏。\n\n## 调整布局\n\n- 拖动两栏之间的分隔条改变宽度，双击恢复均分；\n- 拖动栏标题到另一栏的上 / 下 / 左 / 右边缘，重新停靠；\n- 顶部工具栏可一键切换 左右排列 / 上下排列 / 网格；\n- 关闭最后一栏会退出分栏，回到单篇视图。\n\n## 边界与细节\n\n- 最多 6 栏，超出时替换最久未使用的一栏；\n- 布局按知识库分别保存，刷新或下次打开自动恢复；\n- 窄屏（< 768px）自动挂起分栏，恢复宽度后回来；\n- Ctrl/⌘+F 查找与 Ctrl/⌘+S 保存只作用于当前活动栏；\n- 上锁笔记逐栏解锁，互不影响。\n\n> 适合：边看资料边写、对照两份方案、把网页或附件固定在旁边。\n\n相关：[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) · [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3)\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 1,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "画布增强：模板库、信息图与魔法棒",
+      "body_md": "# 画布增强：模板库、信息图与魔法棒 🎨\n\n> 画布现在不只是「画关系」：可以从 51 个模板起步，用信息图快速排版，再用魔法棒一键统一配色。\n\n## 模板库与信息图\n\n- **模板库**：流程图、系统架构、UML、战略分析等 51 个可编辑模板，点击标题右侧的模板库图标打开；\n- **信息图**：选择版式后载入示例，或粘贴 DSL 数据生成；插入内容直接进入当前笔记并随自动保存持久化；\n- **全屏编辑**：内嵌画布点「全屏编辑」，在弹层里操作更从容。\n\n## 魔法棒与手绘风\n\n- 魔法棒内置鸢尾紫、湖蓝、松绿、暖橙、玫瑰、石墨 6 套同色系配色，也可以随机生成一套新的同色系配色；\n- 一键统一图形、连线与文字颜色，图片与透明填充保持不变，应用结果可用 Ctrl/⌘+Z 回退；\n- 「手绘风」会切换描边与内置手写字体，导出时字体一并嵌入，换机器打开也不丢。\n\n## 内嵌预览与导出\n\n- 文本笔记里的画布预览支持 50%–200% 缩放，100% 完整显示整张画布；不出现滚动条，放大后按住拖拽平移；\n- 预览与画布、导出图片使用同一渲染器，字体、箭头与图形保持一致；\n- 导出 PNG / PDF / SVG 为所见即所得，分享页与阅读态同样沿用画布外观。\n\n## 试试这条链路\n\n```kiwi-draw\n{\"type\":\"jvs-draw\",\"version\":1,\"elements\":[{\"id\":\"n1\",\"type\":\"rectangle\",\"x\":40,\"y\":40,\"width\":180,\"height\":64,\"angle\":0,\"strokeColor\":\"#64748b\",\"backgroundColor\":\"#dbeafe\",\"fillStyle\":\"solid\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"roughness\":0,\"roundness\":10,\"isDeleted\":false},{\"id\":\"n1t\",\"type\":\"text\",\"x\":40,\"y\":40,\"width\":180,\"height\":64,\"text\":\"选择模板\",\"originalText\":\"选择模板\",\"angle\":0,\"fontSize\":18,\"fontFamily\":\"normal\",\"fontColor\":\"#1e293b\",\"textAlign\":\"center\",\"verticalAlign\":\"middle\",\"backgroundColor\":\"transparent\",\"isDeleted\":false},{\"id\":\"n2\",\"type\":\"rectangle\",\"x\":320,\"y\":40,\"width\":180,\"height\":64,\"angle\":0,\"strokeColor\":\"#64748b\",\"backgroundColor\":\"#ede9fe\",\"fillStyle\":\"solid\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"roughness\":0,\"roundness\":10,\"isDeleted\":false},{\"id\":\"n2t\",\"type\":\"text\",\"x\":320,\"y\":40,\"width\":180,\"height\":64,\"text\":\"改造成自家流程\",\"originalText\":\"改造成自家流程\",\"angle\":0,\"fontSize\":18,\"fontFamily\":\"normal\",\"fontColor\":\"#1e293b\",\"textAlign\":\"center\",\"verticalAlign\":\"middle\",\"backgroundColor\":\"transparent\",\"isDeleted\":false},{\"id\":\"n3\",\"type\":\"rectangle\",\"x\":600,\"y\":40,\"width\":180,\"height\":64,\"angle\":0,\"strokeColor\":\"#64748b\",\"backgroundColor\":\"#dcfce7\",\"fillStyle\":\"solid\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"roughness\":0,\"roundness\":10,\"isDeleted\":false},{\"id\":\"n3t\",\"type\":\"text\",\"x\":600,\"y\":40,\"width\":180,\"height\":64,\"text\":\"导出 / 分享\",\"originalText\":\"导出 / 分享\",\"angle\":0,\"fontSize\":18,\"fontFamily\":\"normal\",\"fontColor\":\"#1e293b\",\"textAlign\":\"center\",\"verticalAlign\":\"middle\",\"backgroundColor\":\"transparent\",\"isDeleted\":false},{\"id\":\"n4\",\"type\":\"rectangle\",\"x\":320,\"y\":200,\"width\":180,\"height\":64,\"angle\":0,\"strokeColor\":\"#64748b\",\"backgroundColor\":\"#fef3c7\",\"fillStyle\":\"solid\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"roughness\":0,\"roundness\":10,\"isDeleted\":false},{\"id\":\"n4t\",\"type\":\"text\",\"x\":320,\"y\":200,\"width\":180,\"height\":64,\"text\":\"魔法棒统一配色\",\"originalText\":\"魔法棒统一配色\",\"angle\":0,\"fontSize\":18,\"fontFamily\":\"normal\",\"fontColor\":\"#1e293b\",\"textAlign\":\"center\",\"verticalAlign\":\"middle\",\"backgroundColor\":\"transparent\",\"isDeleted\":false},{\"id\":\"a1\",\"type\":\"arrow\",\"x\":220,\"y\":72,\"width\":100,\"height\":0,\"points\":[[0,0],[100,0]],\"angle\":0,\"strokeColor\":\"#475569\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"startArrowhead\":null,\"endArrowhead\":\"arrow\",\"arrowType\":\"sharp\",\"isDeleted\":false},{\"id\":\"a2\",\"type\":\"arrow\",\"x\":410,\"y\":104,\"width\":0,\"height\":96,\"points\":[[0,0],[0,96]],\"angle\":0,\"strokeColor\":\"#475569\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"startArrowhead\":null,\"endArrowhead\":\"arrow\",\"arrowType\":\"sharp\",\"isDeleted\":false},{\"id\":\"a3\",\"type\":\"arrow\",\"x\":500,\"y\":232,\"width\":190,\"height\":104,\"points\":[[0,0],[190,0],[190,-104]],\"angle\":0,\"strokeColor\":\"#475569\",\"strokeWidth\":2,\"strokeStyle\":\"solid\",\"strokeOpacity\":100,\"startArrowhead\":null,\"endArrowhead\":\"arrow\",\"arrowType\":\"elbow\",\"isDeleted\":false}],\"appState\":{\"viewBackgroundColor\":\"#ffffff\"},\"files\":{},\"updatedAt\":1762327200000}\n```\n\n相关：[@画布](kiwi://wiki/cb34aa6e-e2e4-53b5-b1df-fd9986483a22) · [@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc) · [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 2,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "问答 Agent：会规划、会联网、会读附件",
+      "body_md": "# 问答 Agent：会规划、会联网、会读附件 🤖\n\n> 问答不再只是「检索 + 总结」：收到问题后先做计划，需要时联网，必要时读回附件正文，再用多轮上下文接住追问。\n\n## 它现在会做什么\n\n| 能力 | 说明 |\n|---|---|\n| 检索计划 | 先判断问题类型；个人时间类问题先解析日期窗口（如「这周」→ 本周一到周日） |\n| 多轮补全 | 短追问会沿用上文主题，例如先问「今天天气怎么样」再只回复「北京」 |\n| 范围限定 | 输入 @ 指定笔记或目录，目录自动包含子目录，只在这些内容里检索 |\n| 读取附件 | 命中带附件的笔记时读回文件正文：文本 / 代码直接读，PDF / DOCX 复用导入解析器 |\n| 联网补充 | Agent 与联网默认开启，由规划器判断是否需要；知识库之外的来源以「网页」引用展示 |\n| 过程可见 | 理解问题、检索、同步笔记、联网、生成逐步打勾，完成后保留「已完成 N 个步骤 · 用时」 |\n| 引用收敛 | 只展示正文实际引用到的来源，不再罗列全部命中 |\n\n## 怎么问更好\n\n1. 先给背景，再提要求：把项目、时间范围、期望产出说清楚；\n2. 需要限定范围时直接 @ 笔记或目录，比事后筛选更准；\n3. 追问可以很短，系统会沿用上一轮主题；\n4. 结论满意后用「回写为 Wiki 综合页」沉淀，避免答案只留在会话里。\n\n> 联网检索默认使用 Bing，失败回退 DuckDuckGo；当前模型为 DeepSeek 时也可复用官方 Search 接口。\n\n相关：[@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9) · [@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4) · [@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 3,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "f8f7bdc2-1101-5f9d-8084-d80936012c1c",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "编辑器细节：查找替换与附件卡片",
+      "body_md": "# 编辑器细节：查找替换与附件卡片 ✍️\n\n> 这一组是每天都会用到的小能力，单看很碎，合起来能省下大量重复操作。\n\n## 页内查找与替换\n\n- Ctrl/⌘+F 打开页内查找，展开替换行后可替换当前一处或全部命中；\n- 替换词留空即删除；改动进入撤销历史并触发自动保存；\n- 只读视图会提示切换编辑视图，不会静默失败。\n\n## 首行缩进与粘贴\n\n- 工具栏「首行缩进 2 字符」只作用于光标所在段落，再次点击取消，格式随正文保存；\n- 粘贴或导入的内联截图（data URL）不再被静默丢弃，可直接保存进笔记。\n\n## 附件与上传\n\n- 附件支持「内容预览 / 卡片 / 标题超链接」三种展示方式，选择随正文保存；\n- 卡片只显示图标、文件名、类型与大小，不加载文件内容，长文档列表更清爽；\n- 上传进度改为顶部常驻卡片，显示百分比与进度条，可取消；GB 级文件不再看起来「没有反应」。\n\n## 表格\n\n- 拖动列边框调整列宽、拖动行底边调整行高；\n- 列宽与行高随表格写入正文，刷新后保留。\n\n相关：[@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) · [@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 4,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "096aca0b-cff0-51ac-971b-0793aa9f5bd1",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "插件进阶：时间轴、倒计时与开发套件",
+      "body_md": "# 插件进阶：时间轴、倒计时与开发套件 🧩\n\n> 组件插件从「能插入」走向「能参与工作流」：时间轴里的待办会进收件箱，倒计时可以指定时刻，第三方插件有了完整的开发套件。\n\n## 时间轴插件\n\n- 每个时间点可展开编写富文本笔记（含待办勾选框），收起时只显示时间与摘要；\n- 支持关键时间点标记、自由增删时间点；\n- 时间点正文里的勾选框任务会进入收件箱，并与来源双向同步；从收件箱定位时会展开对应时间点并高亮任务。\n\n## 倒计时插件\n\n- 新增「指定时刻」模式：选择本地时间的年月日时分秒，倒向该时刻；\n- 结束时播放三声提示音，并提供静音开关。\n\n## 插件开发\n\n- 新增宿主 `host.components.NoteEditor`：组件插件可以复用与文本笔记一致的 Markdown 富文本编辑能力（标题、列表、引用、代码与待办勾选框）；\n- 插件与区块开发套件随后端镜像分发：包含 `PLUGIN_SPEC.md`、`kiwi-plugin` skill 与 counter / pomodoro / countdown / timeline 四个示例，共 20 个文件；\n- 第三方插件是可在页面中执行的 JavaScript，只应导入可信来源；停用后已插入区块降级为静态卡片，数据不丢失。\n\n相关：[@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e) · [@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954) · [@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48)\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 5,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "ec9de589-6d0b-554a-940b-db4fd9456dc5",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "title": "桌面版与部署：离线与 Windows 安装包",
+      "body_md": "# 桌面版与部署：离线与 Windows 安装包 🖥️\n\n> 同一套前端现在有两种交付方式：浏览器访问，或安装为桌面应用。桌面版优先保证离线与本地数据边界。\n\n## 桌面版\n\n- `npm run build:desktop` 生成桌面前端：改用系统字体栈，移除 Google Fonts 与 emoji CDN 回退；\n- 远程图片、图册、YouTube 与网页嵌入显示本地占位，编辑器与阅读态都不发起外网请求；\n- 桌面设置页（`/settings/desktop`）展示本地运行状态与数据 / 日志目录，集中管理「允许连接外部模型接口」与「本机代码执行」开关，两者默认关闭且开启前必须确认风险；\n- 未配置模型时，问答、Wiki 编译、学习出题与向量设置显示明确的空态和设置入口。\n\n## Windows 安装包\n\n- `desktop/build.ps1` 一键构建桌面前端、PyInstaller runtime、便携 Python 与 .NET WebView2 宿主，生成 Inno Setup 安装包与 SHA-256；\n- 推送 `v*` 标签或手动触发发布工作流，会执行静默安装、安装后 smoke-test、卸载与用户数据保留检查；\n- 第三方组件版本与校验值固定在 `desktop/versions.json`。\n\n## 部署与分享\n\n- 生产 Compose 可选 `cloudflared` 服务，用 `./deploy.sh cloudflare` 配置公网只读分享；\n- `./deploy.sh update` 会重建 backend 容器，让 `.env.prod` 的变更立即生效；\n- 运维页的后台任务与审计日志改为服务端分页，默认只保留近 14 天，可用 `KIWI_OPS_RETENTION_DAYS` 调整。\n\n相关：[@桌面版](kiwi://wiki/81344fec-ffdf-5f0d-964f-326775617a7e) · [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3) · [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)\n",
+      "kind": "doc",
+      "folder_id": "337c831c-927d-5f60-b9a0-c6d3ad2535aa",
+      "source_id": null,
+      "status": "active",
+      "view_mode": "read",
+      "sort_order": 6,
+      "props_json": {
+        "page_prefs": {
+          "width": "full"
+        }
+      },
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
     }
   ],
   "note_collections": [
@@ -2020,6 +2177,26 @@
                 "id": "study",
                 "name": "学习",
                 "color": "green"
+              },
+              {
+                "id": "panes",
+                "name": "分栏",
+                "color": "indigo"
+              },
+              {
+                "id": "qa",
+                "name": "问答",
+                "color": "violet"
+              },
+              {
+                "id": "plugin",
+                "name": "插件",
+                "color": "amber"
+              },
+              {
+                "id": "desktop",
+                "name": "桌面",
+                "color": "slate"
               }
             ]
           },
@@ -2823,6 +3000,196 @@
       "sort_order": 9,
       "created_at": "2026-10-18T10:59:00+00:00",
       "updated_at": "2026-10-18T11:00:00+00:00"
+    },
+    {
+      "id": "0abeebae-016a-5a1a-a04e-b5e9cac03531",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "分栏工作区",
+        "module": "panes",
+        "status": "done",
+        "priority": "core",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "多篇笔记并排、拖动停靠与布局恢复。"
+      },
+      "sort_order": 13,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "1c15b39e-9bbb-5186-b6b0-6417eadd497d",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "画布模板库与信息图",
+        "module": "canvas",
+        "status": "done",
+        "priority": "core",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "51 个模板与 DSL 信息图，插入即用。"
+      },
+      "sort_order": 15,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "c3c2aa74-068a-5d37-b542-e3da087e0aed",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "魔法棒与手绘风",
+        "module": "canvas",
+        "status": "done",
+        "priority": "plus",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "同色系配色与手绘描边，导出保持外观。"
+      },
+      "sort_order": 17,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "2afe5410-b9d1-58fc-aa1c-68539c5359b1",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "问答 Agent 与联网",
+        "module": "qa",
+        "status": "done",
+        "priority": "core",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "自动规划、范围限定、联网补充。"
+      },
+      "sort_order": 19,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "82eb382b-cb75-5891-a8f7-392a25044c58",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "问答读取附件",
+        "module": "qa",
+        "status": "done",
+        "priority": "plus",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "命中附件笔记时读回正文。"
+      },
+      "sort_order": 21,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "ca1012d8-c58d-5fa9-ae8e-30e5bb4559ff",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "页内查找替换",
+        "module": "notes",
+        "status": "done",
+        "priority": "plus",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "替换当前 / 全部，进入撤销历史。"
+      },
+      "sort_order": 23,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "801ce6f2-92ce-58dd-8766-347202ff7503",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "附件卡片展示",
+        "module": "notes",
+        "status": "done",
+        "priority": "plus",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "预览 / 卡片 / 链接三种展示方式。"
+      },
+      "sort_order": 25,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "4455b443-88dc-5485-989e-288dace975f8",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "时间轴插件与待办联动",
+        "module": "plugin",
+        "status": "done",
+        "priority": "plus",
+        "date": "2026-11-05",
+        "mastered": true,
+        "rating": 4,
+        "note": "时间点任务进入收件箱并双向同步。"
+      },
+      "sort_order": 27,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "6fd174c6-82d5-578c-ba0b-7366436c52ba",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "插件开发套件",
+        "module": "plugin",
+        "status": "doing",
+        "priority": "opt",
+        "date": "2026-11-05",
+        "mastered": false,
+        "rating": 4,
+        "note": "插件规范与四个示例，随后端镜像分发。"
+      },
+      "sort_order": 29,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "13e4c32d-1c6f-50b3-988d-27509dd03f77",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "collection_id": "57bbce85-8289-5fbe-9a95-057b03657459",
+      "note_id": null,
+      "data": {
+        "name": "桌面版离线构建",
+        "module": "desktop",
+        "status": "doing",
+        "priority": "opt",
+        "date": "2026-11-05",
+        "mastered": false,
+        "rating": 4,
+        "note": "系统字体栈与外网占位，默认离线。"
+      },
+      "sort_order": 31,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
     }
   ],
   "wiki_pages": [
@@ -2832,7 +3199,7 @@
       "slug": "kiwi",
       "page_type": "entity",
       "title": "Kiwi",
-      "body_md": "# Kiwi\n\n> Kiwi 是一个本地优先的个人知识工作台：把笔记、资料、画布、数据表与 Wiki 放在同一个知识库中，再用图谱与学习模式把内容变成可理解、可记忆的知识。\n\n## 它解决什么问题\n\n- **资料散落**：导入、外链与笔记统一进入知识库，按目录与标签组织；\n- **关系看不见**：双向链接、反向链接与知识图谱把引用显性化；\n- **学完就忘**：知识点、间隔重复与仿真考试形成学习闭环。\n\n## 组成部分\n\n- [@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767)：文档、画布、数据表、表格、Notebook、导入与外链；\n- [@Wiki 编译](kiwi://wiki/b56058d7-d986-5e09-8d32-dac328d9b55c)：把笔记整理成可引用的页面；\n- [@知识图谱](kiwi://wiki/2ce15a8a-4795-5f04-8ae1-d614076e6e20)：可视化页面、笔记与它们的关系；\n- [@学习模式](kiwi://wiki/d8c50cbf-39de-571a-86d1-c6ebba20eb03)：从 Wiki 生成练习并安排复习；\n- [@语音转写](kiwi://wiki/29021803-0d76-5771-99f2-bbb2299788cb)：把录音变成可编辑的会议笔记；\n- [@贴一贴](kiwi://wiki/4825459c-8ad1-5c75-93b8-518419d635c1)：把多篇笔记浮在主窗口之上对照；\n- [@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e)：用内置与第三方区块扩展正文；\n- [@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9)：混合检索后带来源回答；\n- [@待办汇总](kiwi://wiki/ae70e8cf-2a90-5cf2-8fdf-aa59c57eaa0b)：跨笔记与数据表的任务视图；\n- [@导出与交付](kiwi://wiki/32737554-3372-50bc-a88c-ea97a6864c50)：导出为通用文档格式。\n\n## 边界\n\nKiwi 不替代团队协作文档，也不提供实时多人编辑。它更适合个人或小团队沉淀主题知识：内容归自己所有，数据保存在本地数据库中，模型与向量服务可以按知识库配置。\n\n## 来源\n\n- 本库「欢迎使用 Kiwi」与「界面地图」笔记\n- Kiwi 功能速查表 · 第 1 节「输入」",
+      "body_md": "# Kiwi\n\n> Kiwi 是一个本地优先的个人知识工作台：把笔记、资料、画布、数据表与 Wiki 放在同一个知识库中，再用图谱与学习模式把内容变成可理解、可记忆的知识。\n\n## 它解决什么问题\n\n- **资料散落**：导入、外链与笔记统一进入知识库，按目录与标签组织；\n- **关系看不见**：双向链接、反向链接与知识图谱把引用显性化；\n- **学完就忘**：知识点、间隔重复与仿真考试形成学习闭环。\n\n## 组成部分\n\n- [@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767)：文档、画布、数据表、表格、Notebook、导入与外链；\n- [@分栏工作区](kiwi://wiki/280a245d-8685-5e7a-935f-4585c84f70e3)：多篇笔记并排、拖动停靠；\n- [@画布模板与信息图](kiwi://wiki/70a66b4b-cbf8-504f-aa72-28686dc07350)：模板、信息图与统一配色；\n- [@问答 Agent](kiwi://wiki/11fa5198-87ca-57c2-9b5c-4d99e0b4d003)：规划、联网、多轮与附件阅读；\n- [@插件开发与套件](kiwi://wiki/09ef558a-7820-5ef8-a42d-b14169b739cf)：第三方区块与开发套件；\n- [@桌面版](kiwi://wiki/81344fec-ffdf-5f0d-964f-326775617a7e)：离线构建与 Windows 安装包；\n- [@Wiki 编译](kiwi://wiki/b56058d7-d986-5e09-8d32-dac328d9b55c)：把笔记整理成可引用的页面；\n- [@知识图谱](kiwi://wiki/2ce15a8a-4795-5f04-8ae1-d614076e6e20)：可视化页面、笔记与它们的关系；\n- [@学习模式](kiwi://wiki/d8c50cbf-39de-571a-86d1-c6ebba20eb03)：从 Wiki 生成练习并安排复习；\n- [@语音转写](kiwi://wiki/29021803-0d76-5771-99f2-bbb2299788cb)：把录音变成可编辑的会议笔记；\n- [@贴一贴](kiwi://wiki/4825459c-8ad1-5c75-93b8-518419d635c1)：把多篇笔记浮在主窗口之上对照；\n- [@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e)：用内置与第三方区块扩展正文；\n- [@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9)：混合检索后带来源回答；\n- [@待办汇总](kiwi://wiki/ae70e8cf-2a90-5cf2-8fdf-aa59c57eaa0b)：跨笔记与数据表的任务视图；\n- [@导出与交付](kiwi://wiki/32737554-3372-50bc-a88c-ea97a6864c50)：导出为通用文档格式。\n\n## 边界\n\nKiwi 不替代团队协作文档，也不提供实时多人编辑。它更适合个人或小团队沉淀主题知识：内容归自己所有，数据保存在本地数据库中，模型与向量服务可以按知识库配置。\n\n## 来源\n\n- 本库「欢迎使用 Kiwi」与「界面地图」笔记\n- Kiwi 功能速查表 · 第 1 节「输入」",
       "frontmatter_json": {
         "type": "entity",
         "tags": [],
@@ -2876,7 +3243,7 @@
       "slug": "notes-workspace",
       "page_type": "concept",
       "title": "笔记工作区",
-      "body_md": "# 笔记工作区\n\n> 笔记工作区由左侧目录树与右侧编辑区组成，支持文档、画布、数据表、表格、Notebook、导入与外链七种条目。\n\n## 七种条目\n\n| 类型 | 用途 | 编辑体验 |\n|---|---|---|\n| 文档 | 长文、会议纪要、学习笔记 | 标准编辑 / DOCX，Markdown + 块命令 |\n| 画布 | 架构图、流程图、思维导图 | 无限画布、智能连线 |\n| 数据表 | 任务、台账、术语表 | 表格 / 看板 / 画册 / 日历 |\n| 表格 | 预算、计算、Excel 台账 | 多工作表、公式、合并单元格 |\n| Notebook | 数据分析与演示 | 代码单元 + 输出 |\n| 导入 | 从文件生成的笔记 | 可编辑，保留来源 |\n| 外链 | 从网页抓取的正文 | 可编辑，保留原链接 |\n\n## 目录与标签\n\n目录树支持拖拽排序、移动分组与递归删除；删除父级分组会连同子分组与笔记一起移入回收站（30 天可恢复），删除前会展示影响范围。标签是跨目录维度。条目可以固定、归档或移入回收站。\n\n## 浮窗与分享\n\n- 双击目录中的笔记可以打开 [@贴一贴](kiwi://wiki/4825459c-8ad1-5c75-93b8-518419d635c1) 浮窗，多篇并排对照；\n- 右键菜单可以把笔记生成 [@只读分享](kiwi://wiki/64661639-585c-5251-bfb2-b88cc709f6ba) 链接；\n- 正文可以插入 [@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e) 提供的内置区块与第三方区块。\n\n## 自动保存\n\n正文、标题与视图模式在停止输入约 800ms 后自动保存；切换条目前会强制保存一次，避免内容丢失。浮窗内的文档约 900ms 自动保存。\n\n## 相关页面\n\n[@双向链接](kiwi://wiki/80f00220-0846-5e7d-b163-04c75b7162b9) · [@画布](kiwi://wiki/cb34aa6e-e2e4-53b5-b1df-fd9986483a22) · [@数据表视图](kiwi://wiki/cd5f975a-9d44-5601-93dc-8242187901bb) · [@表格笔记](kiwi://wiki/84232f48-da31-56df-a1ce-fec2b581274e) · [@Notebook](kiwi://wiki/58403d26-d1ef-5913-bc2f-1bc36acc523b) · [@外链笔记](kiwi://wiki/80b1e54b-116e-559d-a085-75f6cb6d19a5) · [@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9)",
+      "body_md": "# 笔记工作区\n\n> 笔记工作区由左侧目录树与右侧编辑区组成，支持文档、画布、数据表、表格、Notebook、导入与外链七种条目。\n\n## 七种条目\n\n| 类型 | 用途 | 编辑体验 |\n|---|---|---|\n| 文档 | 长文、会议纪要、学习笔记 | 标准编辑 / DOCX，Markdown + 块命令 |\n| 画布 | 架构图、流程图、思维导图 | 无限画布、智能连线 |\n| 数据表 | 任务、台账、术语表 | 表格 / 看板 / 画册 / 日历 |\n| 表格 | 预算、计算、Excel 台账 | 多工作表、公式、合并单元格 |\n| Notebook | 数据分析与演示 | 代码单元 + 输出 |\n| 导入 | 从文件生成的笔记 | 可编辑，保留来源 |\n| 外链 | 从网页抓取的正文 | 可编辑，保留原链接 |\n\n## 目录与标签\n\n目录树支持拖拽排序、移动分组与递归删除；删除父级分组会连同子分组与笔记一起移入回收站（30 天可恢复），删除前会展示影响范围。标签是跨目录维度。条目可以固定、归档或移入回收站。\n\n## 浮窗与分享\n\n- 双击目录中的笔记可以打开 [@贴一贴](kiwi://wiki/4825459c-8ad1-5c75-93b8-518419d635c1) 浮窗，多篇并排对照；\n- 右键菜单可以把笔记生成 [@只读分享](kiwi://wiki/64661639-585c-5251-bfb2-b88cc709f6ba) 链接；\n- 正文可以插入 [@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e) 提供的内置区块与第三方区块。\n\n## 自动保存\n\n正文、标题与视图模式在停止输入约 800ms 后自动保存；切换条目前会强制保存一次，避免内容丢失。浮窗内的文档约 900ms 自动保存。\n\n## 相关页面\n\n[@双向链接](kiwi://wiki/80f00220-0846-5e7d-b163-04c75b7162b9) · [@画布](kiwi://wiki/cb34aa6e-e2e4-53b5-b1df-fd9986483a22) · [@数据表视图](kiwi://wiki/cd5f975a-9d44-5601-93dc-8242187901bb) · [@表格笔记](kiwi://wiki/84232f48-da31-56df-a1ce-fec2b581274e) · [@Notebook](kiwi://wiki/58403d26-d1ef-5913-bc2f-1bc36acc523b) · [@外链笔记](kiwi://wiki/80b1e54b-116e-559d-a085-75f6cb6d19a5) · [@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9)\n\n## 分栏工作区\n\n工作区支持停靠式分栏：最多 6 篇笔记并排，目录点击 / @ 提及 / 网页与文件都可「在分栏中打开」，拖动分隔条与标题调整布局，布局按知识库保存。\n\n[@分栏工作区](kiwi://wiki/280a245d-8685-5e7a-935f-4585c84f70e3)",
       "frontmatter_json": {
         "type": "concept",
         "tags": [],
@@ -2898,7 +3265,7 @@
       "slug": "canvas",
       "page_type": "concept",
       "title": "画布",
-      "body_md": "# 画布\n\n> 画布是一块无限延展的绘图空间，用来表达难以用段落描述的结构、流程与关系。\n\n## 能力\n\n- **形状库**：矩形、圆角、椭圆、菱形、便签、文本、UML 类图、表格、网络设备；\n- **智能连接**：从节点边缘拖出连线，靠近目标节点时自动吸附到最近锚点，移动节点后连线保持连接；\n- **对齐辅助**：拖动时显示对齐线，支持等距与中心对齐；\n- **主题**：工程、蓝图、纸张、深夜四种主题；\n- **模板**：流程图、系统架构、时序图、思维导图；\n- **网格与吸附**：可关闭，便于自由排版。\n\n## 适用场景\n\n- 系统架构与部署边界；\n- 业务流程、状态机、接口时序；\n- 讨论提纲与主题拆解；\n- 学习笔记中的概念关系。\n\n## 相关页面\n\n[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@知识图谱](kiwi://wiki/2ce15a8a-4795-5f04-8ae1-d614076e6e20)",
+      "body_md": "# 画布\n\n> 画布是一块无限延展的绘图空间，用来表达难以用段落描述的结构、流程与关系。\n\n## 能力\n\n- **形状库**：矩形、圆角、椭圆、菱形、便签、文本、UML 类图、表格、网络设备；\n- **智能连接**：从节点边缘拖出连线，靠近目标节点时自动吸附到最近锚点，移动节点后连线保持连接；\n- **对齐辅助**：拖动时显示对齐线，支持等距与中心对齐；\n- **主题**：工程、蓝图、纸张、深夜四种主题；\n- **模板**：流程图、系统架构、时序图、思维导图；\n- **网格与吸附**：可关闭，便于自由排版。\n\n## 模板、信息图与风格\n\n- **模板库**：内置流程图、系统架构、UML、战略分析等 51 个模板；\n- **信息图**：选择版式后载入示例或粘贴 DSL 数据生成；\n- **魔法棒**：6 套同色系配色与随机主题，一键统一颜色；\n- **手绘风**：内置手写字体，导出时随文件嵌入；\n- **内嵌预览**：支持缩放与拖拽平移，100% 完整显示画布。\n\n## 适用场景\n\n- 系统架构与部署边界；\n- 业务流程、状态机、接口时序；\n- 讨论提纲与主题拆解；\n- 学习笔记中的概念关系。\n\n## 相关页面\n\n[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@知识图谱](kiwi://wiki/2ce15a8a-4795-5f04-8ae1-d614076e6e20)\n\n## 相关页面\n\n[@画布模板与信息图](kiwi://wiki/70a66b4b-cbf8-504f-aa72-28686dc07350)",
       "frontmatter_json": {
         "type": "concept",
         "tags": [],
@@ -3294,7 +3661,7 @@
       "slug": "component-plugins",
       "page_type": "concept",
       "title": "组件插件",
-      "body_md": "# 组件插件\n\n> 组件插件让笔记正文拥有可交互区块：内置组件随系统发布，第三方组件以 zip 包导入，二者使用同一套插入、对齐与启停机制。\n\n## 内置扩展组件\n\n日期、公式、文本绘图、图册、分栏卡片、日历、数据表与待办进度。可以在「设置 → 插件与区块」逐个启停，也可以导出参考包，作为开发第三方插件的模板。\n\n## 第三方插件包\n\n一个组件插件包至少包含 `plugin.json` 与入口 ESM，可选 CSS、README 与预览数据。导入分为「预检」与「安装」两步：预检展示插件 key、版本、区块与执行风险，确认后才安装并自动预览。\n\n插件支持启停、编辑元信息、导出与删除。停用后，已插入的区块降级为静态卡片，Markdown 数据保留。\n\n## 对齐与主题\n\n区块围栏 JSON 支持 `align` 字段：左对齐、居中、右对齐。插入后可选中区块切换；阅读态与分享页按同一方式渲染。\n\n插件中的强调色必须跟随系统主题：CSS 使用 `--kiwi-*` 变量，JS 使用宿主 `theme` 访问器。切换编辑模式、学习模式或自定义主题色时，插件应自动更新。\n\n## 开发与 AI 辅助\n\n系统提供开发规范、示例、开发套件与 `/api/plugins/spec` 摘要；仓库内置 `kiwi-plugin` skill，可交给支持 skill 的大模型生成同契约的插件包。\n\n## 边界\n\n只支持组件插件，不提供模板插件。第三方代码在浏览器中执行，只应导入可信来源。\n\n## 来源\n\n- Kiwi 功能速查表 · 5. 进阶能力\n- 本库「组件插件：给笔记装上交互」\n\n## 相关页面\n\n[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@导出与交付](kiwi://wiki/32737554-3372-50bc-a88c-ea97a6864c50) · [@Kiwi 功能速查表](kiwi://wiki/44f2741c-01e6-5746-93fb-b550e4ab8f1b)",
+      "body_md": "# 组件插件\n\n> 组件插件让笔记正文拥有可交互区块：内置组件随系统发布，第三方组件以 zip 包导入，二者使用同一套插入、对齐与启停机制。\n\n## 内置扩展组件\n\n日期、公式、文本绘图、图册、分栏卡片、日历、数据表与待办进度。可以在「设置 → 插件与区块」逐个启停，也可以导出参考包，作为开发第三方插件的模板。\n\n## 第三方插件包\n\n一个组件插件包至少包含 `plugin.json` 与入口 ESM，可选 CSS、README 与预览数据。导入分为「预检」与「安装」两步：预检展示插件 key、版本、区块与执行风险，确认后才安装并自动预览。\n\n插件支持启停、编辑元信息、导出与删除。停用后，已插入的区块降级为静态卡片，Markdown 数据保留。\n\n## 对齐与主题\n\n区块围栏 JSON 支持 `align` 字段：左对齐、居中、右对齐。插入后可选中区块切换；阅读态与分享页按同一方式渲染。\n\n插件中的强调色必须跟随系统主题：CSS 使用 `--kiwi-*` 变量，JS 使用宿主 `theme` 访问器。切换编辑模式、学习模式或自定义主题色时，插件应自动更新。\n\n## 开发与 AI 辅助\n\n系统提供开发规范、示例、开发套件与 `/api/plugins/spec` 摘要；仓库内置 `kiwi-plugin` skill，可交给支持 skill 的大模型生成同契约的插件包。\n\n## 边界\n\n只支持组件插件，不提供模板插件。第三方代码在浏览器中执行，只应导入可信来源。\n\n## 来源\n\n- Kiwi 功能速查表 · 5. 进阶能力\n- 本库「组件插件：给笔记装上交互」\n\n## 相关页面\n\n[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@导出与交付](kiwi://wiki/32737554-3372-50bc-a88c-ea97a6864c50) · [@Kiwi 功能速查表](kiwi://wiki/44f2741c-01e6-5746-93fb-b550e4ab8f1b)\n\n## 最近增强\n\n- 时间轴插件：时间点的富文本与待办勾选框，任务进入收件箱并双向同步；\n- 倒计时插件：支持指定本地时刻，结束播放三声提示音；\n- 插件可复用 `host.components.NoteEditor` 的 Markdown 编辑能力；\n- 开发套件随后端镜像分发，包含规范、skill 与四个示例。\n\n## 相关页面\n\n[@插件开发与套件](kiwi://wiki/09ef558a-7820-5ef8-a42d-b14169b739cf)",
       "frontmatter_json": {
         "type": "concept",
         "tags": [],
@@ -3360,7 +3727,7 @@
       "slug": "qa-retrieval",
       "page_type": "concept",
       "title": "问答与检索",
-      "body_md": "# 问答与检索\n\n> 问答先检索、再生成：系统从 Wiki 与笔记中找出相关片段，把带编号的来源交给模型，回答中的每个引用都能跳回原文。\n\n## 检索范围\n\n- 单库、多库与全局三种范围；\n- 自动 / Wiki 优先 / 笔记优先的意图路由；\n- 笔记筛选：按类型、标签与更新时间；标签筛选只在单库范围生效。\n\n## 混合检索\n\n1. 向量召回负责语义相近；\n2. BM25 负责关键词与标题精确命中；\n3. RRF 融合两路排名；\n4. 配置重排服务后，对候选再排序。\n\n检索对象是 Wiki 页面与工作区笔记，不直接检索原始切块，因此引用总是可阅读的内容。\n\n## 会话与沉淀\n\n会话保存在后端，支持多轮追问、历史列表与删除。一次问答可以回写为 Wiki 综合页，把结论沉淀进知识库；引用卡片展示标题、类型与所属知识库。\n\n## 边界\n\n回答严格限定在检索范围内，未命中资料时会如实告知。模型不会凭空获得知识库之外的内容。\n\n## 来源\n\n- Kiwi 功能速查表 · 7. 问答、待办与 Anki\n- 本库「问答与检索：让知识库回答你」\n\n## 相关页面\n\n[@Wiki 编译](kiwi://wiki/b56058d7-d986-5e09-8d32-dac328d9b55c) · [@双向链接](kiwi://wiki/80f00220-0846-5e7d-b163-04c75b7162b9) · [@知识图谱](kiwi://wiki/2ce15a8a-4795-5f04-8ae1-d614076e6e20)",
+      "body_md": "# 问答与检索\n\n> 问答先检索、再生成：系统从 Wiki 与笔记中找出相关片段，把带编号的来源交给模型，回答中的每个引用都能跳回原文。\n\n## 检索范围\n\n- 单库、多库与全局三种范围；\n- 自动 / Wiki 优先 / 笔记优先的意图路由；\n- 笔记筛选：按类型、标签与更新时间；标签筛选只在单库范围生效。\n\n## 混合检索\n\n1. 向量召回负责语义相近；\n2. BM25 负责关键词与标题精确命中；\n3. RRF 融合两路排名；\n4. 配置重排服务后，对候选再排序。\n\n检索对象是 Wiki 页面与工作区笔记，不直接检索原始切块，因此引用总是可阅读的内容。\n\n## 会话与沉淀\n\n会话保存在后端，支持多轮追问、历史列表与删除。一次问答可以回写为 Wiki 综合页，把结论沉淀进知识库；引用卡片展示标题、类型与所属知识库。\n\n## 边界\n\n回答严格限定在检索范围内，未命中资料时会如实告知。模型不会凭空获得知识库之外的内容。\n\n## 来源\n\n- Kiwi 功能速查表 · 7. 问答、待办与 Anki\n- 本库「问答与检索：让知识库回答你」\n\n## 相关页面\n\n[@Wiki 编译](kiwi://wiki/b56058d7-d986-5e09-8d32-dac328d9b55c) · [@双向链接](kiwi://wiki/80f00220-0846-5e7d-b163-04c75b7162b9) · [@知识图谱](kiwi://wiki/2ce15a8a-4795-5f04-8ae1-d614076e6e20)\n\n## Agent 与联网\n\n- 检索前先生成计划，个人时间类问题先解析日期窗口；\n- 短追问沿用上文主题，多轮对话不需要重复背景；\n- 可在输入框 @ 笔记或目录限定检索范围；\n- 命中附件笔记时读回正文（文本 / 代码 / PDF / DOCX）；\n- Agent 与联网默认开启，联网来源以「网页」引用展示；\n- 过程步骤实时打勾，回答完成后保留耗时摘要。\n\n## 相关页面\n\n[@问答 Agent](kiwi://wiki/11fa5198-87ca-57c2-9b5c-4d99e0b4d003)",
       "frontmatter_json": {
         "type": "concept",
         "tags": [],
@@ -3463,6 +3830,96 @@
       "human_edited": false,
       "created_at": "2026-10-18T10:28:00+00:00",
       "updated_at": "2026-10-18T12:38:00+00:00"
+    },
+    {
+      "id": "280a245d-8685-5e7a-935f-4585c84f70e3",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "slug": "workspace-panes",
+      "page_type": "concept",
+      "title": "分栏工作区",
+      "body_md": "# 分栏工作区\n\n> 分栏工作区把多篇笔记以平铺窗口并排打开，适合对照阅读、边看资料边写作，以及把网页 / 附件固定在旁边。\n\n## 交互模型\n\n- 进入分栏后，当前笔记成为第一栏；\n- 目录点击、@ 提及、网页 / 文件的「在分栏中打开」都会新增或聚焦一栏；\n- 最多 6 栏，超出时替换最久未使用的一栏；\n- 拖动分隔条调整宽度；拖动栏标题到另一栏边缘重新停靠；\n- 顶部可切换左右排列、上下排列与网格布局；\n- 布局按知识库保存，窄屏自动挂起。\n\n## 多实例边界\n\n- 每栏独立加载、独立保存，非活动栏不会抢占当前笔记；\n- 查找与保存只作用于活动栏；\n- 上锁笔记逐栏解锁；关闭最后一栏退出分栏。\n\n## 相关页面\n\n[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55)\n",
+      "frontmatter_json": {
+        "type": "concept",
+        "tags": [],
+        "sources": []
+      },
+      "compiled_from_source_ids": [],
+      "version": 1,
+      "human_edited": true,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "70a66b4b-cbf8-504f-aa72-28686dc07350",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "slug": "canvas-plus",
+      "page_type": "concept",
+      "title": "画布模板与信息图",
+      "body_md": "# 画布模板与信息图\n\n> 画布从自由绘图扩展为「模板起步 → 快速改造 → 统一风格 → 所见即所得导出」的工作流。\n\n## 能力\n\n- 模板库：流程图、系统架构、UML、战略分析等 51 个可编辑模板；\n- 信息图：选择版式后载入示例，或粘贴 DSL 数据生成；\n- 魔法棒：6 套同色系主题，可随机生成，统一图形 / 连线 / 文字颜色；\n- 手绘风：切换描边与内置手写字体，导出时字体随文件嵌入；\n- 画布偏好：背景、网格、形状主题与交互开关随笔记保存；\n- 内嵌预览：50%–200% 缩放，100% 完整显示，拖拽平移，不出现滚动条；\n- 导出：PNG / PDF / SVG 与画布一致，阅读态与分享页同样沿用。\n\n## 相关页面\n\n[@画布](kiwi://wiki/cb34aa6e-e2e4-53b5-b1df-fd9986483a22) · [@导出与交付](kiwi://wiki/32737554-3372-50bc-a88c-ea97a6864c50)\n",
+      "frontmatter_json": {
+        "type": "concept",
+        "tags": [],
+        "sources": []
+      },
+      "compiled_from_source_ids": [],
+      "version": 1,
+      "human_edited": true,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "11fa5198-87ca-57c2-9b5c-4d99e0b4d003",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "slug": "qa-agent",
+      "page_type": "concept",
+      "title": "问答 Agent",
+      "body_md": "# 问答 Agent\n\n> 问答 Agent 在检索前先做计划：解析时间窗口、拆分并列问题、决定是否联网，并在多轮对话里沿用上文。\n\n## 工作流程\n\n1. 理解问题与对话历史，生成检索计划；\n2. 按范围检索知识库（可 @ 笔记 / 目录限定）；\n3. 命中附件笔记时读回文件正文；\n4. 需要时联网补充，并标注「网页」来源；\n5. 生成回答，只展示正文实际引用到的来源；\n6. 可把结论回写为 Wiki 综合页。\n\n## 边界\n\n- 联网由规划器判断，普通知识库问题不会无条件外搜；\n- 会话按知识库隔离；\n- 附件读取受单文件与单轮预算限制。\n\n## 相关页面\n\n[@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9) · [@Wiki 编译](kiwi://wiki/b56058d7-d986-5e09-8d32-dac328d9b55c)\n",
+      "frontmatter_json": {
+        "type": "concept",
+        "tags": [],
+        "sources": []
+      },
+      "compiled_from_source_ids": [],
+      "version": 1,
+      "human_edited": true,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "09ef558a-7820-5ef8-a42d-b14169b739cf",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "slug": "plugin-dev",
+      "page_type": "concept",
+      "title": "插件开发与套件",
+      "body_md": "# 插件开发与套件\n\n> 组件插件通过 `plugin.json + index.js` 扩展正文区块；开发套件随后端镜像分发，保证离线部署也能拿到同一份规范。\n\n## 开发契约\n\n- 入口 ESM 导出 `mount / update / unmount`；\n- 属性由围栏 JSON 的 `props` 传入，支持 `align`；\n- 颜色使用 `--kiwi-*` 主题变量或宿主 `theme` 访问器；\n- 新增 `host.components.NoteEditor`，可在插件内复用 Markdown 富文本编辑能力。\n\n## 分发与安全\n\n- 开发套件包含规范、skill 与 counter / pomodoro / countdown / timeline 示例；\n- 插件导入前预检并提示第三方代码风险；\n- 停用或删除插件后区块降级为静态卡片，Markdown 数据保留。\n\n## 相关页面\n\n[@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e) · [@待办汇总](kiwi://wiki/ae70e8cf-2a90-5cf2-8fdf-aa59c57eaa0b)\n",
+      "frontmatter_json": {
+        "type": "concept",
+        "tags": [],
+        "sources": []
+      },
+      "compiled_from_source_ids": [],
+      "version": 1,
+      "human_edited": true,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
+    },
+    {
+      "id": "81344fec-ffdf-5f0d-964f-326775617a7e",
+      "kb_id": "6f3a1c2e-8b4d-4e9a-9c7f-2a5d8e1b4c60",
+      "slug": "desktop-edition",
+      "page_type": "concept",
+      "title": "桌面版",
+      "body_md": "# 桌面版\n\n> 桌面版是同一套前端的离线交付形态：系统字体栈、外网资源占位、默认关闭外部模型与本机代码执行。\n\n## 构建与安装\n\n- `npm run build:desktop` 构建桌面前端；\n- Windows 使用 `desktop/build.ps1` 生成安装包与 SHA-256；\n- `v*` 标签触发发布工作流，包含静默安装、smoke-test 与卸载检查。\n\n## 设置与边界\n\n- `/settings/desktop` 展示运行状态、数据与日志目录；\n- 「允许连接外部模型接口」「本机代码执行」默认关闭，开启前必须确认风险；\n- 未配置模型时显示空态与设置入口。\n\n## 相关页面\n\n[@Kiwi](kiwi://wiki/43a2b2b5-0bc9-5992-a65e-05c6a84a19d0) · [@只读分享](kiwi://wiki/64661639-585c-5251-bfb2-b88cc709f6ba)\n",
+      "frontmatter_json": {
+        "type": "concept",
+        "tags": [],
+        "sources": []
+      },
+      "compiled_from_source_ids": [],
+      "version": 1,
+      "human_edited": true,
+      "created_at": "2026-11-05T10:00:00+00:00",
+      "updated_at": "2026-11-05T10:00:00+00:00"
     }
   ],
   "wiki_links": [
@@ -4065,6 +4522,101 @@
       "from_page_id": "44f2741c-01e6-5746-93fb-b550e4ab8f1b",
       "to_page_id": "977f221d-2937-5fde-92e4-709c980bfcc8",
       "link_type": "reference"
+    },
+    {
+      "from_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0",
+      "to_page_id": "280a245d-8685-5e7a-935f-4585c84f70e3",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0",
+      "to_page_id": "70a66b4b-cbf8-504f-aa72-28686dc07350",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0",
+      "to_page_id": "11fa5198-87ca-57c2-9b5c-4d99e0b4d003",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0",
+      "to_page_id": "09ef558a-7820-5ef8-a42d-b14169b739cf",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0",
+      "to_page_id": "81344fec-ffdf-5f0d-964f-326775617a7e",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "55fb6016-fe93-5c5a-b256-1fdbade63767",
+      "to_page_id": "bc1705ad-6d5c-56da-b181-c3eb7310add9",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "55fb6016-fe93-5c5a-b256-1fdbade63767",
+      "to_page_id": "280a245d-8685-5e7a-935f-4585c84f70e3",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "cb34aa6e-e2e4-53b5-b1df-fd9986483a22",
+      "to_page_id": "70a66b4b-cbf8-504f-aa72-28686dc07350",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "150fc200-df7c-51a3-bc80-4089b284638e",
+      "to_page_id": "09ef558a-7820-5ef8-a42d-b14169b739cf",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "bc1705ad-6d5c-56da-b181-c3eb7310add9",
+      "to_page_id": "11fa5198-87ca-57c2-9b5c-4d99e0b4d003",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "280a245d-8685-5e7a-935f-4585c84f70e3",
+      "to_page_id": "55fb6016-fe93-5c5a-b256-1fdbade63767",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "70a66b4b-cbf8-504f-aa72-28686dc07350",
+      "to_page_id": "cb34aa6e-e2e4-53b5-b1df-fd9986483a22",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "70a66b4b-cbf8-504f-aa72-28686dc07350",
+      "to_page_id": "32737554-3372-50bc-a88c-ea97a6864c50",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "11fa5198-87ca-57c2-9b5c-4d99e0b4d003",
+      "to_page_id": "bc1705ad-6d5c-56da-b181-c3eb7310add9",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "11fa5198-87ca-57c2-9b5c-4d99e0b4d003",
+      "to_page_id": "b56058d7-d986-5e09-8d32-dac328d9b55c",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "09ef558a-7820-5ef8-a42d-b14169b739cf",
+      "to_page_id": "150fc200-df7c-51a3-bc80-4089b284638e",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "09ef558a-7820-5ef8-a42d-b14169b739cf",
+      "to_page_id": "ae70e8cf-2a90-5cf2-8fdf-aa59c57eaa0b",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "81344fec-ffdf-5f0d-964f-326775617a7e",
+      "to_page_id": "43a2b2b5-0bc9-5992-a65e-05c6a84a19d0",
+      "link_type": "reference"
+    },
+    {
+      "from_page_id": "81344fec-ffdf-5f0d-964f-326775617a7e",
+      "to_page_id": "64661639-585c-5251-bfb2-b88cc709f6ba",
+      "link_type": "reference"
     }
   ],
   "note_links": [
@@ -4472,6 +5024,146 @@
       "from_note_id": "d48ee7fe-940c-543c-83eb-5d6ba2b1ec6e",
       "to_note_id": "386e217f-2316-59ac-9f67-e416978fd314",
       "context_text": "[@Anki 互通](kiwi://wiki/977f221d-2937-5fde-92e4-709c980bfcc8) · [@间隔重复](kiwi://wiki/38afa9e7-b21f-53df-9da5-408823b81159) · [@复习与仿真考试](kiwi://note/386e217f-2316-59ac-9f67-e416978fd314)"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "context_text": "| [@最新能力速览](kiwi://note/d7d083a9-0bda-5ce8-81db-ebbba6e0c689) | 一张清单看完这轮更新的入口 |"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "context_text": "| [@分栏工作区：多篇笔记并排](kiwi://note/28335330-d575-5e26-a50c-fc6139d32c74) | 最多 6 篇笔记并排，拖动停靠、布局按库保存 |"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "context_text": "| [@画布增强：模板库、信息图与魔法棒](kiwi://note/da60d516-6c88-5fb4-b8f2-1951445320fb) | 51 个模板、信息图、6 套配色与手绘风 |"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "context_text": "| [@问答 Agent：会规划、会联网、会读附件](kiwi://note/be7ca2f1-a35f-5f90-a486-412769f3c5f5) | 自动规划、多轮追问、@ 范围、读取附件正文 |"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "f8f7bdc2-1101-5f9d-8084-d80936012c1c",
+      "context_text": "| [@编辑器细节：查找替换与附件卡片](kiwi://note/f8f7bdc2-1101-5f9d-8084-d80936012c1c) | 查找替换、首行缩进、上传进度与附件卡片 |"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "096aca0b-cff0-51ac-971b-0793aa9f5bd1",
+      "context_text": "| [@插件进阶：时间轴、倒计时与开发套件](kiwi://note/096aca0b-cff0-51ac-971b-0793aa9f5bd1) | 时间轴待办进收件箱、倒计时指定时刻 |"
+    },
+    {
+      "from_note_id": "17548cd0-652d-5e44-baf9-4d2e15537b6c",
+      "to_note_id": "ec9de589-6d0b-554a-940b-db4fd9456dc5",
+      "context_text": "| [@桌面版与部署：离线与 Windows 安装包](kiwi://note/ec9de589-6d0b-554a-940b-db4fd9456dc5) | 离线边界、桌面设置、Windows 安装包 |"
+    },
+    {
+      "from_note_id": "c33ea347-9c1e-503b-9b88-83fd8feec08b",
+      "to_note_id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "context_text": "- 并排对照：[@分栏工作区：多篇笔记并排](kiwi://note/28335330-d575-5e26-a50c-fc6139d32c74)"
+    },
+    {
+      "from_note_id": "c33ea347-9c1e-503b-9b88-83fd8feec08b",
+      "to_note_id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "context_text": "- 画布增强：[@画布增强：模板库、信息图与魔法棒](kiwi://note/da60d516-6c88-5fb4-b8f2-1951445320fb)"
+    },
+    {
+      "from_note_id": "c33ea347-9c1e-503b-9b88-83fd8feec08b",
+      "to_note_id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "context_text": "- 智能问答：[@问答 Agent：会规划、会联网、会读附件](kiwi://note/be7ca2f1-a35f-5f90-a486-412769f3c5f5)"
+    },
+    {
+      "from_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "to_note_id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "context_text": "| 分栏工作区 | 最多 6 篇笔记并排，拖动停靠、按库保存布局 | [@分栏工作区：多篇笔记并排](kiwi://note/28335330-d575-5e26-a50c-fc6139d32c74) |"
+    },
+    {
+      "from_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "to_note_id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "context_text": "| 画布增强 | 51 个模板、信息图、魔法棒、手绘风、内嵌预览缩放 | [@画布增强：模板库、信息图与魔法棒](kiwi://note/da60d516-6c88-5fb4-b8f2-1951445320fb) |"
+    },
+    {
+      "from_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "to_note_id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "context_text": "| 问答 Agent | 自动规划、联网、多轮追问、读取附件正文 | [@问答 Agent：会规划、会联网、会读附件](kiwi://note/be7ca2f1-a35f-5f90-a486-412769f3c5f5) |"
+    },
+    {
+      "from_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "to_note_id": "f8f7bdc2-1101-5f9d-8084-d80936012c1c",
+      "context_text": "| 编辑器细节 | 查找替换、首行缩进、上传进度、附件卡片、表格拖拽 | [@编辑器细节：查找替换与附件卡片](kiwi://note/f8f7bdc2-1101-5f9d-8084-d80936012c1c) |"
+    },
+    {
+      "from_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "to_note_id": "096aca0b-cff0-51ac-971b-0793aa9f5bd1",
+      "context_text": "| 插件进阶 | 时间轴、倒计时指定时刻、NoteEditor 宿主与开发套件 | [@插件进阶：时间轴、倒计时与开发套件](kiwi://note/096aca0b-cff0-51ac-971b-0793aa9f5bd1) |"
+    },
+    {
+      "from_note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "to_note_id": "ec9de589-6d0b-554a-940b-db4fd9456dc5",
+      "context_text": "| 桌面版 | 离线构建、Windows 安装包、桌面设置与部署 | [@桌面版与部署：离线与 Windows 安装包](kiwi://note/ec9de589-6d0b-554a-940b-db4fd9456dc5) |"
+    },
+    {
+      "from_note_id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "to_note_id": "25216a50-da39-5203-87c6-e16d3f947a55",
+      "context_text": "相关：[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) · [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3)"
+    },
+    {
+      "from_note_id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "to_note_id": "53588b2c-297c-5f50-82ac-32bab0b16aa3",
+      "context_text": "相关：[@笔记工作区](kiwi://wiki/55fb6016-fe93-5c5a-b256-1fdbade63767) · [@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) · [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3)"
+    },
+    {
+      "from_note_id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "to_note_id": "1120f109-4816-58f5-b815-c4ceb33de2dc",
+      "context_text": "相关：[@画布](kiwi://wiki/cb34aa6e-e2e4-53b5-b1df-fd9986483a22) · [@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc) · [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)"
+    },
+    {
+      "from_note_id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "to_note_id": "c3833a41-0d7d-561a-8fc3-db067f22bc89",
+      "context_text": "相关：[@画布](kiwi://wiki/cb34aa6e-e2e4-53b5-b1df-fd9986483a22) · [@画布：把关系画出来](kiwi://note/1120f109-4816-58f5-b815-c4ceb33de2dc) · [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)"
+    },
+    {
+      "from_note_id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "to_note_id": "968de205-beb1-5ff0-8057-9b20dbc1dbe4",
+      "context_text": "相关：[@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9) · [@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4) · [@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)"
+    },
+    {
+      "from_note_id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "to_note_id": "0ae65635-6375-51aa-8846-3dec445a2e58",
+      "context_text": "相关：[@问答与检索](kiwi://wiki/bc1705ad-6d5c-56da-b181-c3eb7310add9) · [@问答与检索：让知识库回答你](kiwi://note/968de205-beb1-5ff0-8057-9b20dbc1dbe4) · [@Wiki 编译：从笔记长出页面](kiwi://note/0ae65635-6375-51aa-8846-3dec445a2e58)"
+    },
+    {
+      "from_note_id": "f8f7bdc2-1101-5f9d-8084-d80936012c1c",
+      "to_note_id": "25216a50-da39-5203-87c6-e16d3f947a55",
+      "context_text": "相关：[@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) · [@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)"
+    },
+    {
+      "from_note_id": "f8f7bdc2-1101-5f9d-8084-d80936012c1c",
+      "to_note_id": "2c58e0e9-5ee5-5325-8e6d-df6ef074ad36",
+      "context_text": "相关：[@文档编辑与块命令](kiwi://note/25216a50-da39-5203-87c6-e16d3f947a55) · [@表格与 OCR：结构化资料也能编辑](kiwi://note/2c58e0e9-5ee5-5325-8e6d-df6ef074ad36)"
+    },
+    {
+      "from_note_id": "096aca0b-cff0-51ac-971b-0793aa9f5bd1",
+      "to_note_id": "d42966fb-e25b-56b1-b910-29f3683f8954",
+      "context_text": "相关：[@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e) · [@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954) · [@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48)"
+    },
+    {
+      "from_note_id": "096aca0b-cff0-51ac-971b-0793aa9f5bd1",
+      "to_note_id": "f35ba7f3-7d77-50e3-bd45-a4cb847b4e48",
+      "context_text": "相关：[@组件插件](kiwi://wiki/150fc200-df7c-51a3-bc80-4089b284638e) · [@组件插件：给笔记装上交互](kiwi://note/d42966fb-e25b-56b1-b910-29f3683f8954) · [@待办汇总：跨笔记的任务视图](kiwi://note/f35ba7f3-7d77-50e3-bd45-a4cb847b4e48)"
+    },
+    {
+      "from_note_id": "ec9de589-6d0b-554a-940b-db4fd9456dc5",
+      "to_note_id": "53588b2c-297c-5f50-82ac-32bab0b16aa3",
+      "context_text": "相关：[@桌面版](kiwi://wiki/81344fec-ffdf-5f0d-964f-326775617a7e) · [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3) · [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)"
+    },
+    {
+      "from_note_id": "ec9de589-6d0b-554a-940b-db4fd9456dc5",
+      "to_note_id": "c3833a41-0d7d-561a-8fc3-db067f22bc89",
+      "context_text": "相关：[@桌面版](kiwi://wiki/81344fec-ffdf-5f0d-964f-326775617a7e) · [@只读分享：把笔记安全地发出去](kiwi://note/53588b2c-297c-5f50-82ac-32bab0b16aa3) · [@导出与交付：Markdown 之外](kiwi://note/c3833a41-0d7d-561a-8fc3-db067f22bc89)"
     }
   ],
   "note_tag_links": [
@@ -4706,6 +5398,34 @@
     {
       "note_id": "8f686db9-c888-5688-b441-4b020906764c",
       "tag_id": "5919bd50-8ee4-5cf1-a736-a2ca43557c0b"
+    },
+    {
+      "note_id": "d7d083a9-0bda-5ce8-81db-ebbba6e0c689",
+      "tag_id": "b07f0c9c-f3d9-5739-816c-97ebdf6f849d"
+    },
+    {
+      "note_id": "28335330-d575-5e26-a50c-fc6139d32c74",
+      "tag_id": "b07f0c9c-f3d9-5739-816c-97ebdf6f849d"
+    },
+    {
+      "note_id": "da60d516-6c88-5fb4-b8f2-1951445320fb",
+      "tag_id": "fb2d19ef-4e65-5edf-b99d-feb48d403b8b"
+    },
+    {
+      "note_id": "be7ca2f1-a35f-5f90-a486-412769f3c5f5",
+      "tag_id": "e40fd596-f6cd-5aec-aafd-8af5d9732ea2"
+    },
+    {
+      "note_id": "f8f7bdc2-1101-5f9d-8084-d80936012c1c",
+      "tag_id": "6b9f183a-a85a-5a07-af5d-da216c50e299"
+    },
+    {
+      "note_id": "096aca0b-cff0-51ac-971b-0793aa9f5bd1",
+      "tag_id": "a6b4ae49-65d8-55a0-8ac5-a126030490bb"
+    },
+    {
+      "note_id": "ec9de589-6d0b-554a-940b-db4fd9456dc5",
+      "tag_id": "048060be-ab2a-5ae7-95f8-572b5e8d9536"
     }
   ],
   "study_profiles": [

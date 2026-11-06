@@ -27,10 +27,27 @@ const ext = computed(
 )
 const kind = computed<OfficeKind | null>(() => {
   const mime = (props.contentType ?? '').toLowerCase()
-  if (ext.value === 'docx' || mime.includes('wordprocessingml.document')) return 'word'
-  if (['xlsx', 'xlsm', 'xlsb', 'xls'].includes(ext.value)) return 'excel'
-  if (mime.includes('spreadsheetml.sheet') || mime.includes('ms-excel')) return 'excel'
-  if (ext.value === 'pptx' || mime.includes('presentationml.presentation')) return 'ppt'
+  if (
+    ['docx', 'docm', 'dotx', 'dotm'].includes(ext.value) ||
+    mime.includes('wordprocessingml') ||
+    mime.includes('ms-word')
+  ) {
+    return 'word'
+  }
+  if (
+    ['xlsx', 'xlsm', 'xlsb', 'xls', 'xltx', 'xltm'].includes(ext.value) ||
+    mime.includes('spreadsheetml') ||
+    mime.includes('ms-excel')
+  ) {
+    return 'excel'
+  }
+  if (
+    ['pptx', 'pptm', 'potx', 'potm', 'ppsx', 'ppsm'].includes(ext.value) ||
+    mime.includes('presentationml') ||
+    mime.includes('ms-powerpoint')
+  ) {
+    return 'ppt'
+  }
   return null
 })
 

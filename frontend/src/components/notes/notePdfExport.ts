@@ -9,7 +9,7 @@ import html2canvas from 'html2canvas'
 import {
   buildImagePdfPages,
   type PdfPageImage,
-} from './canvas/canvasRasterExport'
+} from '@/components/draw/svgRasterExport'
 
 const A4_WIDTH_PT = 595.28
 const A4_HEIGHT_PT = 841.89

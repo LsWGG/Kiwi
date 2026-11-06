@@ -22,6 +22,7 @@ import {
 } from '@/constants/noteKinds'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { toast } from '@/components/ui/toast'
+import { drawDocStats, readDrawDoc } from '@/components/draw/types'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -559,12 +560,9 @@ async function runAction(action: QuickAction) {
 function summaryOf(item: NoteSearchItem): string {
   const note = item.note
   if (note.kind === 'canvas') {
-    const doc = note.props_json?.canvas_doc as
-      | { nodes?: unknown[]; edges?: unknown[]; theme?: string }
-      | undefined
-    const nodes = Array.isArray(doc?.nodes) ? doc.nodes.length : 0
-    const edges = Array.isArray(doc?.edges) ? doc.edges.length : 0
-    return `画布 · ${nodes} 个节点 · ${edges} 条连线`
+    const doc = readDrawDoc(note.props_json)
+    const stats = doc ? drawDocStats(doc) : { nodes: 0, edges: 0 }
+    return `画布 · ${stats.nodes} 个节点 · ${stats.edges} 条连线`
   }
   if (note.kind === 'sheet') {
     const workbook = note.props_json?.sheet as

@@ -9,12 +9,11 @@ import { noteToPdf } from '@/components/notes/notePdfExport'
 import { toast } from '@/components/ui/toast'
 import type { DbField, DbRow } from '@/stores/noteDatabase'
 import { useNotesStore, type NoteOut, type NoteSummary } from '@/stores/notes'
-import { canvasDocToSvg } from './canvas/canvasSvgExport'
-import { svgToPdfBlob, svgToPngBlob } from './canvas/canvasRasterExport'
-import { themeOf } from './canvas/themes'
+import { drawDocToBestPng, drawDocToBestSvg } from '@/components/draw/drawFidelityExport'
+import { imageBlobToPdfBlob } from '@/components/draw/svgRasterExport'
+import { drawDocBackground, emptyDrawDoc, readDrawDoc } from '@/components/draw/types'
 import { normalizeWorkbook } from './sheet/types'
 import { sheetToCsv, workbookToXlsxBlob } from './sheet/xlsx'
-import { normalizeDoc } from './canvas/types'
 import type { NotebookDoc } from './notebook/types'
 
 export type ExportKey =
@@ -407,27 +406,28 @@ export async function runNoteExport(
       return
     case 'canvas-json':
       downloadText(
-        JSON.stringify(full.props_json?.canvas_doc ?? normalizeDoc(null), null, 2),
+        JSON.stringify(readDrawDoc(full.props_json) ?? emptyDrawDoc(), null, 2),
         `${base}.canvas.json`,
         'application/json',
       )
       return
     case 'canvas-svg': {
-      const doc = normalizeDoc(full.props_json?.canvas_doc)
-      downloadText(canvasDocToSvg(doc), `${base}.svg`, 'image/svg+xml')
+      const doc = readDrawDoc(full.props_json) ?? emptyDrawDoc()
+      downloadText(await drawDocToBestSvg(doc), `${base}.svg`, 'image/svg+xml')
       return
     }
     case 'canvas-png': {
-      const doc = normalizeDoc(full.props_json?.canvas_doc)
-      const blob = await svgToPngBlob(canvasDocToSvg(doc), 2)
-      downloadBlob(blob, `${base}.png`)
+      const doc = readDrawDoc(full.props_json) ?? emptyDrawDoc()
+      downloadBlob(await drawDocToBestPng(doc, 2), `${base}.png`)
       return
     }
     case 'canvas-pdf': {
-      const doc = normalizeDoc(full.props_json?.canvas_doc)
-      const blob = await svgToPdfBlob(canvasDocToSvg(doc), {
+      const doc = readDrawDoc(full.props_json) ?? emptyDrawDoc()
+      // 与 PNG 共用 jvs-draw 的 canvas 渲染结果，再封成单页 PDF。
+      const png = await drawDocToBestPng(doc, 2)
+      const blob = await imageBlobToPdfBlob(png, {
         title: full.title,
-        background: themeOf(doc.theme).bg,
+        background: drawDocBackground(doc),
       })
       downloadBlob(blob, `${base}.pdf`)
       return

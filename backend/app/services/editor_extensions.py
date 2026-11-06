@@ -1,6 +1,6 @@
 """编辑器内置扩展组件注册表与启停状态。
 
-这些组件随前端一起发布（日期、公式、文本绘图、图册、分栏、日历、数据表、
+这些组件随前端一起发布（日期、公式、画布、图册、分栏、日历、数据表、
 待办进度），设置页与编辑器共用同一份后端清单，停用后工具栏「扩展组件」菜单
 与斜杠菜单同步移除对应入口。
 
@@ -32,10 +32,10 @@ BUILTIN_EXTENSIONS: tuple[dict[str, str], ...] = (
         "icon": "hash",
     },
     {
-        "key": "mermaid",
-        "label": "文本绘图",
-        "hint": "Mermaid 流程图 / 时序图",
-        "icon": "graph",
+        "key": "draw",
+        "label": "画布",
+        "hint": "拖拽式白板：图形 / 连线 / 文字 / 图片",
+        "icon": "pen",
     },
     {
         "key": "gallery",
@@ -77,6 +77,142 @@ BUILTIN_EXTENSIONS: tuple[dict[str, str], ...] = (
 
 KEYS: tuple[str, ...] = tuple(item["key"] for item in BUILTIN_EXTENSIONS)
 
+def _draw_element(
+    id: str,
+    type: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "id": id,
+        "type": type,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "angle": 0,
+        "strokeColor": "#94a3b8",
+        "backgroundColor": "transparent",
+        "fillStyle": "solid",
+        "strokeWidth": 2,
+        "strokeStyle": "solid",
+        "roughness": 1,
+        "opacity": 100,
+        "strokeOpacity": 100,
+        "roundness": {"type": 3},
+        "fontSize": 15,
+        "fontFamily": "sans-serif",
+        "fontColor": "#1e293b",
+        "fontBgColor": "transparent",
+        "textAlign": "center",
+        "verticalAlign": "middle",
+        "isDeleted": False,
+        "groupIds": [],
+        "boundElements": [],
+        "lineHeight": 1.25,
+        "letterSpacing": 0,
+        **extra,
+    }
+
+
+# 画布示例：两个节点 + 一条箭头 + 一行说明，用于设置页预览与内置包描述。
+_DRAW_SAMPLE: dict[str, Any] = {
+    "type": "jvs-draw",
+    "version": 1,
+    "elements": [
+        _draw_element(
+            "draw-a",
+            "rectangle",
+            60,
+            56,
+            180,
+            72,
+            strokeColor="#6366f1",
+            backgroundColor="#e0e7ff",
+            boundElements=[{"type": "text", "id": "draw-a-text"}],
+        ),
+        _draw_element(
+            "draw-a-text",
+            "text",
+            68,
+            80,
+            164,
+            24,
+            text="需求梳理",
+            originalText="需求梳理",
+            containerId="draw-a",
+            autoResize=False,
+            fontSize=16,
+            fontColor="#312e81",
+            isBold=True,
+            roundness=None,
+        ),
+        _draw_element(
+            "draw-arrow",
+            "arrow",
+            240,
+            92,
+            120,
+            1,
+            points=[[0, 0], [120, 0]],
+            startBinding={"elementId": "draw-a", "focus": 0, "gap": 4, "isBorder": False},
+            endBinding={"elementId": "draw-b", "focus": 0, "gap": 4, "isBorder": False},
+            startArrowhead=None,
+            endArrowhead="arrow",
+            arrowType="sharp",
+            strokeColor="#94a3b8",
+            roundness=None,
+        ),
+        _draw_element(
+            "draw-b",
+            "rectangle",
+            360,
+            56,
+            180,
+            72,
+            strokeColor="#22c55e",
+            backgroundColor="#dcfce7",
+            boundElements=[{"type": "text", "id": "draw-b-text"}],
+        ),
+        _draw_element(
+            "draw-b-text",
+            "text",
+            368,
+            80,
+            164,
+            24,
+            text="方案落地",
+            originalText="方案落地",
+            containerId="draw-b",
+            autoResize=False,
+            fontSize=16,
+            fontColor="#14532d",
+            isBold=True,
+            roundness=None,
+        ),
+        _draw_element(
+            "draw-note",
+            "text",
+            64,
+            168,
+            440,
+            26,
+            text="拖拽图形、连线与文字，像白板一样自由排版",
+            originalText="拖拽图形、连线与文字，像白板一样自由排版",
+            fontSize=13,
+            fontColor="#64748b",
+            textAlign="left",
+            roundness=None,
+        ),
+    ],
+    "appState": {"viewBackgroundColor": "#f8fafc"},
+    "files": {},
+    "updatedAt": 0,
+}
+
 # 导出内置包时补充的节点 / Markdown / 示例属性信息。
 BUILTIN_PACKAGE_META: dict[str, dict[str, Any]] = {
     "date": {
@@ -91,13 +227,11 @@ BUILTIN_PACKAGE_META: dict[str, dict[str, Any]] = {
         "sample_props": {"latex": "E = mc^2"},
         "source_files": ("formula.ts", "FormulaNodeView.vue"),
     },
-    "mermaid": {
-        "node": "kiwiMermaid",
-        "language": "mermaid",
-        "sample_props": {
-            "code": "flowchart LR\n  A[需求] --> B[开发] --> C[验收]"
-        },
-        "source_files": ("mermaid.ts", "MermaidNodeView.vue"),
+    "draw": {
+        "node": "kiwiDraw",
+        "language": "kiwi-draw",
+        "sample_props": {"doc": _DRAW_SAMPLE},
+        "source_files": ("draw.ts", "DrawNodeView.vue"),
     },
     "gallery": {
         "node": "kiwiGallery",
@@ -269,9 +403,9 @@ _COLUMNS_SAMPLE = (
 BUILTIN_PREVIEW_MARKDOWN: dict[str, str] = {
     "date": "创建于 📅 2026-10-23，点击日期胶囊即可修改。",
     "formula": _fenced("kiwi-math", "E = mc^2"),
-    "mermaid": _fenced(
-        "mermaid",
-        "flowchart LR\n  A[需求] --> B[开发] --> C[验收]",
+    "draw": _fenced(
+        "kiwi-draw",
+        json.dumps(_DRAW_SAMPLE, ensure_ascii=False),
     ),
     "gallery": _fenced(
         "kiwi-gallery",

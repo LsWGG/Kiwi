@@ -40,6 +40,7 @@ from app.schemas.note import (
     QuickCaptureIn,
     RelatedNoteItem,
 )
+from app.services.canvas_legacy import draw_doc_from_props
 
 logger = logging.getLogger("kiwi.notes.search")
 
@@ -121,19 +122,12 @@ def _structured_content(note: Note) -> str:
                 ]
                 if values:
                     parts.append(" ".join(values))
-    canvas = props.get("canvas_doc")
-    if isinstance(canvas, dict):
-        for node in canvas.get("nodes") or []:
-            if not isinstance(node, dict):
+    draw = draw_doc_from_props(props)
+    if isinstance(draw, dict):
+        for element in draw.get("elements") or []:
+            if not isinstance(element, dict) or element.get("isDeleted"):
                 continue
-            data = node.get("data") if isinstance(node.get("data"), dict) else {}
-            text = (
-                data.get("label")
-                or data.get("text")
-                or data.get("title")
-                or node.get("label")
-                or node.get("text")
-            )
+            text = element.get("text") or element.get("originalText")
             if text:
                 parts.append(str(text))
     notebook = props.get("notebook_doc")

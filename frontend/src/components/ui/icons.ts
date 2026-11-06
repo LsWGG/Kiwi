@@ -449,6 +449,12 @@ const PATHS: Record<string, string[]> = {
     '<line x1="3" y1="9" x2="21" y2="9"/>',
     '<line x1="9" y1="9" x2="9" y2="21"/>',
   ],
+  /** 画布：信息图（三栏数据条） */
+  infographic: [
+    '<rect x="3" y="5" width="4" height="14" rx="1"/>',
+    '<rect x="10" y="5" width="4" height="14" rx="1"/>',
+    '<rect x="17" y="5" width="4" height="14" rx="1"/>',
+  ],
   /** 画布：主题 / 调色板 */
   palette: [
     '<circle cx="13.5" cy="6.5" r="1"/>',

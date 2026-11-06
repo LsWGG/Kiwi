@@ -17,8 +17,8 @@ import {
   evaluateWorkbook,
   formatSheetValue,
 } from '@/components/notes/sheet/formula'
-import { canvasDocToSvg } from '@/components/notes/canvas/canvasSvgExport'
-import { normalizeDoc } from '@/components/notes/canvas/types'
+import { drawDocToSvg } from '@/components/draw/drawSvgExport'
+import { drawDocHasContent, drawDocStats, readDrawDoc } from '@/components/draw/types'
 
 type DbField = { id: string; name?: string; type?: string }
 type DbRow = { id: string; data: Record<string, any> }
@@ -175,21 +175,22 @@ const databaseView = computed(() => {
 
 // ---------- 画布 ----------
 const canvasDoc = computed(() =>
-  kind.value === 'canvas' ? normalizeDoc(props.note.props_json?.canvas_doc) : null,
+  kind.value === 'canvas' ? readDrawDoc(props.note.props_json) : null,
 )
 
 const canvasView = computed(() => {
   const doc = canvasDoc.value
   if (!doc) return null
+  const stats = drawDocStats(doc)
   let svg = ''
-  if (doc.nodes.length || doc.edges.length) {
+  if (drawDocHasContent(doc)) {
     try {
-      svg = canvasDocToSvg(doc)
+      svg = drawDocToSvg(doc)
     } catch {
       svg = ''
     }
   }
-  return { totalNodes: doc.nodes.length, totalEdges: doc.edges.length, svg }
+  return { totalNodes: stats.nodes, totalEdges: stats.edges, svg }
 })
 
 // ---------- Notebook ----------
@@ -338,7 +339,7 @@ const notebookView = computed(() => {
       v-if="canvasView?.svg"
       class="sticky-canvas overflow-auto rounded-lg border border-slate-100 bg-white p-1"
     >
-      <!-- canvasDocToSvg 已转义节点与连线文本，仅输出 SVG 结构。 -->
+      <!-- drawDocToSvg 已转义文本与属性，仅输出 SVG 结构。 -->
       <div class="min-w-[420px]" v-html="canvasView.svg" />
     </div>
     <p v-else class="rounded-lg bg-slate-50 px-3 py-4 text-center text-[11px] text-slate-400">
@@ -367,7 +368,7 @@ const notebookView = computed(() => {
         </p>
         <pre
           v-else
-          class="overflow-x-auto bg-slate-900/95 px-2 py-1.5 text-[10px] leading-relaxed text-slate-100"
+          class="overflow-x-auto bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-slate-700"
         ><code>{{ cell.source }}</code></pre>
         <pre
           v-if="cell.output"

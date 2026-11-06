@@ -27,6 +27,7 @@ from app.db.models import CollectionRow, Note, NoteCollection, NoteShare
 from app.db.session import get_session
 from app.schemas.note import SharedNoteOut
 from app.services import note_compiler, note_lock
+from app.services.canvas_legacy import draw_doc_from_props
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
@@ -219,7 +220,7 @@ async def _build_payload(
         workbook = props.get("sheet")
         payload = {"workbook": workbook} if isinstance(workbook, dict) else {}
     elif note.kind == "canvas":
-        doc = props.get("canvas_doc")
+        doc = draw_doc_from_props(props)
         payload = {"doc": doc} if isinstance(doc, dict) else {}
     elif note.kind == "notebook":
         doc = props.get("notebook_doc")

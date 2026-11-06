@@ -5,7 +5,7 @@ from __future__ import annotations
 EXPECTED_KEYS = [
     "date",
     "formula",
-    "mermaid",
+    "draw",
     "gallery",
     "columns2",
     "columns3",
@@ -30,7 +30,7 @@ async def test_editor_extension_catalog(client):
     # 分栏样例必须为每栏保留独立的块，否则阅读视图会把标记当作正文。
     assert samples["columns2"].count("[!COLUMN]") == 2
     assert samples["columns3"].count("[!COLUMN]") == 3
-    assert samples["mermaid"].startswith("```mermaid")
+    assert samples["draw"].startswith("```kiwi-draw")
 
 
 async def test_editor_extension_toggle_persists(client):
@@ -40,21 +40,21 @@ async def test_editor_extension_toggle_persists(client):
 
     saved = await client.put(
         "/api/editor/extensions",
-        json={"disabled": ["mermaid", "columns3", "mermaid"]},
+        json={"disabled": ["draw", "columns3", "draw"]},
     )
     assert saved.status_code == 200, saved.text
     body = saved.json()
     # 去重并保持注册表顺序。
-    assert body["disabled"] == ["mermaid", "columns3"]
-    assert "mermaid" not in body["enabled"]
+    assert body["disabled"] == ["draw", "columns3"]
+    assert "draw" not in body["enabled"]
     assert "columns3" not in body["enabled"]
     state = {item["key"]: item["enabled"] for item in body["items"]}
-    assert state["mermaid"] is False
+    assert state["draw"] is False
     assert state["columns3"] is False
     assert state["date"] is True
 
     reloaded = await client.get("/api/editor/extensions")
-    assert reloaded.json()["disabled"] == ["mermaid", "columns3"]
+    assert reloaded.json()["disabled"] == ["draw", "columns3"]
 
     # 未知 key 拒绝，且不破坏已保存状态。
     unknown = await client.put(
@@ -63,7 +63,7 @@ async def test_editor_extension_toggle_persists(client):
     assert unknown.status_code == 400
     assert "not-a-component" in unknown.json()["detail"]
     assert (await client.get("/api/editor/extensions")).json()["disabled"] == [
-        "mermaid",
+        "draw",
         "columns3",
     ]
 

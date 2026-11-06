@@ -989,20 +989,20 @@ function hasProps(block: PluginBlock) {
               CSS 变量或运行时 <code class="rounded bg-white/80 px-1">host.theme</code>，
               切换主题色与学习模式时自动同步。
             </p>
-            <div class="mt-2 overflow-hidden rounded-xl bg-slate-900">
+            <div class="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
               <div
-                class="flex items-center justify-between border-b border-white/10 px-3 py-1.5 text-[9.5px] text-slate-400"
+                class="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 text-[9.5px] text-slate-400"
               >
                 <span class="font-mono">style.css</span>
                 <button
-                  class="inline-flex items-center gap-1 text-slate-300 transition-colors hover:text-white"
+                  class="inline-flex items-center gap-1 text-slate-500 transition-colors hover:text-slate-800"
                   title="复制主题色代码"
                   @click="copyText('color: rgb(var(--kiwi-600));\nbackground: rgb(var(--kiwi-50));', '主题色代码')"
                 >
                   <KiwiIcon name="copy" :size="10" /> 复制
                 </button>
               </div>
-              <pre class="overflow-x-auto px-3 py-2 text-[10px] leading-relaxed text-kiwi-200">.card {
+              <pre class="overflow-x-auto px-3 py-2 text-[10px] leading-relaxed text-slate-700">.card {
   color: rgb(var(--kiwi-600));
   background: rgb(var(--kiwi-50));
 }</pre>
@@ -1042,9 +1042,9 @@ function hasProps(block: PluginBlock) {
         </section>
 
         <!-- 示例插件包 manifest -->
-        <section class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+        <section class="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
           <div
-            class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-2"
+            class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2"
           >
             <div class="flex items-center gap-2">
               <span class="flex items-center gap-1">
@@ -1055,13 +1055,13 @@ function hasProps(block: PluginBlock) {
               <span class="font-mono text-[10.5px] text-slate-400">plugin.json</span>
             </div>
             <button
-              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-slate-500 transition-colors hover:bg-white hover:text-slate-800"
               @click="copyExample"
             >
               <KiwiIcon name="copy" :size="11" /> 复制示例
             </button>
           </div>
-          <pre class="max-h-72 overflow-auto px-4 py-3 text-[10px] leading-relaxed text-slate-200">{{ JSON.stringify(activeExample, null, 2) }}</pre>
+          <pre class="max-h-72 overflow-auto px-4 py-3 text-[10px] leading-relaxed text-slate-700">{{ JSON.stringify(activeExample, null, 2) }}</pre>
         </section>
 
         <!-- 大模型辅助开发 -->

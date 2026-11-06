@@ -299,8 +299,10 @@ async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | No
         description=(
             "系统内置的 Kiwi 上手指南：以「三周搭建团队知识库」为示例主线，"
             "覆盖笔记、表格、画布、数据表、Notebook、导入、外链、语音转写、"
-            "贴一贴、组件插件、只读分享、问答、待办汇总、导出、Wiki、知识图谱、"
-            "学习模式与仿真考试。内容即操作说明，可自由修改；删除后可在知识库页重新创建。"
+            "贴一贴、组件插件、只读分享、问答 Agent、待办汇总、导出、Wiki、知识图谱、"
+            "学习模式与仿真考试；并附「06 最新能力」目录，收录分栏工作区、画布模板库与信息图、"
+            "问答 Agent、编辑器细节、插件进阶、桌面版与部署等近期能力。"
+            "内容即操作说明，可自由修改；删除后可在知识库页重新创建。"
         ),
         pinned=True,
         learning_enabled=True,

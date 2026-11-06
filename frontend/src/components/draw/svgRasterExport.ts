@@ -1,6 +1,6 @@
 /**
  * 画布位图 / PDF 导出。
- * 复用 canvasDocToSvg 的矢量结果：在浏览器里栅格化为 PNG，
+ * 复用 drawDocToSvg 的矢量结果：在浏览器里栅格化为 PNG，
  * 或把高分辨率 JPEG 封进单页 PDF，避免为一次导出引入 PDF 库。
  */
 
@@ -57,10 +57,18 @@ export function svgSize(svg: string): SvgSize {
 function loadSvgImage(svg: string): Promise<HTMLImageElement> {
   const image = new Image()
   image.decoding = 'async'
-  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  // 手绘主题的 SVG 内嵌字体会让它增大到 10MB+，data URI 容易触碰浏览器上限，
+  // 统一改用 Blob URL；图片解码完成后再释放。
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
   return new Promise((resolve, reject) => {
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('画布渲染失败，无法生成图片'))
+    image.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('画布渲染失败，无法生成图片'))
+    }
     image.src = url
   })
 }
@@ -100,6 +108,40 @@ function canvasToBlob(
 export async function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
   const { canvas } = await rasterize(svg, scale)
   return canvasToBlob(canvas, 'image/png')
+}
+
+/**
+ * 位图 Blob → 单页 PDF Blob。
+ * 画布高保真导出直接复用 jvs-draw 的 canvas 渲染结果，这里只负责封装 PDF。
+ */
+export async function imageBlobToPdfBlob(
+  image: Blob,
+  options: { title?: string; background?: string } = {},
+): Promise<Blob> {
+  const bitmap = await createImageBitmap(image)
+  const canvas = document.createElement('canvas')
+  canvas.width = bitmap.width
+  canvas.height = bitmap.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    bitmap.close()
+    throw new Error('当前浏览器不支持 Canvas 导出')
+  }
+  // PNG 可能带透明通道，PDF 先铺上画布底色避免变成黑色。
+  ctx.fillStyle = options.background && options.background !== 'transparent'
+    ? options.background
+    : '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(bitmap, 0, 0)
+  bitmap.close()
+  const jpegBlob = await canvasToBlob(canvas, 'image/jpeg', 0.92)
+  return buildImagePdf({
+    jpeg: new Uint8Array(await jpegBlob.arrayBuffer()),
+    pixelWidth: canvas.width,
+    pixelHeight: canvas.height,
+    title: options.title,
+    background: options.background,
+  })
 }
 
 /** SVG 字符串 → 单页 PDF Blob，页面按 A4 横竖向自适应并居中。 */

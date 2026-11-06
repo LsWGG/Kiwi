@@ -4,6 +4,8 @@ import App from './App.vue'
 import router from './router'
 import { IS_DESKTOP } from './desktop/env'
 import './styles/main.css'
+// 画布手绘字体全局声明：编辑、阅读态 SVG、分享页共用同一内置字体。
+import './assets/fonts/kiwi-hand.css'
 
 // 桌面构建使用 Windows 原生字体栈，避免下载 Google Fonts。
 if (IS_DESKTOP) document.documentElement.classList.add('kiwi-desktop')

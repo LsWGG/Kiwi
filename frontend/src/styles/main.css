@@ -339,6 +339,30 @@ html.kiwi-sticky-expanding .page-enter-from {
     prose-a:decoration-kiwi-300 prose-a:decoration-2 hover:prose-a:text-kiwi-700;
 }
 
+/* 阅读态（MarkdownView / Wiki / 分享页 / 问答结果）的代码块统一为浅色，
+   与编辑器默认代码主题保持一致；Tailwind Typography 默认是深色底。 */
+.prose-wiki pre {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.prose-wiki pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+/* 行内代码在 Typography 下会带反引号，编辑器里没有 */
+.prose-wiki code::before,
+.prose-wiki code::after {
+  content: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
