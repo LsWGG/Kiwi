@@ -11,6 +11,7 @@ const props = defineProps(nodeViewProps)
 let initializedTheme = ''
 function ensureInit() {
   const dark =
+    document.documentElement.getAttribute('data-kiwi-theme-mode') === 'dark' ||
     document.documentElement.classList.contains('dark') ||
     document.body.classList.contains('dark')
   const theme = dark ? 'dark' : 'default'

@@ -7,6 +7,7 @@ import { request, uploadWithProgress } from '@/api/client'
 import type { NoteFolder, NoteKind, NoteSummary } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiSkeleton from '@/components/ui/KiwiSkeleton.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import { toast } from '@/components/ui/toast'
@@ -412,6 +413,24 @@ const embeddingOptions = computed(() => {
   if (current) add(current, `${current}（当前配置）`)
   return list
 })
+
+const embeddingSelectOptions = computed(() =>
+  embeddingOptions.value.map((m) => ({ value: m.id, label: m.label })),
+)
+const llmConfigOptions = computed(() => [
+  { value: 'inherit', label: '继承全局默认' },
+  ...llm.configs.map((c) => ({
+    value: c.id,
+    label: c.model_name ? `${c.name} · ${c.model_name}` : c.name,
+  })),
+])
+
+function setLlmConfig(value: string | number) {
+  form.value.llmConfig = String(value)
+}
+function setEmbeddingModel(value: string | number) {
+  form.value.embeddingModel = String(value)
+}
 
 // 配置可能在弹窗打开后才返回：未手动改过模型时，跟随系统默认。
 watch(systemEmbedModel, (model) => {
@@ -1127,12 +1146,15 @@ async function onImportKbFile(event: Event) {
         </div>
         <div>
           <label class="text-xs font-medium text-slate-500">默认模型</label>
-          <select v-model="form.llmConfig" class="kiwi-input mt-1 appearance-none cursor-pointer">
-            <option value="inherit">继承全局默认</option>
-            <option v-for="c in llm.configs" :key="c.id" :value="c.id">
-              {{ c.model_name ? `${c.name} · ${c.model_name}` : c.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="mt-1"
+            :model-value="form.llmConfig"
+            :options="llmConfigOptions"
+            width="w-64"
+            variant="input"
+            trigger-class="!h-9 !w-full !justify-between !rounded-xl !border !border-slate-200 !bg-white !px-3 !text-[13px] !text-slate-600"
+            @update:model-value="setLlmConfig"
+          />
           <p class="text-[11px] text-slate-400 mt-1">
             {{ form.llmConfig === 'inherit'
               ? '未绑定，问答使用「设置」里的全局默认模型'
@@ -1186,21 +1208,15 @@ async function onImportKbFile(event: Event) {
 
           <!-- 本地 fastembed：每个知识库独立选择与编码 -->
           <template v-else>
-            <div class="relative mt-1">
-              <select
-                v-model="form.embeddingModel"
-                class="kiwi-input cursor-pointer appearance-none pr-9 font-mono text-[13px]"
-              >
-                <option v-for="m in embeddingOptions" :key="m.id" :value="m.id">
-                  {{ m.label }}
-                </option>
-              </select>
-              <KiwiIcon
-                name="chevron"
-                :size="14"
-                class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-            </div>
+            <KiwiSelect
+              class="mt-1"
+              :model-value="form.embeddingModel"
+              :options="embeddingSelectOptions"
+              width="w-72"
+              variant="input"
+              trigger-class="!h-9 !w-full !justify-between !rounded-xl !border !border-slate-200 !bg-white !px-3 !font-mono !text-[13px] !text-slate-600"
+              @update:model-value="setEmbeddingModel"
+            />
             <p class="mt-1 text-[11px] text-slate-400">
               {{ embeddingHint }}
             </p>

@@ -1,0 +1,3296 @@
+/**
+ * 主题引擎兼容层。
+ *
+ * 现有界面大量使用 Tailwind 的中性色工具类（text-slate-400 / bg-white/70 …）。
+ * 这里把它们重新映射到主题令牌，主题切换时无需逐个组件改写：
+ * - 默认值与当前 slate / white 完全一致，内置主题下是无操作（no-op）。
+ * - 背景透明度乘以 `--theme-surface-opacity`，用于玻璃拟态与背景图。
+ * - 旧 slate 档位（300/400/900 等）优先读 CSS fallback，自定义主题由
+ *   `theme/apply.ts` 写入推导值，保证内置主题保持像素级一致。
+ * - 只覆盖主题相关的颜色属性，不改布局 / 间距 / 字体粗细。
+ */
+
+:root {
+  /* 语义令牌：与内置「经典紫」完全一致 */
+  --theme-app: 248 250 252;
+  --theme-surface: 255 255 255;
+  --theme-surface-muted: 241 245 249;
+  --theme-surface-strong: 226 232 240;
+  --theme-border-subtle: 241 245 249;
+  --theme-border: 226 232 240;
+  --theme-border-strong: 203 213 225;
+  --theme-text-primary: 30 41 59;
+  --theme-text-strong: 51 65 85;
+  --theme-text-secondary: 71 85 105;
+  --theme-text-muted: 100 116 139;
+  --theme-text-subtle: 148 163 184;
+  --theme-text-faint: 203 213 225;
+  --theme-accent: 90 85 199;
+  --theme-accent-foreground: 255 255 255;
+  --theme-surface-opacity: 1;
+  --theme-surface-blur: 0px;
+  --theme-background-dim: 0;
+  --theme-background-blur: 0px;
+  --theme-radius: 16px;
+  --theme-background-size: cover;
+  --theme-background-position: center;
+  --theme-background-repeat: no-repeat;
+}
+
+html[data-kiwi-theme-mode='dark'] {
+  color-scheme: dark;
+}
+
+/* ---------- 应用底色与正文 ---------- */
+body {
+  background-color: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-primary));
+}
+
+/* 主题背景图：两层伪元素，图片在下、暗化遮罩在上，内容始终位于其上。 */
+html[data-kiwi-theme-bg='true'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-color: rgb(var(--theme-app));
+  background-image: var(--theme-background-image);
+  background-size: var(--theme-background-size);
+  background-position: var(--theme-background-position);
+  background-repeat: var(--theme-background-repeat);
+  filter: blur(var(--theme-background-blur));
+}
+
+html[data-kiwi-theme-bg='true'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgb(0 0 0 / var(--theme-background-dim));
+}
+
+/* ---------- 字体 ---------- */
+html[data-kiwi-theme-font-body='true'] body,
+html[data-kiwi-theme-font-body='true'] .font-sans {
+  font-family: var(--theme-font-body), 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+}
+
+html[data-kiwi-theme-font-heading='true'] .ProseMirror h1,
+html[data-kiwi-theme-font-heading='true'] .ProseMirror h2,
+html[data-kiwi-theme-font-heading='true'] .ProseMirror h3,
+html[data-kiwi-theme-font-heading='true'] .ProseMirror h4,
+html[data-kiwi-theme-font-heading='true'] .ProseMirror h5,
+html[data-kiwi-theme-font-heading='true'] .ProseMirror h6,
+html[data-kiwi-theme-font-heading='true'] .prose-wiki h1,
+html[data-kiwi-theme-font-heading='true'] .prose-wiki h2,
+html[data-kiwi-theme-font-heading='true'] .prose-wiki h3,
+html[data-kiwi-theme-font-heading='true'] .prose-wiki h4,
+html[data-kiwi-theme-font-heading='true'] .prose-wiki h5,
+html[data-kiwi-theme-font-heading='true'] .prose-wiki h6 {
+  font-family: var(--theme-font-heading), 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+}
+
+html[data-kiwi-theme-font-mono='true'] code,
+html[data-kiwi-theme-font-mono='true'] pre,
+html[data-kiwi-theme-font-mono='true'] kbd,
+html[data-kiwi-theme-font-mono='true'] samp,
+html[data-kiwi-theme-font-mono='true'] .font-mono {
+  font-family: var(--theme-font-mono), 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ---------- 文本色 ---------- */
+.text-slate-200 { color: rgb(var(--theme-text-200, 226 232 240)); }
+.text-slate-300 { color: rgb(var(--theme-text-faint)); }
+.text-slate-400 { color: rgb(var(--theme-text-subtle)); }
+.text-slate-500 { color: rgb(var(--theme-text-muted)); }
+.text-slate-600 { color: rgb(var(--theme-text-secondary)); }
+.text-slate-700 { color: rgb(var(--theme-text-strong)); }
+.text-slate-800 { color: rgb(var(--theme-text-primary)); }
+.text-slate-900 { color: rgb(var(--theme-text-900, 15 23 42)); }
+
+.hover\:text-slate-500:hover { color: rgb(var(--theme-text-muted)); }
+.hover\:text-slate-600:hover { color: rgb(var(--theme-text-secondary)); }
+.hover\:text-slate-700:hover { color: rgb(var(--theme-text-strong)); }
+.hover\:text-slate-800:hover { color: rgb(var(--theme-text-primary)); }
+.hover\:text-slate-900:hover { color: rgb(var(--theme-text-primary)); }
+.focus\:text-slate-700:focus { color: rgb(var(--theme-text-strong)); }
+.group:hover .group-hover\:text-slate-500 { color: rgb(var(--theme-text-muted)); }
+.group:hover .group-hover\:text-slate-600 { color: rgb(var(--theme-text-secondary)); }
+.disabled\:text-slate-300:disabled { color: rgb(var(--theme-text-faint)); }
+.disabled\:text-slate-400:disabled { color: rgb(var(--theme-text-subtle)); }
+.placeholder\:text-slate-300::placeholder { color: rgb(var(--theme-text-faint)); }
+.placeholder\:text-slate-400::placeholder { color: rgb(var(--theme-text-subtle)); }
+
+.\!text-slate-400 { color: rgb(var(--theme-text-subtle)) !important; }
+.\!text-slate-500 { color: rgb(var(--theme-text-muted)) !important; }
+.\!text-slate-600 { color: rgb(var(--theme-text-secondary)) !important; }
+.\!text-slate-700 { color: rgb(var(--theme-text-strong)) !important; }
+
+/* ---------- 白色 / 表面背景 ---------- */
+.bg-white {
+  background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+.bg-white\/10 { background-color: rgb(var(--theme-surface) / calc(0.1 * var(--theme-surface-opacity))); }
+.bg-white\/15 { background-color: rgb(var(--theme-surface) / calc(0.15 * var(--theme-surface-opacity))); }
+.bg-white\/20 { background-color: rgb(var(--theme-surface) / calc(0.2 * var(--theme-surface-opacity))); }
+.bg-white\/25 { background-color: rgb(var(--theme-surface) / calc(0.25 * var(--theme-surface-opacity))); }
+.bg-white\/40 { background-color: rgb(var(--theme-surface) / calc(0.4 * var(--theme-surface-opacity))); }
+.bg-white\/50 { background-color: rgb(var(--theme-surface) / calc(0.5 * var(--theme-surface-opacity))); }
+.bg-white\/55 { background-color: rgb(var(--theme-surface) / calc(0.55 * var(--theme-surface-opacity))); }
+.bg-white\/60 { background-color: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity))); }
+.bg-white\/70 { background-color: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity))); }
+.bg-white\/75 { background-color: rgb(var(--theme-surface) / calc(0.75 * var(--theme-surface-opacity))); }
+.bg-white\/80 { background-color: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity))); }
+.bg-white\/85 { background-color: rgb(var(--theme-surface) / calc(0.85 * var(--theme-surface-opacity))); }
+.bg-white\/90 { background-color: rgb(var(--theme-surface) / calc(0.9 * var(--theme-surface-opacity))); }
+.bg-white\/95 { background-color: rgb(var(--theme-surface) / calc(0.95 * var(--theme-surface-opacity))); }
+.bg-white\/97 { background-color: rgb(var(--theme-surface) / calc(0.97 * var(--theme-surface-opacity))); }
+
+.hover\:bg-white:hover {
+  background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+.hover\:bg-white\/15:hover { background-color: rgb(var(--theme-surface) / calc(0.15 * var(--theme-surface-opacity))); }
+.hover\:bg-white\/20:hover { background-color: rgb(var(--theme-surface) / calc(0.2 * var(--theme-surface-opacity))); }
+.hover\:bg-white\/50:hover { background-color: rgb(var(--theme-surface) / calc(0.5 * var(--theme-surface-opacity))); }
+.hover\:bg-white\/60:hover { background-color: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity))); }
+.hover\:bg-white\/70:hover { background-color: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity))); }
+.hover\:bg-white\/80:hover { background-color: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity))); }
+.hover\:bg-white\/90:hover { background-color: rgb(var(--theme-surface) / calc(0.9 * var(--theme-surface-opacity))); }
+.focus\:bg-white:focus {
+  background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+
+.\!bg-white { background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity)) !important; }
+.\!bg-white\/60 { background-color: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity))) !important; }
+.\!bg-white\/70 { background-color: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity))) !important; }
+.\!bg-white\/80 { background-color: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity))) !important; }
+
+/* ---------- 浅灰填充 ---------- */
+.bg-slate-50 { background-color: rgb(var(--theme-app) / var(--theme-surface-opacity)); }
+.bg-slate-50\/30 { background-color: rgb(var(--theme-app) / calc(0.3 * var(--theme-surface-opacity))); }
+.bg-slate-50\/40 { background-color: rgb(var(--theme-app) / calc(0.4 * var(--theme-surface-opacity))); }
+.bg-slate-50\/50 { background-color: rgb(var(--theme-app) / calc(0.5 * var(--theme-surface-opacity))); }
+.bg-slate-50\/60 { background-color: rgb(var(--theme-app) / calc(0.6 * var(--theme-surface-opacity))); }
+.bg-slate-50\/70 { background-color: rgb(var(--theme-app) / calc(0.7 * var(--theme-surface-opacity))); }
+.bg-slate-50\/80 { background-color: rgb(var(--theme-app) / calc(0.8 * var(--theme-surface-opacity))); }
+.bg-slate-50\/95 { background-color: rgb(var(--theme-app) / calc(0.95 * var(--theme-surface-opacity))); }
+.hover\:bg-slate-50:hover { background-color: rgb(var(--theme-app) / var(--theme-surface-opacity)); }
+.hover\:bg-slate-50\/70:hover { background-color: rgb(var(--theme-app) / calc(0.7 * var(--theme-surface-opacity))); }
+
+.bg-slate-100 { background-color: rgb(var(--theme-surface-muted) / var(--theme-surface-opacity)); }
+.bg-slate-100\/50 { background-color: rgb(var(--theme-surface-muted) / calc(0.5 * var(--theme-surface-opacity))); }
+.bg-slate-100\/70 { background-color: rgb(var(--theme-surface-muted) / calc(0.7 * var(--theme-surface-opacity))); }
+.bg-slate-100\/80 { background-color: rgb(var(--theme-surface-muted) / calc(0.8 * var(--theme-surface-opacity))); }
+.bg-slate-100\/90 { background-color: rgb(var(--theme-surface-muted) / calc(0.9 * var(--theme-surface-opacity))); }
+.hover\:bg-slate-100:hover { background-color: rgb(var(--theme-surface-muted) / var(--theme-surface-opacity)); }
+.hover\:bg-slate-100\/80:hover { background-color: rgb(var(--theme-surface-muted) / calc(0.8 * var(--theme-surface-opacity))); }
+.disabled\:bg-slate-100:disabled { background-color: rgb(var(--theme-surface-muted) / var(--theme-surface-opacity)); }
+
+.bg-slate-200 { background-color: rgb(var(--theme-surface-strong) / var(--theme-surface-opacity)); }
+.bg-slate-200\/40 { background-color: rgb(var(--theme-surface-strong) / calc(0.4 * var(--theme-surface-opacity))); }
+.bg-slate-200\/50 { background-color: rgb(var(--theme-surface-strong) / calc(0.5 * var(--theme-surface-opacity))); }
+.bg-slate-200\/60 { background-color: rgb(var(--theme-surface-strong) / calc(0.6 * var(--theme-surface-opacity))); }
+.bg-slate-200\/70 { background-color: rgb(var(--theme-surface-strong) / calc(0.7 * var(--theme-surface-opacity))); }
+.bg-slate-200\/80 { background-color: rgb(var(--theme-surface-strong) / calc(0.8 * var(--theme-surface-opacity))); }
+.bg-slate-200\/90 { background-color: rgb(var(--theme-surface-strong) / calc(0.9 * var(--theme-surface-opacity))); }
+.hover\:bg-slate-200:hover { background-color: rgb(var(--theme-surface-strong) / var(--theme-surface-opacity)); }
+
+.bg-slate-300 { background-color: rgb(var(--theme-bg-300, 203 213 225) / var(--theme-surface-opacity)); }
+.bg-slate-300\/70 { background-color: rgb(var(--theme-bg-300, 203 213 225) / calc(0.7 * var(--theme-surface-opacity))); }
+.bg-slate-300\/80 { background-color: rgb(var(--theme-bg-300, 203 213 225) / calc(0.8 * var(--theme-surface-opacity))); }
+.bg-slate-400 { background-color: rgb(var(--theme-bg-400, 148 163 184) / var(--theme-surface-opacity)); }
+.bg-slate-400\/80 { background-color: rgb(var(--theme-bg-400, 148 163 184) / calc(0.8 * var(--theme-surface-opacity))); }
+
+/* ---------- 边框 / 分隔线 / 环 ---------- */
+.border-slate-50 { border-color: rgb(var(--theme-border-50, 248 250 252)); }
+.border-slate-100 { border-color: rgb(var(--theme-border-subtle)); }
+.border-slate-100\/80 { border-color: rgb(var(--theme-border-subtle) / 0.8); }
+.border-slate-200 { border-color: rgb(var(--theme-border)); }
+.border-slate-200\/50 { border-color: rgb(var(--theme-border) / 0.5); }
+.border-slate-200\/60 { border-color: rgb(var(--theme-border) / 0.6); }
+.border-slate-200\/70 { border-color: rgb(var(--theme-border) / 0.7); }
+.border-slate-200\/80 { border-color: rgb(var(--theme-border) / 0.8); }
+.border-slate-200\/90 { border-color: rgb(var(--theme-border) / 0.9); }
+.border-slate-300 { border-color: rgb(var(--theme-border-strong)); }
+.border-slate-300\/70 { border-color: rgb(var(--theme-border-strong) / 0.7); }
+.border-slate-500 { border-color: rgb(var(--theme-border-500, 100 116 139)); }
+
+.hover\:border-slate-200:hover { border-color: rgb(var(--theme-border)); }
+.hover\:border-slate-200\/70:hover { border-color: rgb(var(--theme-border) / 0.7); }
+.hover\:border-slate-300:hover { border-color: rgb(var(--theme-border-strong)); }
+
+.divide-slate-50 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(var(--theme-border-50, 248 250 252));
+}
+.divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(var(--theme-border-subtle));
+}
+
+.ring-slate-100 { --tw-ring-color: rgb(var(--theme-border-subtle)); }
+.ring-slate-200\/60 { --tw-ring-color: rgb(var(--theme-border) / 0.6); }
+.ring-slate-200\/70 { --tw-ring-color: rgb(var(--theme-border) / 0.7); }
+
+.\!border-slate-200 { border-color: rgb(var(--theme-border)) !important; }
+.\!border-slate-200\/70 { border-color: rgb(var(--theme-border) / 0.7) !important; }
+.\!border-slate-200\/80 { border-color: rgb(var(--theme-border) / 0.8) !important; }
+.\!border-slate-200\/90 { border-color: rgb(var(--theme-border) / 0.9) !important; }
+
+/* ---------- 渐变端点（卷动淡出、页面渐变底） ---------- */
+.from-white {
+  --tw-gradient-from: rgb(var(--theme-surface) / var(--theme-surface-opacity)) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-surface) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.from-white\/90 {
+  --tw-gradient-from: rgb(var(--theme-surface) / calc(0.9 * var(--theme-surface-opacity))) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-surface) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.from-white\/95 {
+  --tw-gradient-from: rgb(var(--theme-surface) / calc(0.95 * var(--theme-surface-opacity))) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-surface) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.to-white {
+  --tw-gradient-to: rgb(var(--theme-surface) / var(--theme-surface-opacity)) var(--tw-gradient-to-position);
+}
+.to-white\/40 {
+  --tw-gradient-to: rgb(var(--theme-surface) / calc(0.4 * var(--theme-surface-opacity))) var(--tw-gradient-to-position);
+}
+.to-white\/55 {
+  --tw-gradient-to: rgb(var(--theme-surface) / calc(0.55 * var(--theme-surface-opacity))) var(--tw-gradient-to-position);
+}
+.to-white\/70 {
+  --tw-gradient-to: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity))) var(--tw-gradient-to-position);
+}
+.via-white {
+  --tw-gradient-to: rgb(var(--theme-surface) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--theme-surface) / var(--theme-surface-opacity)) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+.via-white\/80 {
+  --tw-gradient-to: rgb(var(--theme-surface) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity))) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+
+.from-slate-50 {
+  --tw-gradient-from: rgb(var(--theme-app) / var(--theme-surface-opacity)) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-app) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.from-slate-50\/80 {
+  --tw-gradient-from: rgb(var(--theme-app) / calc(0.8 * var(--theme-surface-opacity))) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-app) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.from-slate-50\/90 {
+  --tw-gradient-from: rgb(var(--theme-app) / calc(0.9 * var(--theme-surface-opacity))) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-app) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.from-slate-100 {
+  --tw-gradient-from: rgb(var(--theme-surface-muted) / var(--theme-surface-opacity)) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-surface-muted) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.from-slate-200\/80 {
+  --tw-gradient-from: rgb(var(--theme-surface-strong) / calc(0.8 * var(--theme-surface-opacity))) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-surface-strong) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+.to-slate-50 {
+  --tw-gradient-to: rgb(var(--theme-app) / var(--theme-surface-opacity)) var(--tw-gradient-to-position);
+}
+.to-slate-100 {
+  --tw-gradient-to: rgb(var(--theme-surface-muted) / var(--theme-surface-opacity)) var(--tw-gradient-to-position);
+}
+.to-slate-100\/40 {
+  --tw-gradient-to: rgb(var(--theme-surface-muted) / calc(0.4 * var(--theme-surface-opacity))) var(--tw-gradient-to-position);
+}
+.via-slate-50\/55 {
+  --tw-gradient-to: rgb(var(--theme-app) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--theme-app) / calc(0.55 * var(--theme-surface-opacity))) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+.via-slate-100 {
+  --tw-gradient-to: rgb(var(--theme-surface-muted) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--theme-surface-muted) / var(--theme-surface-opacity)) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+
+/* ---------- 常用组件类（@apply 已内联颜色，需单独覆盖） ---------- */
+.glass {
+  background-color: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity)));
+}
+.glass-strong {
+  background-color: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity)));
+}
+.sidebar-glass {
+  background-color: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity)));
+}
+.kiwi-card {
+  background-color: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+}
+
+html[data-kiwi-theme-custom='true'] .glass {
+  border-color: rgb(var(--theme-border) / 0.5);
+}
+html[data-kiwi-theme-custom='true'] .glass-strong {
+  border-color: rgb(var(--theme-border) / 0.6);
+}
+html[data-kiwi-theme-custom='true'] .sidebar-glass {
+  border-right-color: rgb(var(--theme-border) / 0.5);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-card {
+  border-color: rgb(var(--theme-border) / 0.6);
+}
+
+/* `.kiwi-card:hover` 的 border-kiwi-200 是 @apply 内联色，会被上面的
+   组件类覆盖规则压住；自定义主题下显式补回悬停描边。 */
+html[data-kiwi-theme-custom='true'] .kiwi-card:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+}
+
+/* 卡片内图标在 group-hover 时从浅灰描边切到 kiwi-200；深色下那几乎是白色。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .group:hover .group-hover\:border-kiwi-200 {
+  border-color: rgb(var(--theme-accent) / 0.4);
+}
+
+/* 主题要求毛玻璃时，给没有自带 backdrop-blur 的表面补上。 */
+/* ---------- 浮层菜单 / 下拉面板 ----------
+ * 菜单悬浮在正文之上，40% 透明度的玻璃底会把下方的亮色笔记内容透成灰白，
+ * 深色主题下浅色文字的对比度明显不足。浮层统一改用接近不透明的主题表面；
+ * 主题的 surface-opacity 面向大面积玻璃容器，不适用于需要可读性的菜单。 */
+html[data-kiwi-theme-custom='true'] .kiwi-menu-panel {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background-color: rgb(var(--theme-surface) / 0.96);
+}
+
+/* Slash 命令面板：main.css 里是硬编码的浅色玻璃，跟随主题令牌。 */
+html[data-kiwi-theme-custom='true'] .slash-menu-box {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background: rgb(var(--theme-surface) / 0.96);
+  box-shadow: 0 18px 45px rgb(0 0 0 / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .slash-item {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .slash-item:hover,
+html[data-kiwi-theme-custom='true'] .slash-item.is-active {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .slash-hint {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .slash-item.is-active .slash-hint {
+  color: rgb(var(--theme-accent) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] .slash-group + .slash-group {
+  border-top-color: rgb(var(--theme-border) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] .slash-group-title {
+  color: rgb(var(--theme-text-subtle));
+}
+
+/* @ 提及 / : 表情建议菜单：main.css 里同为硬编码浅色玻璃，处理方式与 Slash 面板一致。 */
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-box {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background: rgb(var(--theme-surface) / 0.96);
+  box-shadow: 0 18px 45px rgb(0 0 0 / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-head,
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-group {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-tip,
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-sub {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-item {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-item:hover,
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-item.is-active {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-suggest-icon {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .emoji-suggest-item:hover,
+html[data-kiwi-theme-custom='true'] .emoji-suggest-item.is-active {
+  background: rgb(var(--theme-accent) / 0.14);
+}
+
+/* 段落拖动手柄：main.css 里是硬编码白色浮块。 */
+html[data-kiwi-theme-custom='true'] #kiwi-drag-handle {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background-color: rgb(var(--theme-surface) / 0.94);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+}
+
+/* 编辑器工具栏横向滚动条：main.css 里写死浅灰。 */
+html[data-kiwi-theme-custom='true'] .kiwi-toolbar {
+  scrollbar-color: rgb(var(--theme-border-strong)) transparent;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-toolbar::-webkit-scrollbar-thumb {
+  background: rgb(var(--theme-border-strong));
+}
+
+html[data-kiwi-theme-blur='true'] .glass,
+html[data-kiwi-theme-blur='true'] .glass-strong,
+html[data-kiwi-theme-blur='true'] .sidebar-glass,
+html[data-kiwi-theme-blur='true'] .kiwi-card {
+  -webkit-backdrop-filter: blur(var(--theme-surface-blur));
+  backdrop-filter: blur(var(--theme-surface-blur));
+}
+
+html[data-kiwi-theme-blur='true'] [class*='bg-white']:not([class*='backdrop-blur']) {
+  -webkit-backdrop-filter: blur(var(--theme-surface-blur));
+  backdrop-filter: blur(var(--theme-surface-blur));
+}
+
+.kiwi-btn-primary {
+  color: rgb(var(--theme-accent-foreground));
+}
+
+.kiwi-btn-secondary {
+  color: rgb(var(--theme-text-secondary));
+  background-color: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+  border-color: rgb(var(--theme-border) / 0.7);
+}
+.kiwi-btn-secondary:hover {
+  background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+
+.kiwi-btn-ghost {
+  color: rgb(var(--theme-text-muted));
+}
+
+/* main.css 的 hover 态用 @apply 编译成了固定浅色（白底 + kiwi-700 文字），
+   在深色主题下会变成白色胶囊。这里按组件类名重新映射到主题色。 */
+html[data-kiwi-theme-custom='true'] .kiwi-btn-ghost:hover {
+  background-color: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+
+html[data-kiwi-theme-custom='true'] .kiwi-btn-secondary:hover {
+  border-color: rgb(var(--theme-border-strong));
+  background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-accent));
+}
+
+.kiwi-input {
+  color: rgb(var(--theme-text-strong));
+  background-color: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+  border-color: rgb(var(--theme-border) / 0.8);
+}
+.kiwi-input::placeholder {
+  color: rgb(var(--theme-text-subtle));
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--theme-border-strong) / 0.7);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--theme-text-subtle) / 0.8);
+}
+
+/* ---------- 编辑器 / 阅读态 ---------- */
+.kiwi-editor .ProseMirror {
+  color: rgb(var(--theme-text-primary));
+}
+.kiwi-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: rgb(var(--theme-text-faint));
+}
+.kiwi-editor .ProseMirror ol > li::marker {
+  color: rgb(var(--theme-text-subtle));
+}
+.kiwi-editor .ProseMirror blockquote {
+  color: rgb(var(--theme-text-muted));
+}
+
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror blockquote {
+  border-left-color: rgb(var(--theme-accent) / 0.45);
+}
+/* 行内代码：只作用于段落里的 code，避免命中代码块的 pre > code
+ * （代码块内 code 为整块行内元素，着了底色会按行断成一条条色带）。 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror :not(pre) > code {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+
+/* ---------- 自定义主题：编辑器纸张与正文跟随主题 ----------
+ * 编辑器的画布、纸张与排版颜色在 main.css 中有一批硬编码的浅色值，
+ * 安装主题启用后统一改读主题令牌，避免出现「白纸浅字」。
+ * 内置经典主题不进入这里的任何规则，保持原样。
+ */
+html[data-kiwi-theme-custom='true'] body .editor-canvas {
+  background-color: rgb(var(--theme-app));
+  background-image:
+    radial-gradient(900px 420px at 8% -10%, rgb(var(--theme-accent) / 0.13), transparent 62%),
+    radial-gradient(820px 380px at 100% 108%, rgb(var(--theme-accent) / 0.07), transparent 66%),
+    radial-gradient(circle at 1px 1px, rgb(var(--theme-border-strong) / 0.4) 1px, transparent 0);
+  background-size: auto, auto, 18px 18px;
+  border-color: rgb(var(--theme-border) / 0.7);
+  box-shadow: inset 0 1px 0 rgb(var(--theme-surface) / 0.5);
+}
+
+html[data-kiwi-theme-custom='true'] body .editor-sheet {
+  border-color: rgb(var(--theme-border) / 0.8);
+  box-shadow:
+    0 0 0 1px rgb(var(--theme-border) / 0.7),
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 18px 40px -24px rgb(0 0 0 / 0.5),
+    0 46px 90px -56px rgb(0 0 0 / 0.55);
+}
+
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .editor-sheet::before {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--theme-accent) / 0),
+    rgb(var(--theme-accent) / 0.75),
+    rgb(var(--theme-accent) / 0)
+  );
+}
+
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror {
+  color: rgb(var(--theme-text-primary));
+  caret-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror {
+  color: rgb(var(--theme-text-primary));
+}
+
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h1,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h2,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h3,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h4 {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h5 {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h6 {
+  color: rgb(var(--theme-text-muted));
+}
+
+/* 标题装饰条 / 圆点改用主题强调色 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h1::before,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h2::before {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--theme-accent) / 0.55) 0%,
+    rgb(var(--theme-accent)) 100%
+  );
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h3::before {
+  background: rgb(var(--theme-accent) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h4::before {
+  background: rgb(var(--theme-accent) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h5::before {
+  background: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h6::before {
+  background: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h1:first-child::after,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h2:first-child::after {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--theme-accent) / 0.55) 0%,
+    rgb(var(--theme-accent)) 100%
+  );
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h3:first-child::after {
+  background: rgb(var(--theme-accent) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h4:first-child::after {
+  background: rgb(var(--theme-accent) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h5:first-child::after {
+  background: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h6:first-child::after {
+  background: rgb(var(--theme-text-faint));
+}
+
+/* 有序列表序号 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li::marker {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h1:first-child)::marker,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h2:first-child)::marker,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h3:first-child)::marker,
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h4:first-child)::marker {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h5:first-child)::marker {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h6:first-child)::marker {
+  color: rgb(var(--theme-text-muted));
+}
+
+/* 引用块 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--theme-accent) / 0.12),
+    rgb(var(--theme-accent) / 0.03) 58%,
+    transparent
+  );
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote::before {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--theme-accent) / 0.55),
+    rgb(var(--theme-accent))
+  );
+}
+
+/* 行内元素 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror a {
+  color: rgb(var(--theme-accent));
+  text-decoration-color: rgb(var(--theme-accent) / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror a:hover {
+  color: rgb(var(--theme-accent));
+  filter: brightness(1.15);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror mark {
+  background: linear-gradient(
+    180deg,
+    transparent 42%,
+    rgb(var(--theme-accent) / 0.3) 42%
+  );
+  color: inherit;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror hr {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--theme-border-strong)) 18%,
+    rgb(var(--theme-accent) / 0.55) 50%,
+    rgb(var(--theme-border-strong)) 82%,
+    transparent
+  );
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror img {
+  border-color: rgb(var(--theme-border) / 0.9);
+  box-shadow: 0 14px 34px -26px rgb(0 0 0 / 0.55);
+}
+
+/* 表格 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror th {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--theme-surface-muted)),
+    rgb(var(--theme-surface-muted) / 0.7)
+  );
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror td {
+  border-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr:nth-child(even) td {
+  background: rgb(var(--theme-surface-muted) / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr:hover td {
+  background: rgb(var(--theme-accent) / 0.1);
+}
+
+/* 任务清单勾选态 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p {
+  color: rgb(var(--theme-text-subtle));
+  text-decoration-color: rgb(var(--theme-text-faint) / 0.6);
+}
+
+/* DOCX 页眉 / 页脚 / 分页缝 */
+html[data-kiwi-theme-custom='true'] body .docx-page-head,
+html[data-kiwi-theme-custom='true'] body .docx-page-footer {
+  color: rgb(var(--theme-text-subtle));
+  border-color: rgb(var(--theme-border) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] body .docx-page-edit-text,
+html[data-kiwi-theme-custom='true'] body .docx-page-edit-text.is-placeholder {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .docx-brand {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] body .docx-page-edit {
+  color: rgb(var(--theme-text-secondary));
+  border-bottom-color: rgb(var(--theme-accent) / 0.55);
+  caret-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-gap-paper {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-gap-band {
+  background: rgb(var(--theme-app));
+  box-shadow:
+    inset 0 9px 14px -12px rgb(0 0 0 / 0.45),
+    inset 0 -9px 14px -12px rgb(0 0 0 / 0.35);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-gap-band span {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-break::before {
+  border-top-color: rgb(var(--theme-border-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-break::after {
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-break.ProseMirror-selectednode::before {
+  border-top-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .kiwi-page-break.ProseMirror-selectednode::after {
+  color: rgb(var(--theme-accent));
+}
+
+/* 编辑器目录浮层 / 底部元信息 */
+html[data-kiwi-theme-custom='true'] body .editor-outline {
+  background: rgb(var(--theme-surface) / 0.95);
+  border-color: rgb(var(--theme-border) / 0.7);
+  box-shadow: 0 8px 24px -18px rgb(0 0 0 / 0.6);
+}
+html[data-kiwi-theme-custom='true'] body .editor-meta-bar {
+  color: rgb(var(--theme-text-subtle));
+  border-color: rgb(var(--theme-border) / 0.6);
+}
+
+/* 沉浸阅读态（笔记阅读模式的全屏层） */
+html[data-kiwi-theme-custom='true'] body .reading-zen {
+  background: rgb(var(--theme-app));
+}
+
+/* 阅读态：Tailwind Typography 的 slate 变量改读主题令牌。 */
+html[data-kiwi-theme-custom='true'] .prose-wiki {
+  --tw-prose-body: rgb(var(--theme-text-strong));
+  --tw-prose-headings: rgb(var(--theme-text-primary));
+  --tw-prose-lead: rgb(var(--theme-text-secondary));
+  --tw-prose-links: rgb(var(--theme-accent));
+  --tw-prose-bold: rgb(var(--theme-text-primary));
+  --tw-prose-counters: rgb(var(--theme-text-subtle));
+  --tw-prose-bullets: rgb(var(--theme-text-subtle));
+  --tw-prose-hr: rgb(var(--theme-border));
+  --tw-prose-quotes: rgb(var(--theme-text-secondary));
+  --tw-prose-quote-borders: rgb(var(--theme-border-strong));
+  --tw-prose-captions: rgb(var(--theme-text-subtle));
+  --tw-prose-code: rgb(var(--theme-text-primary));
+  --tw-prose-pre-code: rgb(var(--theme-text-primary));
+  --tw-prose-pre-bg: rgb(var(--theme-surface-muted));
+  --tw-prose-th-borders: rgb(var(--theme-border-strong));
+  --tw-prose-td-borders: rgb(var(--theme-border));
+}
+
+html[data-kiwi-theme-custom='true'] .prose-wiki h5 {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .prose-wiki h6 {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .prose-wiki pre {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
+  border-color: rgb(var(--theme-border));
+}
+/* Wiki / 阅读态表格：表头与单元格边框同样跟随主题。 */
+html[data-kiwi-theme-custom='true'] .prose-wiki th,
+html[data-kiwi-theme-custom='true'] .prose-wiki td {
+  border-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .prose-wiki th {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
+}
+
+/* ---------- 代码块执行结果 / 内嵌预览 ----------
+ * 这些面板在 main.css 中写死了浅绿底色，深色主题下会整块发亮。
+ * 统一改为主题表面 + 强调色描边，语义色（运行成功）只保留在按钮文字上。
+ */
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-node {
+  border-color: rgb(var(--theme-accent) / 0.3);
+  background: rgb(var(--theme-surface-muted) / 0.72);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-node.ProseMirror-selectednode {
+  outline-color: rgb(var(--theme-accent) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-bar {
+  border-bottom-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-action {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-action:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  border-color: rgb(var(--theme-accent) / 0.45);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-action.is-danger:hover {
+  border-color: rgb(244 63 94 / 0.5);
+  background: rgb(244 63 94 / 0.16);
+  color: #fda4af;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-node > pre {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-block-preview {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-preview-bar {
+  border-bottom-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-preview-action {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-preview-action:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-tools button {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity)));
+  color: rgb(var(--theme-text-secondary));
+  backdrop-filter: blur(6px);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-tools button:hover {
+  background: rgb(var(--theme-accent) / 0.16);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-run-btn,
+html[data-kiwi-theme-custom='true'] .kiwi-editor.code-theme-light .ProseMirror .code-run-btn {
+  border-color: rgb(var(--theme-accent) / 0.5) !important;
+  background: rgb(var(--theme-accent) / 0.16) !important;
+  color: rgb(var(--theme-accent)) !important;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-run-btn:hover,
+html[data-kiwi-theme-custom='true'] .kiwi-editor.code-theme-light .ProseMirror .code-run-btn:hover {
+  background: rgb(var(--theme-accent) / 0.26) !important;
+  color: rgb(var(--theme-accent)) !important;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-run-badge {
+  background: rgb(245 158 11 / 0.16);
+  color: #fcd34d;
+}
+
+/* ---------- 提示块 / 折叠块 / 行内提及 ---------- */
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .callout-block {
+  border-color: rgb(var(--theme-accent) / 0.3);
+  border-left-color: rgb(var(--theme-accent));
+  background: linear-gradient(
+    135deg,
+    rgb(var(--theme-accent) / 0.14) 0%,
+    rgb(var(--theme-accent) / 0.05) 100%
+  );
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror div[data-type='details'] {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.55);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror div[data-type='details'] > button:hover {
+  background-color: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror div[data-type='details'] summary {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror div[data-type='details'] summary:empty::before {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror div[data-type='details'] div[data-type='detailsContent'] {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-mention {
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-mention:hover {
+  background: rgb(var(--theme-accent) / 0.22);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-mention-attach {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .prose-wiki ol > li::marker {
+  color: rgb(var(--theme-text-subtle));
+}
+
+/* ---------- 笔记卡片 / 嵌入卡片 / 提及预览 ----------
+ * 这些卡片写在 main.css 与组件 scoped 样式中，带白色渐变和浅色文字；
+ * 主题启用后统一改读表面 / 边框 / 文本令牌。
+ */
+html[data-kiwi-theme-custom='true'] .kiwi-note-card {
+  border-color: rgb(var(--theme-border));
+  background: linear-gradient(
+    180deg,
+    rgb(var(--theme-surface) / var(--theme-surface-opacity)) 0%,
+    rgb(var(--theme-surface-muted) / 0.75) 100%
+  );
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-card:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  box-shadow: 0 8px 22px -14px rgb(var(--theme-accent) / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-card-icon {
+  border-color: rgb(var(--theme-accent) / 0.3);
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-card-title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-kind {
+  border-color: rgb(var(--theme-border));
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-card-excerpt {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-card-arrow {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-card-db {
+  border-top-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-embed {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-embed-head {
+  border-bottom-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.6);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-embed-title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-embed-badge {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-embed-open {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-note-embed-body {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / calc(0.98 * var(--theme-surface-opacity)));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview-title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview-text {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview-state,
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview-foot {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview-db {
+  border-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mention-preview-more {
+  color: rgb(var(--theme-text-subtle));
+  background: rgb(var(--theme-surface-muted));
+}
+
+/* 编辑器内的链接 / 网页 / 附件嵌入卡片（EmbedNodeView 的 scoped @apply 样式）。 */
+html[data-kiwi-theme-custom='true'] .embed-title-link,
+html[data-kiwi-theme-custom='true'] .embed-web,
+html[data-kiwi-theme-custom='true'] .embed-link-card,
+html[data-kiwi-theme-custom='true'] .embed-file {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+html[data-kiwi-theme-custom='true'] .embed-title-link,
+html[data-kiwi-theme-custom='true'] .embed-web-bar,
+html[data-kiwi-theme-custom='true'] .embed-file-bar {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--theme-accent) / 0.12),
+    rgb(var(--theme-surface) / var(--theme-surface-opacity)) 62%
+  );
+}
+html[data-kiwi-theme-custom='true'] .embed-web-bar,
+html[data-kiwi-theme-custom='true'] .embed-file-bar {
+  border-bottom-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .embed-web-tip {
+  border-top-color: rgb(var(--theme-border));
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .embed-web-disabled {
+  background: rgb(var(--theme-surface-muted) / 0.6);
+}
+html[data-kiwi-theme-custom='true'] .embed-title-favicon,
+html[data-kiwi-theme-custom='true'] .embed-web-favicon,
+html[data-kiwi-theme-custom='true'] .embed-file-icon {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .embed-title-text,
+html[data-kiwi-theme-custom='true'] .embed-link-title {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .embed-link-site {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .embed-link-excerpt {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .embed-favicon {
+  border-color: rgb(var(--theme-accent) / 0.28);
+  background: linear-gradient(
+    135deg,
+    rgb(var(--theme-accent) / 0.16),
+    rgb(var(--theme-surface) / var(--theme-surface-opacity))
+  );
+}
+html[data-kiwi-theme-custom='true'] .embed-file-card-meta {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .embed-resize-handle::after {
+  background: rgb(var(--theme-border-strong));
+  box-shadow: 0 0 0 1px rgb(var(--theme-surface) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] .embed-action {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .embed-action:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-text-primary));
+}
+
+/* 阅读态（MarkdownView）的笔记卡片 / 链接卡片 / 嵌入卡片。 */
+html[data-kiwi-theme-custom='true'] .markdown-view .md-note-card,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-card {
+  border-color: rgb(var(--theme-border));
+  background: linear-gradient(
+    180deg,
+    rgb(var(--theme-surface) / var(--theme-surface-opacity)),
+    rgb(var(--theme-surface-muted) / 0.7)
+  );
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-note-card:hover,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-card:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  box-shadow: 0 8px 22px rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-note-card-icon {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-note-card-title,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-note-card-kind,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-site,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-excerpt,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-arrow {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-note-card-arrow {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-favicon {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-favicon img {
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-pane {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-embed-pane:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-callout {
+  border-color: rgb(var(--theme-accent) / 0.3);
+  border-left-color: rgb(var(--theme-accent));
+  background: linear-gradient(
+    135deg,
+    rgb(var(--theme-accent) / 0.14) 0%,
+    rgb(var(--theme-accent) / 0.05) 100%
+  );
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-details {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.55);
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-details > summary {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .markdown-view .md-date-chip {
+  border-color: rgb(var(--theme-accent) / 0.4);
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+
+/* ---------- 表格笔记（Sheet） ----------
+ * 表格区大量使用组件内写死的白色 / 浅灰（@apply 已内联），
+ * 这里统一改读主题令牌；选择器带 body 提高优先级，压过 scoped 样式。
+ */
+html[data-kiwi-theme-custom='true'] body .sheet-toolbar {
+  border-color: rgb(var(--theme-border) / 0.7);
+  background: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+}
+html[data-kiwi-theme-custom='true'] body .toolbar-sep {
+  background: rgb(var(--theme-border) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] body .tool-btn {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .tool-btn:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .tool-btn.is-on {
+  background: rgb(var(--theme-accent) / 0.18);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .fmt-select {
+  border-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .fmt-select:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .formula-bar {
+  border-bottom-color: rgb(var(--theme-border) / 0.7);
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+html[data-kiwi-theme-custom='true'] body .name-box,
+html[data-kiwi-theme-custom='true'] body .formula-input {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.7);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .name-box:focus,
+html[data-kiwi-theme-custom='true'] body .formula-input:focus {
+  border-color: rgb(var(--theme-accent));
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent) / 0.22);
+}
+html[data-kiwi-theme-custom='true'] body .fx-label {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .selection-chip {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-scroll {
+  background: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-table th,
+html[data-kiwi-theme-custom='true'] body .sheet-table td {
+  border-right-color: rgb(var(--theme-border) / 0.85);
+  border-bottom-color: rgb(var(--theme-border) / 0.85);
+}
+html[data-kiwi-theme-custom='true'] body .corner-cell,
+html[data-kiwi-theme-custom='true'] body .col-head,
+html[data-kiwi-theme-custom='true'] body .row-head {
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .col-head.is-active,
+html[data-kiwi-theme-custom='true'] body .row-head.is-active {
+  background: rgb(var(--theme-accent) / 0.18);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .col-sort {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .col-filter {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .col-filter:hover,
+html[data-kiwi-theme-custom='true'] body .col-filter.is-on,
+html[data-kiwi-theme-custom='true'] body .col-filter.is-open {
+  background: rgb(var(--theme-accent) / 0.16);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .col-head .col-resize:hover,
+html[data-kiwi-theme-custom='true'] body .row-resize:hover {
+  background: rgb(var(--theme-accent) / 0.4);
+}
+html[data-kiwi-theme-custom='true'] body .sheet-cell {
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-cell.is-selected {
+  background-image: linear-gradient(
+    rgb(var(--theme-accent) / 0.18),
+    rgb(var(--theme-accent) / 0.18)
+  );
+}
+html[data-kiwi-theme-custom='true'] body .sheet-cell.is-active {
+  outline-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-cell.is-frozen-row,
+html[data-kiwi-theme-custom='true'] body .sheet-cell.is-frozen-col {
+  background-color: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-cell.is-error {
+  color: rgb(248 113 113);
+}
+html[data-kiwi-theme-custom='true'] body .sheet-cell.is-search-hit {
+  background-image: linear-gradient(rgb(245 158 11 / 0.28), rgb(245 158 11 / 0.28));
+  box-shadow: inset 0 0 0 2px rgb(245 158 11 / 0.8);
+  color: rgb(253 230 138);
+}
+html[data-kiwi-theme-custom='true'] body .cell-editor {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .load-more {
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .link-btn {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-status {
+  border-top-color: rgb(var(--theme-border) / 0.7);
+  background: rgb(var(--theme-app) / 0.85);
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .status-item b {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .status-filter {
+  background: rgb(var(--theme-accent) / 0.16);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .status-filter:hover {
+  background: rgb(var(--theme-accent) / 0.26);
+}
+html[data-kiwi-theme-custom='true'] body .status-hint {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-tabs {
+  border-top-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'] body .tab-arrow,
+html[data-kiwi-theme-custom='true'] body .tab-add,
+html[data-kiwi-theme-custom='true'] body .tab-action {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .tab-arrow:hover,
+html[data-kiwi-theme-custom='true'] body .tab-add:hover,
+html[data-kiwi-theme-custom='true'] body .tab-action:hover {
+  background: rgb(var(--theme-surface-strong));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-tab {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-tab:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] body .sheet-tab.is-active {
+  border-color: rgb(var(--theme-accent) / 0.4);
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-accent));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+}
+html[data-kiwi-theme-custom='true'] body .sheet-tab.is-search-hit {
+  border-color: rgb(245 158 11 / 0.55);
+  background: rgb(245 158 11 / 0.22);
+  color: rgb(253 230 138);
+}
+html[data-kiwi-theme-custom='true'] body .sheet-context {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background: rgb(var(--theme-surface) / 0.94);
+  box-shadow: 0 20px 45px -20px rgb(0 0 0 / 0.6);
+}
+html[data-kiwi-theme-custom='true'] body .ctx-row {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .ctx-row:hover:not(:disabled) {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'] body .ctx-sep {
+  background: rgb(var(--theme-border-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .filter-action {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] body .filter-action:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .filter-check {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .filter-check:hover {
+  background: rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'] body .filter-check input[type='checkbox'] {
+  accent-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .filter-link {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .filter-link:disabled {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] body .filter-cancel {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .filter-cancel:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] body .filter-apply {
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] body .filter-apply:hover {
+  filter: brightness(0.92);
+}
+
+/* ---------- Notebook ---------- */
+html[data-kiwi-theme-custom='true'] body .nb-run {
+  border-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity)));
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .nb-run:hover {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .nb-run.is-running {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .nb-count {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .nb-type {
+  background: rgb(var(--theme-surface-muted) / 0.8);
+  color: rgb(var(--theme-text-subtle));
+}
+/* .nb-type.is-md 在组件 scoped 样式里也声明了底色，选择器权重更高；
+ * 这里显式覆盖，否则 Markdown 单元格的标签在深色主题下仍是亮色胶囊。 */
+html[data-kiwi-theme-custom='true'] body .nb-type.is-md {
+  background: rgb(var(--theme-surface-muted) / 0.8);
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .nb-type.is-code {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .nb-action {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .nb-action:hover {
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .nb-markdown {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .nb-output {
+  border-color: rgb(var(--theme-border) / 0.7);
+  background: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .nb-output.is-rich {
+  background: rgb(var(--theme-surface) / calc(0.85 * var(--theme-surface-opacity)));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .nb-output.is-error {
+  border-color: rgb(244 63 94 / 0.35);
+  background: rgb(244 63 94 / 0.12);
+  color: rgb(253 164 175);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .nb-output.is-stderr {
+  border-color: rgb(245 158 11 / 0.35);
+  background: rgb(245 158 11 / 0.12);
+  color: rgb(253 230 138);
+}
+html[data-kiwi-theme-custom='true'] body .nb-html th {
+  border-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] body .nb-html td {
+  border-color: rgb(var(--theme-border) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] body .nb-html tr:nth-child(even) td {
+  background: rgb(var(--theme-surface-muted) / 0.4);
+}
+html[data-kiwi-theme-custom='true'] body .nb-html a {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .nb-html pre {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .nb-image,
+html[data-kiwi-theme-custom='true'] body .nb-interactive-frame {
+  border-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .nb-image-toggle {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .nb-image-toggle:hover {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .nb-interactive-badge {
+  border-color: rgb(var(--theme-accent) / 0.2);
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .nb-interactive-hint {
+  color: rgb(var(--theme-text-faint));
+}
+/* ---------- 数据表（Database） ---------- */
+/* 表头与左侧粘性序号列使用同一实心表面：原先两端强调色浓度不同，
+ * 横向滚动时还会透出下层内容，视觉上像被切成两块。 */
+html[data-kiwi-theme-custom='true'] body .db-head-row,
+html[data-kiwi-theme-custom='true'] body .db-index-head {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .db-head-cell:hover {
+  background: rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'] body .db-index-cell {
+  background: rgb(var(--theme-surface));
+}
+/* 已生成笔记的记录：序号列只保留极淡的强调色底 + 左侧细条，
+ * 不再铺一整块高浓度渐变，避免左侧看起来像另一张表。 */
+html[data-kiwi-theme-custom='true'] body .has-note .db-index-cell {
+  background:
+    linear-gradient(rgb(var(--theme-accent) / 0.07), rgb(var(--theme-accent) / 0.07)),
+    rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .has-note .db-index-cell::before {
+  background: linear-gradient(180deg, rgb(var(--theme-accent)), rgb(var(--theme-accent) / 0.55));
+}
+html[data-kiwi-theme-custom='true'] body .db-note-mark {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .has-note:hover .db-index-cell,
+html[data-kiwi-theme-custom='true'] body tbody tr:hover .db-index-cell {
+  background:
+    linear-gradient(rgb(var(--theme-accent) / 0.14), rgb(var(--theme-accent) / 0.14)),
+    rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body tbody tr.has-note:hover .db-index-cell {
+  background:
+    linear-gradient(rgb(var(--theme-accent) / 0.18), rgb(var(--theme-accent) / 0.18)),
+    rgb(var(--theme-surface));
+}
+/* 多选模式下勾选的行同步高亮，序号列保持同色。 */
+html[data-kiwi-theme-custom='true'] body tbody tr:has(> td > input[type='checkbox']:checked) {
+  background: rgb(var(--theme-accent) / 0.08);
+}
+html[data-kiwi-theme-custom='true'] body tbody tr:has(> td > input[type='checkbox']:checked) .db-index-cell {
+  background:
+    linear-gradient(rgb(var(--theme-accent) / 0.14), rgb(var(--theme-accent) / 0.14)),
+    rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .db-add-row {
+  background: linear-gradient(90deg, rgb(var(--theme-accent) / 0.1), transparent 80%);
+}
+html[data-kiwi-theme-custom='true'] body .db-add-row:hover .db-add-icon {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .db-input,
+html[data-kiwi-theme-custom='true'] body .db-textarea {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .db-input:hover,
+html[data-kiwi-theme-custom='true'] body .db-textarea:hover {
+  background: rgb(var(--theme-surface) / 0.6);
+}
+html[data-kiwi-theme-custom='true'] body .db-input:focus,
+html[data-kiwi-theme-custom='true'] body .db-textarea:focus {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .db-boxed .db-input,
+html[data-kiwi-theme-custom='true'] body .db-boxed .db-textarea {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
+}
+/* 弹窗里的 boxed 输入框同时命中 :hover，组件内的白色悬停规则权重更高，
+   这里补一组同权重的覆盖，悬停 / 聚焦都保持主题表面。 */
+html[data-kiwi-theme-custom='true'] body .db-boxed .db-input:hover,
+html[data-kiwi-theme-custom='true'] body .db-boxed .db-textarea:hover {
+  background: rgb(var(--theme-surface) / calc(0.85 * var(--theme-surface-opacity)));
+}
+html[data-kiwi-theme-custom='true'] body .db-boxed .db-input:focus,
+html[data-kiwi-theme-custom='true'] body .db-boxed .db-textarea:focus {
+  border-color: rgb(var(--theme-accent) / 0.55);
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent) / 0.16);
+}
+/* 全站输入框的统一焦点态：主题表面 + 强调色描边 + 柔和光环，
+   覆盖组件里零散的 focus:bg-white / focus:ring-kiwi-* 写法。 */
+html[data-kiwi-theme-custom='true'] body input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='button']):not([type='submit']):not([type='reset']):focus,
+html[data-kiwi-theme-custom='true'] body textarea:focus,
+html[data-kiwi-theme-custom='true'] body select:focus {
+  border-color: rgb(var(--theme-accent) / 0.55) !important;
+  outline: none !important;
+  background-color: rgb(var(--theme-surface)) !important;
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent) / 0.16) !important;
+  caret-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body input::placeholder,
+html[data-kiwi-theme-custom='true'] body textarea::placeholder {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .db-static-value {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .db-progress,
+html[data-kiwi-theme-custom='true'] body .db-progress-static {
+  --db-progress-color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .db-progress-input::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    var(--db-progress-color) var(--db-progress, 0%),
+    rgb(var(--theme-surface-strong)) var(--db-progress, 0%)
+  );
+}
+html[data-kiwi-theme-custom='true'] body .db-progress-input::-webkit-slider-thumb,
+html[data-kiwi-theme-custom='true'] body .db-progress-input::-moz-range-thumb {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .db-progress-input::-moz-range-track {
+  background: rgb(var(--theme-surface-strong));
+}
+html[data-kiwi-theme-custom='true'] body .db-progress-static-track {
+  background: rgb(var(--theme-surface-strong) / 0.8);
+}
+/* 附件单元格：芯片与上传按钮改用主题表面 / 边框，
+ * 避免深色主题下出现一排白色胶囊。 */
+html[data-kiwi-theme-custom='true'] body .db-attach-chip {
+  border-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-surface) / calc(0.8 * var(--theme-surface-opacity)));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] body .db-attach-chip:hover {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .db-attach-remove:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] body .db-attach-add {
+  border-color: rgb(var(--theme-border-strong));
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .db-attach-add:hover {
+  border-color: rgb(var(--theme-accent) / 0.6);
+  color: rgb(var(--theme-accent));
+}
+
+/* ---------- 内置扩展组件区块 ----------
+ * 日期 / 公式 / 画布 / 图册 / 分栏 / 日历 / 数据表 / 待办进度插入正文后
+ * 仍是浅色卡片；统一改用主题表面、边框与文字令牌。 */
+
+/* 区块外框与选中态 */
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-block,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-block,
+html[data-kiwi-theme-custom='true'] .kiwi-formula-block,
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-block,
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-block,
+html[data-kiwi-theme-custom='true'] .kiwi-draw-block {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / 0.9);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-block.is-selected,
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-block.is-drag,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-block.is-selected,
+html[data-kiwi-theme-custom='true'] .kiwi-formula-block.is-selected,
+html[data-kiwi-theme-custom='true'] .kiwi-formula-block.is-editing,
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-block.is-selected,
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-block.is-editing,
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-block.is-selected,
+html[data-kiwi-theme-custom='true'] .kiwi-draw-block.is-selected,
+html[data-kiwi-theme-custom='true'] .kiwi-draw-block.is-editing {
+  border-color: rgb(var(--theme-accent) / 0.55);
+  box-shadow: 0 0 0 3px rgb(var(--theme-accent) / 0.16);
+}
+
+/* 待办进度 */
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-card {
+  --tp-a: rgb(var(--theme-accent));
+  --tp-b: rgb(var(--theme-accent) / 0.65);
+  --tp-soft: rgb(var(--theme-accent) / 0.14);
+  --tp-ink: rgb(var(--theme-accent));
+  --tp-border: rgb(var(--theme-accent) / 0.24);
+  --tp-ring: rgb(var(--theme-accent) / 0.18);
+  background: rgb(var(--theme-surface) / 0.9);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-label {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-meta.is-muted,
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-empty {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-icon {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-icon:hover,
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-icon.is-active {
+  background: var(--tp-soft);
+  color: var(--tp-ink);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-icon.is-danger:hover {
+  background: rgb(248 113 113 / 0.14);
+  color: #fca5a5;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-track {
+  background: rgb(var(--theme-surface-strong) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-settings {
+  border-top-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-field-label,
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-check {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-task-progress-input {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-primary));
+}
+
+/* 图册 */
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-toolbar {
+  border-bottom-color: rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-tag {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-tag em,
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-status {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-status.is-error {
+  color: #fca5a5;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-seg {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-seg button {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-seg button.is-on {
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-accent));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-action {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-action:hover {
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-action.is-danger:hover {
+  color: #fca5a5;
+  background: rgb(248 113 113 / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-empty:hover {
+  background: rgb(var(--theme-accent) / 0.08);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-empty-icon {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-item,
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-slide {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-thumb {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-blocked {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-blocked-lightbox {
+  border-color: rgb(var(--theme-border-strong) / 0.45);
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-caption {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-caption::placeholder {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-caption-static,
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-slide-caption,
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-readonly-empty {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-mini {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-mini:hover {
+  color: rgb(var(--theme-text-secondary));
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-mini.is-danger:hover {
+  color: #fca5a5;
+  background: rgb(248 113 113 / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-arrow {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-muted));
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.3);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-gallery-arrow:hover {
+  color: rgb(var(--theme-accent));
+  border-color: rgb(var(--theme-accent) / 0.5);
+}
+
+/* 日历 */
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-readonly-title,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-title,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-readonly-event {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-tag {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-title::placeholder,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-event-input::placeholder {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-nav {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-nav button:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-weekday,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-more,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-editing-tag,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-event-range,
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-hint {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-band {
+  background: rgb(var(--theme-surface-muted) / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day.is-clickable:hover {
+  background: rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day.is-selected {
+  background: rgb(var(--theme-accent) / 0.16);
+  box-shadow: inset 0 0 0 1px rgb(var(--theme-accent) / 0.5);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-daynum {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day.is-outside .kiwi-calendar-daynum {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day.is-today .kiwi-calendar-daynum {
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-editor {
+  border-top-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-event-date {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-event-input {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-date-field {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-arrow {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-swatch.is-active {
+  box-shadow: 0 0 0 2px rgb(var(--theme-surface)), 0 0 0 3px rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-save {
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-save:hover {
+  background: rgb(var(--theme-accent) / 0.85);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-cancel {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-cancel:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-clear {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-clear:hover {
+  background: rgb(248 113 113 / 0.14);
+  color: #fca5a5;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day-event {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day-event:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-day-event.is-current {
+  background: rgb(var(--theme-accent) / 0.16);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-hint {
+  border-top-color: rgb(var(--theme-border-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-calendar-readonly-events {
+  border-top-color: rgb(var(--theme-border));
+}
+
+/* 日期胶囊与选择弹层 */
+html[data-kiwi-theme-custom='true'] .kiwi-date-chip {
+  border-color: rgb(var(--theme-accent) / 0.4);
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-chip:hover {
+  border-color: rgb(var(--theme-accent) / 0.6);
+  background: rgb(var(--theme-accent) / 0.22);
+}
+html[data-kiwi-theme-custom='true'] .is-readonly .kiwi-date-chip:hover {
+  border-color: rgb(var(--theme-accent) / 0.4);
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-pop {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.5), 0 2px 8px rgb(0 0 0 / 0.3);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-month {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-nav {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-nav:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-week {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-day {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-day:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-day.is-outside {
+  color: rgb(var(--theme-text-faint));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-day.is-today {
+  box-shadow: inset 0 0 0 1px rgb(var(--theme-accent) / 0.45);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-day.is-selected {
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-pop-foot {
+  border-top-color: rgb(var(--theme-border-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-quick {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-quick:hover {
+  background: rgb(var(--theme-accent) / 0.2);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-quick.is-muted {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-date-hint {
+  color: rgb(var(--theme-text-subtle));
+}
+
+/* 公式 */
+html[data-kiwi-theme-custom='true'] .kiwi-formula-toolbar {
+  border-bottom-color: rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-tag {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-hint,
+html[data-kiwi-theme-custom='true'] .kiwi-formula-empty {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-action {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-action:hover {
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-render,
+html[data-kiwi-theme-custom='true'] .kiwi-formula-preview {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-error {
+  color: #fca5a5;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-btn {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-btn.is-primary {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-formula-input {
+  border-bottom-color: rgb(var(--theme-border-strong));
+  background: rgb(var(--theme-surface) / 0.7);
+  color: rgb(var(--theme-text-primary));
+}
+
+/* Mermaid */
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-toolbar {
+  border-bottom-color: rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-tag {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-status {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-status.is-error {
+  color: #fca5a5;
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-action {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-action:hover {
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-btn {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-btn.is-primary {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-mermaid-input {
+  border-right-color: rgb(var(--theme-border-strong));
+  background: rgb(var(--theme-surface) / 0.7);
+  color: rgb(var(--theme-text-primary));
+}
+
+/* 数据表区块 */
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-readonly-title,
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-title::placeholder,
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-size {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-datatable-tag {
+  color: rgb(var(--theme-text-secondary));
+}
+
+/* 画布：只改外框与工具栏，画布内容保持原色避免负片 */
+html[data-kiwi-theme-custom='true'] .kiwi-draw-toolbar {
+  border-bottom-color: rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-tag {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-stats {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-action {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-action:hover,
+html[data-kiwi-theme-custom='true'] .kiwi-draw-action.is-active {
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-action.is-danger:hover {
+  color: #fca5a5;
+  background: rgb(248 113 113 / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-zoom {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-zoom:hover {
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-sep {
+  background: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-btn {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-btn.is-primary {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-view {
+  background: rgb(var(--theme-surface) / calc(0.9 * var(--theme-surface-opacity)));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-view.is-clickable:hover {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-view.is-empty {
+  background: rgb(var(--theme-surface) / 0.9);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-empty {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-empty-icon {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-empty-title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-draw-empty-hint,
+html[data-kiwi-theme-custom='true'] .kiwi-draw-empty-text {
+  color: rgb(var(--theme-text-subtle));
+}
+
+/* 分栏卡片 */
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-columns,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-columns {
+  border-color: rgb(var(--theme-border));
+  background:
+    linear-gradient(180deg, rgb(var(--theme-accent) / 0.1), rgb(var(--theme-accent) / 0.04)),
+    rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-columns::before,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-columns::before {
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-columns > .kiwi-column,
+html[data-kiwi-theme-custom='true'] .markdown-view .md-columns > .md-column {
+  border-color: rgb(var(--theme-border-strong));
+  background: rgb(var(--theme-surface) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-columns > .kiwi-column:focus-within {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .kiwi-columns.ProseMirror-selectednode {
+  outline-color: rgb(var(--theme-accent) / 0.5);
+}
+
+/* ---------- 画布（Canvas） ----------
+ * 画布内容由 <canvas> 自行绘制，底色 / 点阵 / 文字都会读取容器上的
+ * jvs-draw 颜色变量，因此深色主题只需下发主题令牌，不再整体反色。
+ */
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-editor {
+  background: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container {
+  --color-bg-canvas: rgb(var(--theme-app));
+  --color-bg-panel: rgb(var(--theme-surface) / calc(0.92 * var(--theme-surface-opacity)));
+  --color-border: rgb(var(--theme-border));
+  --color-text: rgb(var(--theme-text-primary));
+  --color-text-muted: rgb(var(--theme-text-subtle));
+}
+/* 空画布没有图元时 jvs-draw 用纯白画布兜底，与深色主题断层；此时画布
+   本身没有内容，直接隐藏让宿主的主题底色透出，欢迎文案才能保持可读。 */
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .excalidraw-container {
+  background: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .jvs-draw-container:has(.empty-state) .excalidraw-container > canvas {
+  opacity: 0;
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .minimap-wrapper {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / 0.92);
+}
+/* 小地图画布由 jvs-draw 用固定浅色（白底 + 淡蓝图元）绘制，深色主题下
+   反色后与主题表面混色：黑底透出表面色，图元保持可辨的蓝色。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .jvs-draw-container .minimap-canvas {
+  filter: invert(1) hue-rotate(180deg) saturate(1.8) brightness(1.35);
+  mix-blend-mode: screen;
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .subtitle {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .empty-state .title,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .empty-state .btn-label {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .empty-state svg {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .empty-state .action-btn:hover {
+  background: rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .shortcut > span:first-child,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .shortcut > span:last-child {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-fullscreen {
+  background: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .toolbar {
+  border-color: rgb(var(--theme-border) / 0.9);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .tool-group .tool-item,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .footer-controls .tool-item,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .kiwi-draw-wand {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .tool-group .tool-item:hover,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .footer-controls .tool-item:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .tool-group .active,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .tool-group .active:hover,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .footer-controls .active,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .footer-controls .active:hover {
+  background: rgb(var(--theme-accent) / 0.16) !important;
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-wand-divider,
+html[data-kiwi-theme-custom='true'] body .jvs-draw-container .footer-controls .separator {
+  background: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] body .tool-group .tool-item.kiwi-draw-wand-divider:hover {
+  background: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-wand-panel {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.65);
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-title,
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-name {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-sub,
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-section,
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-hint,
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-close {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-close:hover {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-theme {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity)));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-theme:hover,
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-theme.is-active {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-theme.is-active .kiwi-wand-name {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-random {
+  border-color: rgb(var(--theme-accent) / 0.4);
+  background: rgb(var(--theme-accent) / 0.1);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-random:hover {
+  border-color: rgb(var(--theme-accent) / 0.7);
+  background: rgb(var(--theme-accent) / 0.16);
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-wand-message {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-status {
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-status.is-error {
+  background: rgb(127 29 29 / 0.25);
+  color: rgb(252 165 165);
+}
+html[data-kiwi-theme-custom='true'] body .kiwi-draw-retry {
+  border-color: rgb(248 113 113 / 0.4);
+  background: rgb(var(--theme-surface));
+  color: rgb(252 165 165);
+}
+
+/* 画布模板库 / 信息图对话框（Element Plus 渲染到 body）
+ * 对话框必须是不透明的：玻璃主题（surface-opacity < 1）下如果也跟着透明，
+ * 背后的深色画布会直接透进来，正文和卡片像蒙了一层灰。 */
+html[data-kiwi-theme-custom='true'] body .template-dialog,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog {
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .custom-dialog-header,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .custom-dialog-header {
+  border-bottom-color: rgb(var(--theme-border) / 0.75);
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .el-dialog__body,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .el-dialog__body {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .custom-dialog-header .title-box .title,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .custom-dialog-header .title-box .title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .custom-dialog-header .close-icon:hover,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .custom-dialog-header .close-icon:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-sidebar {
+  border-right-color: rgb(var(--theme-border) / 0.8);
+  background: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .category-item {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .category-item:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .category-item.active {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .content-header,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .el-dialog__footer {
+  border-color: rgb(var(--theme-border-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .content-header .search-input .el-input__wrapper,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .el-select__wrapper,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .dsl-textarea .el-textarea__inner {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.7);
+  box-shadow: 0 0 0 1px rgb(var(--theme-border)) inset;
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .content-header .search-input .el-input__wrapper.is-focus,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .dsl-textarea .el-textarea__inner:focus {
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 0 0 1px rgb(var(--theme-accent)) inset;
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-card {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background: rgb(var(--theme-surface-muted) / 0.72);
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-card:hover {
+  border-color: rgb(var(--theme-accent) / 0.5);
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-name,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .editor-label,
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .template-selector .selector-label {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-icon-wrapper {
+  background: rgb(var(--theme-surface-muted) / 0.6);
+}
+/* 右侧内容区与缩略图底板由 jvs-draw 写死 #fff；内容区跟随主题，
+ * 缩略图保留浅色纸张预览，否则深色线条的模板预览会糊在深色底上。 */
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-content {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'] body .template-dialog .template-icon {
+  border-color: rgb(var(--theme-border-subtle));
+  background: #f7f8fa;
+}
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .el-dialog__footer {
+  background: rgb(var(--theme-app) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .custom-footer .el-button:not(.el-button--primary) {
+  border-color: rgb(var(--theme-border));
+  color: rgb(var(--theme-text-secondary));
+  background: rgb(var(--theme-surface) / 0.7);
+}
+/* 解析结果条：jvs-draw 给的是浅蓝底 + 深蓝字，深色主题下会变成亮块。 */
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .parse-info {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-accent) / 0.09);
+}
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .parse-info .info-label {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .parse-info .info-value {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .infographic-dialog .parse-error {
+  border-color: rgb(248 113 113 / 0.35);
+  background: rgb(127 29 29 / 0.22);
+  color: rgb(252 165 165);
+}
+
+/* ---------- 画布浮动 UI（深色主题） ----------
+ * 浮动工具条、右键菜单、属性面板与取色弹层由 jvs-draw 写死浅色 / 深色图标，
+ * 深色画布上会突然出现白色卡片。统一改用主题表面、边框与文字色。
+ */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / 0.98);
+  box-shadow: 0 10px 28px -12px rgb(0 0 0 / 0.7);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .settings-btn,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .drag-handle {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .settings-btn:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .settings-btn.active,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .drag-handle:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .divider {
+  background: rgb(var(--theme-border));
+}
+/* jvs-draw 字号选择器用 `!important` 写死了 #f5f6f7，普通声明压不住。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .el-select__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .el-input__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .font-size-select .el-select__wrapper {
+  background: rgb(var(--theme-surface-muted)) !important;
+  box-shadow: none !important;
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .font-size-select .el-select__wrapper:hover {
+  background: rgb(var(--theme-surface-strong)) !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .font-size-select .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px rgb(var(--theme-accent) / 0.65) inset !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .font-size-select .el-input__inner,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .el-select__placeholder,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .el-select__input {
+  color: rgb(var(--theme-text-primary)) !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar .el-select__suffix {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .sub-tools-container .sub-tool-item:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .overflow-tools .overflow-tool-item:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .sub-tools-container .sub-tool-item.active,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .overflow-tools .overflow-tool-item.active {
+  background: rgb(var(--theme-accent) / 0.16);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .overflow-tools .overflow-divider {
+  background: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .overflow-tools .overflow-tool-label {
+  color: rgb(var(--theme-text-primary));
+}
+/* 工具条图标是内联 SVG，路径里写死了深灰 / 深蓝填充，纯 CSS 换色需覆盖 fill。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar svg path[fill='#363B4C' i],
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .floating-toolbar svg path[fill='#102A4C' i] {
+  fill: currentColor;
+}
+
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu {
+  border: 1px solid rgb(var(--theme-border));
+  border-radius: 8px;
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 18px 40px -20px rgb(0 0 0 / 0.8);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu li:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .shortcut {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .divider {
+  background: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .delete {
+  color: rgb(252 165 165);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .delete:hover {
+  background: rgb(127 29 29 / 0.28);
+}
+
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel {
+  border-left-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .header div {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .header svg {
+  color: rgb(var(--theme-text-secondary));
+  fill: currentColor;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .title {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .divider {
+  background: rgb(var(--theme-border-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .btn-box,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .image-box,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .input-value-box {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-input__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-textarea__inner {
+  background: rgb(var(--theme-surface-muted));
+  box-shadow: 0 0 0 1px rgb(var(--theme-border)) inset;
+  color: rgb(var(--theme-text-primary));
+}
+/* 属性面板里的按钮块、数字输入与填充/描边样式条都写死 #f5f6f7，
+ * 下拉框还带 `!important`，这里逐类压回主题表面色。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .item-label,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .color-text {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .input-box,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .btn-item,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .bind-box {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
+}
+/* jvs-draw 的 `.style-item .style-boxs .style-boxs-item .item-input` 优先级更高，
+ * 这里补上同样的层级才能压过它的 `!important` 浅灰底。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .style-item .style-boxs .style-boxs-item .item-input,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .item-input,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .fill-style-box {
+  background: rgb(var(--theme-surface-muted)) !important;
+}
+/* 行高 / 字间距等数字输入套在 `.item-input` 里，内层 Element Plus 输入框
+ * 仍被 jvs-draw 的 `.style-item .style-boxs .style-boxs-item .el-input__wrapper`
+ * 刷成浅灰，需要同样的层级才能覆盖。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .style-item .style-boxs .style-boxs-item .item-input .el-input__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .style-item .style-boxs .style-boxs-item .el-input-number .el-input__wrapper {
+  background: rgb(var(--theme-surface-muted)) !important;
+  box-shadow: none !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .style-item .style-boxs .style-boxs-item .item-input .el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px rgb(var(--theme-accent) / 0.65) inset !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__wrapper,
+/* 「样式」行的下拉框还套了两层容器，jvs-draw 的 `!important` 规则优先级更高。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .style-item .style-boxs .style-boxs-item .el-select__wrapper {
+  background: rgb(var(--theme-surface-muted)) !important;
+  box-shadow: none !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__wrapper:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .style-item .style-boxs .style-boxs-item .el-select__wrapper:hover {
+  background: rgb(var(--theme-surface-strong)) !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px rgb(var(--theme-accent) / 0.65) inset !important;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__placeholder,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__selected-item,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-input__inner {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-input__inner::placeholder {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__caret,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-select__icon {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .fill-style-item {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .fill-style-item:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .fill-style-box .active,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .fill-style-item.active {
+  background: rgb(var(--theme-surface-strong));
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .bind-box.active {
+  background-color: rgb(var(--theme-accent)) !important;
+  color: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .color-box {
+  border-color: rgb(var(--theme-border));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-input-number__decrease,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-input-number__increase {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-slider__runway {
+  background: rgb(var(--theme-surface-strong));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-slider__bar {
+  background: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel .el-slider__button {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-surface));
+}
+
+/* 取色 / 箭头样式等弹层同样由 jvs-draw 自带浅色样式。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-format-popover .popover-item,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .gradual-popover .popover-item {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-format-popover .popover-item:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .gradual-popover .popover-item:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .arrow-point-item:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-format-popover .active,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-format-popover .active:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .gradual-popover .active,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .gradual-popover .active:hover {
+  background: rgb(var(--theme-accent) / 0.16);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-picker-selector {
+  background: rgb(var(--theme-surface));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-picker-selector .color-picker-selector-box {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-picker-selector .color-picker-selector-mark {
+  background: rgb(var(--theme-surface-strong));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-picker-selector .selector-item {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .color-picker-selector .selector-item:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .title {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .fill-style-box {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .fill-style-item {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .fill-style-item.active {
+  background: rgb(var(--theme-surface-strong));
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .el-input__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .el-select__wrapper,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .el-textarea__inner,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .popover-content .el-slider .el-input__wrapper {
+  background: rgb(var(--theme-surface-muted));
+  box-shadow: 0 0 0 1px rgb(var(--theme-border)) inset;
+  color: rgb(var(--theme-text-primary));
+}
+
+/* Element Plus 弹层（下拉、气泡）跟随主题，避免白底下拉盖在深色画布上。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .el-popper .el-skeleton__item {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .el-popper {
+  --el-bg-color: rgb(var(--theme-surface));
+  --el-bg-color-overlay: rgb(var(--theme-surface));
+  --el-fill-color-blank: rgb(var(--theme-surface));
+  --el-fill-color-light: rgb(var(--theme-surface-muted));
+  --el-fill-color-lighter: rgb(var(--theme-surface-muted) / 0.7);
+  --el-text-color-primary: rgb(var(--theme-text-primary));
+  --el-text-color-regular: rgb(var(--theme-text-secondary));
+  --el-text-color-secondary: rgb(var(--theme-text-subtle));
+  --el-text-color-placeholder: rgb(var(--theme-text-subtle));
+  --el-border-color: rgb(var(--theme-border));
+  --el-border-color-light: rgb(var(--theme-border));
+  --el-border-color-lighter: rgb(var(--theme-border-subtle));
+  --el-border-color-extra-light: rgb(var(--theme-border-subtle));
+}
+
+/* Element Plus 确认框（画布「清空画布」等）也挂在 body 下，
+ * 不跟随 .el-popper 的变量，需要单独换成主题表面色。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__title {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__content,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__message p {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__headerbtn:hover {
+  background: rgb(var(--theme-surface-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__headerbtn .el-message-box__close {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__headerbtn:hover .el-message-box__close {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__btns .el-button {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__btns .el-button:hover {
+  border-color: rgb(var(--theme-accent) / 0.55);
+  background: rgb(var(--theme-surface-strong));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__btns .el-button--primary {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-app));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-message-box .el-message-box__btns .el-button--primary:hover {
+  border-color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.88);
+  color: rgb(var(--theme-app));
+}
+
+/* ---------- 深色主题：彩色提示块 ----------
+ * Tailwind 的 *-50 / *-100 浅色底、彩色文字与渐变停靠点是为浅色界面挑的。
+ * 深色主题下保留色相，把底色降为低透明度、文字提亮到 300 / 400 档，
+ * 否则选中项、状态标签、提示卡会变成成片亮块，或出现浅底浅字。
+ * 内置浅色主题不受影响；组件无需逐处判断明暗。
+ */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-kiwi-50'], [class~='bg-kiwi-50/30'], [class~='bg-kiwi-50/40'],
+  [class~='bg-kiwi-50/50'], [class~='bg-kiwi-50/60'], [class~='bg-kiwi-50/70'],
+  [class~='bg-kiwi-50/80'], [class~='bg-kiwi-50/90'], [class~='bg-kiwi-50/95']
+) {
+  background-color: rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-kiwi-100'], [class~='bg-kiwi-100/60'], [class~='bg-kiwi-100/70'],
+  [class~='bg-kiwi-100/80']
+) {
+  background-color: rgb(var(--theme-accent) / 0.15);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-amber-50'], [class~='bg-amber-50/50'], [class~='bg-amber-50/60'],
+  [class~='bg-amber-50/70'], [class~='bg-amber-50/80']
+) {
+  background-color: rgb(245 158 11 / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-amber-100'], [class~='bg-amber-100/70'], [class~='bg-amber-100/80'],
+  [class~='bg-amber-100/90']
+) {
+  background-color: rgb(245 158 11 / 0.16);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-rose-50'], [class~='bg-rose-50/60'], [class~='bg-rose-50/70'],
+  [class~='bg-rose-50/80']
+) {
+  background-color: rgb(244 63 94 / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-rose-100'], [class~='bg-rose-100/80']
+) {
+  background-color: rgb(244 63 94 / 0.16);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-emerald-50'], [class~='bg-emerald-50/60'], [class~='bg-emerald-50/70'],
+  [class~='bg-emerald-50/80']
+) {
+  background-color: rgb(16 185 129 / 0.12);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-emerald-100'], [class~='bg-emerald-100/80']
+) {
+  background-color: rgb(16 185 129 / 0.16);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-violet-50'], [class~='bg-violet-50/40'], [class~='bg-violet-50/50']
+) {
+  background-color: rgb(139 92 246 / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-violet-100'] {
+  background-color: rgb(139 92 246 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-sky-50'], [class~='bg-sky-50/70']
+) {
+  background-color: rgb(14 165 233 / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-sky-100'] {
+  background-color: rgb(14 165 233 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-indigo-50'], [class~='bg-indigo-50/50'], [class~='bg-indigo-50/80']
+) {
+  background-color: rgb(99 102 241 / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='bg-orange-50'], [class~='bg-orange-50/80']
+) {
+  background-color: rgb(249 115 22 / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-orange-100/70'] {
+  background-color: rgb(249 115 22 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-cyan-50'] {
+  background-color: rgb(6 182 212 / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-teal-50'] {
+  background-color: rgb(20 184 166 / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-red-50'] {
+  background-color: rgb(239 68 68 / 0.14);
+}
+
+/* hover 变体：悬停时略增强，避免浅色 hover 闪白。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='hover:bg-kiwi-50'], [class~='hover:bg-kiwi-50/30'],
+  [class~='hover:bg-kiwi-50/40'], [class~='hover:bg-kiwi-50/50'],
+  [class~='hover:bg-kiwi-50/60'], [class~='hover:bg-kiwi-50/70'],
+  [class~='hover:bg-kiwi-50/80'], [class~='hover:bg-kiwi-100'],
+  [class~='hover:bg-kiwi-100/60']
+):hover {
+  background-color: rgb(var(--theme-accent) / 0.16);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='hover:bg-amber-50'], [class~='hover:bg-amber-100']
+):hover {
+  background-color: rgb(245 158 11 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='hover:bg-rose-50'], [class~='hover:bg-rose-50/70'],
+  [class~='hover:bg-rose-100']
+):hover {
+  background-color: rgb(244 63 94 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-emerald-50']:hover {
+  background-color: rgb(16 185 129 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-sky-50']:hover {
+  background-color: rgb(14 165 233 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-red-50']:hover {
+  background-color: rgb(239 68 68 / 0.18);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-orange-100/70']:hover {
+  background-color: rgb(249 115 22 / 0.2);
+}
+
+/* 彩色边框与文字：深色底上提亮，避免细线过曝与低对比文字。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-kiwi-50'], [class~='border-kiwi-100'],
+  [class~='border-kiwi-100/70'], [class~='border-kiwi-100/80']
+) {
+  border-color: rgb(var(--theme-accent) / 0.26);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-kiwi-200'], [class~='border-kiwi-200/50'],
+  [class~='border-kiwi-200/70'], [class~='border-kiwi-200/80']
+) {
+  border-color: rgb(var(--theme-accent) / 0.4);
+}
+/* 当前知识库等「已选中」卡片：浅色主题下是 kiwi-300 描边 + kiwi-400/50 光环，
+   深色主题统一收敛到强调色，避免整圈发白。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='border-kiwi-300'] {
+  border-color: rgb(var(--theme-accent) / 0.55);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='ring-kiwi-400/50'] {
+  --tw-ring-color: rgb(var(--theme-accent) / 0.45);
+  --tw-ring-opacity: 1;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-amber-100'], [class~='border-amber-200'],
+  [class~='border-amber-200/70'], [class~='border-amber-200/80'],
+  [class~='border-amber-200/90']
+) {
+  border-color: rgb(245 158 11 / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-rose-100'], [class~='border-rose-200'],
+  [class~='border-rose-200/60'], [class~='border-rose-200/70']
+) {
+  border-color: rgb(244 63 94 / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-emerald-100'], [class~='border-emerald-200'],
+  [class~='border-emerald-200/70']
+) {
+  border-color: rgb(16 185 129 / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-violet-100'], [class~='border-violet-200'],
+  [class~='border-violet-200/70']
+) {
+  border-color: rgb(139 92 246 / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-sky-200'], [class~='border-sky-200/70'],
+  [class~='border-cyan-200/70'], [class~='border-teal-200/70'],
+  [class~='border-orange-100'], [class~='border-orange-200/70']
+) {
+  border-color: rgb(14 165 233 / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='border-indigo-100'], [class~='border-indigo-200/70']
+) {
+  border-color: rgb(99 102 241 / 0.4);
+}
+
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-amber-500']
+) {
+  color: #fbbf24;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-amber-600'], [class~='text-amber-700']
+) {
+  color: #fcd34d;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-amber-800'] {
+  color: #fde68a;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-rose-500'], [class~='text-rose-600'], [class~='text-rose-700']
+) {
+  color: #fda4af;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-rose-800'] {
+  color: #fecdd3;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-emerald-500'], [class~='text-emerald-600'], [class~='text-emerald-700']
+) {
+  color: #6ee7b7;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-emerald-800'] {
+  color: #a7f3d0;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-sky-500'], [class~='text-sky-600']
+) {
+  color: #7dd3fc;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-sky-700'] {
+  color: #bae6fd;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-violet-500'], [class~='text-violet-600']
+) {
+  color: #c4b5fd;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-violet-700'] {
+  color: #ddd6fe;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-indigo-500'], [class~='text-indigo-600']
+) {
+  color: #a5b4fc;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-indigo-700'] {
+  color: #c7d2fe;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-orange-500'], [class~='text-orange-600']
+) {
+  color: #fdba74;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-orange-700'], [class~='text-orange-800']
+) {
+  color: #fed7aa;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-red-500'], [class~='text-red-600']
+) {
+  color: #fca5a5;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-cyan-600'], [class~='text-cyan-700']
+) {
+  color: #67e8f9;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-teal-700'] {
+  color: #5eead4;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-fuchsia-700'] {
+  color: #f0abfc;
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-blue-500'] {
+  color: #93c5fd;
+}
+/* 强调色文字：深色底上沿用主题强调色，避免 kiwi-700 等深色档位不可读。
+ * 选择器不限定 body，Teleport 到 <html> 的下拉面板同样生效。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='text-kiwi-500'], [class~='text-kiwi-600'],
+  [class~='text-kiwi-700'], [class~='text-kiwi-800']
+) {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='hover:text-kiwi-500']:hover, [class~='hover:text-kiwi-600']:hover,
+  [class~='hover:text-kiwi-700']:hover, [class~='hover:text-kiwi-800']:hover
+) {
+  color: rgb(var(--theme-accent));
+}
+
+/* 渐变停靠点：保留色相，换成低透明度暗色版本。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='from-kiwi-50'], [class~='from-kiwi-50/60'],
+  [class~='from-kiwi-50/70'], [class~='from-kiwi-50/90']
+) {
+  --tw-gradient-from: rgb(var(--theme-accent) / 0.14) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-accent) / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='from-kiwi-100'], [class~='from-kiwi-100/90']
+) {
+  --tw-gradient-from: rgb(var(--theme-accent) / 0.22) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--theme-accent) / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='to-kiwi-50'], [class~='to-kiwi-50/40'], [class~='to-kiwi-50/60']
+) {
+  --tw-gradient-to: rgb(var(--theme-accent) / 0.08) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-kiwi-100/40'] {
+  --tw-gradient-to: rgb(var(--theme-accent) / 0.12) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-kiwi-100/60'] {
+  --tw-gradient-via: rgb(var(--theme-accent) / 0.14) var(--tw-gradient-via-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='from-amber-50'], [class~='from-amber-50/70']
+) {
+  --tw-gradient-from: rgb(245 158 11 / 0.16) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(245 158 11 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-amber-100'] {
+  --tw-gradient-from: rgb(245 158 11 / 0.2) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(245 158 11 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='to-amber-100/40']
+) {
+  --tw-gradient-to: rgb(245 158 11 / 0.12) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-amber-100/50'] {
+  --tw-gradient-via: rgb(245 158 11 / 0.14) var(--tw-gradient-via-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-rose-50'] {
+  --tw-gradient-from: rgb(244 63 94 / 0.16) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(244 63 94 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-rose-50'] {
+  --tw-gradient-to: rgb(244 63 94 / 0.1) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-rose-100/50'] {
+  --tw-gradient-via: rgb(244 63 94 / 0.14) var(--tw-gradient-via-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-emerald-50'] {
+  --tw-gradient-from: rgb(16 185 129 / 0.16) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(16 185 129 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
+  [class~='to-emerald-50'], [class~='to-emerald-50/60']
+) {
+  --tw-gradient-to: rgb(16 185 129 / 0.1) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-emerald-100/40'] {
+  --tw-gradient-to: rgb(16 185 129 / 0.12) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-emerald-100/50'] {
+  --tw-gradient-via: rgb(16 185 129 / 0.14) var(--tw-gradient-via-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-sky-100'] {
+  --tw-gradient-from: rgb(14 165 233 / 0.2) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(14 165 233 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-sky-50/40'] {
+  --tw-gradient-to: rgb(14 165 233 / 0.12) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-sky-100/50'] {
+  --tw-gradient-via: rgb(14 165 233 / 0.14) var(--tw-gradient-via-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-violet-50/80'] {
+  --tw-gradient-from: rgb(139 92 246 / 0.16) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(139 92 246 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-violet-100/70'] {
+  --tw-gradient-from: rgb(139 92 246 / 0.2) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(139 92 246 / 0) var(--tw-gradient-to-position);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-fuchsia-50'] {
+  --tw-gradient-to: rgb(217 70 239 / 0.12) var(--tw-gradient-to-position);
+}
+
+/* ---------- 深色主题：组件内 @apply 写死的浅色交互态 ----------
+ * scoped 样式里的 @apply 会把颜色编译成固定的 rgb，类名也只剩组件自己的
+ * class（不再带 bg-white / text-slate-600 等工具类），上面的工具类覆盖规则
+ * 无法命中。按钮的悬停 / 选中态因此会在深色底上闪成白块或浅灰块。
+ * 这里按组件类名统一改读主题令牌。 */
+
+/* @ 提及卡片：标题链接、悬浮操作条与「大屏预览」按钮 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-title-link {
+  border-color: rgb(var(--theme-border));
+  background: linear-gradient(
+    90deg,
+    rgb(var(--theme-accent) / 0.12),
+    rgb(var(--theme-surface) / var(--theme-surface-opacity)) 62%
+  );
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-title-icon {
+  border-color: rgb(var(--theme-accent) / 0.3);
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-title-text {
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-actions,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-actions {
+  border-color: rgb(var(--theme-border) / 0.9);
+  background: rgb(var(--theme-surface) / 0.96);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-action,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-embed-action {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-action:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-note-embed-action:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-mention-preview-open {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .kiwi-mention-preview-open:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+
+/* 编辑器气泡工具栏 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .ed-bubble {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .ed-bubble:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .ed-bubble.is-active {
+  background: rgb(var(--theme-accent) / 0.18);
+  color: rgb(var(--theme-accent));
+}
+
+/* 笔记右键菜单 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .menu-row {
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .menu-row:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-text-primary));
+}
+
+/* 插入嵌入对话框 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-tab {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-tab.is-active {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-input {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.7);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-drop {
+  border-color: rgb(var(--theme-border-strong));
+  background: rgb(var(--theme-surface-muted) / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-drop.is-dragging {
+  border-color: rgb(var(--theme-accent) / 0.6);
+  background: rgb(var(--theme-accent) / 0.14);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .embed-file-row {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.6);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .table-step {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-secondary));
+}
+
+/* 数据表 / 笔记本 / 搜索面板里的浅色悬停态 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .fm-icon,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .cal-nav {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .fm-icon:hover,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .cal-nav:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-preview-cell.is-running {
+  border-color: rgb(var(--theme-accent) / 0.35);
+  background: rgb(var(--theme-accent) / 0.1);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-preview-toggle {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-preview-toggle:hover {
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-text-secondary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-preview-code-collapsed {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.6);
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-preview-code-collapsed:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  background: rgb(var(--theme-accent) / 0.1);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-preview-code-count {
+  background: rgb(var(--theme-surface) / 0.8);
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .nb-code-hl {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted) / 0.7);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .search-select,
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .search-date {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .search-kbd {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
+}
+
+/* 画布图形素材抽屉（jvs-draw 自带浅色面板，会随「图形」工具打开）。 */
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer {
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  border-right-color: rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-header {
+  border-bottom-color: rgb(var(--theme-border) / 0.8);
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-header .tabs .tab {
+  color: rgb(var(--theme-text-muted));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-header .tabs .tab.active {
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-header .tabs .tab.active::after {
+  background: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-header .actions {
+  color: rgb(var(--theme-text-subtle));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-header .actions .action-btn:hover {
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-search .el-input__wrapper {
+  background-color: rgb(var(--theme-surface-muted) / 0.7);
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .drawer-content .el-collapse-item__header {
+  color: rgb(var(--theme-text-secondary));
+  background: transparent;
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .shape-grid .shape-item {
+  color: rgb(var(--theme-text-primary));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .shape-grid .shape-item:hover,
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .shape-grid .shape-item.is-selected {
+  background: rgb(var(--theme-accent) / 0.14);
+  border-color: rgb(var(--theme-accent) / 0.6);
+  color: rgb(var(--theme-accent));
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .materials-content .material-item:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+}
+html[data-kiwi-theme-custom='true'] body .shape-library-drawer .materials-content .material-item .material-name {
+  color: rgb(var(--theme-text-subtle));
+}
+/* 素材 / 图形项悬停提示：jvs-draw 写死白底深字，深色抽屉里像一块亮斑。 */
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .shape-library-drawer .custom-tooltip {
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface-strong));
+  color: rgb(var(--theme-text-primary));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .shape-library-drawer .custom-tooltip::after {
+  border-top-color: rgb(var(--theme-surface-strong));
+}
+html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .shape-library-drawer .custom-tooltip::before {
+  border-top-color: rgb(var(--theme-border));
+}
+
+/* ---------- 学习模式 ----------
+ * 学习模式与编辑模式共用当前主题：`body.theme-learn` 里的 --kiwi-* / --learn-*
+ * 由主题引擎写入同一套强调色，这里无需再单独覆盖颜色。
+ * 主题背景图与玻璃效果沿用上方通用规则。
+ */

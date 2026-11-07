@@ -10,6 +10,7 @@ import {
 } from '@/stores/study'
 import { useDesktopStore } from '@/stores/desktop'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import ExamTemplateManager from '@/components/study/ExamTemplateManager.vue'
 import KnowledgeRadar from '@/components/study/KnowledgeRadar.vue'
@@ -42,6 +43,18 @@ const submitting = ref(false)
 const confirmSubmit = ref(false)
 
 const templateOptions = computed(() => study.templates)
+const templateSelectOptions = computed(() =>
+  templateOptions.value.length
+    ? templateOptions.value.map((t) => ({
+        value: t.id,
+        label: `${t.name} · ${t.duration_minutes} 分钟`,
+      }))
+    : [{ value: '', label: '暂无可用模板' }],
+)
+
+function setCreateTemplate(value: string | number) {
+  createTemplateId.value = String(value)
+}
 const selectedTemplate = computed(() =>
   study.templates.find((t) => t.id === createTemplateId.value),
 )
@@ -564,12 +577,14 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="grid md:grid-cols-2 gap-3">
-          <select v-model="createTemplateId" class="kiwi-input text-sm">
-            <option v-for="t in templateOptions" :key="t.id" :value="t.id">
-              {{ t.name }} · {{ t.duration_minutes }} 分钟
-            </option>
-            <option v-if="!templateOptions.length" value="">暂无可用模板</option>
-          </select>
+          <KiwiSelect
+            :model-value="createTemplateId"
+            :options="templateSelectOptions"
+            width="w-72"
+            variant="input"
+            trigger-class="!h-9 !w-full !justify-between !rounded-xl !border !border-slate-200 !bg-white !px-3 !text-sm !text-slate-600"
+            @update:model-value="setCreateTemplate"
+          />
           <input v-model="createTitle" class="kiwi-input text-sm" placeholder="试卷标题（可选）" />
         </div>
         <div v-if="selectedTemplate" class="mt-3 rounded-xl bg-slate-50/80 border border-slate-200/60 p-3.5">

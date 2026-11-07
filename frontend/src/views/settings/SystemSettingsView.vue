@@ -1,21 +1,17 @@
 <script setup lang="ts">
 /**
- * 品牌设置：品牌名称 / 描述 / Logo / 主题色。
- * 保存后立即写入全局状态，顶栏、浏览器标题和主题色同步更新。
+ * 品牌设置：品牌名称 / 描述 / Logo。
+ * 保存后立即写入全局状态，顶栏与浏览器标题同步更新。
+ * 界面配色由主题插件控制，这里不再配置主题色。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiLogo from '@/components/ui/KiwiLogo.vue'
-import EditorColorPicker from '@/components/editor/EditorColorPicker.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import { useModeStore } from '@/stores/mode'
 import {
-  DEFAULT_LEARN_THEME_COLOR,
   DEFAULT_SYSTEM_SETTINGS,
-  DEFAULT_THEME_COLOR,
-  applyLearnThemeColor,
-  applyThemeColor,
   useSystemStore,
   type SystemSettings,
 } from '@/stores/system'
@@ -23,7 +19,7 @@ import {
 const pageMeta = {
   icon: 'palette',
   title: '品牌设置',
-  description: '自定义系统名称、描述、Logo 与主题色，显示在顶栏与浏览器标签。',
+  description: '自定义系统名称、描述与 Logo，显示在顶栏与浏览器标签；界面配色跟随主题插件。',
 }
 
 const system = useSystemStore()
@@ -31,7 +27,7 @@ const mode = useModeStore()
 
 /**
  * 编辑 / 学习是两套视觉语言：品牌名称、Logo 全站共用，
- * 主题色则分别配置。默认编辑当前所处模式的配色。
+ * Logo 与描述按模式分别配置；配色由当前主题插件统一接管。
  */
 type ThemeMode = 'edit' | 'learn'
 const themeMode = ref<ThemeMode>(mode.mode === 'learn' ? 'learn' : 'edit')
@@ -46,32 +42,8 @@ const form = ref({
   app_name: DEFAULT_SYSTEM_SETTINGS.app_name,
   app_description: DEFAULT_SYSTEM_SETTINGS.app_description,
   logo_url: '',
-  theme_color: DEFAULT_THEME_COLOR,
-  learn_theme_color: DEFAULT_LEARN_THEME_COLOR,
   learn_logo_url: '',
   learn_description: DEFAULT_SYSTEM_SETTINGS.learn_description,
-})
-
-const THEME_PRESETS = [
-  { label: '冷紫', value: '#5a55c7' },
-  { label: '靛蓝', value: '#2563eb' },
-  { label: '青绿', value: '#059669' },
-  // 学习模式默认主题色，内置为预设以便回显选中态。
-  { label: '翠绿', value: '#10b981' },
-  { label: '琥珀', value: '#d97706' },
-  { label: '玫红', value: '#db2777' },
-  { label: '石墨', value: '#475569' },
-]
-
-const themeColor = computed({
-  get: () =>
-    themeMode.value === 'learn'
-      ? form.value.learn_theme_color
-      : form.value.theme_color,
-  set: (value: string) => {
-    if (themeMode.value === 'learn') form.value.learn_theme_color = value
-    else form.value.theme_color = value
-  },
 })
 
 /** Logo 按模式回显：学习模式可单独上传，未上传时沿用品牌 Logo。 */
@@ -98,12 +70,6 @@ const descriptionField = computed({
   },
 })
 
-/** 当前主题色是否为预设色：都未命中时高亮右侧自定义取色入口。 */
-const isPresetColor = computed(() =>
-  THEME_PRESETS.some((preset) => preset.value.toLowerCase() === themeColor.value.toLowerCase()),
-)
-const isCustomTheme = computed(() => !isPresetColor.value)
-
 const appOrigin = computed(() => (import.meta.env.DEV ? 'http://localhost:5173' : window.location.origin))
 
 function hydrate(settings: SystemSettings) {
@@ -111,8 +77,6 @@ function hydrate(settings: SystemSettings) {
     app_name: settings.app_name,
     app_description: settings.app_description,
     logo_url: settings.logo_url,
-    theme_color: settings.theme_color,
-    learn_theme_color: settings.learn_theme_color || DEFAULT_LEARN_THEME_COLOR,
     learn_logo_url: settings.learn_logo_url || '',
     learn_description:
       settings.learn_description ?? DEFAULT_SYSTEM_SETTINGS.learn_description,
@@ -131,27 +95,14 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  // 未保存的主题预览在离开页面时回退到已保存值。
-  applyThemeColor(system.settings.theme_color)
-  applyLearnThemeColor(system.settings.learn_theme_color)
+  // 离开设置页时恢复当前实际模式的视觉环境。
   document.body.classList.toggle('theme-learn', mode.mode === 'learn')
 })
 
-function previewTheme() {
-  if (themeMode.value === 'learn') applyLearnThemeColor(form.value.learn_theme_color)
-  else applyThemeColor(form.value.theme_color)
-}
-
-function choosePreset(color: string) {
-  themeColor.value = color
-  previewTheme()
-}
-
 function switchThemeMode(value: ThemeMode) {
   themeMode.value = value
-  // 设置页在两种模式下共用；切换目标配色时同步预览整页效果。
+  // 设置页在两种模式下共用；切换时预览该模式的主题外观。
   document.body.classList.toggle('theme-learn', value === 'learn')
-  previewTheme()
 }
 
 function pickLogo() {
@@ -217,8 +168,6 @@ async function save() {
       app_name: name,
       app_description: form.value.app_description.trim(),
       logo_url: form.value.logo_url,
-      theme_color: form.value.theme_color,
-      learn_theme_color: form.value.learn_theme_color,
       learn_logo_url: form.value.learn_logo_url,
       learn_description: form.value.learn_description.trim(),
     })
@@ -349,7 +298,7 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
                 </button>
               </div>
               <span class="text-[10.5px] text-slate-400">
-                配色、Logo 与描述按模式独立保存，名称全站共用。
+                Logo 与描述按模式独立保存，名称全站共用；界面配色跟随当前主题插件。
               </span>
             </div>
 
@@ -371,68 +320,14 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
               </label>
             </div>
 
-            <div>
-              <span :class="labelClass">
-                主题色 · {{ themeMode === 'learn' ? '学习模式' : '编辑模式' }}
-              </span>
-              <div class="flex flex-wrap items-center gap-2">
-                <button
-                  v-for="preset in THEME_PRESETS"
-                  :key="preset.value"
-                  type="button"
-                  class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors"
-                  :class="
-                    themeColor.toLowerCase() === preset.value
-                      ? 'border-kiwi-400 bg-kiwi-50 text-kiwi-700 ring-1 ring-kiwi-300/70'
-                      : 'border-slate-200 bg-white/70 text-slate-500 hover:border-kiwi-200'
-                  "
-                  :aria-pressed="themeColor.toLowerCase() === preset.value"
-                  @click="choosePreset(preset.value)"
-                >
-                  <span
-                    class="grid h-3.5 w-3.5 place-items-center rounded-full border border-black/10"
-                    :style="{ backgroundColor: preset.value }"
-                  >
-                    <KiwiIcon
-                      v-if="themeColor.toLowerCase() === preset.value"
-                      name="check"
-                      :size="9"
-                      class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"
-                    />
-                  </span>
-                  {{ preset.label }}
-                </button>
-                <div
-                  class="ml-1 flex items-center gap-2 rounded-lg border px-2 py-0.5 transition-colors"
-                  :class="
-                    isCustomTheme
-                      ? 'border-kiwi-400 bg-kiwi-50 ring-1 ring-kiwi-300/70'
-                      : 'border-slate-200 bg-white/70'
-                  "
-                  data-theme-color-custom
-                >
-                  <EditorColorPicker
-                    variant="bubble"
-                    icon="palette"
-                    title="自定义主题色"
-                    label="主题色"
-                    :value="themeColor"
-                    :fallback="themeColor"
-                    :active="isCustomTheme"
-                    :clearable="false"
-                    @select="choosePreset"
-                  />
-                  <span
-                    class="font-mono text-[11px] uppercase"
-                    :class="isCustomTheme ? 'text-kiwi-700' : 'text-slate-500'"
-                  >
-                    {{ themeColor }}
-                  </span>
-                </div>
+            <div class="rounded-xl border border-dashed border-slate-200/80 bg-white/50 px-3 py-2.5">
+              <div class="flex items-center gap-1.5 text-[11.5px] font-medium text-slate-600">
+                <KiwiIcon name="palette" :size="13" class="text-kiwi-500" />
+                界面配色由主题插件控制
               </div>
-              <p class="mt-2 text-[10.5px] leading-relaxed text-slate-400">
-                主题色会生成 50–900 色阶，统一应用到按钮、选中态、图表与背景光晕。
-                切换上方模式即可分别配置编辑与学习空间。
+              <p class="mt-1 text-[10.5px] leading-relaxed text-slate-400">
+                主题色、背景、字体与组件样式随当前启用的主题统一生效，编辑模式与学习模式共用同一套主题。
+                前往「主题」设置选择或导入主题插件。
               </p>
             </div>
           </div>

@@ -37,6 +37,7 @@ Most tools stop at “captured.” Kiwi keeps asking: **How do you know you have
 
 - **Note workspace**: docs, databases, sheets, imports, links, canvas, and notebooks share folders, tags, templates, and bidirectional links.
 - **Two editing modes**: switch the same Markdown between the standard editor and DOCX—block-based writing, interactive blocks, and formal layout in one document.
+- **Theme plugins**: import declarative theme packages with color tokens, background images, panel opacity, glass blur, and typography; the built-in Classic and Aurora themes restyle the editor, canvas, tables, and component plugins together.
 - **Executable code blocks**: Python runs in a bubblewrap sandbox, with output and exit code kept in the document; HTML / JS previews inside an isolated iframe.
 - **Advanced capabilities**: voice transcription, sticky note windows, component plugins, read-only sharing, sheets with OCR, hybrid retrieval QA, todo hub, and typed exports.
 - **Compilation jobs**: every eligible note compiles into the Wiki—todo hubs, read-only imports, and database row notes are skipped—with job progress and affected pages tracked.
@@ -64,6 +65,10 @@ Most tools stop at “captured.” Kiwi keeps asking: **How do you know you have
     <td><img src="docs/assets/screenshots/wiki-graph.png" alt="Knowledge star map" /><br /><sub>Knowledge star map: concept relationships and citations</sub></td>
     <td><img src="docs/assets/screenshots/learn-graph.png" alt="Learning graph" /><br /><sub>Learning graph: mastery distribution and weak spots</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/theme-settings.png" alt="Theme gallery" /><br /><sub>Theme gallery: import, preview, and switch declarative theme packages</sub></td>
+    <td><img src="docs/assets/screenshots/theme-aurora.png" alt="Aurora dark theme" /><br /><sub>Aurora: dark surfaces, glass panels, and accent tokens across the workspace</sub></td>
+  </tr>
 </table>
 
 ## Tech stack
@@ -84,7 +89,7 @@ cd Kiwi
 
 <http://localhost:5173> opens the product portal by default; the app workspace is at <http://localhost:5173/kbs>. Add any OpenAI-compatible model in Settings to start. If local embedding models cannot load in your environment, switch to a hosted embedding API under **Settings → Embedding model**.
 
-On first launch, Kiwi seeds the built-in **“Kiwi Quick Start · Feature Demo”** knowledge base, containing 22 notes, 29 Wiki pages, and complete learning and exam data. You can edit, delete, or restore it at any time.
+On first launch, Kiwi seeds the built-in **“Kiwi Quick Start · Feature Demo”** knowledge base, containing 41 notes, 34 Wiki pages, and complete learning and exam data. You can edit, delete, or restore it at any time.
 
 ## Windows desktop (optional)
 
@@ -93,7 +98,7 @@ A standalone Windows x64 build wraps the same app in a WebView2 window and bundl
 Download `Kiwi-Setup-<version>.exe` from Releases, or build it on Windows 10/11 x64:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.0.0
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.0
 ```
 
 See [docs/WINDOWS.md](docs/WINDOWS.md) for installation, offline boundaries, local code execution, backup/restore, and troubleshooting.

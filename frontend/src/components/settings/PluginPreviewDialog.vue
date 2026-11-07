@@ -102,9 +102,14 @@ function formatSize(value: number) {
         </button>
       </div>
 
+      <!--
+        提升整张预览卡片的层叠级别：主题会给 bg-white 表面加 backdrop-filter，
+        会创建层叠上下文；下方的说明文字（含 bg-white 代码胶囊）同样如此，
+        且在 DOM 中更靠后，默认会盖住插件自绘的日期弹层。
+      -->
       <div
         v-if="activeBlock"
-        class="rounded-2xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm"
+        class="relative z-[1] rounded-2xl border border-slate-200/80 bg-white px-5 py-4 shadow-sm"
       >
         <div class="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
           <span class="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 text-slate-500">

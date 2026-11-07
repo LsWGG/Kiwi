@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { useEditorEditable } from './useEditorEditable'
 import {
   findBoundTaskList,
@@ -64,8 +65,14 @@ function toggle(key: 'showCount' | 'showPercent', event: Event) {
   update({ [key]: (event.target as HTMLInputElement).checked })
 }
 
-function setBind(event: Event) {
-  update({ bind: normalizeTaskProgressBind((event.target as HTMLSelectElement).value) })
+const bindOptions = [
+  { value: 'auto', label: '最近的清单' },
+  { value: 'next', label: '下方清单' },
+  { value: 'prev', label: '上方清单' },
+]
+
+function setBind(value: string | number) {
+  update({ bind: normalizeTaskProgressBind(String(value)) })
 }
 
 function insertStarterList() {
@@ -191,16 +198,15 @@ function remove() {
 
       <div class="kiwi-task-progress-field">
         <span class="kiwi-task-progress-field-label">绑定清单</span>
-        <select
-          class="kiwi-task-progress-select"
-          :value="bind"
+        <KiwiSelect
+          class="min-w-0 max-w-[230px] flex-1"
+          :model-value="bind"
+          :options="bindOptions"
+          width="w-40"
+          trigger-class="!h-[26px] !w-full !justify-between !rounded-[7px] !border !border-slate-200 !bg-white !px-2 !text-[11px] !text-slate-700"
           @mousedown.stop
-          @change="setBind"
-        >
-          <option value="auto">最近的清单</option>
-          <option value="next">下方清单</option>
-          <option value="prev">上方清单</option>
-        </select>
+          @update:model-value="setBind"
+        />
       </div>
     </div>
   </NodeViewWrapper>

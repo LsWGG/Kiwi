@@ -3,6 +3,8 @@
 import { computed, ref, watch } from 'vue'
 import type { DbField, SelectOption } from '@/stores/noteDatabase'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import DatabaseAttachmentCell from './DatabaseAttachmentCell.vue'
 import { chipClass, dotClass } from './colors'
 
@@ -46,6 +48,11 @@ watch(
   { immediate: true },
 )
 
+function onDatePicked(value: string) {
+  text.value = value
+  commitText()
+}
+
 function commitText() {
   const value = text.value
   if (props.field.type === 'number') {
@@ -70,9 +77,12 @@ function onEnter(e: KeyboardEvent) {
 }
 
 // ---------- 单选 ----------
-function onSelect(e: Event) {
-  const value = (e.target as HTMLSelectElement).value
-  emit('update', value || null)
+const selectOptions = computed(() =>
+  options.value.map((option) => ({ value: option.id, label: option.name })),
+)
+
+function onSelect(value: string | number) {
+  emit('update', value ? String(value) : null)
 }
 
 // ---------- 多选 ----------
@@ -271,15 +281,16 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
     </label>
 
     <!-- select -->
-    <select
+    <KiwiSelect
       v-else-if="field.type === 'select'"
-      class="db-input appearance-none cursor-pointer"
-      :value="value ?? ''"
-      @change="onSelect"
-    >
-      <option value=""></option>
-      <option v-for="opt in options" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-    </select>
+      class="w-full"
+      :model-value="value ?? ''"
+      :options="selectOptions"
+      width="w-56"
+      placeholder="—"
+      trigger-class="!h-8 !w-full !justify-between !rounded-md !border-transparent !bg-transparent !px-2 !text-[12px]"
+      @update:model-value="onSelect"
+    />
 
     <!-- multi_select -->
     <div v-else-if="field.type === 'multi_select'" class="relative">
@@ -341,13 +352,11 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
     </div>
 
     <!-- date -->
-    <input
+    <KiwiDateInput
       v-else-if="field.type === 'date'"
-      ref="input"
-      v-model="text"
-      type="date"
-      class="db-input [color-scheme:light]"
-      @change="commitText"
+      :model-value="text"
+      trigger-class="!h-8 !w-full !justify-start !rounded-md !border-transparent !bg-transparent !px-2 !text-[12px]"
+      @update:model-value="onDatePicked"
     />
 
     <!-- long_text -->

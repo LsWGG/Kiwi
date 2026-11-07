@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""把仓库中的插件规范 / 示例 / skill 同步到后端随镜像分发的资源目录。
+"""把仓库中的插件 / 主题规范、示例与 skill 同步到后端随镜像分发的资源目录。
 
-开发套件接口 `/api/plugins/dev-kit` 只读取 ``backend/app/resources/plugin_dev_kit``，
-这样运行时镜像即使只复制 ``backend/`` 也能返回完整内容。修改 ``docs/PLUGIN_SPEC.md``、
-``docs/examples/plugins/`` 或 ``.claude/skills/kiwi-plugin/SKILL.md`` 后运行：
+开发套件接口 `/api/plugins/dev-kit` 与 `/api/themes/dev-kit` 只读取
+``backend/app/resources/plugin_dev_kit``，这样运行时镜像即使只复制 ``backend/``
+也能返回完整内容。修改 ``docs/PLUGIN_SPEC.md``、``docs/THEME_SPEC.md``、
+``docs/examples/plugins/``、``docs/examples/themes/``、
+``.claude/skills/kiwi-plugin/SKILL.md`` 或 ``.claude/skills/kiwi-theme/SKILL.md`` 后运行：
 
     uv run python scripts/sync_plugin_dev_kit.py
     uv run python scripts/sync_plugin_dev_kit.py --check  # CI 校验是否有漂移
@@ -25,16 +27,23 @@ RESOURCE_ROOT = BACKEND_ROOT / "app" / "resources" / "plugin_dev_kit"
 
 SOURCES = (
     (REPO_ROOT / "docs" / "PLUGIN_SPEC.md", RESOURCE_ROOT / "PLUGIN_SPEC.md"),
+    (REPO_ROOT / "docs" / "THEME_SPEC.md", RESOURCE_ROOT / "THEME_SPEC.md"),
     (
         REPO_ROOT / ".claude" / "skills" / "kiwi-plugin" / "SKILL.md",
         RESOURCE_ROOT / "skill" / "kiwi-plugin" / "SKILL.md",
     ),
+    (
+        REPO_ROOT / ".claude" / "skills" / "kiwi-theme" / "SKILL.md",
+        RESOURCE_ROOT / "skill" / "kiwi-theme" / "SKILL.md",
+    ),
 )
 
+EXAMPLE_DIRS = ("plugins", "themes")
 
-def _example_sources() -> list[tuple[Path, Path]]:
-    source = REPO_ROOT / "docs" / "examples" / "plugins"
-    target = RESOURCE_ROOT / "examples" / "plugins"
+
+def _example_sources(subdir: str) -> list[tuple[Path, Path]]:
+    source = REPO_ROOT / "docs" / "examples" / subdir
+    target = RESOURCE_ROOT / "examples" / subdir
     return [
         (path, target / path.relative_to(source))
         for path in sorted(source.rglob("*"))
@@ -43,7 +52,10 @@ def _example_sources() -> list[tuple[Path, Path]]:
 
 
 def _pairs() -> list[tuple[Path, Path]]:
-    return [*SOURCES, *_example_sources()]
+    pairs = list(SOURCES)
+    for subdir in EXAMPLE_DIRS:
+        pairs.extend(_example_sources(subdir))
+    return pairs
 
 
 def _drift() -> list[str]:

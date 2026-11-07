@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { request } from '@/api/client'
 import { CHUNKED_THRESHOLD, uploadFileInChunks } from '@/lib/chunkedUpload'
 import { useKbsStore } from '@/stores/kbs'
@@ -577,6 +578,28 @@ function reloadTablePreview() {
   if (tableFile.value) void loadTablePreview(tableFile.value, tableSheet.value || undefined)
 }
 
+const tableSheetOptions = computed(() =>
+  (tablePreview.value?.sheets ?? []).map((sheet) => ({
+    value: sheet.name,
+    label: `${sheet.name}（${sheet.row_count} 行）`,
+  })),
+)
+const repoOptions = computed(() =>
+  repos.value.map((item) => ({
+    value: item.namespace,
+    label: `${item.group ? `[${item.group}] ` : ''}${item.name} · ${item.namespace}（${item.items_count} 篇）`,
+  })),
+)
+
+function setTableSheet(value: string | number) {
+  tableSheet.value = String(value)
+  onTableSheetChange()
+}
+
+function setRepo(value: string | number) {
+  repo.value = String(value)
+}
+
 function onTableSheetChange() {
   if (tableFile.value) void loadTablePreview(tableFile.value, tableSheet.value)
 }
@@ -936,17 +959,19 @@ function formatTime(value?: string | null) {
 
         <template v-if="tableFile">
           <div class="flex flex-wrap items-center gap-4 text-[11.5px] text-slate-500">
-            <label
+            <span
               v-if="tableTarget === 'database' && (tablePreview?.sheets.length ?? 0) > 1"
               class="flex items-center gap-1.5"
             >
               工作表
-              <select v-model="tableSheet" class="kiwi-input !py-1 !text-[11.5px]" @change="onTableSheetChange">
-                <option v-for="sheet in tablePreview?.sheets ?? []" :key="sheet.name" :value="sheet.name">
-                  {{ sheet.name }}（{{ sheet.row_count }} 行）
-                </option>
-              </select>
-            </label>
+              <KiwiSelect
+                :model-value="tableSheet"
+                :options="tableSheetOptions"
+                width="w-52"
+                trigger-class="!h-7 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[11.5px] !text-slate-600"
+                @update:model-value="setTableSheet"
+              />
+            </span>
             <label class="flex items-center gap-1.5">
               <input
                 v-model="tableHasHeader"
@@ -1185,16 +1210,15 @@ function formatTime(value?: string | null) {
                 {{ reposLoading ? '正在获取…' : '获取知识库列表' }}
               </button>
             </div>
-            <select
+            <KiwiSelect
               v-if="repos.length"
-              v-model="repo"
-              class="kiwi-input mb-1.5"
-            >
-              <option v-for="item in repos" :key="item.namespace" :value="item.namespace">
-                {{ item.group ? `[${item.group}] ` : '' }}{{ item.name }} · {{ item.namespace }}
-                （{{ item.items_count }} 篇）
-              </option>
-            </select>
+              class="mb-1.5"
+              :model-value="repo"
+              :options="repoOptions"
+              width="w-full"
+              trigger-class="!h-9 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2.5 !text-[12.5px] !text-slate-600"
+              @update:model-value="setRepo"
+            />
             <input
               v-model="repo"
               name="yuque-repo"

@@ -442,7 +442,8 @@ export function resolvePagePrefs(
 
 // ---------- 代码块显示偏好（本地偏好，不写入笔记正文） ----------
 
-export type CodeTheme = 'dark' | 'light'
+/** auto：跟随当前主题明暗；light / dark：用户显式指定。 */
+export type CodeTheme = 'auto' | 'dark' | 'light'
 
 export interface CodePrefs {
   theme: CodeTheme
@@ -453,12 +454,13 @@ export interface CodePrefs {
 }
 
 export const DEFAULT_CODE_PREFS: CodePrefs = {
-  theme: 'light',
+  theme: 'auto',
   lineNumbers: false,
   wrap: false,
 }
 
 export const CODE_THEMES: { id: CodeTheme; label: string }[] = [
+  { id: 'auto', label: '跟随主题' },
   { id: 'light', label: '浅色' },
   { id: 'dark', label: '深色' },
 ]
@@ -495,7 +497,10 @@ export const CODE_LANGUAGES: { id: string; label: string }[] = [
 export function resolveCodePrefs(raw: unknown): CodePrefs {
   const value = (raw ?? {}) as Partial<CodePrefs>
   return {
-    theme: value.theme === 'dark' || value.theme === 'light' ? value.theme : DEFAULT_CODE_PREFS.theme,
+    theme:
+      value.theme === 'dark' || value.theme === 'light' || value.theme === 'auto'
+        ? value.theme
+        : DEFAULT_CODE_PREFS.theme,
     lineNumbers:
       typeof value.lineNumbers === 'boolean' ? value.lineNumbers : DEFAULT_CODE_PREFS.lineNumbers,
     wrap: typeof value.wrap === 'boolean' ? value.wrap : DEFAULT_CODE_PREFS.wrap,

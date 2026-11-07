@@ -6,6 +6,7 @@
 import { computed, ref, watch } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
 import { chipClass, dotClass } from '@/components/notes/database/colors'
 import {
   CALENDAR_COLORS,
@@ -327,12 +328,23 @@ function setTitle(event: Event) {
       <div class="kiwi-calendar-editor-row is-options">
         <label class="kiwi-calendar-date-field">
           开始
-          <input v-model="draftStart" type="date" @keydown.stop @mousedown.stop />
+          <KiwiDateInput
+            v-model="draftStart"
+            trigger-class="!h-[22px] !w-[112px] !rounded-md !px-1 !text-[10px]"
+            @keydown.stop
+            @mousedown.stop
+          />
         </label>
         <span class="kiwi-calendar-arrow">→</span>
         <label class="kiwi-calendar-date-field">
           结束
-          <input v-model="draftEnd" type="date" :min="draftStart" @keydown.stop @mousedown.stop />
+          <KiwiDateInput
+            v-model="draftEnd"
+            :min="draftStart"
+            trigger-class="!h-[22px] !w-[112px] !rounded-md !px-1 !text-[10px]"
+            @keydown.stop
+            @mousedown.stop
+          />
         </label>
         <div class="kiwi-calendar-colors">
           <button

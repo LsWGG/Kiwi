@@ -1,36 +1,39 @@
 <script setup lang="ts">
 /**
- * @ 提及节点视图：行内提及 / 独占一行的大内容卡片 / 嵌入内容。
+ * @ 提及节点视图：行内提及 / 标题超链接 / 独占一行的大内容卡片 / 嵌入内容。
  * 支持全部笔记类型（文档、数据表、导入、链接、画布）与 Wiki 页面。
+ * 卡片右上角与附件一致提供：大屏预览、分栏打开、切换展示形式。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { NodeViewWrapper, type NodeViewProps } from '@tiptap/vue-3'
 import { useRouter } from 'vue-router'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
-import { request } from '@/api/client'
+import NotePreviewDialog from '@/components/notes/NotePreviewDialog.vue'
 import { useKbsStore } from '@/stores/kbs'
+import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
+import {
+  attachmentsOf,
+  databaseCellText,
+  fetchNotePreview,
+  type NotePreviewData,
+  type NotePreviewField,
+  type NotePreviewRow,
+} from '@/components/notes/notePreviewData'
 import {
   mentionText,
   normalizeMentionDisplay,
   type MentionDisplay,
 } from './extensions/mentionTypes'
 
-type MentionKind =
-  | 'doc'
-  | 'database'
-  | 'link'
-  | 'import'
-  | 'canvas'
-  | 'notebook'
-  | 'sheet'
-  | 'wiki'
+type MentionKind = NotePreviewData['kind']
 type MentionTarget = 'note' | 'wiki'
 
 const props = defineProps<NodeViewProps>()
 
 const router = useRouter()
 const kbs = useKbsStore()
+const paneOpen = usePaneOpen()
 
 const target = computed<MentionTarget>(() =>
   props.node.attrs.target === 'wiki' ? 'wiki' : 'note',
@@ -103,52 +106,97 @@ onBeforeUnmount(() => {
   window.removeEventListener('mouseup', stopResize)
 })
 
-interface LinkMeta {
-  url?: string
-  final_url?: string
-  site?: string
-  excerpt?: string
-  fetch_status?: string
-}
-
-interface DbOption {
-  id: string
-  name?: string
-  label?: string
-}
-
-interface DbField {
-  id: string
-  name: string
-  type: string
-  options?: DbOption[]
-}
-
-interface DbRow {
-  id: string
-  data: Record<string, any>
-}
-
-interface NotebookCellLite {
-  type?: string
-  source?: string
-}
-
-interface NoteCache {
-  title: string
-  body_md: string
-  kind: MentionKind
-  link?: LinkMeta
-  fields?: DbField[]
-  rows?: DbRow[]
-  notebook?: { cells?: NotebookCellLite[] }
-  sheet?: { sheets?: Array<{ cells?: Record<string, unknown> }> }
-}
-
-const cache = new Map<string, NoteCache>()
-const detail = ref<NoteCache | null>(cache.get(cacheKey.value) ?? null)
+const cache = new Map<string, NotePreviewData>()
+const detail = ref<NotePreviewData | null>(cache.get(cacheKey.value) ?? null)
 const loading = ref(false)
 const failed = ref(false)
+/** 大屏预览窗口：与附件预览一致的遮罩层。 */
+const notePreviewOpen = ref(false)
+
+const editable = computed(() => props.editor.isEditable)
+
+function openPreview() {
+  if (!itemId.value) return
+  notePreviewOpen.value = true
+}
+
+function closePreview() {
+  notePreviewOpen.value = false
+}
+
+/** 在分栏工作区中并排打开这条 @ 提及的笔记。 */
+function openInPane() {
+  if (target.value !== 'note') return
+  if (paneOpen.openNotePane(itemId.value, kbs.currentKbId || undefined)) {
+    notePreviewOpen.value = false
+  }
+}
+
+/** 卡片 / 标题 / 嵌入之间切换，沿用提及序列化里的 display 属性。 */
+function setDisplay(next: MentionDisplay) {
+  if (next === display.value) return
+  const pos = props.getPos()
+  const ed = props.editor
+  if (typeof pos !== 'number' || !ed) {
+    props.updateAttributes({ display: next })
+    return
+  }
+  const { state, view } = ed
+  const node = state.doc.nodeAt(pos)
+  if (!node || node.type.name !== 'mention') {
+    props.updateAttributes({ display: next })
+    return
+  }
+  const tr = state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, display: next })
+  const afterPos = pos + node.nodeSize
+  const after = tr.doc.nodeAt(afterPos)
+  if (next === 'mention') {
+    // 从独占一行的卡片切回行内时补一个空格，避免与后文粘连
+    if (after?.isText && after.text && !/^\s/.test(after.text)) {
+      tr.insertText(' ', afterPos)
+    }
+  } else if (after?.isText && after.text?.startsWith(' ')) {
+    // 卡片 / 嵌入自带外边距，去掉插入时留下的空格
+    tr.delete(afterPos, afterPos + 1)
+  }
+  view.dispatch(tr)
+}
+
+/** 行内提及悬浮预览：按需加载一次，鼠标移开后延迟关闭。 */
+const hovered = ref(false)
+let hideTimer: number | null = null
+const previewOpen = computed(
+  () =>
+    display.value === 'mention' &&
+    hovered.value &&
+    (loading.value || failed.value || !!detail.value),
+)
+
+function onMentionEnter() {
+  if (display.value !== 'mention') return
+  if (hideTimer !== null) {
+    window.clearTimeout(hideTimer)
+    hideTimer = null
+  }
+  hovered.value = true
+}
+
+function onMentionLeave() {
+  if (display.value !== 'mention') return
+  if (hideTimer !== null) window.clearTimeout(hideTimer)
+  hideTimer = window.setTimeout(() => {
+    hovered.value = false
+    hideTimer = null
+  }, 140)
+}
+
+watch(hovered, (value) => {
+  if (value) void load()
+})
+
+onBeforeUnmount(() => {
+  if (hideTimer !== null) window.clearTimeout(hideTimer)
+})
 
 const title = computed(() => detail.value?.title || label.value || itemId.value)
 const kind = computed<MentionKind>(() =>
@@ -220,26 +268,15 @@ const embedSource = computed(() => detail.value?.body_md || '')
 const embedFields = computed(() => detail.value?.fields ?? [])
 const embedRows = computed(() => detail.value?.rows ?? [])
 
-function optionLabel(field: DbField, raw: unknown): string {
-  if (raw && typeof raw === 'object') {
-    const option = raw as DbOption & Record<string, any>
-    return String(
-      option.name ??
-        option.label ??
-        option.filename ??
-        option.title ??
-        option.id ??
-        '',
-    )
-  }
-  const id = String(raw ?? '')
-  if (!id) return ''
-  const option = field.options?.find((item) => item.id === id)
-  return String(option?.name ?? option?.label ?? id)
-}
+/** 悬浮预览与卡片里的迷你表格：只取前几列 / 几行，保持轻盈。 */
+const previewFields = computed(() => embedFields.value.slice(0, 4))
+const previewRows = computed(() => embedRows.value.slice(0, 3))
+const hasDbPreview = computed(
+  () => kind.value === 'database' && previewFields.value.length > 0 && previewRows.value.length > 0,
+)
 
 /** 按字段类型给列一个合理的最小宽度，内容多时再横向滚动。 */
-function fieldMinWidth(field: DbField): string {
+function fieldMinWidth(field: NotePreviewField): string {
   if (field.type === 'attachment') return '80px'
   if (field.type === 'date') return '96px'
   if (field.type === 'rating' || field.type === 'number') return '60px'
@@ -250,41 +287,15 @@ function fieldMinWidth(field: DbField): string {
   return '110px'
 }
 
-function attachments(row: DbRow, field: DbField): Record<string, any>[] {
-  const value = row.data?.[field.id]
-  if (!Array.isArray(value)) return []
-  return value.filter((item) => item && typeof item === 'object')
-}
+const attachments = attachmentsOf
+const cellText = databaseCellText
 
 /** 附件在嵌入预览里只显示数量，悬停可看到文件名，避免撑高整行。 */
-function attachmentTitle(row: DbRow, field: DbField): string {
+function attachmentTitle(row: NotePreviewRow, field: NotePreviewField): string {
   return attachments(row, field)
     .map((file) => String(file.filename ?? file.name ?? ''))
     .filter(Boolean)
     .join('\n')
-}
-
-function cellText(row: DbRow, field: DbField): string {
-  const value = row.data?.[field.id]
-  if (value === null || value === undefined || value === '') return '—'
-  if (Array.isArray(value)) {
-    const labels = value.map((item) => optionLabel(field, item)).filter(Boolean)
-    return labels.length ? labels.join('、') : '—'
-  }
-  if (typeof value === 'boolean') return value ? '✓' : '—'
-  if (field.type === 'progress') {
-    const number = Number(value)
-    return Number.isFinite(number)
-      ? `${Math.max(0, Math.min(100, Math.round(number)))}%`
-      : '—'
-  }
-  if (field.type === 'select' || field.type === 'multi_select') {
-    return optionLabel(field, value) || '—'
-  }
-  if (typeof value === 'object') {
-    return optionLabel(field, value) || JSON.stringify(value)
-  }
-  return String(value)
 }
 
 function openLink() {
@@ -294,46 +305,15 @@ function openLink() {
 }
 
 async function load() {
-  if (display.value === 'mention' || detail.value || loading.value || !itemId.value) return
+  if (detail.value || loading.value || !itemId.value) return
+  // 行内提及平时只显示标题，悬停预览时才按需拉取正文。
+  if (display.value === 'mention' && !hovered.value) return
   const kbId = kbs.currentKbId
   if (!kbId) return
   loading.value = true
   failed.value = false
   try {
-    let data: NoteCache
-    if (target.value === 'wiki') {
-      const page = await request<{ title: string; body_md: string }>(
-        `/wiki/${itemId.value}`,
-        { kbId },
-      )
-      data = {
-        title: page.title || '无标题',
-        body_md: page.body_md || '',
-        kind: 'wiki',
-      }
-    } else {
-      const note = await request<
-        NoteCache & { props_json?: Record<string, any> | null }
-      >(`/notes/${itemId.value}`, { kbId })
-      data = {
-        title: note.title || '无标题',
-        body_md: note.body_md || '',
-        kind: (note.kind as MentionKind) || 'doc',
-        link: note.props_json?.link as LinkMeta | undefined,
-        notebook: note.props_json?.notebook_doc as
-          | { cells?: NotebookCellLite[] }
-          | undefined,
-        sheet: note.props_json?.sheet as NoteCache['sheet'],
-      }
-      if (data.kind === 'database') {
-        const [database, rows] = await Promise.all([
-          request<{ fields: DbField[] }>(`/notes/${itemId.value}/database`, { kbId }),
-          request<DbRow[]>(`/notes/${itemId.value}/rows`, { kbId }),
-        ])
-        data.fields = Array.isArray(database?.fields) ? database.fields : []
-        data.rows = Array.isArray(rows) ? rows : []
-      }
-    }
+    const data = await fetchNotePreview(kbId, itemId.value, target.value)
     cache.set(cacheKey.value, data)
     detail.value = data
     // 旧数据曾把 UUID 写进 label，拿到标题后顺手修正
@@ -347,7 +327,7 @@ async function load() {
   }
 }
 
-watch([itemId, target, display], () => {
+watch([itemId, target, display, () => kbs.currentKbId], () => {
   detail.value = cache.get(cacheKey.value) ?? null
   void load()
 }, { immediate: true })
@@ -370,7 +350,7 @@ function onMentionClick(event: MouseEvent) {
 <template>
   <NodeViewWrapper
     as="span"
-    class="kiwi-mention-node"
+    class="kiwi-mention-node group/mention"
     :class="[`is-${display}`, target === 'wiki' ? 'is-wiki' : '']"
     data-type="mention"
     :data-target="target"
@@ -378,40 +358,193 @@ function onMentionClick(event: MouseEvent) {
     :data-label="label"
     :data-display="display"
     @click="onMentionClick"
+    @mouseenter="onMentionEnter"
+    @mouseleave="onMentionLeave"
   >
-    <span
-      v-if="display === 'mention'"
-      class="kiwi-mention is-mention"
-      :title="`Ctrl/⌘ + 点击打开《${label}》`"
-    >
-      {{ mentionText(display, label) }}
-    </span>
+    <template v-if="display === 'mention'">
+      <span
+        class="kiwi-mention is-mention"
+        :title="`Ctrl/⌘ + 点击打开《${label}》`"
+      >
+        {{ mentionText(display, label) }}
+      </span>
 
-    <div
-      v-else-if="display === 'card'"
-      class="kiwi-note-card"
-      role="link"
-      tabindex="0"
-      :title="`打开《${title}》`"
-      @click.stop="openItem"
-      @keydown.enter.prevent="openItem"
+      <!-- 行内提及悬浮预览：鼠标停留时拉取笔记内容，表格显示迷你数据 -->
+      <span
+        v-if="previewOpen"
+      class="kiwi-mention-preview"
+      contenteditable="false"
+      @mouseenter="onMentionEnter"
+      @mouseleave="onMentionLeave"
+      @click.stop
     >
-      <span class="kiwi-note-card-icon" :data-kind="kind">
-        <KiwiIcon :name="kindMeta.icon" :size="18" />
-      </span>
-      <span class="kiwi-note-card-main">
-        <span class="kiwi-note-card-title">
-          {{ title }}
-          <span class="kiwi-note-kind">{{ kindMeta.label }}</span>
+      <span class="kiwi-mention-preview-head">
+        <span class="kiwi-note-card-icon" :data-kind="kind">
+          <KiwiIcon :name="kindMeta.icon" :size="14" />
         </span>
-        <span class="kiwi-note-card-excerpt">
-          {{ loading ? '正在读取内容…' : failed ? '无法读取笔记内容' : excerpt }}
+        <span class="kiwi-mention-preview-title">{{ title }}</span>
+        <span class="kiwi-note-kind">{{ kindMeta.label }}</span>
+      </span>
+      <span v-if="loading && !detail" class="kiwi-mention-preview-state">正在读取内容…</span>
+      <span v-else-if="failed && !detail" class="kiwi-mention-preview-state">
+        无法读取{{ target === 'wiki' ? '该 Wiki 页面' : '该笔记' }}
+      </span>
+      <template v-else>
+        <span v-if="hasDbPreview" class="kiwi-mention-preview-db">
+          <span class="kiwi-mention-db">
+            <span class="kiwi-mention-db-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th v-for="field in previewFields" :key="field.id">{{ field.name }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in previewRows" :key="row.id">
+                    <td v-for="field in previewFields" :key="field.id">
+                      <template v-if="field.type === 'attachment'">
+                        <span v-if="attachments(row, field).length" class="kiwi-mention-attach">
+                          <KiwiIcon name="paperclip" :size="10" />
+                          {{ attachments(row, field).length }}
+                        </span>
+                        <template v-else>—</template>
+                      </template>
+                      <template v-else>{{ cellText(row, field) }}</template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </span>
+          </span>
+          <span class="kiwi-mention-preview-more">
+            共 {{ embedRows.length }} 条记录 · {{ embedFields.length }} 个字段
+          </span>
         </span>
+        <span v-else class="kiwi-mention-preview-text">{{ excerpt }}</span>
+      </template>
+      <span class="kiwi-mention-preview-foot">
+        <span>{{ target === 'wiki' ? 'Wiki 页面' : '笔记' }} · Ctrl/⌘ + 点击打开</span>
+        <button type="button" class="kiwi-mention-preview-open" @click.stop="openPreview">
+          <KiwiIcon name="expand" :size="10" />
+          大屏预览
+        </button>
       </span>
-      <span class="kiwi-note-card-arrow">
-        <KiwiIcon name="arrowUpRight" :size="14" />
       </span>
+    </template>
+
+    <!-- 标题超链接：只显示图标 + 标题，右键或右上角可切换形式 -->
+    <div v-else-if="display === 'title'" class="kiwi-note-title-wrap">
+      <a
+        class="kiwi-note-title-link"
+        :href="target === 'wiki' ? `/wiki/${itemId}` : `/notes/${itemId}`"
+        :title="`打开《${title}》`"
+        @click.prevent.stop="openItem"
+        @mousedown.stop
+      >
+        <span class="kiwi-note-title-icon">
+          <KiwiIcon :name="kindMeta.icon" :size="13" />
+        </span>
+        <span class="kiwi-note-title-text">{{ title }}</span>
+        <span class="kiwi-note-kind">{{ kindMeta.label }}</span>
+        <KiwiIcon name="external" :size="12" class="shrink-0 text-slate-300" />
+      </a>
+      <div v-if="editable" class="kiwi-note-actions">
+        <button type="button" class="kiwi-note-action" title="大屏预览" @mousedown.prevent @click.stop="openPreview">
+          <KiwiIcon name="expand" :size="12" />
+        </button>
+        <button
+          v-if="target === 'note'"
+          type="button"
+          class="kiwi-note-action"
+          title="在分栏中打开"
+          @mousedown.prevent
+          @click.stop="openInPane"
+        >
+          <KiwiIcon name="columns" :size="12" />
+        </button>
+        <button type="button" class="kiwi-note-action" title="以卡片展示" @mousedown.prevent @click.stop="setDisplay('card')">
+          <KiwiIcon name="panelLeft" :size="12" />
+        </button>
+        <button type="button" class="kiwi-note-action" title="嵌入正文" @mousedown.prevent @click.stop="setDisplay('embed')">
+          <KiwiIcon name="layoutTemplate" :size="12" />
+        </button>
+      </div>
     </div>
+
+    <template v-else-if="display === 'card'">
+      <div
+        class="kiwi-note-card"
+        role="link"
+        tabindex="0"
+        :title="`打开《${title}》`"
+        @click.stop="openItem"
+        @keydown.enter.prevent="openItem"
+      >
+        <span class="kiwi-note-card-icon" :data-kind="kind">
+          <KiwiIcon :name="kindMeta.icon" :size="18" />
+        </span>
+        <span class="kiwi-note-card-main">
+          <span class="kiwi-note-card-title">
+            {{ title }}
+            <span class="kiwi-note-kind">{{ kindMeta.label }}</span>
+          </span>
+          <span class="kiwi-note-card-excerpt">
+            {{ loading ? '正在读取内容…' : failed ? '无法读取笔记内容' : excerpt }}
+          </span>
+          <span v-if="hasDbPreview" class="kiwi-note-card-db">
+            <span class="kiwi-mention-db">
+              <span class="kiwi-mention-db-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th v-for="field in previewFields" :key="field.id">{{ field.name }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in previewRows" :key="row.id">
+                      <td v-for="field in previewFields" :key="field.id">
+                        <template v-if="field.type === 'attachment'">
+                          <span v-if="attachments(row, field).length" class="kiwi-mention-attach">
+                            <KiwiIcon name="paperclip" :size="10" />
+                            {{ attachments(row, field).length }}
+                          </span>
+                          <template v-else>—</template>
+                        </template>
+                        <template v-else>{{ cellText(row, field) }}</template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </span>
+            </span>
+          </span>
+        </span>
+        <span class="kiwi-note-card-arrow">
+          <KiwiIcon name="arrowUpRight" :size="14" />
+        </span>
+      </div>
+      <div v-if="editable" class="kiwi-note-actions">
+        <button type="button" class="kiwi-note-action" title="大屏预览" @mousedown.prevent @click.stop="openPreview">
+          <KiwiIcon name="expand" :size="12" />
+        </button>
+        <button
+          v-if="target === 'note'"
+          type="button"
+          class="kiwi-note-action"
+          title="在分栏中打开"
+          @mousedown.prevent
+          @click.stop="openInPane"
+        >
+          <KiwiIcon name="columns" :size="12" />
+        </button>
+        <button type="button" class="kiwi-note-action" title="以标题超链接展示" @mousedown.prevent @click.stop="setDisplay('title')">
+          <KiwiIcon name="link2" :size="12" />
+        </button>
+        <button type="button" class="kiwi-note-action" title="嵌入正文" @mousedown.prevent @click.stop="setDisplay('embed')">
+          <KiwiIcon name="layoutTemplate" :size="12" />
+        </button>
+      </div>
+    </template>
 
     <div
       v-else
@@ -426,6 +559,27 @@ function onMentionClick(event: MouseEvent) {
         </span>
         <span class="kiwi-note-embed-title">{{ title }}</span>
         <span class="kiwi-note-embed-badge">{{ kindMeta.label }} · 嵌入</span>
+        <span v-if="editable" class="kiwi-note-embed-actions">
+          <button type="button" class="kiwi-note-embed-action" title="大屏预览" @mousedown.prevent @click.stop="openPreview">
+            <KiwiIcon name="expand" :size="12" />
+          </button>
+          <button
+            v-if="target === 'note'"
+            type="button"
+            class="kiwi-note-embed-action"
+            title="在分栏中打开"
+            @mousedown.prevent
+            @click.stop="openInPane"
+          >
+            <KiwiIcon name="columns" :size="12" />
+          </button>
+          <button type="button" class="kiwi-note-embed-action" title="以卡片展示" @mousedown.prevent @click.stop="setDisplay('card')">
+            <KiwiIcon name="panelLeft" :size="12" />
+          </button>
+          <button type="button" class="kiwi-note-embed-action" title="以标题超链接展示" @mousedown.prevent @click.stop="setDisplay('title')">
+            <KiwiIcon name="link2" :size="12" />
+          </button>
+        </span>
         <button type="button" class="kiwi-note-embed-open" @click.stop="openItem">
           {{ target === 'wiki' ? '打开页面' : '打开笔记' }}
           <KiwiIcon name="arrowUpRight" :size="12" />
@@ -572,5 +726,54 @@ function onMentionClick(event: MouseEvent) {
         @dblclick.stop="resetHeight"
       />
     </div>
+
+    <!-- 大屏预览：与附件预览一致的遮罩窗口，按笔记类型渲染只读内容 -->
+    <NotePreviewDialog
+      :open="notePreviewOpen"
+      :note-id="itemId"
+      :target="target"
+      :label="label"
+      :preload="detail"
+      @close="closePreview"
+    />
   </NodeViewWrapper>
 </template>
+
+<style scoped>
+/* 标题超链接：与附件「标题超链接」保持同一视觉 */
+.kiwi-note-title-wrap {
+  @apply relative;
+}
+.kiwi-note-title-link {
+  @apply flex items-center gap-2 rounded-lg border border-slate-200/70 bg-gradient-to-r from-kiwi-50/70 via-white to-white px-2.5 py-1.5 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all hover:border-kiwi-300 hover:shadow-[0_4px_14px_-8px_rgba(15,23,42,0.25)];
+}
+.kiwi-note-title-icon {
+  @apply grid h-6 w-6 shrink-0 place-items-center rounded-md border border-kiwi-100 bg-white text-kiwi-600;
+}
+.kiwi-note-title-text {
+  @apply min-w-0 flex-1 truncate text-[12.5px] font-medium text-slate-700;
+}
+
+/* 卡片 / 标题右上角的悬浮操作，与内嵌附件卡片一致 */
+.kiwi-note-actions {
+  @apply absolute -top-8 right-0 z-10 flex items-center gap-0.5 rounded-lg border border-slate-200/80 bg-white/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover/mention:opacity-100;
+}
+.kiwi-note-action {
+  @apply grid h-6 w-6 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-kiwi-600;
+}
+
+/* 嵌入窗口标题栏的常驻操作 */
+.kiwi-note-embed-actions {
+  @apply flex shrink-0 items-center gap-0.5;
+}
+.kiwi-note-embed-action {
+  @apply grid h-6 w-6 place-items-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-kiwi-600;
+}
+
+.kiwi-mention-preview-foot {
+  @apply flex items-center justify-between gap-2;
+}
+.kiwi-mention-preview-open {
+  @apply inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px] text-kiwi-600 transition-colors hover:bg-kiwi-50;
+}
+</style>

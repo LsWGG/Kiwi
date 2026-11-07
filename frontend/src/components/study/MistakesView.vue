@@ -8,6 +8,7 @@ import {
   type QuestionType,
 } from '@/stores/study'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 
 const emit = defineEmits<{ (e: 'cite', slug: string): void }>()
@@ -52,6 +53,18 @@ const topicOptions = computed(() => {
   }
   return [...counts.values()].sort((a, b) => b.count - a.count)
 })
+
+const topicFilterOptions = computed(() => [
+  { value: 'all', label: '全部知识点' },
+  ...topicOptions.value.map((t) => ({
+    value: t.slug,
+    label: `${t.title}（${t.count}）`,
+  })),
+])
+
+function setFilterTopic(value: string | number) {
+  filterTopic.value = String(value)
+}
 
 function difficultyTone(d?: string) {
   return d === 'hard'
@@ -149,16 +162,15 @@ onMounted(reload)
 
       <span class="mx-0.5 h-4 w-px bg-slate-200/80" />
 
-      <select
-        v-model="filterTopic"
-        class="h-[26px] max-w-[220px] rounded-lg border border-slate-200/70 bg-white/60 px-1.5 text-[11px] text-slate-500 outline-none focus:border-kiwi-300"
+      <KiwiSelect
+        class="w-[180px] max-w-[220px]"
+        :model-value="filterTopic"
+        :options="topicFilterOptions"
         title="按知识点筛选"
-      >
-        <option value="all">全部知识点</option>
-        <option v-for="t in topicOptions" :key="t.slug" :value="t.slug">
-          {{ t.title }}（{{ t.count }}）
-        </option>
-      </select>
+        width="w-56"
+        trigger-class="!h-[26px] !w-full !justify-between !rounded-lg !border !border-slate-200/70 !bg-white/60 !px-1.5 !text-[11px] !text-slate-500"
+        @update:model-value="setFilterTopic"
+      />
 
       <button
         v-if="filterType !== 'all' || filterTopic !== 'all'"

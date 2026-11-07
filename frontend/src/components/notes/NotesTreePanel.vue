@@ -10,6 +10,7 @@ import {
   type NoteTag,
 } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
@@ -155,6 +156,14 @@ const mode = ref<LibraryMode>('tree')
 const modeLoading = ref(false)
 const selectedTagIds = ref<string[]>([])
 const tagSort = ref<'usage' | 'recent' | 'name'>('usage')
+const tagSortOptions = [
+  { value: 'usage', label: '常用优先' },
+  { value: 'recent', label: '最近使用' },
+  { value: 'name', label: '按名称' },
+]
+function setTagSort(value: string | number) {
+  tagSort.value = String(value) as 'usage' | 'recent' | 'name'
+}
 
 const MODE_TABS: Array<{ key: LibraryMode; label: string; icon: string }> = [
   { key: 'tree', label: '工作区', icon: 'listTree' },
@@ -2234,15 +2243,15 @@ const createFolderMenu = () => openFolderDialog(null)
         <div class="px-1 pb-1.5 flex items-center gap-1.5">
           <span class="text-[10.5px] text-slate-400">按标签筛选</span>
           <span class="text-[9.5px] text-slate-300 tabular-nums">{{ tagRows.length }} 个</span>
-          <select
-            v-model="tagSort"
-            class="ml-auto h-[22px] rounded-md border border-slate-200/70 bg-white/70 px-1 text-[10px] text-slate-500 outline-none"
+          <KiwiSelect
+            class="ml-auto shrink-0"
+            :model-value="tagSort"
+            :options="tagSortOptions"
+            width="w-28"
             title="标签排序"
-          >
-            <option value="usage">常用优先</option>
-            <option value="recent">最近使用</option>
-            <option value="name">按名称</option>
-          </select>
+            trigger-class="!h-[22px] !justify-between !rounded-md !border !border-slate-200/70 !bg-white/70 !px-1 !text-[10px] !text-slate-500"
+            @update:model-value="setTagSort"
+          />
         </div>
 
         <button

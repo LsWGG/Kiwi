@@ -9,12 +9,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useNotesStore, type NoteOut } from '@/stores/notes'
+import { useThemeStore } from '@/stores/theme'
+import { adaptContentColor } from '@/theme/docColors'
 import { useAutosave } from '@/composables/useAutosave'
 import { useSaveShortcut } from '@/composables/useSaveShortcut'
 import NoteTitleBreadcrumb from '@/components/notes/NoteTitleBreadcrumb.vue'
 import NoteTagButton from '@/components/notes/NoteTagButton.vue'
 import EditorColorPicker from '@/components/editor/EditorColorPicker.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 import type {
   CellPosition,
@@ -82,6 +85,10 @@ const props = withDefaults(
 )
 const notes = useNotesStore()
 const route = useRoute()
+const themeStore = useThemeStore()
+
+/** 深色主题下把用户保存的单元格颜色映射成暗色等价物，见 theme/docColors。 */
+const darkTheme = computed(() => themeStore.active?.theme.mode === 'dark')
 
 const title = ref(props.note.title)
 const workbook = ref<SheetWorkbook>(
@@ -653,8 +660,15 @@ function cellStyle(address: string): Record<string, string> {
   if (style.bold) output.fontWeight = '600'
   if (style.italic) output.fontStyle = 'italic'
   if (style.underline) output.textDecoration = 'underline'
-  if (style.color) output.color = style.color
-  if (style.bg) output.backgroundColor = style.bg
+  const dark = darkTheme.value
+  if (style.color) {
+    output.color = dark ? adaptContentColor(style.color, 'text') : style.color
+  }
+  if (style.bg) {
+    output.backgroundColor = dark
+      ? adaptContentColor(style.bg, 'background')
+      : style.bg
+  }
   return output
 }
 
@@ -1326,9 +1340,17 @@ function setSheetColor(kind: 'color' | 'bg', color: string | null) {
 
 const currentFmt = computed(() => activeCell.value?.s?.fmt ?? 'general')
 
-function onFmtChange(event: Event) {
-  const value = (event.target as HTMLSelectElement).value as SheetNumberFormat
-  applyNumberFormat(value)
+const formatOptions = [
+  { value: 'general', label: '常规' },
+  { value: 'number', label: '数字' },
+  { value: 'percent', label: '百分比' },
+  { value: 'currency', label: '货币' },
+  { value: 'date', label: '日期' },
+  { value: 'text', label: '文本' },
+]
+
+function onFmtChange(value: string | number) {
+  applyNumberFormat(String(value) as SheetNumberFormat)
 }
 
 // ---------- 名称框 / 公式栏 ----------
@@ -1998,14 +2020,15 @@ watch(
         <button type="button" class="tool-btn" title="右对齐" @mousedown.prevent @click="applyAlign('right')">
           <KiwiIcon name="alignRight" :size="15" />
         </button>
-        <select class="fmt-select" :value="currentFmt" title="数字格式" @change="onFmtChange">
-          <option value="general">常规</option>
-          <option value="number">数字</option>
-          <option value="percent">百分比</option>
-          <option value="currency">货币</option>
-          <option value="date">日期</option>
-          <option value="text">文本</option>
-        </select>
+        <KiwiSelect
+          class="shrink-0"
+          :model-value="currentFmt"
+          :options="formatOptions"
+          width="w-28"
+          title="数字格式"
+          trigger-class="!h-[26px] !justify-between !rounded-md !border !border-slate-200/80 !bg-white/80 !px-1.5 !text-[11px] !text-slate-600"
+          @update:model-value="onFmtChange"
+        />
       </div>
 
       <span class="toolbar-sep" />
@@ -2396,7 +2419,7 @@ watch(
       >
         <div class="absolute" :style="{ left: filterMenu.left, top: filterMenu.top }">
           <div
-            class="w-[252px] rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
+            class="kiwi-menu-panel w-[252px] rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
             :style="{ zoom: 'var(--ui-scale)' }"
             @mousedown.stop
           >

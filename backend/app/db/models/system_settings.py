@@ -33,6 +33,13 @@ class SystemSettings(UUIDPkMixin, Base):
         Text, default="学习训练 · 复习", nullable=False
     )
 
+    # 主题插件：当前启用主题 key（空表示内置默认主题）与用户级微调覆盖
+    # （背景图、透明度、强调色）。主题包本身存放在 plugins 表中。
+    active_theme: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    theme_overrides: Mapped[dict] = mapped_column(
+        JSONB, default=dict, nullable=False
+    )
+
     # 编辑器内置扩展组件中被停用的 key（日期 / 公式 / 绘图 / 图册 / 分栏…）；
     # 保存停用集合而不是启用集合，新增组件默认可用。
     editor_disabled_extensions: Mapped[list[str]] = mapped_column(

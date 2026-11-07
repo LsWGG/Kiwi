@@ -3,6 +3,7 @@
 import { computed, ref, watch } from 'vue'
 import { useNotesStore, type NoteOut, type NoteTemplate } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
@@ -69,6 +70,15 @@ const folders = computed(() =>
     (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'zh-CN'),
   ),
 )
+const folderOptions = computed(() => [
+  { value: '', label: '根目录' },
+  ...folders.value.map((folder) => ({ value: folder.id, label: folder.name })),
+])
+
+function setFolderId(value: string | number) {
+  folderId.value = String(value)
+}
+
 const builtin = computed(() => notes.templates.filter((t) => t.is_builtin))
 const custom = computed(() => notes.templates.filter((t) => !t.is_builtin))
 const formTags = computed(() =>
@@ -282,12 +292,13 @@ function iconOf(template: NoteTemplate): string {
           </template>
           <template v-else>
             创建到
-            <select v-model="folderId" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-kiwi-300">
-              <option value="">根目录</option>
-              <option v-for="folder in folders" :key="folder.id" :value="folder.id">
-                {{ folder.name }}
-              </option>
-            </select>
+            <KiwiSelect
+              :model-value="folderId"
+              :options="folderOptions"
+              width="w-44"
+              trigger-class="!h-7 !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[11px]"
+              @update:model-value="setFolderId"
+            />
           </template>
         </div>
         <div class="flex-1" />

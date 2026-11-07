@@ -3,7 +3,7 @@
   "kind": "component",
   "key": "counter",
   "name": "计数器",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "可增减、可重置的计数卡片，演示组件插件的 props 持久化与只读降级。",
   "author": "Kiwi",
   "icon": "checkSquare",

@@ -10,6 +10,7 @@ const tabs = [
   { path: '/settings', label: '品牌', icon: 'palette' },
   { path: '/settings/models', label: '模型', icon: 'sparkle' },
   { path: '/settings/operations', label: '运维', icon: 'server' },
+  { path: '/settings/theme', label: '主题', icon: 'image' },
   { path: '/settings/plugins', label: '插件与区块', icon: 'puzzle' },
   ...(IS_DESKTOP ? [{ path: '/settings/desktop', label: '桌面', icon: 'monitor' }] : []),
 ]

@@ -8,13 +8,14 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { BubbleMenu, EditorContent, useEditor } from '@tiptap/vue-3'
-import type { Editor } from '@tiptap/core'
+import { getMarkRange, type Editor } from '@tiptap/core'
 import { EditorState, NodeSelection, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import { KiwiImage } from './extensions/kiwiImage'
+import { KiwiListItem, KiwiOrderedList } from './extensions/orderedListNumbering'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import { KiwiTaskList } from './extensions/emptyTaskList'
@@ -121,6 +122,7 @@ import {
   type PagePrefs,
 } from './modes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { request, uploadWithProgress } from '@/api/client'
 import { runPython, type RunCodeResult } from '@/api/run'
 import { useKbsStore } from '@/stores/kbs'
@@ -128,7 +130,9 @@ import { useNotesStore } from '@/stores/notes'
 import { usePluginsStore, type PluginBlock } from '@/stores/plugins'
 import { useExtensionsStore } from '@/stores/extensions'
 import { useDesktopStore } from '@/stores/desktop'
+import { useThemeStore } from '@/stores/theme'
 import { IS_DESKTOP } from '@/desktop/env'
+import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
 import { toast } from '@/components/ui/toast'
 
 const props = withDefaults(
@@ -180,9 +184,11 @@ const emit = defineEmits<{
 
 const kbs = useKbsStore()
 const notesStore = useNotesStore()
+const paneOpen = usePaneOpen()
 const pluginsStore = usePluginsStore()
 const extensionsStore = useExtensionsStore()
 const desktop = useDesktopStore()
+const themeStore = useThemeStore()
 const router = useRouter()
 const lowlight = createLowlight(common)
 
@@ -360,19 +366,31 @@ function onDocxPrefs(next: DocxPrefs) {
 }
 
 // ---------- 代码块显示偏好（主题 / 行号 / 换行，按浏览器记忆） ----------
-// v2：默认代码主题改为浅色，旧版本存下的深色偏好不再沿用。
-const CODE_PREFS_KEY = 'kiwi.editor.code-prefs.v2'
+// v3：默认跟随主题明暗；沿用 v2 的行号 / 换行偏好，但代码主题迁移为 auto，
+// 避免深色主题下仍显示整块浅色代码。
+const CODE_PREFS_KEY = 'kiwi.editor.code-prefs.v3'
+const LEGACY_CODE_PREFS_KEY = 'kiwi.editor.code-prefs.v2'
 
 function loadCodePrefs(): CodePrefs {
   try {
     const raw = localStorage.getItem(CODE_PREFS_KEY)
-    return raw ? resolveCodePrefs(JSON.parse(raw)) : { ...DEFAULT_CODE_PREFS }
+    if (raw) return resolveCodePrefs(JSON.parse(raw))
+    const legacy = localStorage.getItem(LEGACY_CODE_PREFS_KEY)
+    if (legacy) {
+      return { ...resolveCodePrefs(JSON.parse(legacy)), theme: 'auto' }
+    }
+    return { ...DEFAULT_CODE_PREFS }
   } catch {
     return { ...DEFAULT_CODE_PREFS }
   }
 }
 
 const codePrefs = ref<CodePrefs>(loadCodePrefs())
+/** 代码块实际高亮主题：auto 跟随当前主题明暗，显式选择则保持不变。 */
+const effectiveCodeTheme = computed<'light' | 'dark'>(() => {
+  if (codePrefs.value.theme !== 'auto') return codePrefs.value.theme
+  return themeStore.active?.theme?.mode === 'dark' ? 'dark' : 'light'
+})
 watch(
   codePrefs,
   (value) => {
@@ -745,19 +763,34 @@ function zoomBy(direction: -1 | 1) {
     ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, index + direction))]
 }
 
+/**
+ * 已安装主题启用时，编辑器纸张跟随主题表面色，避免深色主题下出现
+ * 「白纸 + 浅色文字」。内置经典主题保持用户选择的页面底色不变。
+ * 启动时 active 尚未返回，用 <html> 上由缓存主题写入的标记兜底。
+ */
+const themePaperColor = computed(() => {
+  const active = themeStore.active
+  const custom = active
+    ? !active.builtin
+    : document.documentElement.dataset.kiwiThemeCustom === 'true'
+  return custom ? 'rgb(var(--theme-surface))' : ''
+})
+
 const sheetStyle = computed(() => {
   if (isDocx.value) {
     const prefs = docxPrefs.value
     const margins = prefs.margins
     const indent = prefs.firstLineIndent
     const fixedLine = prefs.lineHeightMode === 'fixed'
+    const paperColor =
+      themePaperColor.value || docxBackgroundColor(prefs.background)
     return {
       width: `${paper.value.width}cm`,
       maxWidth: '100%',
       minHeight: `${paper.value.height}cm`,
       padding: `${margins.top}cm ${margins.right}cm ${margins.bottom}cm ${margins.left}cm`,
-      background: docxBackgroundColor(prefs.background),
-      '--doc-bg': docxBackgroundColor(prefs.background),
+      background: paperColor,
+      '--doc-bg': paperColor,
       '--doc-font': docxFontStack(prefs.font),
       '--doc-size': `${prefs.size}px`,
       '--doc-line': fixedLine ? `${(prefs.lineHeightFixed * 4) / 3}px` : String(prefs.lineHeight),
@@ -771,11 +804,13 @@ const sheetStyle = computed(() => {
       zoom: `${docxZoom.value}%`,
     }
   }
+  const paperColor =
+    themePaperColor.value || pageBackgroundColor(pagePrefs.value.background)
   return {
     width: '100%',
     maxWidth: `${pageWidthMax(pagePrefs.value.width)}px`,
-    background: pageBackgroundColor(pagePrefs.value.background),
-    '--doc-bg': pageBackgroundColor(pagePrefs.value.background),
+    background: paperColor,
+    '--doc-bg': paperColor,
     '--doc-size': `${pagePrefs.value.fontSize}px`,
     '--doc-line': String(pagePrefs.value.lineHeight),
     zoom: `${docxZoom.value}%`,
@@ -866,6 +901,10 @@ let headingFrame = 0
 // ---------- 目录层级：展开 / 折叠与最大展示级别 ----------
 const OUTLINE_DEPTH_KEY = 'kiwi.outline.depth'
 const outlineDepth = ref<number>(6)
+const outlineDepthOptions = computed(() => [
+  { value: 6, label: '全部层级' },
+  ...[1, 2, 3, 4, 5].map((n) => ({ value: n, label: `至 ${n} 级` })),
+])
 try {
   const saved = Number(window.localStorage.getItem(OUTLINE_DEPTH_KEY))
   if (Number.isFinite(saved) && saved >= 1 && saved <= 6) outlineDepth.value = saved
@@ -1494,6 +1533,17 @@ interface MentionMenuState {
 }
 const mentionMenu = ref<MentionMenuState | null>(null)
 
+interface LinkMenuState {
+  x: number
+  y: number
+  href: string
+  label: string
+  from: number
+  to: number
+}
+/** 粘贴进来的普通超链接：右击可切换为卡片 / 标题 / 网页嵌入。 */
+const linkMenu = ref<LinkMenuState | null>(null)
+
 function closeParagraphMenu() {
   paragraphMenu.value = null
 }
@@ -1502,9 +1552,14 @@ function closeMentionMenu() {
   mentionMenu.value = null
 }
 
+function closeLinkMenu() {
+  linkMenu.value = null
+}
+
 function closeContextMenus() {
   closeParagraphMenu()
   closeMentionMenu()
+  closeLinkMenu()
 }
 
 /** 从右击的 mention DOM 找回文档位置与节点。 */
@@ -1581,30 +1636,170 @@ function onEditorContextMenu(event: MouseEvent) {
   if (!ed) return
   const target = event.target as HTMLElement | null
   const mentionEl = target?.closest?.('[data-type="mention"]') as HTMLElement | null
-  if (!mentionEl) return
+  if (mentionEl) {
+    event.preventDefault()
+    event.stopPropagation()
+    const found = mentionAtDom(ed.view, mentionEl)
+    if (!found) return
+    closeParagraphMenu()
+    closeLinkMenu()
+    const x = Math.min(event.clientX, Math.max(8, window.innerWidth - 250))
+    const y = Math.min(event.clientY, Math.max(8, window.innerHeight - 360))
+    mentionMenu.value = {
+      x,
+      y,
+      pos: found.pos,
+      size: found.node.nodeSize,
+      id: String(found.node.attrs.id ?? ''),
+      label: String(found.node.attrs.label ?? ''),
+      target: found.node.attrs.target === 'wiki' ? 'wiki' : 'note',
+      display: normalizeMentionDisplay(found.node.attrs.display),
+    }
+    return
+  }
+
+  const linkEl = target?.closest?.('a[href]') as HTMLAnchorElement | null
+  if (!linkEl || !ed.view.dom.contains(linkEl)) return
+  const range = linkRangeAt(ed, linkEl, event)
+  if (!range) return
   event.preventDefault()
   event.stopPropagation()
-  const found = mentionAtDom(ed.view, mentionEl)
-  if (!found) return
   closeParagraphMenu()
-  const x = Math.min(event.clientX, Math.max(8, window.innerWidth - 240))
-  const y = Math.min(event.clientY, Math.max(8, window.innerHeight - 250))
-  mentionMenu.value = {
-    x,
-    y,
-    pos: found.pos,
-    size: found.node.nodeSize,
-    id: String(found.node.attrs.id ?? ''),
-    label: String(found.node.attrs.label ?? ''),
-    target: found.node.attrs.target === 'wiki' ? 'wiki' : 'note',
-    display: normalizeMentionDisplay(found.node.attrs.display),
+  closeMentionMenu()
+  const href = linkEl.getAttribute('href') || ''
+  if (!href) return
+  linkMenu.value = {
+    x: Math.min(event.clientX, Math.max(8, window.innerWidth - 260)),
+    y: Math.min(event.clientY, Math.max(8, window.innerHeight - 330)),
+    href,
+    label: (linkEl.textContent || '').trim() || href,
+    from: range.from,
+    to: range.to,
   }
+}
+
+/** 右击链接时定位它在文档中的文本范围，优先用 DOM 反查，失败再按标记扩展。 */
+function linkRangeAt(
+  ed: Editor,
+  linkEl: HTMLAnchorElement,
+  event: MouseEvent,
+): { from: number; to: number } | null {
+  const view = ed.view
+  try {
+    const from = view.posAtDOM(linkEl, 0)
+    const to = view.posAtDOM(linkEl, linkEl.childNodes.length)
+    if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+      return { from, to }
+    }
+  } catch {
+    /* 链接节点被 NodeView 包裹时回退到坐标命中 */
+  }
+  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+  if (!coords) return null
+  const linkType = ed.schema.marks.link
+  if (!linkType) return null
+  for (const delta of [0, 1, -1]) {
+    const pos = Math.min(Math.max(coords.pos + delta, 0), ed.state.doc.content.size)
+    const $pos = ed.state.doc.resolve(pos)
+    if (!linkType.isInSet($pos.marks())) continue
+    const range = getMarkRange($pos, linkType)
+    if (range) return { from: range.from, to: range.to }
+  }
+  return null
+}
+
+function openLinkMenuTarget() {
+  const menu = linkMenu.value
+  if (menu?.href) window.open(menu.href, '_blank', 'noopener,noreferrer')
+  closeLinkMenu()
+}
+
+async function copyLinkMenuTarget() {
+  const menu = linkMenu.value
+  if (!menu?.href) return
+  try {
+    await navigator.clipboard.writeText(menu.href)
+    toast.success('链接已复制')
+  } catch {
+    toast.error('复制失败，请手动选择链接')
+  }
+  closeLinkMenu()
+}
+
+/**
+ * 把普通超链接转为内嵌块：卡片 / 标题 / 网页。
+ * 链接独占整段时整段替换；否则保留段落其余文字，把嵌入块放到段后。
+ */
+function convertLinkMenu(display: 'content' | 'title' | 'web') {
+  const menu = linkMenu.value
+  const ed = editor.value
+  if (!menu || !ed) return
+  const { state } = ed
+  const attrs = embedAttrs({
+    kind: 'link',
+    url: menu.href,
+    title: menu.label,
+    site: linkSite(menu.href),
+    excerpt: '',
+    favicon: '',
+    display,
+  })
+  const nodeType = state.schema.nodes.embedBlock
+  if (!nodeType) return
+  const tr = state.tr
+  const $from = state.doc.resolve(menu.from)
+  let depth = $from.depth
+  while (depth > 0 && !$from.node(depth).isTextblock) depth -= 1
+  if (!depth) return
+  const block = $from.node(depth)
+  const blockFrom = $from.before(depth)
+  const blockTo = $from.after(depth)
+  const parentName = $from.node(depth - 1).type.name
+  const canReplaceBlock = parentName !== 'listItem' && parentName !== 'taskItem'
+  if (canReplaceBlock && block.textContent.trim() === menu.label.trim()) {
+    tr.replaceWith(blockFrom, blockTo, nodeType.create(attrs))
+  } else {
+    tr.delete(menu.from, menu.to)
+    const insertAt = tr.mapping.map(blockTo)
+    tr.insert(insertAt, nodeType.create(attrs))
+  }
+  ed.view.dispatch(tr.scrollIntoView())
+  closeLinkMenu()
+  toast.success(
+    display === 'web' ? '已转为网页嵌入' : display === 'title' ? '已转为标题链接' : '已转为链接卡片',
+  )
+}
+
+function linkSite(href: string): string {
+  try {
+    return new URL(href).hostname.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+function removeLinkMenuMark() {
+  const menu = linkMenu.value
+  const ed = editor.value
+  if (menu && ed) {
+    ed.chain().focus().setTextSelection({ from: menu.from, to: menu.to }).unsetLink().run()
+  }
+  closeLinkMenu()
 }
 
 function openMentionNote() {
   const menu = mentionMenu.value
   if (menu?.id) {
     void router.push(menu.target === 'wiki' ? `/wiki/${menu.id}` : `/notes/${menu.id}`)
+  }
+  closeMentionMenu()
+}
+
+/** 把 @ 提及的笔记并排放进分栏工作区。 */
+function openMentionInPane() {
+  const menu = mentionMenu.value
+  if (menu?.id && menu.target === 'note') {
+    paneOpen.openNotePane(menu.id, kbs.currentKbId || undefined)
   }
   closeMentionMenu()
 }
@@ -1877,9 +2072,17 @@ const editor = useEditor({
   // 初始内容直接交给编辑器创建，避免 setContent 产生可撤销事务
   content: props.content,
   extensions: [
-    StarterKit.configure({ codeBlock: false, paragraph: false, heading: false }),
+    StarterKit.configure({
+      codeBlock: false,
+      paragraph: false,
+      heading: false,
+      orderedList: false,
+      listItem: false,
+    }),
     KiwiParagraph,
     KiwiHeading,
+    KiwiOrderedList,
+    KiwiListItem,
     Underline,
     KiwiTextStyle,
     Placeholder.configure({ placeholder: placeholderText.value }),
@@ -2064,6 +2267,8 @@ const editor = useEditor({
           }
           return true
         }
+        // 普通超链接交给根节点上的原生 contextmenu 监听（需要显示展示方式菜单）
+        if (target?.closest?.('a[href]')) return true
         if (!isDocx.value) return false
         const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
         if (!coords) return false
@@ -2082,7 +2287,7 @@ const editor = useEditor({
         return true
       },
       mousedown: () => {
-        if (paragraphMenu.value || mentionMenu.value) closeContextMenus()
+        if (paragraphMenu.value || mentionMenu.value || linkMenu.value) closeContextMenus()
         return false
       },
     },
@@ -2311,8 +2516,8 @@ defineExpose({
       [orderedListClass]: orderedListClass,
       'kiwi-editor-docx': isDocx,
       'is-readonly': readonly,
-      'code-theme-dark': codePrefs.theme === 'dark',
-      'code-theme-light': codePrefs.theme === 'light',
+      'code-theme-dark': effectiveCodeTheme === 'dark',
+      'code-theme-light': effectiveCodeTheme === 'light',
       'code-linenos': codePrefs.lineNumbers,
       'code-wrap': codePrefs.wrap,
     }"
@@ -2627,14 +2832,14 @@ defineExpose({
               >
                 <KiwiIcon :name="hasExpandedGroups ? 'chevronsUp' : 'chevronsDown'" :size="11" />
               </button>
-              <select
-                v-model.number="outlineDepth"
-                class="max-w-[74px] cursor-pointer rounded border border-slate-200/80 bg-white/80 px-1 py-0.5 text-[9.5px] text-slate-500 outline-none hover:border-kiwi-200 focus:border-kiwi-300"
+              <KiwiSelect
+                :model-value="outlineDepth"
+                :options="outlineDepthOptions"
+                width="w-28"
                 title="展示到第几级标题"
-              >
-                <option :value="6">全部层级</option>
-                <option v-for="n in 5" :key="n" :value="n">至 {{ n }} 级</option>
-              </select>
+                trigger-class="!h-5 !max-w-[74px] !rounded !border !border-slate-200/80 !bg-white/80 !px-1 !text-[9.5px] !text-slate-500"
+                @update:model-value="outlineDepth = Number($event)"
+              />
               <span class="tabular-nums text-[10px] text-slate-300">
                 {{ outlineRows.length }}<template v-if="outlineRows.length !== headings.length"> / {{ headings.length }}</template>
               </span>
@@ -2740,7 +2945,7 @@ defineExpose({
           @mousedown.stop
         >
           <div
-            class="w-[196px] overflow-hidden rounded-xl border border-slate-200/90 bg-white/97 p-1 shadow-xl backdrop-blur-xl"
+            class="kiwi-menu-panel w-[196px] overflow-hidden rounded-xl border border-slate-200/90 bg-white/97 p-1 shadow-xl backdrop-blur-xl"
             :style="{ zoom: 'var(--ui-scale)' }"
             role="menu"
             aria-label="段落菜单"
@@ -2780,7 +2985,7 @@ defineExpose({
           @mousedown.stop
         >
           <div
-            class="w-[212px] overflow-hidden rounded-xl border border-slate-200/90 bg-white/97 p-1 shadow-xl backdrop-blur-xl"
+            class="kiwi-menu-panel w-[212px] overflow-hidden rounded-xl border border-slate-200/90 bg-white/97 p-1 shadow-xl backdrop-blur-xl"
             :style="{ zoom: 'var(--ui-scale)' }"
             role="menu"
             aria-label="提及菜单"
@@ -2799,6 +3004,16 @@ defineExpose({
             >
               <KiwiIcon name="external" :size="13" />
               {{ mentionMenu.target === 'wiki' ? '打开页面' : '打开笔记' }}
+            </button>
+            <button
+              v-if="mentionMenu.target === 'note'"
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700"
+              role="menuitem"
+              @click="openMentionInPane"
+            >
+              <KiwiIcon name="columns" :size="13" />
+              在分栏中打开
             </button>
             <div class="my-1 h-px bg-slate-100" />
             <p class="px-2.5 pb-1 pt-0.5 text-[10px] font-medium text-slate-400">展示方式</p>
@@ -2831,6 +3046,91 @@ defineExpose({
             >
               <KiwiIcon name="trash" :size="13" />
               移除提及
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 普通超链接右击菜单：打开 / 复制 / 切换展示形式 -->
+    <Teleport to="html">
+      <div v-if="linkMenu" class="fixed inset-0 z-[90]" @mousedown="closeLinkMenu" @contextmenu.prevent="closeLinkMenu">
+        <div
+          class="absolute"
+          :style="{ left: `${linkMenu.x}px`, top: `${linkMenu.y}px` }"
+          @mousedown.stop
+        >
+          <div
+            class="kiwi-menu-panel w-[236px] overflow-hidden rounded-xl border border-slate-200/90 bg-white/97 p-1 shadow-xl backdrop-blur-xl"
+            :style="{ zoom: 'var(--ui-scale)' }"
+            role="menu"
+            aria-label="链接菜单"
+          >
+            <p class="px-2.5 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">
+              超链接
+            </p>
+            <p class="truncate px-2.5 pb-1 text-[11.5px] font-medium text-slate-700">
+              {{ linkMenu.label }}
+            </p>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700"
+              role="menuitem"
+              @click="openLinkMenuTarget"
+            >
+              <KiwiIcon name="external" :size="13" />
+              打开链接
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700"
+              role="menuitem"
+              @click="copyLinkMenuTarget"
+            >
+              <KiwiIcon name="copy" :size="13" />
+              复制链接
+            </button>
+            <div class="my-1 h-px bg-slate-100" />
+            <p class="px-2.5 pb-1 pt-0.5 text-[10px] font-medium text-slate-400">展示形式</p>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700"
+              role="menuitem"
+              @click="convertLinkMenu('content')"
+            >
+              <KiwiIcon name="layoutTemplate" :size="13" />
+              <span class="flex-1">内容卡片</span>
+              <span class="text-[10px] text-slate-400">标题 + 摘要</span>
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700"
+              role="menuitem"
+              @click="convertLinkMenu('title')"
+            >
+              <KiwiIcon name="link2" :size="13" />
+              <span class="flex-1">标题链接</span>
+              <span class="text-[10px] text-slate-400">只显示标题</span>
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700"
+              role="menuitem"
+              @click="convertLinkMenu('web')"
+            >
+              <KiwiIcon name="globe" :size="13" />
+              <span class="flex-1">网页嵌入</span>
+              <span class="text-[10px] text-slate-400">正文内网页</span>
+            </button>
+            <div class="my-1 h-px bg-slate-100" />
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+              role="menuitem"
+              @click="removeLinkMenuMark"
+            >
+              <KiwiIcon name="close" :size="13" />
+              取消链接
             </button>
           </div>
         </div>

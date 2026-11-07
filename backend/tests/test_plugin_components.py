@@ -98,6 +98,9 @@ async def test_component_plugin_inspect_import_serve_and_export(client, plugin_k
         "has_style": True,
         "block_count": 1,
         "blocks": ["计数器"],
+        "theme": None,
+        "asset_count": 0,
+        "assets": [],
     }
 
     imported = await client.post(

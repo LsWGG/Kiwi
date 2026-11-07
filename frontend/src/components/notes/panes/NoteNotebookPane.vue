@@ -18,6 +18,7 @@ import { useSyncedScroll } from '@/composables/useSyncedScroll'
 import NoteTitleBreadcrumb from '@/components/notes/NoteTitleBreadcrumb.vue'
 import NoteTagButton from '@/components/notes/NoteTagButton.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import { toast } from '@/components/ui/toast'
@@ -81,6 +82,16 @@ const runningAll = ref(false)
 const runAllTotal = ref(0)
 const runAllDone = ref(0)
 const timeoutSeconds = ref(60)
+const timeoutOptions = [
+  { value: 15, label: '15 秒' },
+  { value: 30, label: '30 秒' },
+  { value: 60, label: '60 秒' },
+  { value: 120, label: '120 秒' },
+  { value: 300, label: '300 秒' },
+]
+function setTimeoutSeconds(value: string | number) {
+  timeoutSeconds.value = Number(value)
+}
 const restartOpen = ref(false)
 const shortcutsOpen = ref(false)
 const clearing = ref(false)
@@ -679,17 +690,15 @@ const SHORTCUTS: { keys: string; label: string }[] = [
 
         <label class="ml-1 flex items-center gap-1 text-[10.5px] text-slate-400">
           超时
-          <select
-            v-model.number="timeoutSeconds"
-            class="rounded-md border border-slate-200/80 bg-white/80 px-1 py-0.5 text-[10.5px] text-slate-600 outline-none focus:border-kiwi-300"
+          <KiwiSelect
+            class="shrink-0"
+            :model-value="timeoutSeconds"
+            :options="timeoutOptions"
             :disabled="busy"
-          >
-            <option :value="15">15 秒</option>
-            <option :value="30">30 秒</option>
-            <option :value="60">60 秒</option>
-            <option :value="120">120 秒</option>
-            <option :value="300">300 秒</option>
-          </select>
+            width="w-24"
+            trigger-class="!h-[22px] !justify-between !rounded-md !border !border-slate-200/80 !bg-white/80 !px-1 !text-[10.5px] !text-slate-600"
+            @update:model-value="setTimeoutSeconds"
+          />
         </label>
       </template>
       <span

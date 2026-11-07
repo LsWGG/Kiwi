@@ -291,9 +291,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .kiwi-plugin-note-editor {
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid rgb(var(--theme-border, 226 232 240));
   border-radius: 9px;
-  background: #fff;
+  background: rgb(var(--theme-surface, 255 255 255));
   overflow: hidden;
 }
 
@@ -302,8 +302,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 1px;
   padding: 3px 5px;
-  border-bottom: 1px solid rgb(241 245 249);
-  background: rgb(248 250 252 / 0.85);
+  border-bottom: 1px solid rgb(var(--theme-border-subtle, 241 245 249));
+  background: rgb(var(--theme-surface-muted, 248 250 252) / 0.85);
 }
 
 .kiwi-plugin-note-editor__tool {
@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
   height: 23px;
   padding: 0 4px;
   border-radius: 5px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted, 100 116 139));
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -338,13 +338,13 @@ onBeforeUnmount(() => {
 }
 
 .kiwi-plugin-note-editor__tool:hover:not(:disabled) {
-  background: rgb(241 245 249);
-  color: rgb(51 65 85);
+  background: rgb(var(--theme-surface-muted, 241 245 249));
+  color: rgb(var(--theme-text-strong, 51 65 85));
 }
 
 .kiwi-plugin-note-editor__tool.is-active {
-  background: rgb(var(--kiwi-50, 236 253 245));
-  color: rgb(var(--kiwi-700, 4 120 87));
+  background: rgb(var(--theme-accent, 90 85 199) / 0.16);
+  color: rgb(var(--theme-accent, 90 85 199));
 }
 
 .kiwi-plugin-note-editor__tool:disabled {
@@ -368,7 +368,7 @@ onBeforeUnmount(() => {
   outline: none;
   user-select: text;
   -webkit-user-select: text;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong, 51 65 85));
   font-size: 13px;
   line-height: 1.7;
   overflow-wrap: anywhere;
@@ -390,7 +390,7 @@ onBeforeUnmount(() => {
 .kiwi-plugin-note-editor :deep(.ProseMirror h2),
 .kiwi-plugin-note-editor :deep(.ProseMirror h3) {
   margin: 0.45rem 0 0.25rem;
-  color: rgb(30 41 59);
+  color: rgb(var(--theme-text-primary, 30 41 59));
   font-weight: 650;
   line-height: 1.4;
 }
@@ -428,15 +428,15 @@ onBeforeUnmount(() => {
 .kiwi-plugin-note-editor :deep(.ProseMirror blockquote) {
   margin: 0.4rem 0;
   padding-left: 0.75rem;
-  border-left: 3px solid rgb(var(--kiwi-300, 167 243 208));
-  color: rgb(100 116 139);
+  border-left: 3px solid rgb(var(--theme-accent, 167 243 208) / 0.45);
+  color: rgb(var(--theme-text-muted, 100 116 139));
 }
 
 .kiwi-plugin-note-editor :deep(.ProseMirror code) {
   padding: 1px 4px;
   border-radius: 4px;
-  background: rgb(241 245 249);
-  color: rgb(79 70 229);
+  background: rgb(var(--theme-accent, 241 245 249) / 0.12);
+  color: rgb(var(--theme-accent, 79 70 229));
   font-size: 0.88em;
 }
 
@@ -457,20 +457,20 @@ onBeforeUnmount(() => {
 }
 
 .kiwi-plugin-note-editor :deep(.ProseMirror a) {
-  color: rgb(var(--kiwi-600, 5 150 105));
+  color: rgb(var(--theme-accent, 5 150 105));
   text-decoration: underline;
 }
 
 .kiwi-plugin-note-editor :deep(.ProseMirror hr) {
   margin: 0.65rem 0;
   border: 0;
-  border-top: 1px solid rgb(226 232 240);
+  border-top: 1px solid rgb(var(--theme-border, 226 232 240));
 }
 
 .kiwi-plugin-note-editor :deep(.ProseMirror p.is-editor-empty:first-child::before) {
   float: left;
   height: 0;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle, 148 163 184));
   content: attr(data-placeholder);
   pointer-events: none;
 }
@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: rgb(var(--kiwi-500, 16 185 129));
+  accent-color: rgb(var(--theme-accent, 16 185 129));
   cursor: pointer;
 }
 
@@ -514,9 +514,9 @@ onBeforeUnmount(() => {
 }
 
 .kiwi-plugin-note-editor :deep(.ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p) {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle, 148 163 184));
   text-decoration: line-through;
-  text-decoration-color: rgb(148 163 184 / 0.55);
+  text-decoration-color: rgb(var(--theme-text-subtle, 148 163 184) / 0.55);
 }
 
 .kiwi-plugin-note-editor.is-readonly {

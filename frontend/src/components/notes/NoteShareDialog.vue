@@ -7,6 +7,7 @@ import { useNotesStore } from '@/stores/notes'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 
 /** 目录树摘要与详情页共用的最小字段集，避免为打开分享面板再拉全文。 */
@@ -60,6 +61,10 @@ const canCreate = computed(
 function linkFor(share: NoteShare): string {
   // 配置了公网分享域名时后端直接返回完整地址；否则退回当前访问地址。
   return share.url || `${window.location.origin}${share.path}`
+}
+
+function setExpiry(value: string | number) {
+  expiry.value = String(value)
 }
 
 function expiryLabel(value: string): string {
@@ -180,11 +185,13 @@ watch(
     <div class="rounded-xl border border-slate-200/70 bg-white/60 p-3">
       <div class="flex flex-wrap items-center gap-2">
         <label class="text-[11.5px] text-slate-500">有效期</label>
-        <select v-model="expiry" class="kiwi-input !w-auto !py-1 !text-[11.5px]">
-          <option v-for="option in EXPIRY_OPTIONS" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
+        <KiwiSelect
+          :model-value="expiry"
+          :options="EXPIRY_OPTIONS"
+          width="w-40"
+          trigger-class="!h-8 !w-auto !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[11.5px]"
+          @update:model-value="setExpiry"
+        />
         <label class="ml-1 inline-flex cursor-pointer items-center gap-1.5 text-[11.5px] text-slate-500">
           <input v-model="usePassword" type="checkbox" class="accent-kiwi-600" />
           访问密码

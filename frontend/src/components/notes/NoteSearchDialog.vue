@@ -21,6 +21,8 @@ import {
   type CreatableNoteKind,
 } from '@/constants/noteKinds'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 import { drawDocStats, readDrawDoc } from '@/components/draw/types'
 
@@ -111,6 +113,14 @@ const folderOptions = computed(() => {
   walk(null, 0)
   return out
 })
+
+const kbOptions = computed(() =>
+  kbs.kbs.map((kb) => ({ value: kb.id, label: kb.name })),
+)
+const folderSelectOptions = computed(() => [
+  { value: '', label: '全部分组' },
+  ...folderOptions.value.map((folder) => ({ value: folder.id, label: folder.label })),
+])
 
 const subTags = computed(() => {
   const byParent = new Map<string | null, typeof notes.tags>()
@@ -704,8 +714,13 @@ const MATCH_LABEL: Record<string, string> = {
       @mousedown.self="emit('close')"
     >
       <div
-        class="flex max-h-[82vh] w-full max-w-[820px] animate-scale-in flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-2xl"
-        :style="{ zoom: 'var(--ui-scale)' }"
+        class="flex w-full max-w-[820px] animate-scale-in flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-2xl"
+        :style="{
+          zoom: 'var(--ui-scale)',
+          // 弹层挂在 <html> 下、自身做 zoom；dvh 不会跟着缩放，必须折算，
+          // 否则 2K/4K 放大后底部（含页脚与最后一条结果）会被视口截断。
+          maxHeight: 'calc(82dvh / var(--ui-scale, 1))',
+        }"
       >
         <!-- 搜索框 -->
         <div class="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-slate-200/60 px-4">
@@ -757,19 +772,37 @@ const MATCH_LABEL: Record<string, string> = {
         <!-- 筛选条 -->
         <div class="shrink-0 border-b border-slate-100 bg-slate-50/50 px-4 py-2">
           <div class="flex flex-wrap items-center gap-1.5">
-            <select v-model="searchKbId" class="search-select max-w-[150px]" title="搜索的知识库">
-              <option v-for="kb in kbs.kbs" :key="kb.id" :value="kb.id">{{ kb.name }}</option>
-            </select>
-            <select v-model="status" class="search-select">
-              <option v-for="o in STATUS_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-            <select v-model="kind" class="search-select">
-              <option v-for="o in KIND_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-            <select v-model="folderId" class="search-select max-w-[160px]" :disabled="!sameKb">
-              <option value="">全部分组</option>
-              <option v-for="f in folderOptions" :key="f.id" :value="f.id">{{ f.label }}</option>
-            </select>
+            <KiwiSelect
+              v-model="searchKbId"
+              :options="kbOptions"
+              width="w-48"
+              title="搜索的知识库"
+              class="max-w-[150px]"
+              trigger-class="!h-7 !w-full !max-w-[150px] !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[10.5px]"
+            />
+            <KiwiSelect
+              v-model="status"
+              :options="STATUS_OPTIONS"
+              width="w-40"
+              title="笔记状态"
+              trigger-class="!h-7 !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[10.5px]"
+            />
+            <KiwiSelect
+              v-model="kind"
+              :options="KIND_OPTIONS"
+              width="w-40"
+              title="笔记类型"
+              trigger-class="!h-7 !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[10.5px]"
+            />
+            <KiwiSelect
+              v-model="folderId"
+              :options="folderSelectOptions"
+              width="w-52"
+              :disabled="!sameKb"
+              title="分组"
+              class="max-w-[160px]"
+              trigger-class="!h-7 !w-full !max-w-[160px] !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[10.5px]"
+            />
             <button
               type="button"
               class="search-toggle"
@@ -791,9 +824,18 @@ const MATCH_LABEL: Record<string, string> = {
           </div>
 
           <div v-if="showDate" class="mt-2 flex flex-wrap items-center gap-1.5">
-            <input v-model="updatedFrom" type="date" class="search-date" />
+            <KiwiDateInput
+              v-model="updatedFrom"
+              trigger-class="!h-7 !w-[126px] !text-[10px]"
+              placeholder="起始日期"
+            />
             <span class="text-[10px] text-slate-400">至</span>
-            <input v-model="updatedTo" type="date" class="search-date" />
+            <KiwiDateInput
+              v-model="updatedTo"
+              :min="updatedFrom"
+              trigger-class="!h-7 !w-[126px] !text-[10px]"
+              placeholder="结束日期"
+            />
             <button
               v-if="dateActive"
               type="button"
@@ -1082,10 +1124,18 @@ const MATCH_LABEL: Record<string, string> = {
   @apply h-7 rounded-lg border border-slate-200 bg-white px-1.5 text-[10px] text-slate-600 outline-none focus:border-kiwi-300;
 }
 .search-toggle {
-  @apply inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[10.5px] text-slate-600 outline-none transition-colors hover:border-kiwi-200;
+  @apply inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[10.5px] outline-none transition-colors;
+  border-color: rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  color: rgb(var(--theme-text-secondary));
+}
+.search-toggle:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
 }
 .search-toggle-active {
-  @apply border-kiwi-300 bg-kiwi-50 text-kiwi-700;
+  border-color: rgb(var(--theme-accent) / 0.45);
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
 }
 .search-select:disabled {
   @apply cursor-not-allowed opacity-50;

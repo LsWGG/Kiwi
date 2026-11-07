@@ -228,7 +228,7 @@ onMounted(requestRuntime)
   border-radius: 12px;
 }
 .kiwi-plugin-block.is-selected :deep(.kiwi-plugin-surface > *) {
-  box-shadow: 0 0 0 2px var(--kiwi-accent, #10b981);
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent));
 }
 .kiwi-plugin-align-toolbar {
   position: absolute;
@@ -238,9 +238,9 @@ onMounted(requestRuntime)
   display: flex;
   gap: 1px;
   padding: 2px;
-  border: 1px solid rgb(226 232 240 / 0.9);
+  border: 1px solid rgb(var(--theme-border) / 0.9);
   border-radius: 9px;
-  background: rgb(255 255 255 / 0.96);
+  background: rgb(var(--theme-surface) / 0.96);
   box-shadow: 0 6px 18px rgb(15 23 42 / 0.12);
   transform: translateX(-50%);
   backdrop-filter: blur(8px);
@@ -251,30 +251,30 @@ onMounted(requestRuntime)
   width: 26px;
   height: 24px;
   border-radius: 6px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   transition: background 0.15s ease, color 0.15s ease;
 }
 .kiwi-plugin-align-button:hover {
-  background: rgb(241 245 249);
-  color: rgb(51 65 85);
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-plugin-align-button.is-active {
-  background: rgb(var(--kiwi-50, 236 253 245));
-  color: rgb(var(--kiwi-600, 5 150 105));
+  background: rgb(var(--theme-accent) / 0.14);
+  color: rgb(var(--theme-accent));
 }
 .kiwi-plugin-toolbar-sep {
   width: 1px;
   margin: 3px 2px;
-  background: rgb(226 232 240);
+  background: rgb(var(--theme-border));
 }
 .kiwi-plugin-fallback {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px dashed rgb(203 213 225);
+  border: 1px dashed rgb(var(--theme-border-strong));
   border-radius: 12px;
-  background: rgb(248 250 252 / 0.8);
+  background: rgb(var(--theme-surface-muted) / 0.8);
 }
 .kiwi-plugin-fallback-icon {
   display: grid;
@@ -282,35 +282,38 @@ onMounted(requestRuntime)
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: rgb(241 245 249);
-  color: rgb(100 116 139);
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
   flex-shrink: 0;
 }
 .kiwi-plugin-fallback-title {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-plugin-fallback-title code {
   margin-left: 6px;
   font-size: 10px;
   font-weight: 400;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-plugin-fallback-message {
   margin: 2px 0 0;
   font-size: 10.5px;
   line-height: 1.5;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-plugin-fallback-message.is-error {
   color: rgb(225 29 72);
 }
+html[data-kiwi-theme-mode='dark'] .kiwi-plugin-fallback-message.is-error {
+  color: rgb(251 113 133);
+}
 .kiwi-plugin-fallback-props {
   margin-top: 4px;
   font-size: 10px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-plugin-fallback-props pre {
   margin: 4px 0 0;
@@ -318,7 +321,7 @@ onMounted(requestRuntime)
   overflow: auto;
   white-space: pre-wrap;
   font-size: 10px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-plugin-fallback-remove {
   display: grid;
@@ -326,12 +329,15 @@ onMounted(requestRuntime)
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   flex-shrink: 0;
   transition: background 0.15s ease, color 0.15s ease;
 }
 .kiwi-plugin-fallback-remove:hover {
-  background: rgb(254 226 226);
+  background: rgb(244 63 94 / 0.16);
   color: rgb(225 29 72);
+}
+html[data-kiwi-theme-mode='dark'] .kiwi-plugin-fallback-remove:hover {
+  color: rgb(251 113 133);
 }
 </style>

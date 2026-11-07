@@ -8,6 +8,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Editor } from '@tiptap/core'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { IS_DESKTOP } from '@/desktop/env'
 import { useExtensionsStore } from '@/stores/extensions'
 import { usePluginsStore, type PluginBlock } from '@/stores/plugins'
@@ -19,6 +20,7 @@ import {
   DOCX_FONTS,
   DOCX_SIZES,
   type CodePrefs,
+  type CodeTheme,
   type DocxFont,
   type DocxPrefs,
   type EditorMode,
@@ -33,6 +35,10 @@ import { applyTextFormat } from './extensions/textFormat'
 import { normalizeColor, normalizeTextStyleAttrs } from './extensions/textStyle'
 import EditorColorPicker from './EditorColorPicker.vue'
 import OrderedListStyleMenu from './OrderedListStyleMenu.vue'
+import {
+  applyOrderedListStart,
+  orderedListContext,
+} from './extensions/orderedListNumbering'
 import {
   DEFAULT_ORDERED_LIST_STYLE,
   resolveOrderedListStyle,
@@ -71,6 +77,20 @@ const props = withDefaults(
 const listStyleCustomized = computed(
   () => resolveOrderedListStyle(props.orderedListStyle) !== DEFAULT_ORDERED_LIST_STYLE,
 )
+
+/** 当前选区对应的有序列表编号状态（随 revision 刷新）。 */
+const orderedListState = computed(() => {
+  void props.revision
+  if (!props.editor) return { inList: false, start: 1, continueFrom: null }
+  return orderedListContext(props.editor)
+})
+
+function setOrderedListStart(start: number) {
+  const ed = props.editor
+  if (!ed) return
+  if (!applyOrderedListStart(ed, start)) return
+  ed.commands.focus()
+}
 
 const emit = defineEmits<{
   (e: 'image'): void
@@ -252,13 +272,10 @@ function applyCodePrefs(patch: Partial<CodePrefs>) {
   emit('code-prefs', { ...code.value, ...patch })
 }
 
-function setCodeLanguage(e: Event) {
+function setCodeLanguage(value: string | number) {
   const ed = props.editor
   if (!ed) return
-  ed.chain()
-    .focus()
-    .updateAttributes('codeBlock', { language: (e.target as HTMLSelectElement).value })
-    .run()
+  ed.chain().focus().updateAttributes('codeBlock', { language: String(value) }).run()
 }
 
 /** 工具栏复制按钮：只复制当前代码块的纯文本，不含行号与按钮标签。 */
@@ -369,10 +386,10 @@ function applyToolbarTextFormat(patch: {
  * 有选区时只改选中的文字；Word 模式光标折叠才回退到整段设置。
  * 其他模式光标折叠时只影响接下来输入的文字。
  */
-function onFont(e: Event) {
+function onFont(value: string | number) {
   const ed = props.editor
   if (!ed) return
-  const font = (e.target as HTMLSelectElement).value as DocxFont
+  const font = String(value) as DocxFont
   if (applyToolbarTextFormat({ font })) return
   if (docx.value) applyParagraphFormat(ed, { font })
   else applyTextFormat(ed, { font })
@@ -389,10 +406,10 @@ function clearTextColor() {
   applyToolbarTextFormat({ color: null })
 }
 
-function onSize(e: Event) {
+function onSize(value: string | number) {
   const ed = props.editor
   if (!ed) return
-  const size = Number((e.target as HTMLSelectElement).value)
+  const size = Number(value)
   if (applyToolbarTextFormat({ size })) return
   if (docx.value) applyParagraphFormat(ed, { size })
   else applyTextFormat(ed, { size })
@@ -412,6 +429,8 @@ const blockOptions = computed(() => {
     { value: 'h1', label: '标题 1' },
     { value: 'h2', label: '标题 2' },
     { value: 'h3', label: '标题 3' },
+    { value: 'h4', label: '标题 4' },
+    { value: 'h5', label: '标题 5' },
     { value: 'blockquote', label: '引用' },
   ]
   if (!docx.value) options.push({ value: 'codeBlock', label: '代码块' })
@@ -421,7 +440,7 @@ const blockOptions = computed(() => {
 const blockType = computed(() => {
   const ed = props.editor
   if (!ed) return 'paragraph'
-  for (const level of [1, 2, 3] as const) {
+  for (const level of [1, 2, 3, 4, 5] as const) {
     if (ed.isActive('heading', { level })) return `h${level}`
   }
   if (ed.isActive('codeBlock')) return 'codeBlock'
@@ -429,15 +448,15 @@ const blockType = computed(() => {
   return 'paragraph'
 })
 
-function setBlock(e: Event) {
-  const value = (e.target as HTMLSelectElement).value
+function setBlock(value: string | number) {
   const ed = props.editor
   if (!ed) return
+  const block = String(value)
   const chain = ed.chain().focus()
-  if (value === 'paragraph') chain.setParagraph().run()
-  else if (value === 'codeBlock') chain.toggleCodeBlock().run()
-  else if (value === 'blockquote') chain.toggleBlockquote().run()
-  else chain.setHeading({ level: Number(value.slice(1)) as 1 | 2 | 3 }).run()
+  if (block === 'paragraph') chain.setParagraph().run()
+  else if (block === 'codeBlock') chain.toggleCodeBlock().run()
+  else if (block === 'blockquote') chain.toggleBlockquote().run()
+  else chain.setHeading({ level: Number(block.slice(1)) as 1 | 2 | 3 | 4 | 5 }).run()
 }
 
 function run(fn: (ed: Editor) => void) {
@@ -484,41 +503,38 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
 
     <!-- 块类型 -->
     <div :class="group">
-      <select
-        :value="blockType"
-        class="h-7 rounded-lg border border-slate-200/80 bg-white/80 text-[11px] text-slate-600 px-1.5 outline-none focus:ring-2 focus:ring-kiwi-200"
-        @change="setBlock"
-      >
-        <option v-for="option in blockOptions" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
+      <KiwiSelect
+        :model-value="blockType"
+        :options="blockOptions"
+        width="w-40"
+        title="文本类型"
+        aria-label="文本类型"
+        @update:model-value="setBlock"
+      />
     </div>
 
     <!-- 代码块：语言 / 主题 / 行号 / 换行 / 复制（Word 模式不提供代码块） -->
     <template v-if="!docx && editor.isActive('codeBlock')">
       <span :class="sep" />
       <div :class="group">
-        <select
-          :value="codeLanguage"
-          class="h-7 max-w-[104px] rounded-lg border border-slate-200/80 bg-white/80 text-[11px] text-slate-600 px-1.5 outline-none focus:ring-2 focus:ring-kiwi-200"
+        <KiwiSelect
+          :model-value="codeLanguage"
+          :options="CODE_LANGUAGES.map((lang) => ({ value: lang.id, label: lang.label }))"
+          width="w-44"
           title="代码语言"
-          @change="setCodeLanguage"
-        >
-          <option v-for="lang in CODE_LANGUAGES" :key="lang.id" :value="lang.id">
-            {{ lang.label }}
-          </option>
-        </select>
-        <select
-          :value="code.theme"
-          class="h-7 rounded-lg border border-slate-200/80 bg-white/80 text-[11px] text-slate-600 px-1.5 outline-none focus:ring-2 focus:ring-kiwi-200"
+          aria-label="代码语言"
+          @update:model-value="setCodeLanguage"
+        />
+        <KiwiSelect
+          :model-value="code.theme"
+          :options="CODE_THEMES.map((theme) => ({ value: theme.id, label: theme.label }))"
+          width="w-36"
           title="高亮主题"
-          @change="applyCodePrefs({ theme: ($event.target as HTMLSelectElement).value as 'dark' | 'light' })"
-        >
-          <option v-for="theme in CODE_THEMES" :key="theme.id" :value="theme.id">
-            {{ theme.label }}
-          </option>
-        </select>
+          aria-label="高亮主题"
+          @update:model-value="
+            applyCodePrefs({ theme: String($event) as CodeTheme })
+          "
+        />
         <button
           type="button"
           :class="[btn, 'font-mono !text-[12px]', code.lineNumbers ? activeBtn : '']"
@@ -566,26 +582,24 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
     <template v-if="editor">
       <span :class="sep" />
       <div :class="group">
-        <select
-          :value="currentFont"
-          class="h-7 max-w-[128px] rounded-lg border border-slate-200/80 bg-white/80 text-[11px] text-slate-600 px-1.5 outline-none focus:ring-2 focus:ring-kiwi-200"
+        <KiwiSelect
+          :model-value="currentFont"
+          :options="DOCX_FONTS.map((font) => ({ value: font.id, label: font.label }))"
+          width="w-48"
           title="字体（选中文字生效；未选中时 Word 模式作用于整段，其他模式作用于后续输入）"
+          aria-label="字体"
           @pointerdown="captureSelection"
-          @change="onFont"
-        >
-          <option v-for="font in DOCX_FONTS" :key="font.id" :value="font.id">
-            {{ font.label }}
-          </option>
-        </select>
-        <select
-          :value="currentSize"
-          class="h-7 rounded-lg border border-slate-200/80 bg-white/80 text-[11px] text-slate-600 px-1.5 outline-none focus:ring-2 focus:ring-kiwi-200"
+          @update:model-value="onFont"
+        />
+        <KiwiSelect
+          :model-value="currentSize"
+          :options="sizeOptions.map((size) => ({ value: size, label: String(size) }))"
+          width="w-28"
           title="字号（选中文字生效；未选中时 Word 模式作用于整段，其他模式作用于后续输入）"
+          aria-label="字号"
           @pointerdown="captureSelection"
-          @change="onSize"
-        >
-          <option v-for="size in sizeOptions" :key="size" :value="size">{{ size }}</option>
-        </select>
+          @update:model-value="onSize"
+        />
       </div>
     </template>
 
@@ -676,7 +690,11 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
         <OrderedListStyleMenu
           variant="chevron"
           :value="orderedListStyle"
+          :start="orderedListState.start"
+          :continue-from="orderedListState.continueFrom"
+          :in-list="orderedListState.inList"
           @change="emit('ordered-list-style', $event)"
+          @start="setOrderedListStart"
         />
       </div>
       <button v-if="!docx" type="button" :class="[btn, editor.isActive('taskList') ? activeBtn : '']" title="任务列表" @click="run((e) => e.chain().focus().toggleTaskList().run())">
@@ -722,7 +740,7 @@ const sep = 'w-px h-4 bg-slate-200/80 mx-1 shrink-0'
             >
               <div
                 ref="componentMenuEl"
-                class="max-h-[70vh] w-60 overflow-y-auto rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
+                class="kiwi-menu-panel max-h-[70vh] w-60 overflow-y-auto rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
                 :style="{ zoom: 'var(--ui-scale)' }"
               >
                 <p class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-400">

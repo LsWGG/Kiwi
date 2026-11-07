@@ -14,6 +14,7 @@ import {
   type RelatedNoteItem,
 } from '@/stores/notes'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import DatabaseCell from '@/components/notes/database/DatabaseCell.vue'
 import NoteShareDialog from '@/components/notes/NoteShareDialog.vue'
@@ -200,6 +201,19 @@ async function loadWiki() {
   } finally {
     wikiLoading.value = false
   }
+}
+
+const wikiOptions = computed(() => [
+  { value: '', label: '未关联' },
+  ...wikiPages.value.map((page) => ({
+    value: page.id,
+    label: `${page.title}（${page.slug}）`,
+  })),
+])
+
+function setWikiId(value: string | number) {
+  wikiId.value = String(value)
+  void saveWiki()
 }
 
 async function saveWiki() {
@@ -619,17 +633,14 @@ onBeforeUnmount(stopCompilePolling)
       <!-- Wiki 关联 -->
       <section>
         <h4 class="info-title">关联 Wiki 页面</h4>
-        <select
-          v-model="wikiId"
-          class="kiwi-input !py-1 !text-[11.5px]"
+        <KiwiSelect
+          :model-value="wikiId"
+          :options="wikiOptions"
           :disabled="wikiLoading"
-          @change="saveWiki"
-        >
-          <option value="">未关联</option>
-          <option v-for="page in wikiPages" :key="page.id" :value="page.id">
-            {{ page.title }}（{{ page.slug }}）
-          </option>
-        </select>
+          width="w-64"
+          trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[11.5px]"
+          @update:model-value="setWikiId"
+        />
         <p class="mt-1 text-[10px] text-slate-400 leading-relaxed">
           关联后笔记会以节点出现在 Wiki 图谱中，并可从学习模式跳转阅读。
         </p>

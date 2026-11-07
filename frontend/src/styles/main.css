@@ -37,6 +37,8 @@ body.theme-learn {
   --kiwi-700: var(--learn-kiwi-700, 4 120 87);
   --kiwi-800: var(--learn-kiwi-800, 6 95 70);
   --kiwi-900: var(--learn-kiwi-900, 6 78 59);
+  /* 主题引擎为学习模式单独解析的强调色；与编辑模式的 --theme-accent 互不影响。 */
+  --theme-accent: var(--learn-theme-accent, 16 185 129);
   --ambient-a: var(--learn-ambient-a, rgba(16, 185, 129, 0.10));
   --ambient-b: var(--learn-ambient-b, rgba(52, 211, 153, 0.09));
   --ambient-c: var(--learn-ambient-c, rgba(110, 231, 183, 0.07));
@@ -338,6 +340,21 @@ html.kiwi-sticky-expanding .page-enter-from {
   @apply prose prose-slate max-w-none prose-headings:font-semibold prose-a:text-kiwi-600
     prose-a:decoration-kiwi-300 prose-a:decoration-2 hover:prose-a:text-kiwi-700;
 }
+/* Tailwind Typography 只覆盖到 h4，补齐 5 / 6 级标题，保持与编辑器一致的层级感 */
+.prose-wiki h5 {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #334155;
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+}
+.prose-wiki h6 {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: #475569;
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+}
 
 /* 阅读态（MarkdownView / Wiki / 分享页 / 问答结果）的代码块统一为浅色，
    与编辑器默认代码主题保持一致；Tailwind Typography 默认是深色底。 */
@@ -413,11 +430,14 @@ html.kiwi-sticky-expanding .page-enter-from {
 /* 有序列表：按层级显示 1 / 1.1 / 1.1.1，阅读态与编辑态保持一致 */
 .kiwi-editor .ProseMirror ol {
   list-style: decimal;
-  counter-reset: kiwi-ol;
-  padding-left: 2.2rem;
+  /* start 属性由有序列表扩展写入 --kiwi-ol-base，支持从任意序号开始 */
+  counter-reset: kiwi-ol var(--kiwi-ol-base, 0);
+  /* 列表缩进同时供标题序号前的装饰条定位，预设样式会同步改写 */
+  --kiwi-ol-indent: 2.2rem;
+  padding-left: var(--kiwi-ol-indent);
 }
 .kiwi-editor .ProseMirror ol > li { counter-increment: kiwi-ol; }
-.kiwi-editor .ProseMirror ol ol { counter-reset: kiwi-ol; }
+.kiwi-editor .ProseMirror ol ol { counter-reset: kiwi-ol var(--kiwi-ol-base, 0); }
 .kiwi-editor .ProseMirror ol > li::marker {
   content: counters(kiwi-ol, ".") ". ";
   color: #94a3b8;
@@ -940,10 +960,22 @@ body.kiwi-row-resizing * {
   text-wrap: balance;
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h1 {
+  position: relative;
   font-size: 1.72rem;
   line-height: 1.3;
   font-weight: 700;
   letter-spacing: -0.024em;
+  padding-left: 0.86rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h1::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.16em;
+  bottom: 0.16em;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)) 0%, rgb(var(--kiwi-600)) 100%);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h2 {
   position: relative;
@@ -963,8 +995,258 @@ body.kiwi-row-resizing * {
   background: linear-gradient(180deg, rgb(var(--kiwi-400)) 0%, rgb(var(--kiwi-600)) 100%);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h3 {
+  position: relative;
   font-size: 1.12rem;
   font-weight: 600;
+  padding-left: 0.62rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h3::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  bottom: 0.3em;
+  width: 2px;
+  border-radius: 999px;
+  background: rgb(var(--kiwi-500));
+}
+/* 4–6 级标题：正文里同样需要可辨认的标题层级（默认会被 Preflight 重置成正文字号） */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h4 {
+  position: relative;
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 600;
+  padding-left: 0.62rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h4::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.56em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--kiwi-400));
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h5 {
+  position: relative;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  font-weight: 600;
+  color: #334155;
+  padding-left: 0.56rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h5::before {
+  content: '';
+  position: absolute;
+  left: 0.02rem;
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h6 {
+  position: relative;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0;
+  padding-left: 0.52rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h6::before {
+  content: '';
+  position: absolute;
+  left: 0.04rem;
+  top: 0.62em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+/* 标题作为有序列表项时不要继承章节级上间距 */
+.kiwi-editor .ProseMirror li > h1,
+.kiwi-editor .ProseMirror li > h2,
+.kiwi-editor .ProseMirror li > h3,
+.kiwi-editor .ProseMirror li > h4,
+.kiwi-editor .ProseMirror li > h5,
+.kiwi-editor .ProseMirror li > h6 {
+  margin-top: 0.08em;
+  margin-bottom: 0.08em;
+  padding-left: 0;
+}
+/* 标题进入列表项后，标题自身不再保留为装饰条预留的左内边距；
+ * 装饰条改画在序号左侧，避免标题文字额外缩进。 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h1,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h2,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h3,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h4,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h5,
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h6 {
+  padding-left: 0;
+}
+/* 各级标题的装饰（竖条 / 圆点）在列表项中保留，并移到序号左侧（列表缩进的
+ * 最外沿），形成「│ 1. 标题」的层级标识，与普通标题的视觉语言保持一致。 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h1:first-child::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--kiwi-ol-indent, 2.2rem));
+  top: 0.16em;
+  bottom: 0.16em;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)) 0%, rgb(var(--kiwi-600)) 100%);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h2:first-child::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--kiwi-ol-indent, 2.2rem));
+  top: 0.34em;
+  bottom: 0.3em;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--kiwi-400)) 0%, rgb(var(--kiwi-600)) 100%);
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h3:first-child::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--kiwi-ol-indent, 2.2rem));
+  top: 0.3em;
+  bottom: 0.3em;
+  width: 2px;
+  border-radius: 999px;
+  background: rgb(var(--kiwi-500));
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h4:first-child::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--kiwi-ol-indent, 2.2rem));
+  top: 0.56em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--kiwi-400));
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h5:first-child::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--kiwi-ol-indent, 2.2rem));
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h6:first-child::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--kiwi-ol-indent, 2.2rem));
+  top: 0.62em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+/* 标题进入有序列表后，编号直接写在标题文字前：第一位数字距离左侧装饰条
+ * 固定 0.6rem，编号与标题之间只保留一个空格；1 / 11 / 111 位数变化时只向右
+ * 延伸，不会改变起始位置。 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol:where(:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child)) {
+  --kiwi-ol-indent: 0.6rem;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol:where(:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child)) > li {
+  list-style: none;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol:where(:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child)) > li::marker {
+  content: none;
+}
+/* 一级编号：1. / 2. / 3. */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol:where(:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child)) > li > :first-child::before {
+  content: counter(kiwi-ol) ". ";
+}
+/* 嵌套层级：1.1 / 1.1.1（末尾不再补句点），编号后只保留一个空格。 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol ol:where(:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child)) > li > :first-child::before {
+  content: counters(kiwi-ol, ".") " ";
+}
+/* 多级编号预设（中文、带圈、罗马等）继续使用原生 marker，编号宽度不可控时
+ * 由浏览器自动右对齐，避免与标题文字重叠。 */
+.kiwi-editor:is(.kiwi-ol-cn, .kiwi-ol-cn-circled, .kiwi-ol-decimal-cn, .kiwi-ol-paren, .kiwi-ol-roman) .ProseMirror ol:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child) > li {
+  list-style: decimal;
+}
+.kiwi-editor:is(.kiwi-ol-cn, .kiwi-ol-cn-circled, .kiwi-ol-decimal-cn, .kiwi-ol-paren, .kiwi-ol-roman) .ProseMirror ol:has(> li > :is(h1, h2, h3, h4, h5, h6):first-child) > li > :first-child::before {
+  content: none;
+}
+.prose-wiki li > h1,
+.prose-wiki li > h2,
+.prose-wiki li > h3,
+.prose-wiki li > h4,
+.prose-wiki li > h5,
+.prose-wiki li > h6 {
+  margin-top: 0.08em;
+  margin-bottom: 0.08em;
+  padding-left: 0;
+}
+/* 编号跟随标题层级：标题作为有序列表项时，序号与标题同字号、同字重，避免
+ * 出现「大标题 + 小号灰色编号」的割裂观感。 */
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h1:first-child)::marker {
+  font-size: 1.72rem;
+  font-weight: 700;
+  color: #101a2e;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h2:first-child)::marker {
+  font-size: 1.32rem;
+  font-weight: 650;
+  color: #101a2e;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h3:first-child)::marker {
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: #101a2e;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h4:first-child)::marker {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #101a2e;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h5:first-child)::marker {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #334155;
+}
+.kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h6:first-child)::marker {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+}
+.prose-wiki ol > li:has(> h1:first-child)::marker {
+  font-size: 2.25em;
+  font-weight: 600;
+  color: #0f172a;
+}
+.prose-wiki ol > li:has(> h2:first-child)::marker {
+  font-size: 1.5em;
+  font-weight: 600;
+  color: #0f172a;
+}
+.prose-wiki ol > li:has(> h3:first-child)::marker {
+  font-size: 1.25em;
+  font-weight: 600;
+  color: #0f172a;
+}
+.prose-wiki ol > li:has(> h4:first-child)::marker {
+  font-size: 1em;
+  font-weight: 600;
+  color: #0f172a;
+}
+.prose-wiki ol > li:has(> h5:first-child)::marker {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #334155;
+}
+.prose-wiki ol > li:has(> h6:first-child)::marker {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: #475569;
 }
 
 /* 引用：淡紫渐变底色 + 圆角，与提示块视觉语言一致 */
@@ -1443,6 +1725,7 @@ body.kiwi-row-resizing * {
  * 若用 display:block，段落会为该块级子节点在上下各生成一个匿名行盒，
  * 表现为卡片前后多出空行；inline-block + width:100% 可避免行盒撑高。
  */
+.kiwi-editor .ProseMirror .kiwi-mention-node.is-title,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-card,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-embed {
   display: inline-block;
@@ -1450,6 +1733,7 @@ body.kiwi-row-resizing * {
   margin: 10px 0;
   vertical-align: top;
 }
+.kiwi-editor .ProseMirror .kiwi-mention-node.is-title.ProseMirror-selectednode .kiwi-note-title-link,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-card.ProseMirror-selectednode .kiwi-note-card,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-embed.ProseMirror-selectednode .kiwi-note-embed {
   border-color: #b9bdf0;
@@ -1530,6 +1814,114 @@ body.kiwi-row-resizing * {
 .kiwi-note-card-arrow {
   flex: 0 0 auto;
   color: rgb(var(--kiwi-300));
+}
+/* 卡片内的数据表预览：只展示前几行，点击卡片进入完整数据表 */
+.kiwi-note-card-db {
+  display: block;
+  max-height: 118px;
+  overflow: hidden;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed #eef2f7;
+}
+.kiwi-note-card-db .kiwi-mention-db-scroll {
+  overflow: hidden;
+}
+.kiwi-note-card-db table {
+  font-size: 10.5px;
+}
+.kiwi-note-card-db th,
+.kiwi-note-card-db td {
+  padding: 3px 6px;
+}
+
+/* 行内提及悬浮预览：解决 @ 数据表 / 文档时看不到内容的问题 */
+.kiwi-editor .ProseMirror .kiwi-mention-node {
+  position: relative;
+}
+.kiwi-mention-preview {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 45;
+  display: flex;
+  width: 320px;
+  max-width: min(440px, 82vw);
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 18px 40px -20px rgba(15, 23, 42, 0.35),
+    0 2px 6px rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 11.5px;
+  line-height: 1.55;
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+}
+.kiwi-mention-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.kiwi-mention-preview-head .kiwi-note-card-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+.kiwi-mention-preview-title {
+  overflow: hidden;
+  flex: 1;
+  color: #26304a;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kiwi-mention-preview-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #64748b;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+.kiwi-mention-preview-state {
+  padding: 6px 0;
+  color: #94a3b8;
+  text-align: center;
+}
+.kiwi-mention-preview-db {
+  display: block;
+  overflow: hidden;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+}
+.kiwi-mention-preview-db .kiwi-mention-db-scroll {
+  overflow: hidden;
+}
+.kiwi-mention-preview-db table {
+  font-size: 10.5px;
+}
+.kiwi-mention-preview-db th,
+.kiwi-mention-preview-db td {
+  padding: 3px 6px;
+}
+.kiwi-mention-preview-more {
+  display: block;
+  padding: 4px 6px;
+  color: #94a3b8;
+  font-size: 10px;
+  background: #f8fafc;
+}
+.kiwi-mention-preview-foot {
+  color: #b1bac9;
+  font-size: 10px;
 }
 
 /* 嵌入：标题栏 + 正文预览，独占一行 */
@@ -1839,8 +2231,12 @@ body.kiwi-row-resizing * {
   background: #eef0ff;
 }
 
-/* 全局块拖动手柄（仅 Notion 模式注册） */
-.drag-handle {
+/*
+ * 全局块拖动手柄（仅 Notion 模式注册）。
+ * 必须限定到 #kiwi-drag-handle：jvs-draw 的画布浮动工具条也有 `.drag-handle`，
+ * 用全局类名会把那个手柄改成 fixed 定位，直接盖住工具条第一个按钮。
+ */
+#kiwi-drag-handle {
   position: fixed;
   z-index: 80;
   /* 手柄挂在 body 之外，需自行跟随 --ui-scale 放大；margin-left 抵消 24px 定位基准与缩放宽度的差值 */
@@ -1859,22 +2255,23 @@ body.kiwi-row-resizing * {
   transition: opacity 0.15s ease;
   opacity: 0.95;
 }
-.drag-handle.hide {
+#kiwi-drag-handle.hide {
   opacity: 0;
   pointer-events: none;
 }
-.drag-handle:active {
+#kiwi-drag-handle:active {
   cursor: grabbing;
 }
 
 /* ---------- Markdown 阅读态有序列表：多级编号 ---------- */
 .prose-wiki ol {
   list-style: decimal;
-  counter-reset: kiwi-ol;
-  padding-left: 2.2rem;
+  counter-reset: kiwi-ol var(--kiwi-ol-base, 0);
+  --kiwi-ol-indent: 2.2rem;
+  padding-left: var(--kiwi-ol-indent);
 }
 .prose-wiki ol > li { counter-increment: kiwi-ol; }
-.prose-wiki ol ol { counter-reset: kiwi-ol; }
+.prose-wiki ol ol { counter-reset: kiwi-ol var(--kiwi-ol-base, 0); }
 .prose-wiki ol > li::marker {
   content: counters(kiwi-ol, ".") ". ";
   color: #94a3b8;
@@ -1897,7 +2294,7 @@ body.kiwi-row-resizing * {
 
 /* 中文层级：一、 / （一） / 1. / （1） */
 .kiwi-editor.kiwi-ol-cn .ProseMirror ol,
-.prose-wiki.kiwi-ol-cn ol { padding-left: 2.9rem; }
+.prose-wiki.kiwi-ol-cn ol { --kiwi-ol-indent: 2.9rem; padding-left: var(--kiwi-ol-indent); }
 .kiwi-editor.kiwi-ol-cn .ProseMirror ol > li::marker,
 .prose-wiki.kiwi-ol-cn ol > li::marker {
   content: counter(kiwi-ol, cjk-ideographic) "、";
@@ -1917,7 +2314,7 @@ body.kiwi-row-resizing * {
 
 /* 中文带圈：一、 / （一） / ① / （1） */
 .kiwi-editor.kiwi-ol-cn-circled .ProseMirror ol,
-.prose-wiki.kiwi-ol-cn-circled ol { padding-left: 2.9rem; }
+.prose-wiki.kiwi-ol-cn-circled ol { --kiwi-ol-indent: 2.9rem; padding-left: var(--kiwi-ol-indent); }
 .kiwi-editor.kiwi-ol-cn-circled .ProseMirror ol > li::marker,
 .prose-wiki.kiwi-ol-cn-circled ol > li::marker {
   content: counter(kiwi-ol, cjk-ideographic) "、";
@@ -1937,7 +2334,7 @@ body.kiwi-row-resizing * {
 
 /* 数字带圈：1、 / （1） / ① / a. */
 .kiwi-editor.kiwi-ol-decimal-cn .ProseMirror ol,
-.prose-wiki.kiwi-ol-decimal-cn ol { padding-left: 2.7rem; }
+.prose-wiki.kiwi-ol-decimal-cn ol { --kiwi-ol-indent: 2.7rem; padding-left: var(--kiwi-ol-indent); }
 .kiwi-editor.kiwi-ol-decimal-cn .ProseMirror ol > li::marker,
 .prose-wiki.kiwi-ol-decimal-cn ol > li::marker {
   content: counter(kiwi-ol) "、";
@@ -1957,7 +2354,7 @@ body.kiwi-row-resizing * {
 
 /* 括号层级：（1） / 1） / a） / i） */
 .kiwi-editor.kiwi-ol-paren .ProseMirror ol,
-.prose-wiki.kiwi-ol-paren ol { padding-left: 2.7rem; }
+.prose-wiki.kiwi-ol-paren ol { --kiwi-ol-indent: 2.7rem; padding-left: var(--kiwi-ol-indent); }
 .kiwi-editor.kiwi-ol-paren .ProseMirror ol > li::marker,
 .prose-wiki.kiwi-ol-paren ol > li::marker {
   content: "（" counter(kiwi-ol) "）";
@@ -1977,7 +2374,7 @@ body.kiwi-row-resizing * {
 
 /* 罗马层级：I. / A. / 1. / a) */
 .kiwi-editor.kiwi-ol-roman .ProseMirror ol,
-.prose-wiki.kiwi-ol-roman ol { padding-left: 2.6rem; }
+.prose-wiki.kiwi-ol-roman ol { --kiwi-ol-indent: 2.6rem; padding-left: var(--kiwi-ol-indent); }
 .kiwi-editor.kiwi-ol-roman .ProseMirror ol > li::marker,
 .prose-wiki.kiwi-ol-roman ol > li::marker {
   content: counter(kiwi-ol, upper-roman) ". ";

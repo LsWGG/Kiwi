@@ -1,0 +1,136 @@
+/*
+ * 画布文本设置里的字体族。
+ *
+ * jvs-draw 的属性面板直接列出 SourceHanSansCN / Montserrat / ZhuqueFangsong
+ * 等字体名，但运行时并不自带 @font-face，选完字体浏览器只能回退到默认字体，
+ * 看起来「设置字体没效果」。这里把可自由分发的西文字体随构建内置，中文
+ * 字体则通过 local() 别名映射到系统字体（思源宋体 / 宋体 / 苹方等），
+ * 保证离线部署也能看到明显差异。字体来源与授权见 FONT-NOTICE.txt。
+ */
+
+/* Montserrat / Exo / Orbitron 是可变字体，一个文件覆盖全部字重。 */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./draw-montserrat-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Exo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./draw-exo-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./draw-anton-400.woff2') format('woff2');
+}
+/* 面板显示名是 ClimateCrisis / ZenTokyoZoo，@font-face 必须用同名。 */
+@font-face {
+  font-family: 'ClimateCrisis';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./draw-climatecrisis-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'ZenTokyoZoo';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./draw-zentokyozoo-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Goldman';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./draw-goldman-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Goldman';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./draw-goldman-700.woff2') format('woff2');
+}
+
+/* 中文 / 数字字体：内置完整 CJK 字体体积过大，改为映射系统字体。
+ * 找不到时仍回退到画布默认字体，不会出现方块。 */
+@font-face {
+  font-family: 'SourceHanSansCN';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('Source Han Sans CN'),
+    local('Source Han Sans SC'),
+    local('Noto Sans CJK SC'),
+    local('PingFang SC'),
+    local('Microsoft YaHei');
+}
+@font-face {
+  font-family: 'SourceHanSansCN';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src:
+    local('Source Han Sans CN Medium'),
+    local('Noto Sans CJK SC Medium'),
+    local('PingFang SC Medium'),
+    local('Microsoft YaHei');
+}
+@font-face {
+  font-family: 'SourceHanSansCN';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src:
+    local('Source Han Sans CN Bold'),
+    local('Noto Sans CJK SC Bold'),
+    local('PingFang SC Semibold'),
+    local('Microsoft YaHei Bold');
+}
+@font-face {
+  font-family: 'ZhuqueFangsong';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('Zhuque Fangsong'),
+    local('Noto Serif CJK SC'),
+    local('Source Han Serif SC'),
+    local('Source Han Serif CN'),
+    local('Songti SC'),
+    local('STSong'),
+    local('SimSun');
+}
+@font-face {
+  font-family: 'DouYinSans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src:
+    local('Douyin Sans Bold'),
+    local('DouYin Sans'),
+    local('Noto Sans CJK SC Bold'),
+    local('PingFang SC Semibold'),
+    local('Microsoft YaHei Bold');
+}
+@font-face {
+  font-family: 'SaDigitalNumber';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('DIN Alternate Bold'),
+    local('DIN Alternate'),
+    local('Bahnschrift'),
+    local('Consolas'),
+    url('./draw-orbitron-400.woff2') format('woff2');
+}

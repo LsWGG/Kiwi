@@ -216,22 +216,66 @@ h(NoteEditor, {
 有序列表、**勾选框**与撤销 / 重做。`components` 是新增的宿主能力：插件应在使用前
 做 `host.components?.NoteEditor` 特性检测，旧版 Kiwi 可回退为 textarea 或纯文本。
 
-### 4.3 主题色
+### 4.3 主题色与主题材质
 
-插件涉及颜色展示时，颜色必须跟随系统主题色（「设置 → 外观」与学习模式各自的配色），
-不要写死品牌色：
+插件颜色必须跟随当前主题插件（明暗、强调色、材质与不透明度），同时兼容学习模式，
+不要写死品牌色或浅色底。宿主在 `<html>` 上提供两组 RGB 三元组变量：
 
-- CSS 优先使用 `--kiwi-*` 变量（RGB 三元组）：
+| 用途 | 变量 |
+|---|---|
+| 强调色 / 选中态 / 进度 | `--theme-accent`、`--theme-accent-foreground` |
+| 卡片 / 面板底色 | `--theme-surface`、`--theme-surface-muted`、`--theme-app` |
+| 边框 | `--theme-border`、`--theme-border-subtle`、`--theme-border-strong` |
+| 文字 | `--theme-text-primary` / `strong` / `secondary` / `muted` / `subtle` / `faint` |
+| 玻璃透明度 | `--theme-surface-opacity`（默认 `1`） |
+
+推荐在插件根类上建立局部别名，再在所有规则中复用：
+
+```css
+.my-block {
+  --plugin-surface: var(--theme-surface, 255 255 255);
+  --plugin-surface-muted: var(--theme-surface-muted, 241 245 249);
+  --plugin-border: var(--theme-border, 226 232 240);
+  --plugin-text: var(--theme-text-strong, 51 65 85);
+  --plugin-text-muted: var(--theme-text-muted, 100 116 139);
+  --plugin-accent: var(--theme-accent, 90 85 199);
+  --plugin-accent-foreground: var(--theme-accent-foreground, 255 255 255);
+
+  color: rgb(var(--plugin-text));
+  background: rgb(var(--plugin-surface) / var(--theme-surface-opacity, 1));
+  border: 1px solid rgb(var(--plugin-border));
+}
+
+.my-block__button {
+  background: rgb(var(--plugin-accent));
+  color: rgb(var(--plugin-accent-foreground));
+}
+
+.my-block__badge {
+  color: rgb(var(--plugin-accent));
+  background: rgb(var(--plugin-accent) / 0.12);
+}
+```
+
+要点：
+
+- 强调色的浅色底用 `rgb(var(--theme-accent) / 0.1~0.16)`，**不要**用
+  `--kiwi-50/100/200` 做底色。`--kiwi-50..300` 是固定浅色阶，在深色主题里会变成亮块；
+  且 `--kiwi-700` 等深色阶在深色底上对比度不足。
+- 需要具体色阶（如图表多档）时仍可用 `--kiwi-*`，但要自行按
+  `html[data-kiwi-theme-mode='dark']` 调整明暗；一般场景优先 `--theme-accent` + alpha。
+- 危险 / 成功 / 警告等语义色可以保留固定色，但需为深色主题提供提亮版本：
 
   ```css
-  .my-block {
-    color: rgb(var(--kiwi-600));
-    background: rgb(var(--kiwi-500) / 0.12);
-    border-color: rgb(var(--kiwi-500) / 0.4);
-  }
+  .my-block__remove { color: rgb(225 29 72); }
+  html[data-kiwi-theme-mode='dark'] .my-block__remove { color: rgb(251 113 133); }
   ```
 
-  编辑模式、学习模式与自定义主题色都会自动更新，无需 JS。
+- 原生表单控件（`input`、`textarea`、`select` 等）在深色主题下加
+  `color-scheme: dark`，避免控件内部仍是浅色：
+  `html[data-kiwi-theme-mode='dark'] .my-block input { color-scheme: dark; }`。
+- 原生 `<select>` 与 `type="color"` 会弹出浏览器自带 UI，插件面板请改用自绘控件
+  （参考宿主 `KiwiSelect` / `EditorColorPicker` 的交互）。
 - canvas / SVG / 动态内联样式使用 `host.theme`：
 
   ```js
@@ -243,7 +287,6 @@ h(NoteEditor, {
 
   `accent` / `accentStrong` / `accentSoft` 是 computed，主题变化会触发重渲染；
   `theme.version` 在主题切换时自增，适合手动绘制循环。
-- 危险 / 成功等语义色可以保留固定色；其余强调色、选中态、进度与描边一律使用主题色。
 - 不要在 manifest `default_props` 中保存主题色十六进制值，避免主题切换后配色失真。
 
 ### 4.4 组件 props

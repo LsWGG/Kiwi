@@ -169,6 +169,22 @@ export const useNotePanesStore = defineStore('notePanes', () => {
     scheduleSave()
   }
 
+  /**
+   * 从单篇视图重新进入分栏：丢弃上一次的分栏快照，只保留当前笔记一栏。
+   * 用户再次点击「分栏」时应看到干净的工作区，而不是上次遗留的多栏内容。
+   */
+  function startFresh(kbId: string | null, noteId: string | null) {
+    if (!kbId || !noteId) return
+    if (loadedKbId !== kbId) load(kbId)
+    const leaf = createLeaf({ kind: 'note', noteId, kbId })
+    enabled.value = true
+    root.value = leaf
+    activePaneId.value = leaf.id
+    useCounter = 1
+    lastUsed.value = { [leaf.id]: useCounter }
+    saveNow(kbId)
+  }
+
   function exit() {
     enabled.value = false
     saveNow()
@@ -355,6 +371,7 @@ export const useNotePanesStore = defineStore('notePanes', () => {
     load,
     saveNow,
     enter,
+    startFresh,
     exit,
     activate,
     openNote,

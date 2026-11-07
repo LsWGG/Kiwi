@@ -14,6 +14,8 @@ import { useDesktopStore } from '@/stores/desktop'
 import { openSSE } from '@/api/sse'
 import { request } from '@/api/client'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import { toast } from '@/components/ui/toast'
@@ -1448,6 +1450,13 @@ const writebackMsg = ref<Msg | null>(null)
 const writebackTitle = ref('')
 const writebackKbId = ref('')
 const writebackSaving = ref(false)
+const writebackKbOptions = computed(() =>
+  kbs.kbs.map((kb) => ({ value: kb.id, label: kb.name })),
+)
+
+function setWritebackKb(value: string | number) {
+  writebackKbId.value = String(value)
+}
 
 function openWriteback(msg: Msg) {
   if (!msg.content.trim()) return
@@ -1856,9 +1865,20 @@ watch(
                 <p v-else class="mb-2.5 text-[10.5px] text-slate-400">当前知识库还没有标签</p>
                 <p class="mb-1 text-[10px] text-slate-400">按更新时间</p>
                 <div class="flex items-center gap-1.5 text-[10.5px] text-slate-500">
-                  <input v-model="filterFrom" type="date" class="min-w-0 flex-1 rounded-lg border border-slate-200 px-1.5 py-1" />
+                  <KiwiDateInput
+                    v-model="filterFrom"
+                    class="min-w-0 flex-1"
+                    trigger-class="!h-7 !w-full !px-1.5 !text-[10.5px]"
+                    placeholder="开始"
+                  />
                   <span class="text-slate-300">→</span>
-                  <input v-model="filterTo" type="date" class="min-w-0 flex-1 rounded-lg border border-slate-200 px-1.5 py-1" />
+                  <KiwiDateInput
+                    v-model="filterTo"
+                    :min="filterFrom"
+                    class="min-w-0 flex-1"
+                    trigger-class="!h-7 !w-full !px-1.5 !text-[10.5px]"
+                    placeholder="结束"
+                  />
                 </div>
                 <p class="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-slate-400">
                   设置任一筛选后只检索笔记，Wiki 没有类型 / 标签 / 更新时间属性。
@@ -2428,9 +2448,14 @@ watch(
         </label>
         <label class="block">
           <span class="mb-1 block text-[11px] font-medium text-slate-500">回写到知识库</span>
-          <select v-model="writebackKbId" class="kiwi-input">
-            <option v-for="kb in kbs.kbs" :key="kb.id" :value="kb.id">{{ kb.name }}</option>
-          </select>
+          <KiwiSelect
+            :model-value="writebackKbId"
+            :options="writebackKbOptions"
+            width="w-64"
+            variant="input"
+            trigger-class="!h-9 !w-full !justify-between !rounded-xl !border !border-slate-200 !bg-white !px-3 !text-[13px] !text-slate-600"
+            @update:model-value="setWritebackKb"
+          />
         </label>
         <div class="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
           <p class="mb-1 text-[10.5px] text-slate-400">将写入综合页正文，并附 {{ writebackMsg?.citations.length || 0 }} 条引用来源。</p>

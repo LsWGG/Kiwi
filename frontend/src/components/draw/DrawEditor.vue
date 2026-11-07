@@ -8,6 +8,7 @@
  *   画布上的 Backspace / Delete / Enter 由扩展的 ProseMirror 插件拦截。
  */
 import {
+  computed,
   createApp,
   defineComponent,
   h,
@@ -23,15 +24,19 @@ import { createPinia, type Pinia } from 'pinia'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import {
   cloneDrawDoc,
+  CONNECTOR_LABEL_BG_KEY,
+  defaultDrawBackground,
   drawDocFingerprint,
   emptyDrawDoc,
   normalizeDrawDoc,
   readDrawPreferences,
+  type DrawElement,
   type DrawPreferences,
   type DrawShapeTheme,
   type JvsDrawDoc,
 } from './types'
 import { loadDrawRuntime, type DrawRuntime } from './drawRuntime'
+import { preloadDrawFonts } from './drawFonts'
 import {
   drawDocUsesHandFont,
   HAND_FONT_STACK,
@@ -42,10 +47,19 @@ import { acquireDrawTheme, releaseDrawTheme } from './drawTheme'
 import { acquireDrawPopperLayer, releaseDrawPopperLayer } from './drawPopperLayer'
 import {
   DRAW_THEMES,
+  DEFAULT_WAND_STYLE_ID,
+  WAND_STYLES,
   createRandomDrawTheme,
+  currentDrawStyle,
   drawThemePatch,
+  isDarkBackground,
+  matchWandStyle,
+  pickRandomWandStyle,
+  wandStylePreset,
+  wandStyleTitle,
   type DrawThemePalette,
   type DrawThemableElement,
+  type WandStylePreset,
 } from './drawThemes'
 
 const props = withDefaults(
@@ -73,7 +87,8 @@ const error = ref('')
 const drawRef = shallowRef<any>(null)
 const wandOpen = ref(false)
 const wandPanel = ref<HTMLElement | null>(null)
-const appliedThemeId = ref('')
+const appliedTheme = ref<DrawThemePalette | null>(null)
+const activeStyleId = ref(DEFAULT_WAND_STYLE_ID)
 const wandMessage = ref('')
 const randomPreview = ref<DrawThemePalette | null>(null)
 
@@ -92,6 +107,12 @@ let pointerCanvas: HTMLCanvasElement | null = null
 let iconObserver: MutationObserver | null = null
 let iconObserverTimer: number | undefined
 let wandButton: HTMLElement | null = null
+/** 画布内浮层的视口坐标锚点：右键菜单与工具条「更多」菜单共用一个。 */
+let overlayObserver: MutationObserver | null = null
+let themeModeObserver: MutationObserver | null = null
+let overlayFrame = 0
+let overlayAnchor: { x: number; y: number } | null = null
+let rawPointer = { x: 0, y: 0, valid: false }
 
 function currentDoc(): JvsDrawDoc {
   return cloneDrawDoc(normalizeDrawDoc(props.modelValue) ?? emptyDrawDoc())
@@ -131,12 +152,55 @@ function readDoc(): JvsDrawDoc | null {
   return null
 }
 
+function connectorLabelMarker(element: DrawElement): string {
+  const data = element.customData
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return ''
+  const marker = (data as Record<string, unknown>)[CONNECTOR_LABEL_BG_KEY]
+  return typeof marker === 'string' ? marker : ''
+}
+
+/**
+ * 把 normalizeDrawDoc 算好的连线标签底色同步回画布 store。
+ *
+ * 标签底色是画布渲染属性，不写回 store 的话要等下次重新打开笔记才能
+ * 看到变化；新建的连线文字也会在轮询前短暂显示 jvs-draw 的白色兜底。
+ * 这里只补写「自动托管」的标签，用户自定义过底色的元素已在 normalize
+ * 时去掉标记，不会被覆盖。换底色属于视图偏好，不写入撤销历史。
+ */
+function syncConnectorLabelBackgrounds(doc: JvsDrawDoc) {
+  const store = drawStore()
+  if (!store || !Array.isArray(store.elements)) return
+  const wanted = new Map<string, DrawElement>()
+  for (const element of doc.elements) {
+    if (element.type === 'text' && element.containerId) wanted.set(element.id, element)
+  }
+  if (!wanted.size) return
+  for (const element of store.elements as DrawElement[]) {
+    if (element.type !== 'text' || !element.containerId) continue
+    const target = wanted.get(element.id)
+    if (!target) continue
+    const targetBg = typeof target.fontBgColor === 'string' ? target.fontBgColor : ''
+    const currentBg = typeof element.fontBgColor === 'string' ? element.fontBgColor : ''
+    const targetMarker = connectorLabelMarker(target)
+    const currentMarker = connectorLabelMarker(element)
+    if (currentBg === targetBg && currentMarker === targetMarker) continue
+    const patch: Record<string, unknown> = { fontBgColor: targetBg }
+    if (currentMarker !== targetMarker) patch.customData = target.customData
+    try {
+      store.updateElement(element.id, patch)
+    } catch {
+      /* 画布尚未就绪时等下一次轮询 */
+    }
+  }
+}
+
 function check() {
   if (disposed) return
   ensureWandButton()
   if (loading.value) return
   const doc = readDoc()
   if (!doc) return
+  syncConnectorLabelBackgrounds(doc)
   const fingerprint = drawDocFingerprint(doc)
   if (fingerprint === lastFingerprint) return
   lastFingerprint = fingerprint
@@ -399,6 +463,172 @@ function unbindPointerRemap() {
   window.removeEventListener('resize', syncPointerScale)
 }
 
+/** 记录缩放前的指针视口坐标（宿主捕获阶段会改写 clientX/clientY）。 */
+function rememberRawPointer(event: MouseEvent) {
+  if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
+  rawPointer = { x: event.clientX, y: event.clientY, valid: true }
+}
+
+/**
+ * 视觉坐标换算到画布内部的本地坐标。
+ *
+ * 画布运行时挂载在 `body { zoom: var(--ui-scale) }` 里，jvs-draw 自己渲染的
+ * 右键菜单 / 素材提示却直接拿 getBoundingClientRect()、clientX 的视口坐标写
+ * left/top，浏览器随后又按缩放乘一次：4K 屏 1.5 倍时菜单会落在触发器右下方。
+ * 统一除以缩放再按视口夹紧；缩放为 1 时完全不介入。
+ */
+function placeLocalOverlay(element: HTMLElement, visualX: number, visualY: number) {
+  const scale = readUiScale()
+  if (scale === 1) return
+  element.style.left = `${visualX / scale}px`
+  element.style.top = `${visualY / scale}px`
+  const rect = element.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  const margin = 8
+  const x = Math.min(Math.max(visualX, margin), Math.max(margin, window.innerWidth - rect.width - margin))
+  const y = Math.min(Math.max(visualY, margin), Math.max(margin, window.innerHeight - rect.height - margin))
+  element.style.left = `${x / scale}px`
+  element.style.top = `${y / scale}px`
+}
+
+/** 素材提示框以悬停的素材项为中心，位置同样要按缩放折算。 */
+function placeMaterialTooltip(tooltip: HTMLElement) {
+  const scale = readUiScale()
+  if (scale === 1) return
+  const drawer = tooltip.closest<HTMLElement>('.shape-library-drawer')
+  const item = drawer?.querySelector<HTMLElement>('.material-item:hover, .shape-item:hover')
+  if (!drawer || !item) return
+  const itemRect = item.getBoundingClientRect()
+  const drawerRect = drawer.getBoundingClientRect()
+  const tipRect = tooltip.getBoundingClientRect()
+  const half = tipRect.width / 2
+  const visualLeft = Math.min(
+    Math.max(itemRect.left + itemRect.width / 2, half + 8),
+    Math.max(half + 8, window.innerWidth - half - 8),
+  )
+  // 保持在上方，箭头方向不变；空间不足时贴住视口顶部。
+  const visualTop = Math.max(8, itemRect.top - tipRect.height - 8)
+  tooltip.style.left = `${(visualLeft - drawerRect.left) / scale}px`
+  tooltip.style.top = `${(visualTop - drawerRect.top) / scale}px`
+}
+
+/**
+ * 深色主题下把素材库里 `stroke='currentColor'` 的 SVG 图标改成浅色。
+ *
+ * 图标以 data URI 的 <img> 引入，SVG 文档里的 currentColor 解析为黑色，
+ * 深色面板上几乎看不见；直接给这类图片反相会把本来就白的箭头一起变黑，
+ * 因此只改写内联源码里的 currentColor，并保留原始 src 以便切回浅色主题。
+ */
+function themeMaterialIcons(root: ParentNode = document) {
+  const dark = document.documentElement.dataset.kiwiThemeMode === 'dark'
+  const images =
+    root instanceof HTMLImageElement && root.matches('img.material-img')
+      ? [root]
+      : Array.from(root.querySelectorAll?.<HTMLImageElement>('img.material-img') ?? [])
+  for (const img of images) {
+    const original = img.dataset.kiwiMaterialSrc || img.getAttribute('src') || ''
+    if (!original.startsWith('data:image/svg+xml') || !original.includes('currentColor')) continue
+    if (!img.dataset.kiwiMaterialSrc) img.dataset.kiwiMaterialSrc = original
+    if (!dark) {
+      if (img.getAttribute('src') !== original) img.setAttribute('src', original)
+      continue
+    }
+    const themed = original.replace(/currentColor/g, '%23e7ecff')
+    if (img.getAttribute('src') !== themed) img.setAttribute('src', themed)
+  }
+}
+
+/** 画布内浮层与素材图标都可能在画布运行期间被重新渲染，统一在下一帧修正。 */
+function scheduleOverlayFix() {
+  if (overlayFrame) return
+  overlayFrame = window.requestAnimationFrame(() => {
+    overlayFrame = 0
+    const root = host.value
+    if (!root) return
+    if (overlayAnchor) {
+      for (const menu of root.querySelectorAll<HTMLElement>('.context-menu')) {
+        if (!menu.getClientRects().length) continue
+        placeLocalOverlay(menu, overlayAnchor.x, overlayAnchor.y)
+      }
+    }
+    for (const tooltip of root.querySelectorAll<HTMLElement>('.custom-tooltip')) {
+      if (!tooltip.getClientRects().length) continue
+      placeMaterialTooltip(tooltip)
+    }
+  })
+}
+
+function onCanvasContextMenu() {
+  overlayAnchor = rawPointer.valid ? { x: rawPointer.x, y: rawPointer.y } : null
+  scheduleOverlayFix()
+}
+
+function onToolbarMoreMenu() {
+  const trigger = host.value?.querySelector<HTMLElement>(
+    '.floating-toolbar .settings-btn[title="更多"], .settings-btn[title="更多"]',
+  )
+  const rect = trigger?.getBoundingClientRect()
+  if (rect && rect.width) {
+    overlayAnchor = { x: rect.left, y: rect.bottom + 4 }
+  } else if (rawPointer.valid) {
+    overlayAnchor = { x: rawPointer.x, y: rawPointer.y }
+  }
+  scheduleOverlayFix()
+}
+
+function bindOverlayFix() {
+  const element = host.value
+  if (!element) return
+  for (const type of ['pointerdown', 'mousedown', 'contextmenu'] as const) {
+    document.addEventListener(type, rememberRawPointer as EventListener, true)
+  }
+  window.addEventListener('jvs-draw:contextmenu-open', onCanvasContextMenu)
+  window.addEventListener('jvs-draw:moremenu-open', onToolbarMoreMenu)
+  overlayObserver = new MutationObserver((records) => {
+    let overlayChanged = false
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue
+        themeMaterialIcons(node)
+        if (node.matches('.context-menu, .custom-tooltip') || node.querySelector('.context-menu, .custom-tooltip')) {
+          overlayChanged = true
+        }
+      }
+    }
+    // 悬停切换素材项时提示框会改内容但不重新插入，pointermove 兜底。
+    if (overlayChanged) scheduleOverlayFix()
+  })
+  overlayObserver.observe(element, { childList: true, subtree: true })
+  element.addEventListener('mouseover', scheduleOverlayFix as EventListener, true)
+  themeModeObserver = new MutationObserver(() => themeMaterialIcons())
+  themeModeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-kiwi-theme-mode', 'data-kiwi-theme-custom'],
+  })
+  scheduleOverlayFix()
+}
+
+function unbindOverlayFix() {
+  const element = host.value
+  if (element) {
+    for (const type of ['pointerdown', 'mousedown', 'contextmenu'] as const) {
+      document.removeEventListener(type, rememberRawPointer as EventListener, true)
+    }
+    element.removeEventListener('mouseover', scheduleOverlayFix as EventListener, true)
+  }
+  window.removeEventListener('jvs-draw:contextmenu-open', onCanvasContextMenu)
+  window.removeEventListener('jvs-draw:moremenu-open', onToolbarMoreMenu)
+  overlayObserver?.disconnect()
+  overlayObserver = null
+  themeModeObserver?.disconnect()
+  themeModeObserver = null
+  if (overlayFrame) {
+    window.cancelAnimationFrame(overlayFrame)
+    overlayFrame = 0
+  }
+  overlayAnchor = null
+}
+
 function unmountApp() {
   window.clearInterval(pollTimer)
   pollTimer = undefined
@@ -432,6 +662,8 @@ async function mount() {
     lastFingerprint = drawDocFingerprint(initial)
     // 画布用 canvas 绘制文字，字体未加载时不会自动重排，先等内置手写体就绪。
     if (drawDocUsesHandFont(initial)) await loadHandFont()
+    // 预热文本设置里的字体族，切换字体后无需等下载、也不必手动触发重绘。
+    await preloadDrawFonts()
     if (disposed) return
     const mountEl = document.createElement('div')
     mountEl.className = 'kiwi-draw-mount'
@@ -510,6 +742,7 @@ async function mount() {
       return
     }
     themeDrawIconsWhenReady()
+    themeMaterialIcons()
     ensureWandButton()
     emit('ready')
     window.clearInterval(pollTimer)
@@ -577,26 +810,47 @@ function canvasElements(): DrawThemableElement[] {
   return Array.isArray(lastDoc?.elements) ? lastDoc.elements : []
 }
 
+/** 当前画布底色：决定魔法棒把画布上的文字调成深色还是浅色。 */
+function canvasBackground(): string {
+  const live = drawStore()?.appState?.viewBackgroundColor
+  if (typeof live === 'string' && live) return live
+  const saved = lastDoc?.appState?.viewBackgroundColor
+  if (typeof saved === 'string' && saved) return saved
+  return defaultDrawBackground()
+}
+
+const activeStylePreset = computed(() => wandStylePreset(activeStyleId.value))
+
 /**
- * 整张画布统一换色。
+ * 应用一套配色（theme 为空时只改形状与线条）与风格。
  *
  * 直接走 store 的 recordHistory + updateElement：一次记录历史快照，
- * 逐元素改色仍可被画布自己的 Ctrl/⌘+Z 整体撤销。实例接口不可用时
+ * 逐元素改样式仍可被画布自己的 Ctrl/⌘+Z 整体撤销。实例接口不可用时
  * 才退回 setCanvasData（会重置画布历史）。
  */
-function applyDrawTheme(theme: DrawThemePalette) {
+function applyWand(theme: DrawThemePalette | null, preset: WandStylePreset) {
   const elements = canvasElements()
   if (!elements.length) {
-    wandMessage.value = '当前画布还没有可配色的图形'
+    wandMessage.value = '当前画布还没有可统一风格的图形'
     return
   }
-  const updates: Array<{ id: string; patch: Record<string, string> }> = []
+  const elementsById = new Map<string, DrawThemableElement>()
   for (const element of elements) {
-    const patch = drawThemePatch(element, theme)
+    if (typeof element.id === 'string') elementsById.set(element.id, element)
+  }
+  const context = {
+    elementsById,
+    darkCanvas: isDarkBackground(canvasBackground()),
+  }
+  const updates: Array<{ id: string; patch: Record<string, string | number> }> = []
+  for (const element of elements) {
+    const patch = drawThemePatch(element, theme, preset.style, context)
     if (patch && typeof element.id === 'string') updates.push({ id: element.id, patch })
   }
   if (!updates.length) {
-    wandMessage.value = '当前画布已经是这套配色'
+    wandMessage.value = theme
+      ? `当前画布已经是这套配色与「${preset.name}」风格`
+      : `当前画布已经是「${preset.name}」风格`
     return
   }
 
@@ -628,15 +882,47 @@ function applyDrawTheme(theme: DrawThemePalette) {
     wandMessage.value = '应用失败，请稍后再试'
     return
   }
-  appliedThemeId.value = theme.id
-  wandMessage.value = `已应用 · ${theme.name}`
+  if (theme) appliedTheme.value = theme
+  wandMessage.value = `已应用 · ${[theme?.name, preset.name].filter(Boolean).join(' · ')}`
   scheduleCheck(0)
+}
+
+function applyDrawTheme(theme: DrawThemePalette) {
+  applyWand(theme, activeStylePreset.value)
+}
+
+function applyWandStyle(preset: WandStylePreset) {
+  activeStyleId.value = preset.id
+  // 已经应用过配色时沿用当前配色，否则只统一形状与线条。
+  applyWand(appliedTheme.value, preset)
 }
 
 function applyRandomDrawTheme() {
   const theme = createRandomDrawTheme()
+  const preset = pickRandomWandStyle(currentDrawStyle(canvasElements()))
+  activeStyleId.value = preset.id
   randomPreview.value = theme
-  applyDrawTheme(theme)
+  applyWand(theme, preset)
+}
+
+/** 风格按钮里的缩略预览：用 CSS 近似填充纹理、线型和圆角。 */
+function wandStylePreview(preset: WandStylePreset) {
+  const style = preset.style
+  const ink = 'rgb(var(--theme-text-strong) / 0.55)'
+  const hachure = `repeating-linear-gradient(-45deg, ${ink} 0 1px, transparent 1px 4px)`
+  const background =
+    style.fillStyle === 'hachure'
+      ? hachure
+      : style.fillStyle === 'cross-hatch'
+        ? `${hachure}, repeating-linear-gradient(45deg, ${ink} 0 1px, transparent 1px 4px)`
+        : 'rgb(var(--theme-text-strong) / 0.16)'
+  return {
+    borderStyle: style.strokeStyle,
+    borderWidth: `${Math.min(3, Math.max(1, style.strokeWidth))}px`,
+    borderRadius: `${Math.min(7, 1 + Math.round(style.roundness / 4))}px`,
+    opacity: String(style.opacity / 100),
+    background,
+  }
 }
 
 function onWandOutside(event: PointerEvent) {
@@ -677,6 +963,9 @@ function setWandOpen(open: boolean) {
   window.removeEventListener('resize', positionWandPanel)
   if (open) {
     wandMessage.value = ''
+    // 打开面板时把风格选中态同步成画布现状，避免重新打开后默认显示「规整」。
+    const preset = matchWandStyle(currentDrawStyle(canvasElements()))
+    if (preset) activeStyleId.value = preset.id
     // 等本次点击结束再监听，否则打开按钮自己的 pointerdown 会立即关闭面板。
     window.setTimeout(() => {
       if (!wandOpen.value) return
@@ -818,6 +1107,7 @@ onMounted(() => {
   acquireDrawTheme()
   acquireDrawPopperLayer()
   bindPointerRemap()
+  bindOverlayFix()
   void mount()
 })
 
@@ -826,6 +1116,7 @@ onBeforeUnmount(() => {
   flush()
   disposed = true
   unbindPointerRemap()
+  unbindOverlayFix()
   iconObserver?.disconnect()
   iconObserver = null
   window.clearTimeout(iconObserverTimer)
@@ -853,7 +1144,10 @@ defineExpose({
   <div
     ref="host"
     class="kiwi-draw-editor"
-    :class="{ 'is-loading': loading, 'is-error': !!error }"
+    :class="{
+      'is-loading': loading,
+      'is-error': !!error,
+    }"
     @keydown.capture="onKeyDownCapture"
     @paste.capture="onPasteCapture"
     @mousedown="onMouseDown"
@@ -878,7 +1172,7 @@ defineExpose({
         ref="wandPanel"
         class="kiwi-draw-wand-panel"
         role="dialog"
-        aria-label="魔法棒配色"
+        aria-label="魔法棒"
       >
         <div class="kiwi-wand-head">
           <div class="min-w-0">
@@ -886,7 +1180,7 @@ defineExpose({
               <KiwiIcon name="sparkle" :size="15" />
               <span>魔法棒</span>
             </div>
-            <p class="kiwi-wand-sub">一键统一当前画布的配色</p>
+            <p class="kiwi-wand-sub">一键统一当前画布的配色与形状样式</p>
           </div>
           <button
             type="button"
@@ -907,9 +1201,9 @@ defineExpose({
             :key="theme.id"
             type="button"
             class="kiwi-wand-theme"
-            :class="{ 'is-active': appliedThemeId === theme.id }"
-            :title="`应用「${theme.name}」配色`"
-            :aria-pressed="appliedThemeId === theme.id"
+            :class="{ 'is-active': appliedTheme?.id === theme.id }"
+            :title="`应用「${theme.name}」配色与「${activeStylePreset.name}」风格`"
+            :aria-pressed="appliedTheme?.id === theme.id"
             @mousedown.prevent
             @click="applyDrawTheme(theme)"
           >
@@ -920,17 +1214,35 @@ defineExpose({
             </span>
             <span class="kiwi-wand-meta">
               <span class="kiwi-wand-name">{{ theme.name }}</span>
-              <span v-if="appliedThemeId === theme.id" class="kiwi-wand-check">
+              <span v-if="appliedTheme?.id === theme.id" class="kiwi-wand-check">
                 <KiwiIcon name="check" :size="12" />
               </span>
             </span>
           </button>
         </div>
 
+        <p class="kiwi-wand-section kiwi-wand-section-gap">形状与线条</p>
+        <div class="kiwi-wand-style-grid">
+          <button
+            v-for="preset in WAND_STYLES"
+            :key="preset.id"
+            type="button"
+            class="kiwi-wand-style"
+            :class="{ 'is-active': activeStyleId === preset.id }"
+            :title="wandStyleTitle(preset)"
+            :aria-pressed="activeStyleId === preset.id"
+            @mousedown.prevent
+            @click="applyWandStyle(preset)"
+          >
+            <span class="kiwi-wand-style-preview" :style="wandStylePreview(preset)" aria-hidden="true" />
+            <span class="kiwi-wand-style-name">{{ preset.name }}</span>
+          </button>
+        </div>
+
         <button
           type="button"
           class="kiwi-wand-random"
-          title="按随机色相现场生成一套新配色"
+          title="按随机色相与随机形状风格现场生成一套新样式"
           @mousedown.prevent
           @click="applyRandomDrawTheme"
         >
@@ -945,7 +1257,7 @@ defineExpose({
 
         <p v-if="wandMessage" class="kiwi-wand-message">{{ wandMessage }}</p>
         <p class="kiwi-wand-hint">
-          只调整图形、连线与文字颜色；图片和透明填充保持不变。应用后可用 Ctrl/⌘+Z 撤销。
+          同时统一填充样式、描边线型与线宽、手绘风格、圆角与透明度，连线使用同一套线条样式；文字会按底色自动取深色或浅色。图片和透明填充保持不变，应用后可用 Ctrl/⌘+Z 撤销。
         </p>
       </div>
     </Transition>
@@ -959,7 +1271,7 @@ defineExpose({
   height: 100%;
   min-height: 360px;
   overflow: hidden;
-  background: #fff;
+  background: rgb(var(--theme-app));
 }
 .kiwi-draw-surface {
   width: 100%;
@@ -969,15 +1281,16 @@ defineExpose({
   width: 100%;
   height: 100%;
 }
-/* jvs-draw 在容器上声明自己的配色变量，这里覆盖为 Kiwi 主题色与浅色面板。 */
+/* jvs-draw 在容器上声明自己的配色变量，这里覆盖为 Kiwi 主题令牌。
+   画布底色与点阵由 <canvas> 读取这些变量绘制，深色主题下无需再反色。 */
 .kiwi-draw-editor :deep(.jvs-draw-container) {
   --color-primary: rgb(var(--kiwi-600));
   --color-primary-light: rgb(var(--kiwi-100));
-  --color-bg-canvas: rgb(248 250 252);
-  --color-bg-panel: rgb(255 255 255 / 0.92);
-  --color-border: rgb(226 232 240);
-  --color-text: rgb(30 41 59);
-  --color-text-muted: rgb(148 163 184);
+  --color-bg-canvas: rgb(var(--theme-app));
+  --color-bg-panel: rgb(var(--theme-surface) / calc(0.92 * var(--theme-surface-opacity)));
+  --color-border: rgb(var(--theme-border));
+  --color-text: rgb(var(--theme-text-primary));
+  --color-text-muted: rgb(var(--theme-text-subtle));
 }
 /* 画布搜索统一从系统 Ctrl/⌘+F 进入，工具栏不再保留重复入口。
    整组一起隐藏，否则 group 自身的白底与阴影会留下一个空的小竖条。 */
@@ -991,9 +1304,9 @@ defineExpose({
 .kiwi-draw-editor :deep(.toolbar) {
   /* 低于右键菜单（z-80），画布工具栏只压在画布上，不能盖住笔记的浮层。 */
   z-index: 30;
-  border: 1px solid rgb(226 232 240 / 0.9);
+  border: 1px solid rgb(var(--theme-border) / 0.9);
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgb(15 23 42 / 0.08);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
 }
 .kiwi-draw-editor :deep(.tool-group .tool-item) {
   border-radius: 8px;
@@ -1007,7 +1320,7 @@ defineExpose({
   height: 36px;
   align-items: center;
   justify-content: center;
-  color: rgb(54 59 76);
+  color: rgb(var(--theme-text-primary));
   cursor: pointer;
   outline: none;
 }
@@ -1023,11 +1336,11 @@ defineExpose({
   width: 36px;
   height: 1px;
   flex-shrink: 0;
-  background: #e4e7eb;
+  background: rgb(var(--theme-border));
   cursor: default;
 }
 .kiwi-draw-editor :deep(.tool-group .tool-item.kiwi-draw-wand-divider:hover) {
-  background: #e4e7eb;
+  background: rgb(var(--theme-border));
 }
 .kiwi-draw-editor :deep(.tool-group .tool-item:hover) {
   background: rgb(var(--kiwi-50));
@@ -1043,7 +1356,7 @@ defineExpose({
 }
 .kiwi-draw-editor :deep(.footer-controls .tool-item) {
   border-radius: 6px;
-  color: rgb(54 59 76);
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-draw-editor :deep(.footer-controls .tool-item:hover) {
   background: rgb(var(--kiwi-50));
@@ -1054,7 +1367,7 @@ defineExpose({
   color: rgb(var(--kiwi-600));
 }
 .kiwi-draw-editor :deep(.footer-controls .separator) {
-  background: rgb(226 232 240);
+  background: rgb(var(--theme-border));
 }
 .kiwi-draw-wand-panel {
   position: absolute;
@@ -1065,10 +1378,10 @@ defineExpose({
   max-height: calc(100% - 32px);
   overflow-y: auto;
   padding: 14px;
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 24px 60px -20px rgb(15 23 42 / 0.35);
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.55);
   transform: translateY(-50%);
 }
 .kiwi-wand-head {
@@ -1082,7 +1395,7 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 6px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   font-size: 12.5px;
   font-weight: 600;
 }
@@ -1091,7 +1404,7 @@ defineExpose({
 }
 .kiwi-wand-sub {
   margin: 3px 0 0;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 10px;
   line-height: 1.5;
 }
@@ -1103,16 +1416,16 @@ defineExpose({
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   transition: background 0.15s ease, color 0.15s ease;
 }
 .kiwi-wand-close:hover {
-  background: rgb(241 245 249);
-  color: rgb(51 65 85);
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-wand-section {
   margin: 0 0 7px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -1127,9 +1440,9 @@ defineExpose({
   flex-direction: column;
   gap: 7px;
   padding: 9px;
-  border: 1px solid rgb(226 232 240 / 0.9);
+  border: 1px solid rgb(var(--theme-border) / 0.9);
   border-radius: 10px;
-  background: #fff;
+  background: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity)));
   text-align: left;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -1159,11 +1472,56 @@ defineExpose({
   gap: 4px;
 }
 .kiwi-wand-name {
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   font-size: 12px;
   line-height: 1;
 }
 .kiwi-wand-theme.is-active .kiwi-wand-name {
+  color: rgb(var(--kiwi-700));
+  font-weight: 500;
+}
+.kiwi-wand-section-gap {
+  margin-top: 12px;
+}
+.kiwi-wand-style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.kiwi-wand-style {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border: 1px solid rgb(var(--theme-border) / 0.9);
+  border-radius: 9px;
+  background: rgb(var(--theme-surface) / calc(0.6 * var(--theme-surface-opacity)));
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.kiwi-wand-style:hover {
+  border-color: rgb(var(--kiwi-300));
+  background: rgb(var(--kiwi-50) / 0.6);
+}
+.kiwi-wand-style.is-active {
+  border-color: rgb(var(--kiwi-200));
+  background: rgb(var(--kiwi-50) / 0.8);
+}
+.kiwi-wand-style-preview {
+  display: block;
+  width: 22px;
+  height: 14px;
+  flex-shrink: 0;
+  border-color: rgb(var(--theme-text-strong));
+  background-origin: border-box;
+}
+.kiwi-wand-style-name {
+  color: rgb(var(--theme-text-strong));
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.kiwi-wand-style.is-active .kiwi-wand-style-name {
   color: rgb(var(--kiwi-700));
   font-weight: 500;
 }
@@ -1212,7 +1570,7 @@ defineExpose({
 }
 .kiwi-wand-hint {
   margin: 10px 0 0;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 10.5px;
   line-height: 1.6;
 }
@@ -1234,24 +1592,24 @@ defineExpose({
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: rgb(248 250 252);
-  color: rgb(100 116 139);
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-muted));
   font-size: 12px;
 }
 .kiwi-draw-status.is-error {
-  color: rgb(185 28 28);
-  background: rgb(254 242 242);
+  color: rgb(252 165 165);
+  background: rgb(127 29 29 / 0.25);
 }
 .kiwi-draw-retry {
   padding: 4px 12px;
-  border: 1px solid rgb(254 202 202);
+  border: 1px solid rgb(248 113 113 / 0.4);
   border-radius: 6px;
-  background: #fff;
-  color: rgb(185 28 28);
+  background: rgb(var(--theme-surface));
+  color: rgb(252 165 165);
   font-size: 12px;
 }
 .kiwi-draw-retry:hover {
-  background: rgb(254 226 226);
+  background: rgb(127 29 29 / 0.35);
 }
 </style>
 

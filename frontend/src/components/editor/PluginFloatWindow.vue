@@ -224,7 +224,7 @@ onBeforeUnmount(() => {
         </div>
         <button
           type="button"
-          class="plugin-float-icon-button hover:!bg-rose-50 hover:!text-rose-500"
+          class="plugin-float-icon-button is-close"
           title="关闭置顶窗口"
           @click.stop="close"
         >
@@ -336,12 +336,19 @@ onBeforeUnmount(() => {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   transition: background 0.15s ease, color 0.15s ease;
 }
 .plugin-float-icon-button:hover {
-  background: rgb(241 245 249);
-  color: rgb(30 41 59);
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
+}
+.plugin-float-icon-button.is-close:hover {
+  background: rgb(244 63 94 / 0.16);
+  color: rgb(225 29 72);
+}
+html[data-kiwi-theme-mode='dark'] .plugin-float-icon-button.is-close:hover {
+  color: rgb(251 113 133);
 }
 .plugin-float-fallback {
   display: flex;
@@ -352,13 +359,13 @@ onBeforeUnmount(() => {
   min-height: 120px;
   padding: 16px;
   text-align: center;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .plugin-float-fallback-title {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .plugin-float-fallback-message {
   margin: 0;
@@ -367,5 +374,8 @@ onBeforeUnmount(() => {
 }
 .plugin-float-fallback-message.is-error {
   color: rgb(225 29 72);
+}
+html[data-kiwi-theme-mode='dark'] .plugin-float-fallback-message.is-error {
+  color: rgb(251 113 133);
 }
 </style>

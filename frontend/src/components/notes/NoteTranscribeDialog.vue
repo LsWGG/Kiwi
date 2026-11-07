@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { request, upload, uploadWithProgress } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 import { toast } from '@/components/ui/toast'
@@ -64,6 +65,16 @@ const kbs = useKbsStore()
 const mode = ref<'record' | 'upload'>('record')
 const status = ref<TranscribeStatus | null>(null)
 const language = ref('auto')
+const languageOptions = [
+  { value: 'auto', label: '自动识别' },
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: '英语' },
+  { value: 'ja', label: '日语' },
+  { value: 'ko', label: '韩语' },
+]
+function setLanguage(value: string | number) {
+  language.value = String(value)
+}
 const summarize = ref(true)
 const title = ref('')
 const error = ref('')
@@ -927,13 +938,14 @@ const jobStatusLabel = computed(() => {
       <div class="grid gap-3 sm:grid-cols-2">
         <div>
           <label class="mb-1.5 block text-[11px] font-medium text-slate-500">音频语言</label>
-          <select v-model="language" class="kiwi-input" :disabled="recording || uploading">
-            <option value="auto">自动识别</option>
-            <option value="zh">中文</option>
-            <option value="en">英语</option>
-            <option value="ja">日语</option>
-            <option value="ko">韩语</option>
-          </select>
+          <KiwiSelect
+            :model-value="language"
+            :options="languageOptions"
+            :disabled="recording || uploading"
+            width="w-48"
+            variant="input"
+            @update:model-value="setLanguage"
+          />
         </div>
         <label
           class="flex items-start gap-2 self-end rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[11.5px] text-slate-600"

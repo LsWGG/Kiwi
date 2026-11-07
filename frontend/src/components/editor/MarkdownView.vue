@@ -19,6 +19,7 @@ import { installEmojiShortcodeRule } from '@/lib/emojiShortcodes'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import ZoomableImageOverlay from '@/components/ui/ZoomableImageOverlay.vue'
 import {
   buildCalendarMonth,
   eventRangeLabel,
@@ -930,6 +931,20 @@ md.renderer.rules.image = (tokens, idx, options, _env, self) => {
   })
 }
 
+/** 有序列表起始序号：CSS 计数器从 start 属性映射的变量继续。 */
+md.renderer.rules.ordered_list_open = (tokens, idx, options, _env, self) => {
+  const token = tokens[idx]
+  const start = Number(token.attrGet('start') || 1)
+  if (Number.isFinite(start) && start > 1) {
+    const style = token.attrGet('style')
+    token.attrSet(
+      'style',
+      `${style ? `${style};` : ''}--kiwi-ol-base:${Math.round(start) - 1}`,
+    )
+  }
+  return self.renderToken(tokens, idx, options)
+}
+
 const defaultFence =
   md.renderer.rules.fence ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
@@ -1394,37 +1409,6 @@ function closeImageZoom() {
   zoomCaption.value = ''
 }
 
-async function downloadZoomImage() {
-  if (!zoomSrc.value) return
-  try {
-    const res = await fetch(zoomSrc.value)
-    if (!res.ok) throw new Error()
-    const blob = await res.blob()
-    const objectUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    const path = zoomSrc.value.split('?')[0]
-    a.href = objectUrl
-    a.download = path.slice(path.lastIndexOf('/') + 1) || 'image.png'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-  } catch {
-    window.open(zoomSrc.value, '_blank', 'noopener')
-  }
-}
-
-function onZoomKey(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeImageZoom()
-}
-
-watch(zoomSrc, (value) => {
-  if (value) window.addEventListener('keydown', onZoomKey)
-  else window.removeEventListener('keydown', onZoomKey)
-})
-
-onBeforeUnmount(() => window.removeEventListener('keydown', onZoomKey))
-
 /** 站内链接（来源引用、Wiki、笔记卡片）走 SPA 路由，避免整页刷新。 */
 function onClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
@@ -1487,42 +1471,13 @@ function onClick(event: MouseEvent) {
     v-html="html"
   />
 
-  <Teleport to="body">
-    <div
-      v-if="zoomSrc"
-      class="fixed inset-0 z-[130] flex flex-col bg-slate-950/85 p-5 backdrop-blur-sm"
-      @click.self="closeImageZoom"
-    >
-      <div class="flex shrink-0 items-center justify-end gap-2">
-        <button
-          type="button"
-          class="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-          title="下载原图"
-          @click="downloadZoomImage"
-        >
-          <KiwiIcon name="download" :size="15" />
-        </button>
-        <button
-          type="button"
-          class="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-          title="关闭"
-          @click="closeImageZoom"
-        >
-          <KiwiIcon name="close" :size="15" />
-        </button>
-      </div>
-      <div class="flex min-h-0 flex-1 items-center justify-center">
-        <img
-          :src="zoomSrc"
-          :alt="zoomCaption"
-          class="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
-        />
-      </div>
-      <p v-if="zoomCaption" class="mt-3 shrink-0 text-center text-[12px] text-white/60">
-        {{ zoomCaption }}
-      </p>
-    </div>
-  </Teleport>
+  <ZoomableImageOverlay
+    :open="!!zoomSrc"
+    :src="zoomSrc"
+    :alt="zoomCaption"
+    :caption="zoomCaption"
+    @close="closeImageZoom"
+  />
 </template>
 
 <style>

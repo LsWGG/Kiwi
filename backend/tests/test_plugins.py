@@ -166,7 +166,9 @@ async def test_plugin_validation_errors(client):
         files={"file": ("meeting.zip", template, "application/zip")},
     )
     assert rejected_kind.status_code == 400
-    assert "组件插件" in rejected_kind.json()["detail"]
+    # kind 在 manifest 解析阶段就会拒绝；只允许 component / theme。
+    detail = rejected_kind.json()["detail"]
+    assert "component" in detail and "theme" in detail
 
     # 非 zip 直接拒绝。
     raw = json.dumps(component_manifest(key)).encode()

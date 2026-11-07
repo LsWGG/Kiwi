@@ -6,6 +6,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import {
   DOCX_BACKGROUNDS,
   DOCX_PAPERS,
@@ -65,20 +66,51 @@ function setMargin(side: 'top' | 'right' | 'bottom' | 'left', e: Event) {
   })
 }
 
-function onPaper(e: Event) {
-  setDocx({ paper: (e.target as HTMLSelectElement).value as DocxPaper })
+const paperOptions = DOCX_PAPERS.map((paper) => ({
+  value: paper.id,
+  label: paper.label,
+}))
+const docxBackgroundOptions = DOCX_BACKGROUNDS.map((bg) => ({
+  value: bg.id,
+  label: bg.label,
+}))
+const pageFontSizeOptions = PAGE_FONT_SIZES.map((size) => ({
+  value: size,
+  label: String(size),
+}))
+const pageLineHeightOptions = PAGE_LINE_HEIGHTS.map((line) => ({
+  value: line,
+  label: String(line),
+}))
+const pageBackgroundOptions = PAGE_BACKGROUNDS.map((bg) => ({
+  value: bg.id,
+  label: bg.label,
+}))
+const selectTrigger =
+  '!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/90 !bg-white !px-2 !text-[11.5px] !text-slate-700'
+
+function onPaper(value: string | number) {
+  setDocx({ paper: String(value) as DocxPaper })
 }
 
-function onBackground(e: Event) {
-  setDocx({ background: (e.target as HTMLSelectElement).value as DocxPrefs['background'] })
+function onBackground(value: string | number) {
+  setDocx({ background: String(value) as DocxPrefs['background'] })
 }
 
 function setPage(patch: Partial<PagePrefs>) {
   emit('page-prefs', { ...props.pagePrefs, ...patch })
 }
 
-function onPageBackground(e: Event) {
-  setPage({ background: (e.target as HTMLSelectElement).value as PagePrefs['background'] })
+function onPageBackground(value: string | number) {
+  setPage({ background: String(value) as PagePrefs['background'] })
+}
+
+function onPageFontSize(value: string | number) {
+  setPage({ fontSize: Number(value) })
+}
+
+function onPageLineHeight(value: string | number) {
+  setPage({ lineHeight: Number(value) })
 }
 
 function setDistance(side: 'headerDistance' | 'footerDistance', e: Event) {
@@ -165,11 +197,14 @@ const section = 'text-[10px] font-semibold uppercase tracking-[0.12em] text-slat
           <div class="mt-2.5 grid grid-cols-2 gap-2">
             <label class="min-w-0">
               <span :class="label">纸张</span>
-              <select :value="docxPrefs.paper" :class="[field, 'mt-1']" @change="onPaper">
-                <option v-for="paper in DOCX_PAPERS" :key="paper.id" :value="paper.id">
-                  {{ paper.label }}
-                </option>
-              </select>
+              <KiwiSelect
+                class="mt-1"
+                :model-value="docxPrefs.paper"
+                :options="paperOptions"
+                width="w-40"
+                :trigger-class="selectTrigger"
+                @update:model-value="onPaper"
+              />
             </label>
             <div class="min-w-0">
               <span :class="label">尺寸</span>
@@ -284,11 +319,14 @@ const section = 'text-[10px] font-semibold uppercase tracking-[0.12em] text-slat
             </label>
             <label>
               <span :class="label">背景</span>
-              <select :value="docxPrefs.background" :class="[field, 'mt-1']" @change="onBackground">
-                <option v-for="bg in DOCX_BACKGROUNDS" :key="bg.id" :value="bg.id">
-                  {{ bg.label }}
-                </option>
-              </select>
+              <KiwiSelect
+                class="mt-1"
+                :model-value="docxPrefs.background"
+                :options="docxBackgroundOptions"
+                width="w-40"
+                :trigger-class="selectTrigger"
+                @update:model-value="onBackground"
+              />
             </label>
           </div>
         </section>
@@ -499,34 +537,39 @@ const section = 'text-[10px] font-semibold uppercase tracking-[0.12em] text-slat
           <div class="mt-2.5 grid grid-cols-2 gap-2">
             <label>
               <span :class="label">字号（px）</span>
-              <select
-                :value="pagePrefs.fontSize"
-                :class="[field, 'mt-1']"
-                @change="setPage({ fontSize: Number(($event.target as HTMLSelectElement).value) })"
-              >
-                <option v-for="size in PAGE_FONT_SIZES" :key="size" :value="size">{{ size }}</option>
-              </select>
+              <KiwiSelect
+                class="mt-1"
+                :model-value="pagePrefs.fontSize"
+                :options="pageFontSizeOptions"
+                width="w-28"
+                :trigger-class="selectTrigger"
+                @update:model-value="onPageFontSize"
+              />
             </label>
             <label>
               <span :class="label">行高</span>
-              <select
-                :value="pagePrefs.lineHeight"
-                :class="[field, 'mt-1']"
-                @change="setPage({ lineHeight: Number(($event.target as HTMLSelectElement).value) })"
-              >
-                <option v-for="line in PAGE_LINE_HEIGHTS" :key="line" :value="line">{{ line }}</option>
-              </select>
+              <KiwiSelect
+                class="mt-1"
+                :model-value="pagePrefs.lineHeight"
+                :options="pageLineHeightOptions"
+                width="w-28"
+                :trigger-class="selectTrigger"
+                @update:model-value="onPageLineHeight"
+              />
             </label>
           </div>
         </section>
 
         <section class="mt-5 border-t border-slate-100 pt-4">
           <p :class="section">纸张背景</p>
-          <select :value="pagePrefs.background" :class="[field, 'mt-2']" @change="onPageBackground">
-            <option v-for="bg in PAGE_BACKGROUNDS" :key="bg.id" :value="bg.id">
-              {{ bg.label }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="mt-2"
+            :model-value="pagePrefs.background"
+            :options="pageBackgroundOptions"
+            width="w-40"
+            :trigger-class="selectTrigger"
+            @update:model-value="onPageBackground"
+          />
         </section>
       </template>
     </div>
