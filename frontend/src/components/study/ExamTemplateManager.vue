@@ -10,6 +10,7 @@ import {
   type QuestionType,
 } from '@/stores/study'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -55,6 +56,16 @@ const TYPE_OPTIONS: QuestionType[] = [
   'case_analysis',
   'essay',
 ]
+
+const questionTypeOptions = TYPE_OPTIONS.map((type) => ({
+  value: type,
+  label: QUESTION_TYPE_LABEL[type],
+}))
+
+function setSectionType(section: EditorSection, value: string | number) {
+  section.type = value as QuestionType
+  onTypeChange(section)
+}
 
 const totalQuestions = computed(() => form.sections.reduce((s, x) => s + Number(x.count || 0), 0))
 const totalScore = computed(() =>
@@ -469,9 +480,14 @@ onMounted(() => {
             </div>
             <div v-for="(s, i) in form.sections" :key="i" class="border-t border-slate-100">
               <div class="grid grid-cols-[1.3fr_1.3fr_0.7fr_0.7fr_2.4rem] gap-2 px-3 py-2 items-center">
-                <select v-model="s.type" class="kiwi-input !py-1.5 !text-xs" @change="onTypeChange(s)">
-                  <option v-for="t in TYPE_OPTIONS" :key="t" :value="t">{{ QUESTION_TYPE_LABEL[t] }}</option>
-                </select>
+                <KiwiSelect
+                  class="min-w-0"
+                  :model-value="s.type"
+                  :options="questionTypeOptions"
+                  width="w-40"
+                  trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-xs !text-slate-600"
+                  @update:model-value="setSectionType(s, $event)"
+                />
                 <input v-model="s.name" class="kiwi-input !py-1.5 !text-xs" />
                 <input v-model.number="s.count" type="number" min="1" max="200" class="kiwi-input !py-1.5 !text-xs" />
                 <input v-model.number="s.score" type="number" min="0.5" step="0.5" class="kiwi-input !py-1.5 !text-xs" />

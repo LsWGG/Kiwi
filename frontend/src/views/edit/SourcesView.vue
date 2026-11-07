@@ -22,6 +22,7 @@ import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiProgress from '@/components/ui/KiwiProgress.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 import { noteCompileEligible } from '@/utils/noteCompile'
 
@@ -424,6 +425,37 @@ const noteKindOptions = computed(() => {
   const kinds = new Set(workspaceNotes.value.map((n) => n.kind))
   return Object.keys(NOTE_KIND_META).filter((kind) => kinds.has(kind as any))
 })
+
+const noteKindFilterOptions = computed(() => [
+  { value: 'all', label: '全部类型' },
+  ...noteKindOptions.value.map((kind) => ({
+    value: kind,
+    label: noteKindMeta(kind).label,
+  })),
+])
+const noteStateFilterOptions = [
+  { value: 'all', label: '全部编译状态' },
+  { value: 'compiled', label: '已编译' },
+  { value: 'busy', label: '处理中' },
+  { value: 'pending', label: '未编译' },
+  { value: 'failed', label: '失败' },
+]
+const contentQualityFilterOptions = [
+  { value: 'all', label: '全部解析质量' },
+  { value: 'clean', label: '解析干净' },
+  { value: 'ocr_aided', label: 'OCR 辅助' },
+  { value: 'review', label: '待人工复核' },
+]
+
+function setNoteKindFilter(value: string | number) {
+  noteKindFilter.value = String(value)
+}
+function setNoteStateFilter(value: string | number) {
+  noteStateFilter.value = String(value)
+}
+function setContentQualityFilter(value: string | number) {
+  contentQualityFilter.value = String(value)
+}
 
 const filteredContent = computed(() => {
   const q = noteQuery.value.trim().toLowerCase()
@@ -1379,25 +1411,30 @@ async function compileAllNotes() {
               class="kiwi-input !py-1.5 !pl-8 !text-[11.5px]"
             />
           </div>
-          <select v-model="noteKindFilter" class="sources-select">
-            <option value="all">全部类型</option>
-            <option v-for="kind in noteKindOptions" :key="kind" :value="kind">
-              {{ noteKindMeta(kind).label }}
-            </option>
-          </select>
-          <select v-model="noteStateFilter" class="sources-select">
-            <option value="all">全部编译状态</option>
-            <option value="compiled">已编译</option>
-            <option value="busy">处理中</option>
-            <option value="pending">未编译</option>
-            <option value="failed">失败</option>
-          </select>
-          <select v-model="contentQualityFilter" class="sources-select">
-            <option value="all">全部解析质量</option>
-            <option value="clean">解析干净</option>
-            <option value="ocr_aided">OCR 辅助</option>
-            <option value="review">待人工复核</option>
-          </select>
+          <KiwiSelect
+            class="w-[118px] shrink-0"
+            :model-value="noteKindFilter"
+            :options="noteKindFilterOptions"
+            width="w-36"
+            trigger-class="!h-[30px] !w-full !justify-between !rounded-lg !border !border-slate-200/90 !bg-white/80 !px-2 !text-[11.5px] !text-slate-600"
+            @update:model-value="setNoteKindFilter"
+          />
+          <KiwiSelect
+            class="w-[118px] shrink-0"
+            :model-value="noteStateFilter"
+            :options="noteStateFilterOptions"
+            width="w-36"
+            trigger-class="!h-[30px] !w-full !justify-between !rounded-lg !border !border-slate-200/90 !bg-white/80 !px-2 !text-[11.5px] !text-slate-600"
+            @update:model-value="setNoteStateFilter"
+          />
+          <KiwiSelect
+            class="w-[118px] shrink-0"
+            :model-value="contentQualityFilter"
+            :options="contentQualityFilterOptions"
+            width="w-36"
+            trigger-class="!h-[30px] !w-full !justify-between !rounded-lg !border !border-slate-200/90 !bg-white/80 !px-2 !text-[11.5px] !text-slate-600"
+            @update:model-value="setContentQualityFilter"
+          />
 
           <div class="ml-auto flex items-center gap-1.5">
             <button
@@ -2373,21 +2410,6 @@ async function compileAllNotes() {
 </template>
 
 <style scoped>
-.sources-select {
-  height: 30px;
-  border-radius: 0.5rem;
-  border: 1px solid rgb(226 232 240 / 0.9);
-  background: rgb(255 255 255 / 0.8);
-  padding: 0 0.5rem;
-  font-size: 11.5px;
-  color: rgb(71 85 105);
-  outline: none;
-  max-width: 140px;
-}
-.sources-select:focus {
-  border-color: rgb(167 243 208);
-  box-shadow: 0 0 0 2px rgb(209 250 229 / 0.6);
-}
 .row-action {
   display: inline-grid;
   place-items: center;

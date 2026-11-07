@@ -23,6 +23,7 @@ from app.db.models.notes import (
 )
 from app.db.models.notes_collection import NoteCollection
 from app.db.models.plugin import Plugin
+from app.db.models.plugin_asset import PluginAsset
 from app.db.models.push import PushSubscription
 from app.db.models.sources import Source
 from app.db.models.study import (
@@ -62,6 +63,7 @@ __all__ = [
     "SystemSettings",
     "PushSubscription",
     "Plugin",
+    "PluginAsset",
     "TodoMirror",
     "CollectionRow",
     "NoteAttachment",

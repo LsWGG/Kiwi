@@ -3,6 +3,8 @@
 import { computed } from 'vue'
 import KiwiDropdown from '@/components/ui/KiwiDropdown.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import type { DbField, DbFilter, DbSort } from '@/stores/noteDatabase'
 
 type Op = DbFilter['op']
@@ -111,25 +113,43 @@ function updateFilter(id: string, patch: Partial<DbFilter>) {
   emitFilters(filters.value.map((f) => (f.id === id ? { ...f, ...patch } : { ...f })))
 }
 
-function changeField(filter: DbFilter, event: Event) {
-  const fieldId = (event.target as HTMLSelectElement).value
+const fieldOptions = computed(() =>
+  props.fields.map((field) => ({ value: field.id, label: field.name })),
+)
+
+function opOptions(field: DbField) {
+  return opsFor(field).map((op) => ({ value: op, label: OP_LABEL[op] }))
+}
+
+function selectFieldOptions(field: DbField) {
+  return (field.options ?? []).map((option) => ({ value: option.id, label: option.name }))
+}
+
+function sortFieldOptions(current: string) {
+  return props.fields
+    .filter((field) => field.id === current || !sorts.value.some((s) => s.field === field.id))
+    .map((field) => ({ value: field.id, label: field.name }))
+}
+
+function changeField(filter: DbFilter, value: string | number) {
+  const fieldId = String(value)
   const field = props.fields.find((f) => f.id === fieldId)
   if (!field) return
   const op = opsFor(field)[0]
   updateFilter(filter.id, { field: field.id, op, value: defaultValue(field, op) })
 }
 
-function changeOp(filter: DbFilter, event: Event) {
-  const op = (event.target as HTMLSelectElement).value as Op
+function changeOp(filter: DbFilter, value: string | number) {
+  const op = String(value) as Op
   const field = props.fields.find((f) => f.id === filter.field)
   if (!field || !opsFor(field).includes(op)) return
   // 同为需要值的条件之间切换时保留已输入的值
-  const value = !needsValue(op)
+  const nextValue = !needsValue(op)
     ? null
     : needsValue(filter.op)
       ? filter.value
       : defaultValue(field, op)
-  updateFilter(filter.id, { op, value })
+  updateFilter(filter.id, { op, value: nextValue })
 }
 
 function onTextValue(filter: DbFilter, event: Event) {
@@ -143,18 +163,16 @@ function onNumberValue(filter: DbFilter, event: Event) {
   updateFilter(filter.id, { value: value === null || Number.isNaN(value) ? null : value })
 }
 
-function onDateValue(filter: DbFilter, event: Event) {
-  const raw = (event.target as HTMLInputElement).value
-  updateFilter(filter.id, { value: raw || null })
+function onDateValue(filter: DbFilter, value: string) {
+  updateFilter(filter.id, { value: value || null })
 }
 
-function onSelectValue(filter: DbFilter, event: Event) {
-  const raw = (event.target as HTMLSelectElement).value
-  updateFilter(filter.id, { value: raw || null })
+function onSelectValue(filter: DbFilter, value: string | number) {
+  updateFilter(filter.id, { value: value ? String(value) : null })
 }
 
-function onCheckboxValue(filter: DbFilter, event: Event) {
-  updateFilter(filter.id, { value: (event.target as HTMLSelectElement).value === 'true' })
+function onCheckboxValue(filter: DbFilter, value: string | number) {
+  updateFilter(filter.id, { value: String(value) === 'true' })
 }
 
 function removeFilter(id: string) {
@@ -178,8 +196,8 @@ function addSort() {
   emitSorts([...sorts.value.map((s) => ({ ...s })), { field: field.id, direction: 'asc' }])
 }
 
-function changeSortField(sort: DbSort, event: Event) {
-  const next = (event.target as HTMLSelectElement).value
+function changeSortField(sort: DbSort, value: string | number) {
+  const next = String(value)
   if (next === sort.field || sorts.value.some((s) => s.field === next)) return
   emitSorts(
     sorts.value.map((s) => (s.field === sort.field ? { ...s, field: next } : { ...s })),
@@ -256,15 +274,14 @@ function clearSorts() {
             class="mb-1.5 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/60 p-1.5"
           >
             <div class="flex items-center gap-1">
-              <select
-                :value="row.filter.field"
-                class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                @change="changeField(row.filter, $event)"
-              >
-                <option v-for="field in fields" :key="field.id" :value="field.id">
-                  {{ field.name }}
-                </option>
-              </select>
+              <KiwiSelect
+                class="min-w-0 flex-1"
+                :model-value="row.filter.field"
+                :options="fieldOptions"
+                width="w-52"
+                trigger-class="!h-7 !w-full !rounded-md !border !border-slate-200 !bg-white !px-1.5 !text-[11px]"
+                @update:model-value="changeField(row.filter, $event)"
+              />
               <button
                 type="button"
                 class="grid h-6 w-6 shrink-0 place-items-center rounded text-slate-300 hover:bg-rose-50 hover:text-rose-500"
@@ -275,47 +292,44 @@ function clearSorts() {
               </button>
             </div>
             <div class="flex items-center gap-1">
-              <select
-                :value="row.filter.op"
-                class="h-7 w-[86px] shrink-0 rounded-md border border-slate-200 bg-white px-1 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                @change="changeOp(row.filter, $event)"
-              >
-                <option v-for="op in opsFor(row.field)" :key="op" :value="op">
-                  {{ OP_LABEL[op] }}
-                </option>
-              </select>
+              <KiwiSelect
+                class="w-[86px] shrink-0"
+                :model-value="row.filter.op"
+                :options="opOptions(row.field)"
+                width="w-36"
+                trigger-class="!h-7 !w-[86px] !rounded-md !border !border-slate-200 !bg-white !px-1 !text-[11px]"
+                @update:model-value="changeOp(row.filter, $event)"
+              />
 
               <template v-if="needsValue(row.filter.op) && row.field.type !== 'attachment'">
-                <select
+                <KiwiSelect
                   v-if="row.field.type === 'select' || row.field.type === 'multi_select'"
-                  :value="textValue(row.filter)"
-                  class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                  @change="onSelectValue(row.filter, $event)"
-                >
-                  <option value="">选择选项…</option>
-                  <option
-                    v-for="option in row.field.options ?? []"
-                    :key="option.id"
-                    :value="option.id"
-                  >
-                    {{ option.name }}
-                  </option>
-                </select>
-                <select
+                  class="min-w-0 flex-1"
+                  :model-value="textValue(row.filter)"
+                  :options="selectFieldOptions(row.field)"
+                  width="w-52"
+                  placeholder="选择选项…"
+                  trigger-class="!h-7 !w-full !rounded-md !border !border-slate-200 !bg-white !px-1.5 !text-[11px]"
+                  @update:model-value="onSelectValue(row.filter, $event)"
+                />
+                <KiwiSelect
                   v-else-if="row.field.type === 'checkbox'"
-                  :value="String(row.filter.value === true)"
-                  class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                  @change="onCheckboxValue(row.filter, $event)"
-                >
-                  <option value="true">已勾选</option>
-                  <option value="false">未勾选</option>
-                </select>
-                <input
+                  class="min-w-0 flex-1"
+                  :model-value="String(row.filter.value === true)"
+                  :options="[
+                    { value: 'true', label: '已勾选' },
+                    { value: 'false', label: '未勾选' },
+                  ]"
+                  width="w-36"
+                  trigger-class="!h-7 !w-full !rounded-md !border !border-slate-200 !bg-white !px-1.5 !text-[11px]"
+                  @update:model-value="onCheckboxValue(row.filter, $event)"
+                />
+                <KiwiDateInput
                   v-else-if="row.field.type === 'date'"
-                  type="date"
-                  :value="textValue(row.filter)"
-                  class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                  @change="onDateValue(row.filter, $event)"
+                  class="min-w-0 flex-1"
+                  :model-value="textValue(row.filter)"
+                  trigger-class="!h-7 !w-full !rounded-md !px-1.5 !text-[11px]"
+                  @update:model-value="onDateValue(row.filter, $event)"
                 />
                 <input
                   v-else-if="row.field.type === 'number' || row.field.type === 'rating' || row.field.type === 'progress'"
@@ -396,22 +410,14 @@ function clearSorts() {
             :key="row.sort.field"
             class="mb-1.5 flex items-center gap-1 rounded-lg border border-slate-100 bg-slate-50/60 p-1.5"
           >
-            <select
-              :value="row.sort.field"
-              class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-              @change="changeSortField(row.sort, $event)"
-            >
-              <option
-                v-for="field in fields"
-                :key="field.id"
-                :value="field.id"
-                :disabled="
-                  field.id !== row.sort.field && sorts.some((s) => s.field === field.id)
-                "
-              >
-                {{ field.name }}
-              </option>
-            </select>
+            <KiwiSelect
+              class="min-w-0 flex-1"
+              :model-value="row.sort.field"
+              :options="sortFieldOptions(row.sort.field)"
+              width="w-52"
+              trigger-class="!h-7 !w-full !rounded-md !border !border-slate-200 !bg-white !px-1.5 !text-[11px]"
+              @update:model-value="changeSortField(row.sort, $event)"
+            />
             <button
               type="button"
               class="flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-white px-1.5 text-[10.5px] text-slate-500 hover:border-kiwi-300 hover:text-kiwi-600"

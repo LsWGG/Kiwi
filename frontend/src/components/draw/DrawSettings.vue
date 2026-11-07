@@ -5,7 +5,10 @@
  * 只负责展示与选择，值来自 jvs-draw 的 appState（由 DrawEditor 读写），
  * 随笔记文档一起持久化。
  */
+import { computed } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import EditorColorPicker from '@/components/editor/EditorColorPicker.vue'
+import { useThemeStore } from '@/stores/theme'
 import type { DrawGridType, DrawPreferences, DrawShapeTheme } from './types'
 
 const props = defineProps<{
@@ -19,14 +22,62 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const BACKGROUNDS = [
+interface BackgroundOption {
+  value: string
+  label: string
+}
+
+const LIGHT_BACKGROUNDS: BackgroundOption[] = [
   { value: '#ffffff', label: '纯白' },
   { value: '#f8fafc', label: '雾灰' },
   { value: '#f5f3ff', label: '浅紫' },
   { value: '#eff6ff', label: '浅蓝' },
   { value: '#fefce8', label: '米黄' },
   { value: '#f0fdf4', label: '浅绿' },
-] as const
+]
+
+const themeStore = useThemeStore()
+
+const isDark = computed(
+  () =>
+    themeStore.active?.theme?.mode === 'dark' ||
+    (typeof document !== 'undefined' &&
+      document.documentElement.dataset.kiwiThemeMode === 'dark'),
+)
+
+/** 主题令牌是 `R G B` 三元组，转换成原生颜色选择器可回填的十六进制。 */
+function tokenHex(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  const match = /^(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})$/.exec(raw)
+  if (!match) return fallback
+  return `#${match
+    .slice(1)
+    .map((part) => Math.min(255, Number(part)).toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+/**
+ * 深色主题默认给出深色画布：主题自身的背景 / 表面 + 常用深灰蓝。
+ * 浅色主题保持原来的浅色色板，避免切换主题时默认值突变。
+ */
+const backgrounds = computed<BackgroundOption[]>(() => {
+  if (!isDark.value) return LIGHT_BACKGROUNDS
+  const seen = new Set<string>()
+  return [
+    { value: tokenHex('--theme-app', '#0b1020'), label: '主题背景' },
+    { value: tokenHex('--theme-surface', '#121a30'), label: '主题表面' },
+    { value: tokenHex('--theme-surface-muted', '#1a2540'), label: '主题表面深' },
+    { value: '#4b5563', label: '石墨灰' },
+    { value: '#0b1f3a', label: '蓝图' },
+    { value: '#020617', label: '午夜' },
+  ].filter((item) => {
+    const key = item.value.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})
 
 const GRIDS: { value: DrawGridType; label: string }[] = [
   { value: 'none', label: '无' },
@@ -70,16 +121,6 @@ function sameColor(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
-/** <input type="color"> 只接受 #rrggbb，其他格式回退为白色。 */
-function pickerColor(value: string): string {
-  return /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim() : '#ffffff'
-}
-
-function onCustomColor(event: Event) {
-  const value = (event.target as HTMLInputElement).value
-  if (value) emit('update', { backgroundColor: value })
-}
-
 function update<K extends keyof DrawPreferences>(key: K, value: DrawPreferences[K]) {
   emit('update', { [key]: value } as Partial<DrawPreferences>)
 }
@@ -115,7 +156,7 @@ function update<K extends keyof DrawPreferences>(key: K, value: DrawPreferences[
         <p :class="section">画布背景</p>
         <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
           <button
-            v-for="item in BACKGROUNDS"
+            v-for="item in backgrounds"
             :key="item.value"
             type="button"
             class="h-7 w-7 rounded-lg border transition"
@@ -130,19 +171,15 @@ function update<K extends keyof DrawPreferences>(key: K, value: DrawPreferences[
             :aria-pressed="sameColor(prefs.backgroundColor, item.value)"
             @click="update('backgroundColor', item.value)"
           />
-          <label
-            class="relative grid h-7 w-7 cursor-pointer place-items-center overflow-hidden rounded-lg border border-slate-200/90 text-slate-400 transition hover:border-kiwi-300 hover:text-kiwi-600"
-            title="自定义颜色"
-          >
-            <KiwiIcon name="palette" :size="13" />
-            <input
-              type="color"
-              class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              :value="pickerColor(prefs.backgroundColor)"
-              aria-label="自定义画布背景色"
-              @input="onCustomColor"
-            />
-          </label>
+          <EditorColorPicker
+            variant="swatch"
+            :value="prefs.backgroundColor || '#ffffff'"
+            :clearable="false"
+            icon="palette"
+            label="自定义画布背景"
+            title="自定义画布背景色"
+            @select="update('backgroundColor', $event)"
+          />
           <span class="ml-1 rounded-md bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] uppercase text-slate-400">
             {{ prefs.backgroundColor }}
           </span>

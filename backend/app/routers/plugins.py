@@ -18,15 +18,16 @@ import json
 import logging
 import uuid
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Plugin
+from app.db.models import Plugin, PluginAsset
+from app.db.models.system_settings import SYSTEM_SETTINGS_ID, SystemSettings
 from app.db.session import get_session
 from app.schemas.plugin import (
     MANIFEST_VERSION,
@@ -43,10 +44,28 @@ logger = logging.getLogger("kiwi.plugins")
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 
-MAX_IMPORT_BYTES = 5 * 1024 * 1024
+MAX_IMPORT_BYTES = 12 * 1024 * 1024
 MAX_MANIFEST_FILE_BYTES = 1024 * 1024
 MAX_SCRIPT_BYTES = 2 * 1024 * 1024
 MAX_STYLE_BYTES = 512 * 1024
+# 主题资源：背景图 / 预览图 / 字体。单文件与整包都有上限，避免 zip 炸弹。
+MAX_ASSET_BYTES = 4 * 1024 * 1024
+MAX_ASSETS_TOTAL_BYTES = 10 * 1024 * 1024
+MAX_ASSET_COUNT = 40
+ASSET_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".avif": "image/avif",
+    ".bmp": "image/bmp",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+}
 # 开发套件随后端代码一起打包，避免运行时镜像只复制 backend/ 时丢失 docs / .claude。
 # 资源目录由 `scripts/sync_plugin_dev_kit.py` 从仓库的规范与示例同步。
 DEV_KIT_ROOT = (
@@ -76,14 +95,24 @@ DEV_KIT_FILES = (
 
 
 @dataclass
+class PluginAssetData:
+    """主题包内 assets/ 下的一个二进制资源。"""
+
+    path: str
+    content_type: str
+    data: bytes
+
+
+@dataclass
 class PluginPackage:
-    """解析后的组件插件包：manifest 与已读取的入口脚本 / 样式。"""
+    """解析后的插件包：manifest、入口脚本 / 样式与主题资源。"""
 
     manifest: PluginManifestIn
     entry: str = ""
     script: str = ""
     style_path: str = ""
     style: str = ""
+    assets: list[PluginAssetData] = dataclass_field(default_factory=list)
 
 
 def _validation_message(exc: ValidationError) -> str:
@@ -100,6 +129,28 @@ async def _get_plugin(session: AsyncSession, plugin_id: uuid.UUID) -> Plugin:
     return plugin
 
 
+async def _assets_for(session: AsyncSession, plugin_id: uuid.UUID) -> list[PluginAsset]:
+    return list(
+        (
+            await session.execute(
+                select(PluginAsset)
+                .where(PluginAsset.plugin_id == plugin_id)
+                .order_by(PluginAsset.path)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _clear_active_theme(session: AsyncSession, key: str) -> None:
+    """停用 / 删除主题时回退到内置主题，避免应用层继续引用失效主题。"""
+    row = await session.get(SystemSettings, SYSTEM_SETTINGS_ID)
+    if row is not None and row.active_theme == key:
+        row.active_theme = ""
+        row.theme_overrides = {}
+
+
 def _parse_manifest_bytes(raw: bytes) -> PluginManifestIn:
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -107,11 +158,9 @@ def _parse_manifest_bytes(raw: bytes) -> PluginManifestIn:
         raise HTTPException(400, f"manifest 不是合法的 JSON：{exc}") from None
     if not isinstance(payload, dict):
         raise HTTPException(400, "manifest 必须是 JSON 对象")
-    if payload.get("kind", "component") != "component":
-        raise HTTPException(
-            400,
-            "插件仅支持组件插件：请将 kind 设为 component，并在 zip 中提供入口脚本",
-        )
+    kind = payload.get("kind", "component")
+    if kind not in ("component", "theme"):
+        raise HTTPException(400, "插件 kind 只能是 component 或 theme")
     try:
         return PluginManifestIn.model_validate(payload)
     except ValidationError as exc:
@@ -184,13 +233,75 @@ def _read_zip_text(
         raise HTTPException(400, f"{label}必须是 UTF-8 文本") from None
 
 
+def _read_theme_assets(
+    archive: zipfile.ZipFile, base_dir: PurePosixPath
+) -> list[PluginAssetData]:
+    """读取主题包 assets/ 下的二进制资源，逐项校验类型与体积。"""
+    assets: list[PluginAssetData] = []
+    total = 0
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        name = PurePosixPath(info.filename)
+        try:
+            relative = name.relative_to(base_dir) if str(base_dir) not in ("", ".") else name
+        except ValueError:
+            continue
+        parts = relative.parts
+        if not parts or parts[0] != "assets" or len(parts) < 2:
+            continue
+        if any(part in ("", ".", "..") for part in parts):
+            raise HTTPException(400, f"主题资源路径非法：{info.filename}")
+        suffix = PurePosixPath(parts[-1]).suffix.lower()
+        content_type = ASSET_CONTENT_TYPES.get(suffix)
+        if content_type is None:
+            raise HTTPException(
+                400,
+                f"不支持的资源类型：{relative}（仅支持图片与字体）",
+            )
+        if info.file_size > MAX_ASSET_BYTES:
+            raise HTTPException(
+                413, f"资源过大：{relative}（单文件上限 {MAX_ASSET_BYTES // 1024 // 1024}MB）"
+            )
+        total += info.file_size
+        if total > MAX_ASSETS_TOTAL_BYTES:
+            raise HTTPException(413, "主题资源总大小超出限制（上限 10MB）")
+        if len(assets) >= MAX_ASSET_COUNT:
+            raise HTTPException(413, f"主题资源数量超出限制（上限 {MAX_ASSET_COUNT} 个）")
+        try:
+            data = archive.read(info)
+        except (RuntimeError, zipfile.BadZipFile) as exc:
+            raise HTTPException(400, f"无法读取资源 {relative}：{exc}") from None
+        if len(data) != info.file_size:
+            raise HTTPException(400, f"资源读取不完整：{relative}")
+        assets.append(
+            PluginAssetData(
+                path=str(relative).replace("\\", "/"),
+                content_type=content_type,
+                data=data,
+            )
+        )
+    return assets
+
+
+def _check_theme_asset_ref(
+    value: str, assets: list[PluginAssetData], label: str
+) -> None:
+    """主题里引用的相对资源必须真实存在于 zip 中。"""
+    text = value.strip()
+    if not text or text.startswith(("http://", "https://", "data:")):
+        return
+    normalized = text.lstrip("/")
+    if not normalized.startswith("assets/"):
+        normalized = f"assets/{normalized}"
+    if not any(asset.path == normalized for asset in assets):
+        raise HTTPException(400, f"{label}引用的资源不存在：{value}")
+
+
 def _parse_package(raw: bytes, filename: str) -> PluginPackage:
     looks_zip = filename.lower().endswith(".zip") or raw[:2] == b"PK"
     if not looks_zip:
-        raise HTTPException(
-            400,
-            "组件插件必须打包为 zip，并在包内提供入口脚本（如 index.js）",
-        )
+        raise HTTPException(400, "插件必须打包为 zip 上传")
 
     try:
         archive = zipfile.ZipFile(io.BytesIO(raw))
@@ -203,6 +314,38 @@ def _parse_package(raw: bytes, filename: str) -> PluginPackage:
         manifest = _parse_manifest_bytes(archive.read(manifest_info))
 
         base_dir = PurePosixPath(manifest_info.filename).parent
+        if manifest.kind == "theme":
+            style_path = manifest.style
+            style = ""
+            if style_path:
+                style = _read_zip_text(
+                    archive, base_dir, style_path, MAX_STYLE_BYTES, "样式文件"
+                )
+            else:
+                style = _read_zip_text(
+                    archive,
+                    base_dir,
+                    "theme.css",
+                    MAX_STYLE_BYTES,
+                    "样式文件",
+                    optional=True,
+                )
+                if style:
+                    style_path = "theme.css"
+            assets = _read_theme_assets(archive, base_dir)
+            theme = manifest.theme
+            if theme is not None:
+                _check_theme_asset_ref(theme.background.image, assets, "背景图")
+                _check_theme_asset_ref(theme.preview, assets, "预览图")
+            return PluginPackage(
+                manifest=manifest,
+                entry="",
+                script="",
+                style_path=style_path,
+                style=style,
+                assets=assets,
+            )
+
         entry = manifest.entry or "index.js"
         script = _read_zip_text(archive, base_dir, entry, MAX_SCRIPT_BYTES, "入口脚本")
         if not script.strip():
@@ -266,6 +409,9 @@ def _inspection(package: PluginPackage) -> PluginInspectionOut:
         has_style=bool(package.style),
         block_count=len(manifest.blocks),
         blocks=[block.label for block in manifest.blocks],
+        theme=manifest.theme,
+        asset_count=len(package.assets),
+        assets=[asset.path for asset in package.assets],
     )
 
 
@@ -285,8 +431,12 @@ def _export_manifest(plugin: Plugin) -> dict:
             "blocks": plugin.blocks,
         }
     )
-    manifest["entry"] = plugin.entry or "index.js"
-    manifest["style"] = manifest.get("style") or ("style.css" if plugin.style else "")
+    if plugin.kind == "theme":
+        manifest["entry"] = ""
+        manifest["style"] = manifest.get("style") or ("theme.css" if plugin.style else "")
+    else:
+        manifest["entry"] = plugin.entry or "index.js"
+        manifest["style"] = manifest.get("style") or ("style.css" if plugin.style else "")
     return manifest
 
 
@@ -301,23 +451,39 @@ def _plugin_readme(plugin: Plugin) -> str:
         f"- kind: `{plugin.kind}`",
         "",
     ]
-    lines += [
-        "## 安装",
-        "",
-        "在 Kiwi「设置 → 插件与区块 → 导入插件」中选择本 zip。",
-        "",
-        "组件插件包含可执行 JavaScript，只应从可信来源安装。",
-        "",
-        "## 开发",
-        "",
-        "入口脚本导出 `setup(host)`，返回 `{ blocks: { <type>: { component } } }`。",
-        "完整规范见 Kiwi 仓库 `docs/PLUGIN_SPEC.md`，或在设置页下载开发套件。",
-        "",
-    ]
+    if plugin.kind == "theme":
+        lines += [
+            "## 安装",
+            "",
+            "在 Kiwi「设置 → 主题 → 导入主题」中选择本 zip。",
+            "",
+            "主题插件只包含声明式 JSON 与 CSS，不执行 JavaScript。",
+            "主题样式会作用于整个应用界面，请只安装可信来源的主题。",
+            "",
+            "## 开发",
+            "",
+            "`plugin.json` 中的 `theme` 字段定义颜色令牌、背景、透明度与字体。",
+            "完整规范见 Kiwi 仓库 `docs/THEME_SPEC.md`，或在设置页下载主题开发套件。",
+            "",
+        ]
+    else:
+        lines += [
+            "## 安装",
+            "",
+            "在 Kiwi「设置 → 插件与区块 → 导入插件」中选择本 zip。",
+            "",
+            "组件插件包含可执行 JavaScript，只应从可信来源安装。",
+            "",
+            "## 开发",
+            "",
+            "入口脚本导出 `setup(host)`，返回 `{ blocks: { <type>: { component } } }`。",
+            "完整规范见 Kiwi 仓库 `docs/PLUGIN_SPEC.md`，或在设置页下载开发套件。",
+            "",
+        ]
     return "\n".join(lines)
 
 
-def _export_zip(plugin: Plugin) -> bytes:
+def _export_zip(plugin: Plugin, assets: list[PluginAsset] | None = None) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         manifest = _export_manifest(plugin)
@@ -326,11 +492,13 @@ def _export_zip(plugin: Plugin) -> bytes:
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         )
         archive.writestr("README.md", _plugin_readme(plugin))
-        if plugin.script:
+        if plugin.kind != "theme" and plugin.script:
             archive.writestr(plugin.entry or "index.js", plugin.script)
-            if plugin.style:
-                style_path = str(manifest.get("style") or "style.css")
-                archive.writestr(style_path, plugin.style)
+        if plugin.style:
+            style_path = str(manifest.get("style") or ("theme.css" if plugin.kind == "theme" else "style.css"))
+            archive.writestr(style_path, plugin.style)
+        for asset in assets or []:
+            archive.writestr(asset.path, asset.data)
     return buffer.getvalue()
 
 
@@ -489,22 +657,21 @@ async def inspect_plugin(file: UploadFile = File(...)):
     return _inspection(_parse_package(raw, file.filename or ""))
 
 
-@router.post("/import", response_model=PluginOut, status_code=201)
-async def import_plugin(
-    file: UploadFile = File(...),
-    overwrite: bool = Query(False),
-    session: AsyncSession = Depends(get_session),
-):
-    raw = await _read_upload(file)
-    if not raw:
-        raise HTTPException(400, "插件包为空")
-    package = _parse_package(raw, file.filename or "")
+async def save_package(
+    session: AsyncSession, package: PluginPackage, overwrite: bool
+) -> Plugin:
+    """把解析后的插件包落库；组件插件与主题插件共用。"""
     manifest = package.manifest
     existing = (
         await session.execute(select(Plugin).where(Plugin.key == manifest.key))
     ).scalar_one_or_none()
     if existing is not None and not overwrite:
         raise HTTPException(409, f"插件 key 已存在：{manifest.key}，如需更新请勾选覆盖")
+    if existing is not None and existing.kind != manifest.kind:
+        raise HTTPException(
+            409,
+            f"key「{manifest.key}」已被 {existing.kind} 插件占用，不能覆盖为 {manifest.kind}",
+        )
     plugin = existing or Plugin(key=manifest.key, enabled=True)
     plugin.source = "import"
     plugin_registry.apply_manifest(plugin, _package_manifest(package))
@@ -515,20 +682,60 @@ async def import_plugin(
         raise HTTPException(400, "manifest 体积超出限制")
     if existing is None:
         session.add(plugin)
+        await session.flush()
+    else:
+        await session.execute(
+            delete(PluginAsset).where(PluginAsset.plugin_id == plugin.id)
+        )
+    for asset in package.assets:
+        session.add(
+            PluginAsset(
+                plugin_id=plugin.id,
+                path=asset.path,
+                content_type=asset.content_type,
+                size=len(asset.data),
+                data=asset.data,
+            )
+        )
     await session.commit()
     await session.refresh(plugin)
-    logger.info(
-        "导入组件插件 %s v%s（%s）",
-        plugin.key,
-        plugin.version,
-        "覆盖" if existing else "新增",
-    )
+    return plugin
+
+
+async def import_package_file(
+    file: UploadFile,
+    overwrite: bool,
+    session: AsyncSession,
+    expected_kind: str | None = None,
+) -> Plugin:
+    raw = await _read_upload(file)
+    if not raw:
+        raise HTTPException(400, "插件包为空")
+    package = _parse_package(raw, file.filename or "")
+    if expected_kind and package.manifest.kind != expected_kind:
+        raise HTTPException(
+            400,
+            f"这是一个 {package.manifest.kind} 插件，请从对应的导入入口上传",
+        )
+    return await save_package(session, package, overwrite)
+
+
+@router.post("/import", response_model=PluginOut, status_code=201)
+async def import_plugin(
+    file: UploadFile = File(...),
+    overwrite: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+):
+    plugin = await import_package_file(file, overwrite, session, expected_kind="component")
+    logger.info("导入组件插件 %s v%s", plugin.key, plugin.version)
     return plugin_registry.plugin_out(plugin)
 
 
 @router.get("/{plugin_id}", response_model=PluginOut)
 async def get_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    return plugin_registry.plugin_out(await _get_plugin(session, plugin_id))
+    plugin = await _get_plugin(session, plugin_id)
+    assets = await _assets_for(session, plugin.id)
+    return plugin_registry.plugin_out(plugin, [asset.path for asset in assets])
 
 
 @router.patch("/{plugin_id}", response_model=PluginOut)
@@ -556,9 +763,12 @@ async def update_plugin(
         plugin.manifest = manifest
     if plugin_registry.manifest_size(plugin.manifest) > MAX_MANIFEST_CHARS:
         raise HTTPException(400, "manifest 体积超出限制")
+    if plugin.kind == "theme" and not plugin.enabled:
+        await _clear_active_theme(session, plugin.key)
     await session.commit()
     await session.refresh(plugin)
-    return plugin_registry.plugin_out(plugin)
+    assets = await _assets_for(session, plugin.id)
+    return plugin_registry.plugin_out(plugin, [asset.path for asset in assets])
 
 
 @router.get("/{plugin_id}/bundle.js", response_model=None)
@@ -591,12 +801,63 @@ async def plugin_style(plugin_id: uuid.UUID, session: AsyncSession = Depends(get
     )
 
 
+async def _serve_asset(
+    plugin_id: uuid.UUID, path: str, session: AsyncSession
+) -> Response:
+    plugin = await _get_plugin(session, plugin_id)
+    normalized = path.replace("\\", "/").lstrip("/")
+    if ".." in PurePosixPath(normalized).parts:
+        raise HTTPException(400, "资源路径非法")
+    candidates = [normalized]
+    if not normalized.startswith("assets/"):
+        candidates.append(f"assets/{normalized}")
+    asset = (
+        await session.execute(
+            select(PluginAsset).where(
+                PluginAsset.plugin_id == plugin.id,
+                PluginAsset.path.in_(candidates),
+            )
+        )
+    ).scalars().first()
+    if asset is None:
+        raise HTTPException(404, "资源不存在")
+    return Response(
+        content=asset.data,
+        media_type=asset.content_type,
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{plugin_id}/asset/{path:path}", response_model=None)
+async def plugin_asset(
+    plugin_id: uuid.UUID,
+    path: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """下发主题插件 assets/ 下的图片与字体。"""
+    return await _serve_asset(plugin_id, path, session)
+
+
+@router.get("/{plugin_id}/assets/{path:path}", response_model=None)
+async def plugin_asset_alias(
+    plugin_id: uuid.UUID,
+    path: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """别名：让主题 CSS 里的 url("assets/...") 直接可用。"""
+    return await _serve_asset(plugin_id, path, session)
+
+
 @router.get("/{plugin_id}/export", response_model=None)
 async def export_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     plugin = await _get_plugin(session, plugin_id)
+    assets = await _assets_for(session, plugin.id)
     filename = f"{plugin.key}-{plugin.version}.zip"
     return Response(
-        content=_export_zip(plugin),
+        content=_export_zip(plugin, assets),
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
@@ -608,5 +869,8 @@ async def export_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(ge
 @router.delete("/{plugin_id}", status_code=204)
 async def delete_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     plugin = await _get_plugin(session, plugin_id)
+    if plugin.kind == "theme":
+        await _clear_active_theme(session, plugin.key)
+    await session.execute(delete(PluginAsset).where(PluginAsset.plugin_id == plugin.id))
     await session.delete(plugin)
     await session.commit()

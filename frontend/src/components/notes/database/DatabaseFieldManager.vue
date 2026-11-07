@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /** 字段管理：新增/重命名/调整类型/选项编辑/排序/删除。 */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { FIELD_TYPES, fieldTypeMeta } from './meta'
 import { OPTION_COLORS, dotClass } from './colors'
 import { newFieldId, type DbField, type FieldType, type SelectOption } from '@/stores/noteDatabase'
@@ -67,6 +68,18 @@ function moveField(index: number, delta: number) {
   if (next < 0 || next >= draft.value.length) return
   const [item] = draft.value.splice(index, 1)
   draft.value.splice(next, 0, item)
+}
+
+const fieldTypeOptions = computed(() =>
+  FIELD_TYPES.map((meta) => ({ value: meta.type, label: meta.label })),
+)
+
+function setFieldType(field: DbField, value: string | number) {
+  onTypeChange(field, String(value) as FieldType)
+}
+
+function setNewType(value: string | number) {
+  newType.value = String(value) as FieldType
 }
 
 function onTypeChange(field: DbField, type: FieldType) {
@@ -140,15 +153,14 @@ function save() {
             v-model="field.name"
             class="min-w-0 flex-1 h-7 rounded-md border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-700 outline-none focus:border-kiwi-300 focus:ring-2 focus:ring-kiwi-200/60"
           />
-          <select
-            :value="field.type"
-            class="h-7 rounded-md border border-slate-200/80 bg-white/80 px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-            @change="onTypeChange(field, ($event.target as HTMLSelectElement).value as FieldType)"
-          >
-            <option v-for="meta in FIELD_TYPES" :key="meta.type" :value="meta.type">
-              {{ meta.label }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="shrink-0"
+            :model-value="field.type"
+            :options="fieldTypeOptions"
+            width="w-32"
+            trigger-class="!h-7 !justify-between !rounded-md !border !border-slate-200/80 !bg-white/80 !px-1.5 !text-[11px] !text-slate-600"
+            @update:model-value="setFieldType(field, $event)"
+          />
           <div class="flex items-center">
             <button class="fm-icon" title="上移" :disabled="index === 0" @click="moveField(index, -1)">
               <KiwiIcon name="chevron" :size="11" class="rotate-180" />
@@ -209,14 +221,14 @@ function save() {
           placeholder="新字段名称"
           @keyup.enter="addField"
         />
-        <select
-          v-model="newType"
-          class="h-7 rounded-md border border-slate-200/80 bg-white/80 px-1.5 text-[11px] text-slate-600 outline-none"
-        >
-          <option v-for="meta in FIELD_TYPES" :key="meta.type" :value="meta.type">
-            {{ meta.label }}
-          </option>
-        </select>
+        <KiwiSelect
+          class="shrink-0"
+          :model-value="newType"
+          :options="fieldTypeOptions"
+          width="w-32"
+          trigger-class="!h-7 !justify-between !rounded-md !border !border-slate-200/80 !bg-white/80 !px-1.5 !text-[11px] !text-slate-600"
+          @update:model-value="setNewType"
+        />
         <button class="kiwi-btn-secondary !py-1 !px-2.5 !text-[11px]" :disabled="!newName.trim()" @click="addField">
           <KiwiIcon name="plus" :size="12" />
           添加

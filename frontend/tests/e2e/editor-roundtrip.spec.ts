@@ -133,6 +133,80 @@ test.describe('编辑器 Markdown 往返', () => {
     await expect(preview).toContainText('🖼')
   })
 
+  test('标题作为有序列表项时保持标题格式', async ({ page, kb, notesApi }) => {
+    const note = await notesApi.createNote({
+      title: 'E2E 标题有序列表',
+      body_md: ['## 二级标题', '', '正文', '', '#### 四级标题', '', '正文'].join('\n'),
+    })
+    await openWorkspace(page, kb.id, `/notes/${note.id}`)
+
+    const editor = page.locator('.ProseMirror').first()
+    await editor.getByText('二级标题').click()
+    await page.locator('button[title="有序列表"]').first().click()
+
+    const item = editor.locator('ol > li').first()
+    await expect(item.locator('> h2')).toHaveCount(1)
+    const styles = await item.evaluate((li) => {
+      const heading = li.firstElementChild as HTMLElement
+      const number = getComputedStyle(heading, '::before')
+      const headingStyle = getComputedStyle(heading)
+      const ol = li.closest('ol') as HTMLElement
+      return {
+        tag: heading.tagName,
+        headingSize: headingStyle.fontSize,
+        headingWeight: headingStyle.fontWeight,
+        numberContent: number.content,
+        numberSize: number.fontSize,
+        numberWeight: number.fontWeight,
+        firstCharOffset:
+          heading.getBoundingClientRect().left - ol.getBoundingClientRect().left,
+        listStyle: getComputedStyle(li).listStyleType,
+      }
+    })
+    expect(styles.tag).toBe('H2')
+    // 编号直接写在标题文字前（标题的 ::before），字号 / 字重与标题一致，
+    // 避免「大标题 + 小号灰编号」的割裂。
+    expect(styles.listStyle).toBe('none')
+    expect(styles.numberContent).toContain('counter(')
+    expect(styles.numberContent).toContain('". "')
+    expect(styles.numberSize).toBe(styles.headingSize)
+    expect(styles.numberWeight).toBe(styles.headingWeight)
+    // 第一位数距离列表左侧装饰条固定 0.6rem（9.6px），
+    // 「1 / 11 / 111」都从同一位置开始，不随位数漂移。
+    expect(styles.firstCharOffset).toBeCloseTo(9.6, 1)
+
+    // 二级标题的紫色竖条保留，并落到有序列表序号左侧（列表缩进的最外沿）。
+    const bar = await item.locator('h2').evaluate((h2) => {
+      const after = getComputedStyle(h2, '::after')
+      const ol = h2.closest('ol') as HTMLElement
+      return {
+        content: after.content,
+        position: after.position,
+        left: parseFloat(after.left),
+        olPadding: parseFloat(getComputedStyle(ol).paddingLeft),
+      }
+    })
+    expect(bar.content).not.toBe('none')
+    expect(bar.position).toBe('absolute')
+    expect(Math.abs(bar.left)).toBeCloseTo(bar.olPadding, 1)
+
+    // 四级标题也应有明确的标题层级，不再与正文字号一致。
+    const h4 = await editor.locator('h4').first().evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return { size: parseFloat(cs.fontSize), weight: parseFloat(cs.fontWeight) }
+    })
+    expect(h4.size).toBeGreaterThan(15)
+    expect(h4.weight).toBeGreaterThanOrEqual(600)
+
+    await expect
+      .poll(async () => (await notesApi.getNote(note.id)).body_md, { timeout: 15_000 })
+      .toContain('1. ## 二级标题')
+
+    // 阅读态复用只读编辑器，结构与样式保持一致。
+    await page.getByRole('button', { name: '阅读', exact: true }).first().click()
+    await expect(page.locator('.ProseMirror ol > li > h2')).toHaveCount(1)
+  })
+
   test('引用块内分栏图片保存后不破坏 Markdown', async ({ page, kb, notesApi, api }) => {
     const url = await uploadImage(api, kb.id)
     const image = (width: number) =>

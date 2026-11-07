@@ -124,8 +124,9 @@ function setView(mode: ViewButtonId) {
       return
     }
     // 先落盘未保存正文，再切换到工作区分栏（本组件随外层视图切换卸载）。
+    // 每次从单篇视图进入都从当前笔记重新开始，不复用上一次的分栏内容。
     void autosave.flushNow()
-    panes.enter(props.note.kb_id, props.note.id)
+    panes.startFresh(props.note.kb_id, props.note.id)
     return
   }
   if (viewMode.value === mode) return

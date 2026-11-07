@@ -1,4 +1,7 @@
-/** 系统设置：品牌信息、主题色与线上 OCR 配置，启动时一次性水合。 */
+/**
+ * 系统设置：品牌信息与线上 OCR 配置，启动时一次性水合。
+ * 主题配色由主题引擎接管，品牌设置不再写入颜色。
+ */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { request, upload } from '@/api/client'
@@ -13,7 +16,9 @@ export interface SystemSettings {
   app_name: string
   app_description: string
   logo_url: string
+  /** 历史字段：旧版「品牌设置 → 主题色」，仅为兼容旧响应保留，界面不再读取 */
   theme_color: string
+  /** 历史字段：旧版学习模式主题色，仅为兼容旧响应保留 */
   learn_theme_color: string
   /** 学习模式独立 Logo，留空沿用品牌 Logo */
   learn_logo_url: string
@@ -209,10 +214,11 @@ export function applyLearnThemeColor(color: string) {
   applyShades('learn-', color || DEFAULT_LEARN_THEME_COLOR)
 }
 
-/** 品牌信息同步到顶栏、浏览器标题与两种模式的配色。 */
+/**
+ * 品牌信息同步到顶栏与浏览器标题。
+ * 配色由主题引擎负责，这里不再写任何颜色变量，避免品牌设置覆盖当前主题。
+ */
 export function applyBranding(settings: SystemSettings) {
-  applyThemeColor(settings.theme_color || DEFAULT_THEME_COLOR)
-  applyLearnThemeColor(settings.learn_theme_color || DEFAULT_LEARN_THEME_COLOR)
   const name = settings.app_name?.trim() || DEFAULT_APP_NAME
   const description = settings.app_description?.trim() || DEFAULT_APP_DESCRIPTION
   document.title = `${name} · ${description}`

@@ -72,6 +72,11 @@ const router = createRouter({
           component: () => import('@/views/settings/OperationsSettingsView.vue'),
         },
         {
+          path: 'settings/theme',
+          name: 'settings-theme',
+          component: () => import('@/views/settings/ThemeSettingsView.vue'),
+        },
+        {
           path: 'settings/plugins',
           name: 'settings-plugins',
           component: () => import('@/views/settings/PluginSettingsView.vue'),

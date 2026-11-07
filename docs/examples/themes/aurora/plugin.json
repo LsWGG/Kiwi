@@ -1,0 +1,52 @@
+{
+  "manifest_version": 1,
+  "kind": "theme",
+  "key": "aurora",
+  "name": "极光",
+  "version": "1.0.1",
+  "description": "深色极光渐变主题：冷色玻璃面板与青绿强调色。",
+  "author": "Kiwi",
+  "icon": "sparkle",
+  "homepage": "",
+  "entry": "",
+  "style": "theme.css",
+  "blocks": [],
+  "theme": {
+    "mode": "dark",
+    "colors": {
+      "app.background": "#0b1020",
+      "surface.background": "#121a30",
+      "surface.muted": "#1a2540",
+      "surface.strong": "#253356",
+      "border.subtle": "#1c2742",
+      "border.default": "#2a3a5e",
+      "border.strong": "#3b4f7a",
+      "text.primary": "#e7ecff",
+      "text.strong": "#d3ddfc",
+      "text.secondary": "#b1bfe8",
+      "text.muted": "#8b9bc4",
+      "text.subtle": "#6f7fa8",
+      "text.faint": "#56668c",
+      "accent": "#5eead4",
+      "accent.foreground": "#062a25"
+    },
+    "background": {
+      "image": "assets/aurora.svg",
+      "size": "cover",
+      "position": "center",
+      "repeat": "no-repeat",
+      "dim": 0.25,
+      "blur": 2
+    },
+    "surface": {
+      "opacity": 0.82,
+      "blur": 14
+    },
+    "typography": {
+      "body": "",
+      "heading": "",
+      "mono": "ui-monospace, SFMono-Regular, Menlo, monospace"
+    },
+    "preview": "assets/preview.svg"
+  }
+}

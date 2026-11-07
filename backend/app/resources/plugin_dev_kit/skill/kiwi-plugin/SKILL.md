@@ -121,19 +121,54 @@ export function setup(host) {
 `update:modelValue` 写回 props；使用前做特性检测，旧宿主可回退 textarea。
 完整 props 见 `PLUGIN_SPEC.md` §4.2.1。
 
-### 主题色（必须遵循）
+### 主题色与主题材质（必须遵循）
 
-插件涉及颜色展示时，颜色必须跟随「设置 → 外观」中的系统主题色，不要写死品牌色：
+插件颜色必须跟随当前主题插件（明暗、强调色、材质与不透明度），同时兼容学习模式，
+不要写死品牌色或浅色底。宿主在 `<html>` 上提供 RGB 三元组变量：
 
-- CSS 优先使用 `--kiwi-*` 变量（RGB 三元组）：
-  `color: rgb(var(--kiwi-600))`、`background: rgb(var(--kiwi-500) / 0.12)`。
-  编辑模式、学习模式与自定义主题色都会自动生效，无需 JS。
+- 强调色：`--theme-accent`、`--theme-accent-foreground`；
+- 表面：`--theme-surface`、`--theme-surface-muted`、`--theme-app`、`--theme-surface-opacity`；
+- 边框：`--theme-border`、`--theme-border-subtle`、`--theme-border-strong`；
+- 文字：`--theme-text-primary` / `strong` / `secondary` / `muted` / `subtle` / `faint`。
+
+在插件根类上建立局部别名，再在规则里复用（未加载主题引擎时保留浅色回退）：
+
+```css
+.my-block {
+  --plugin-surface: var(--theme-surface, 255 255 255);
+  --plugin-border: var(--theme-border, 226 232 240);
+  --plugin-text: var(--theme-text-strong, 51 65 85);
+  --plugin-accent: var(--theme-accent, 90 85 199);
+  --plugin-accent-foreground: var(--theme-accent-foreground, 255 255 255);
+
+  color: rgb(var(--plugin-text));
+  background: rgb(var(--plugin-surface) / var(--theme-surface-opacity, 1));
+  border: 1px solid rgb(var(--plugin-border));
+}
+.my-block__button {
+  background: rgb(var(--plugin-accent));
+  color: rgb(var(--plugin-accent-foreground));
+}
+.my-block__badge {
+  color: rgb(var(--plugin-accent));
+  background: rgb(var(--plugin-accent) / 0.12);
+}
+```
+
+- 强调色的浅色底用 `rgb(var(--theme-accent) / 0.1~0.16)`，**不要**用
+  `--kiwi-50/100/200` 做底色：这些色阶固定为浅色，在深色主题里会变成亮块，
+  而 `--kiwi-700` 等深色阶在深色底上对比度不足。仍需具体色阶时（如图表多档），
+  用 `html[data-kiwi-theme-mode='dark']` 自行调整。
+- 危险 / 成功 / 警告等语义色可保留固定色，但必须为深色主题提供提亮版本：
+  `html[data-kiwi-theme-mode='dark'] .my-block__remove { color: rgb(251 113 133); }`。
+- 深色主题下给原生表单控件补 `color-scheme: dark`，避免控件内部仍是浅色。
+- 原生 `<select>` 与 `type="color"` 会弹出浏览器自带 UI，禁止在插件面板中使用；
+  请自绘下拉与色板（参考宿主 `KiwiSelect` / `EditorColorPicker`）。
 - canvas / SVG / 动态内联样式使用 `host.theme`：
   `host.theme.accent.value`、`accentStrong`、`accentSoft`，
   或 `host.theme.shade(400, 0.3)`（50–900 档，alpha 可选）。
   这些值是 computed，主题变化会自动重渲染；在手动绘制循环里可
   `watch(host.theme.version, redraw)`。
-- 危险 / 成功等语义色可保留固定色，其余强调色一律走主题变量；中性底色可用 `--kiwi-50` 等。
 - 禁止在 manifest `default_props` 里保存十六进制主题色，避免主题切换后配色失真。
 
 ### 组件 props

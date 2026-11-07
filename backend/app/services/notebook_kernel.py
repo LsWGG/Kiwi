@@ -427,6 +427,7 @@ class _Kernel:
     generation: int = 1
     last_used: float = field(default_factory=time.monotonic)
     stderr_tail: list[str] = field(default_factory=list)
+    stderr_thread: threading.Thread | None = None
     # Windows Job Object 句柄与输出队列；Linux 分支保持为 None / 未使用。
     job: object | None = None
     windows: bool = False
@@ -543,9 +544,11 @@ class NotebookKernelManager:
             except Exception:
                 pass
 
-        threading.Thread(
+        thread = threading.Thread(
             target=drain_stderr, daemon=True, name=f"nb-stderr-{kernel.note_id[:8]}"
-        ).start()
+        )
+        thread.start()
+        kernel.stderr_thread = thread
 
     @staticmethod
     def _sandbox_child_pid(host_pid: int) -> int | None:
@@ -573,6 +576,20 @@ class NotebookKernelManager:
                 continue
             queue.extend(int(token) for token in raw.split() if token.isdigit())
         return None
+
+    @staticmethod
+    def _crash_text(kernel: _Kernel, message: str) -> str:
+        """在崩溃提示后附上内核 stderr 末尾，便于定位 OOM / 信号终止等原因。"""
+        # stdout 先于 stderr 读到 EOF：给排空线程一点时间把最后几行错误读完，
+        # 否则崩溃现场的 stderr 往往还没来得及进入 stderr_tail。
+        thread = kernel.stderr_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=0.5)
+        tail = [line for line in kernel.stderr_tail[-8:] if line]
+        detail = "\n".join(tail)[-1200:]
+        if not detail:
+            return message
+        return f"{message}\n\n内核错误输出（末尾）：\n{detail}"
 
     @staticmethod
     def _kernel_meta(kernel: _Kernel) -> dict[str, str]:
@@ -701,21 +718,24 @@ class NotebookKernelManager:
             kernel.last_used = time.monotonic()
             restarted = False
             if not kernel.alive():
-                # 内核在获取锁的瞬间退出：清理后让用户重跑，避免持错锁。
+                # 内核在获取锁的瞬间退出：还没开始执行代码，直接换新内核继续，
+                # 避免用户看到「请重新运行」后再点一次才恢复。
+                kernel.lock.release()
                 self._drop(note_id)
-                return KernelExecution(
-                    ok=False,
-                    outputs=[
-                        {
-                            "type": "error",
-                            "text": "Python 内核已退出，已自动清理；请重新运行该单元格。",
-                        }
-                    ],
-                    execution_count=0,
-                    duration_ms=0,
-                    kernel_restarted=True,
-                    **meta,
-                )
+                kernel = self._get_or_create(kb_id, note_id)
+                meta = self._kernel_meta(kernel)
+                if not kernel.lock.acquire(timeout=1.0):
+                    return KernelExecution(
+                        ok=False,
+                        outputs=[],
+                        execution_count=kernel.execution_count,
+                        duration_ms=0,
+                        busy=True,
+                        error="内核正在执行其他单元格，请等待当前单元格结束。",
+                        **meta,
+                    )
+                kernel.last_used = time.monotonic()
+                restarted = True
             kernel.execution_count += 1
             count = kernel.execution_count
             started = time.monotonic()
@@ -801,15 +821,14 @@ class NotebookKernelManager:
 
                 line = kernel.proc.stdout.readline()
             if not line:
+                crash_text = self._crash_text(
+                    kernel,
+                    "Python 内核意外退出，已自动清理；请重新运行该单元格。",
+                )
                 self._drop(note_id)
                 return KernelExecution(
                     ok=False,
-                    outputs=[
-                        {
-                            "type": "error",
-                            "text": "Python 内核意外退出，已自动清理；请重新运行该单元格。",
-                        }
-                    ],
+                    outputs=[{"type": "error", "text": crash_text}],
                     execution_count=count,
                     duration_ms=int((time.monotonic() - started) * 1000),
                     kernel_restarted=True,

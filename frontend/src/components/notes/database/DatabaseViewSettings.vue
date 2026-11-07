@@ -3,6 +3,7 @@
 import { computed, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { OPTION_COLORS, dotClass } from './colors'
 import type { DbField, DbView, ViewType } from '@/stores/noteDatabase'
 
@@ -69,6 +70,34 @@ const TYPE_ICON: Record<ViewType, string> = {
   kanban: 'kanban',
   gallery: 'gallery',
   calendar: 'calendar',
+}
+
+type NullableFieldKey =
+  | 'group_field'
+  | 'cover_field'
+  | 'title_field'
+  | 'date_field'
+  | 'end_field'
+
+function fieldOptions(
+  fields: DbField[],
+  emptyLabel: string,
+): Array<{ value: string; label: string }> {
+  return [
+    { value: '', label: emptyLabel },
+    ...fields.map((field) => ({ value: field.id, label: field.name })),
+  ]
+}
+
+const groupFieldOptions = computed(() => fieldOptions(selectFields.value, '请选择单选字段'))
+const coverFieldOptions = computed(() => fieldOptions(textFields.value, '无封面'))
+const titleFieldOptions = computed(() => fieldOptions(textFields.value, '默认'))
+const dateFieldOptions = computed(() => fieldOptions(dateFields.value, '请选择日期字段'))
+const endFieldOptions = computed(() => fieldOptions(endDateFields.value, '无（单日事件）'))
+
+function setNullableField(key: NullableFieldKey, value: string | number) {
+  if (!local.value) return
+  local.value[key] = String(value) || null
 }
 
 function toggleHidden(fieldId: string) {
@@ -155,15 +184,14 @@ function save() {
       <template v-else-if="local.type === 'kanban'">
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">分组字段</span>
-          <select
-            v-model="local.group_field"
-            class="flex-1 h-8 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-600 outline-none focus:border-kiwi-300"
-          >
-            <option :value="null">请选择单选字段</option>
-            <option v-for="field in selectFields" :key="field.id" :value="field.id">
-              {{ field.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="min-w-0 flex-1"
+            :model-value="local.group_field ?? ''"
+            :options="groupFieldOptions"
+            width="w-60"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[12px] !text-slate-600"
+            @update:model-value="setNullableField('group_field', $event)"
+          />
         </div>
         <div class="flex items-start gap-3">
           <span class="w-20 shrink-0 pt-1 text-[11.5px] text-slate-500">显示字段</span>
@@ -209,27 +237,25 @@ function save() {
       <template v-else-if="local.type === 'gallery'">
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">封面字段</span>
-          <select
-            v-model="local.cover_field"
-            class="flex-1 h-8 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-600 outline-none focus:border-kiwi-300"
-          >
-            <option :value="null">无封面</option>
-            <option v-for="field in textFields" :key="field.id" :value="field.id">
-              {{ field.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="min-w-0 flex-1"
+            :model-value="local.cover_field ?? ''"
+            :options="coverFieldOptions"
+            width="w-60"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[12px] !text-slate-600"
+            @update:model-value="setNullableField('cover_field', $event)"
+          />
         </div>
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">标题字段</span>
-          <select
-            v-model="local.title_field"
-            class="flex-1 h-8 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-600 outline-none focus:border-kiwi-300"
-          >
-            <option :value="null">默认</option>
-            <option v-for="field in textFields" :key="field.id" :value="field.id">
-              {{ field.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="min-w-0 flex-1"
+            :model-value="local.title_field ?? ''"
+            :options="titleFieldOptions"
+            width="w-60"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[12px] !text-slate-600"
+            @update:model-value="setNullableField('title_field', $event)"
+          />
         </div>
         <p class="pl-[92px] text-[10.5px] text-slate-400">封面字段为图片 URL 时显示图片，否则显示渐变占位。</p>
       </template>
@@ -238,27 +264,25 @@ function save() {
       <template v-else>
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">日期字段</span>
-          <select
-            v-model="local.date_field"
-            class="flex-1 h-8 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-600 outline-none focus:border-kiwi-300"
-          >
-            <option :value="null">请选择日期字段</option>
-            <option v-for="field in dateFields" :key="field.id" :value="field.id">
-              {{ field.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="min-w-0 flex-1"
+            :model-value="local.date_field ?? ''"
+            :options="dateFieldOptions"
+            width="w-60"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[12px] !text-slate-600"
+            @update:model-value="setNullableField('date_field', $event)"
+          />
         </div>
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">结束日期</span>
-          <select
-            v-model="local.end_field"
-            class="flex-1 h-8 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-600 outline-none focus:border-kiwi-300"
-          >
-            <option :value="null">无（单日事件）</option>
-            <option v-for="field in endDateFields" :key="field.id" :value="field.id">
-              {{ field.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="min-w-0 flex-1"
+            :model-value="local.end_field ?? ''"
+            :options="endFieldOptions"
+            width="w-60"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[12px] !text-slate-600"
+            @update:model-value="setNullableField('end_field', $event)"
+          />
         </div>
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">横条颜色</span>
@@ -299,15 +323,14 @@ function save() {
         </p>
         <div class="flex items-center gap-3">
           <span class="w-20 shrink-0 text-[11.5px] text-slate-500">标题字段</span>
-          <select
-            v-model="local.title_field"
-            class="flex-1 h-8 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-[12px] text-slate-600 outline-none focus:border-kiwi-300"
-          >
-            <option :value="null">默认</option>
-            <option v-for="field in textFields" :key="field.id" :value="field.id">
-              {{ field.name }}
-            </option>
-          </select>
+          <KiwiSelect
+            class="min-w-0 flex-1"
+            :model-value="local.title_field ?? ''"
+            :options="titleFieldOptions"
+            width="w-60"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200/80 !bg-white/80 !px-2 !text-[12px] !text-slate-600"
+            @update:model-value="setNullableField('title_field', $event)"
+          />
         </div>
       </template>
 

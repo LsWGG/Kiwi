@@ -8,6 +8,8 @@ const props = withDefaults(
     open: boolean
     title?: string
     maxW?: string
+    /** 固定面板高度（CSS 长度）。用于内容随筛选变化时保持窗口尺寸稳定。 */
+    height?: string
     closeOnMask?: boolean
   }>(),
   { open: false, closeOnMask: true, maxW: 'max-w-lg' },
@@ -43,6 +45,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <div
           class="kiwi-modal-panel relative flex max-h-[calc(100vh-2rem)] w-full flex-col rounded-2xl glass-strong p-4 shadow-lifted animate-scale-in sm:p-6"
           :class="maxW"
+          :style="height ? { height } : undefined"
         >
           <div v-if="title" class="mb-4 flex shrink-0 items-center justify-between gap-3">
             <h2 class="text-lg font-semibold text-slate-800">{{ title }}</h2>

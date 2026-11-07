@@ -62,6 +62,26 @@ export const DRAW_PREFERENCE_DEFAULTS: DrawPreferences = {
   showSize: true,
 }
 
+/**
+ * 当前主题下的默认画布底色。
+ *
+ * 深色主题如果仍用纯白画布，画布会和周围的深色界面割裂，连线标签、
+ * 浅色文字也会失去对比。这里跟随主题的应用底色；浅色主题保持纯白。
+ */
+export function defaultDrawBackground(): string {
+  if (typeof document === 'undefined') return '#ffffff'
+  const root = document.documentElement
+  if (root.dataset.kiwiThemeMode !== 'dark') return '#ffffff'
+  const raw = getComputedStyle(root).getPropertyValue('--theme-app').trim()
+  const match = /^(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})$/.exec(raw)
+  if (!match) return '#0b1f3a'
+  const hex = match
+    .slice(1)
+    .map((part) => Math.min(255, Number(part)).toString(16).padStart(2, '0'))
+    .join('')
+  return `#${hex}`
+}
+
 function readBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
@@ -71,7 +91,7 @@ export function readDrawPreferences(appState: unknown): DrawPreferences {
   const background =
     typeof state.viewBackgroundColor === 'string' && state.viewBackgroundColor
       ? state.viewBackgroundColor
-      : DRAW_PREFERENCE_DEFAULTS.backgroundColor
+      : defaultDrawBackground()
   const gridType = state.gridType
   const shapeTheme = state.activeTheme
   return {
@@ -92,6 +112,25 @@ export function readDrawPreferences(appState: unknown): DrawPreferences {
 }
 
 const CONNECTOR_TYPES = new Set(['arrow', 'line', 'freedraw'])
+/**
+ * 连线标签的自动底色标记：保存在元素 customData 中，记录上一次自动同步的
+ * 画布底色。标记仍等于当前标签底色时说明用户没改过，可以继续跟随画布；
+ * 用户手动改过标签底色后标记会被清掉，之后不再覆盖。
+ */
+export const CONNECTOR_LABEL_BG_KEY = 'kiwiLabelBg'
+/** 旧版本把画布底色写进标签但没有留下标记，这些历史值按自动底色迁移。 */
+const LEGACY_CONNECTOR_LABEL_BACKGROUNDS = new Set([
+  '#ffffff',
+  '#f8fafc',
+  '#fbf7ef',
+  '#f5f3ff',
+  '#eff6ff',
+  '#fefce8',
+  '#f0fdf4',
+  '#0b1f3a',
+  '#0f172a',
+  '#1e293b',
+])
 const TRANSIENT_STATE_KEYS = [
   'scrollX',
   'scrollY',
@@ -133,6 +172,33 @@ export function readDrawDoc(props: unknown): JvsDrawDoc | null {
   return normalizeDrawDoc(props.draw_doc) ?? normalizeDrawDoc(legacyCanvasToDraw(props.canvas_doc))
 }
 
+function connectorLabelMarker(element: DrawElement): string {
+  const data = element.customData
+  if (!isRecord(data)) return ''
+  const marker = data[CONNECTOR_LABEL_BG_KEY]
+  return typeof marker === 'string' ? marker.trim().toLowerCase() : ''
+}
+
+/**
+ * 连线标签底色是否由画布自动托管。
+ *
+ * jvs-draw 在 fontBgColor 为 transparent 时固定画白底，深色画布上会出现
+ * 「白底 + 浅色字」；因此标签底色必须显式写成画布底色。只有自动写入的
+ * 底色才跟随画布变化，用户在属性面板里自定义过的底色保持不动。
+ */
+function isAutoConnectorLabel(element: DrawElement, canvasBackground: string): boolean {
+  const labelBg =
+    typeof element.fontBgColor === 'string' ? element.fontBgColor.trim().toLowerCase() : ''
+  if (!labelBg || labelBg === 'transparent') return true
+  const marker = connectorLabelMarker(element)
+  if (marker) return marker === labelBg
+  // 没有标记：底色正好是当前画布色或旧版本写入过的值，按自动底色迁移。
+  return (
+    labelBg === canvasBackground.trim().toLowerCase() ||
+    LEGACY_CONNECTOR_LABEL_BACKGROUNDS.has(labelBg)
+  )
+}
+
 /** 读取 jvs-draw 的 /getContentObject() 结构；非法数据返回 null。 */
 export function normalizeDrawDoc(raw: unknown): JvsDrawDoc | null {
   if (!isRecord(raw) || !Array.isArray(raw.elements)) return null
@@ -159,8 +225,35 @@ export function normalizeDrawDoc(raw: unknown): JvsDrawDoc | null {
       appState[key] = value
     }
   }
-  if (typeof appState.viewBackgroundColor !== 'string') {
-    appState.viewBackgroundColor = '#ffffff'
+  if (typeof appState.viewBackgroundColor !== 'string' || !appState.viewBackgroundColor) {
+    appState.viewBackgroundColor = defaultDrawBackground()
+  }
+  /* jvs-draw 给连线标签兜底的是固定白底（fontBgColor 为 transparent 时），
+     深色画布上会出现「白底 + 浅色字」。这里把标签底色对齐画布底色，
+     文字重新变得可读，标签也能正常遮住连线。仅处理绑定在连线上的文本，
+     并用 customData.kiwiLabelBg 记录自动值，避免覆盖用户的自行设置。 */
+  const canvasBackground = appState.viewBackgroundColor
+  const connectors = new Set(
+    elements
+      .filter((element) => element.type === 'arrow' || element.type === 'line')
+      .map((element) => element.id),
+  )
+  for (const element of elements) {
+    if (element.type !== 'text' || !connectors.has(String(element.containerId ?? ''))) continue
+    const customData = isRecord(element.customData) ? { ...element.customData } : {}
+    if (!isAutoConnectorLabel(element, canvasBackground)) {
+      // 用户自定义过底色：清掉旧标记，后续画布换色不再动它。
+      if (CONNECTOR_LABEL_BG_KEY in customData) {
+        delete customData[CONNECTOR_LABEL_BG_KEY]
+        element.customData = customData
+      }
+      continue
+    }
+    element.fontBgColor = canvasBackground
+    if (customData[CONNECTOR_LABEL_BG_KEY] !== canvasBackground) {
+      customData[CONNECTOR_LABEL_BG_KEY] = canvasBackground
+      element.customData = customData
+    }
   }
 
   const files: Record<string, string> = {}
@@ -185,7 +278,7 @@ export function emptyDrawDoc(): JvsDrawDoc {
     type: 'jvs-draw',
     version: 1,
     elements: [],
-    appState: { viewBackgroundColor: '#ffffff' },
+    appState: { viewBackgroundColor: defaultDrawBackground() },
     files: {},
   }
 }

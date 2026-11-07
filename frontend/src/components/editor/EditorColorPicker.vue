@@ -16,7 +16,13 @@ const props = withDefaults(
     value?: string | null
     /** 当前选区 / 光标处是否已有颜色 */
     active?: boolean
-    variant?: 'toolbar' | 'bubble'
+    /**
+     * toolbar / bubble：编辑器工具栏图标按钮；
+     * field：设置页表单样式（色块 + Hex + 箭头）；
+     * swatch：仅显示当前颜色的方形色块。
+     */
+    variant?: 'toolbar' | 'bubble' | 'field' | 'swatch'
+    disabled?: boolean
     title?: string
     /** 触发按钮与面板标题使用的图标 */
     icon?: string
@@ -33,6 +39,7 @@ const props = withDefaults(
     value: '#1F2937',
     active: false,
     variant: 'toolbar',
+    disabled: false,
     title: '文字颜色',
     icon: 'type',
     label: '文字颜色',
@@ -70,7 +77,11 @@ const hasColor = computed(() => !!normalizeColor(props.value))
 const triggerClass = computed(() => [
   props.variant === 'bubble'
     ? 'relative grid h-6 w-6 place-items-center rounded-md text-slate-500 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700'
-    : 'relative grid h-7 w-7 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700',
+    : props.variant === 'field'
+      ? 'flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-200/90 bg-white/70 px-2.5 text-slate-600 transition-colors hover:border-kiwi-300 disabled:cursor-not-allowed disabled:opacity-40'
+      : props.variant === 'swatch'
+        ? 'relative grid h-7 w-7 place-items-center overflow-hidden rounded-lg border border-slate-200/90 transition-colors hover:border-kiwi-300 disabled:cursor-not-allowed disabled:opacity-40'
+        : 'relative grid h-7 w-7 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-kiwi-50 hover:text-kiwi-700',
   props.active ? 'bg-kiwi-50 text-kiwi-700' : '',
 ])
 
@@ -261,25 +272,52 @@ function clear(close: () => void) {
 </script>
 
 <template>
-  <KiwiDropdown width="w-60" align="left">
+  <KiwiDropdown width="w-60" align="left" :disabled="disabled">
     <template #trigger="{ open }">
       <button
         type="button"
         :class="triggerClass"
         :title="title"
+        :disabled="disabled"
         data-color-trigger
         :aria-expanded="open"
       >
-        <KiwiIcon :name="icon" :size="variant === 'bubble' ? 13 : 14" />
-        <span
-          class="absolute rounded-full"
-          :class="
-            variant === 'bubble'
-              ? 'bottom-0.5 left-1 right-1 h-[3px]'
-              : 'bottom-[3px] left-1.5 right-1.5 h-[3px]'
-          "
-          :style="{ background: hasColor ? current : fallback }"
-        />
+        <template v-if="variant === 'field'">
+          <span class="flex min-w-0 items-center gap-2">
+            <span
+              class="h-4 w-4 shrink-0 rounded-md border border-black/10"
+              :style="{ background: current }"
+            />
+            <span class="truncate font-mono text-[11px] uppercase">{{ current }}</span>
+          </span>
+          <KiwiIcon
+            name="chevron"
+            :size="10"
+            class="shrink-0 text-slate-400 transition-transform"
+            :class="open ? 'rotate-180' : ''"
+          />
+        </template>
+        <template v-else-if="variant === 'swatch'">
+          <span class="absolute inset-0" :style="{ background: current }" />
+          <KiwiIcon
+            name="palette"
+            :size="13"
+            class="relative"
+            :style="{ color: isLight(current) ? '#475569' : '#ffffff' }"
+          />
+        </template>
+        <template v-else>
+          <KiwiIcon :name="icon" :size="variant === 'bubble' ? 13 : 14" />
+          <span
+            class="absolute rounded-full"
+            :class="
+              variant === 'bubble'
+                ? 'bottom-0.5 left-1 right-1 h-[3px]'
+                : 'bottom-[3px] left-1.5 right-1.5 h-[3px]'
+            "
+            :style="{ background: hasColor ? current : fallback }"
+          />
+        </template>
       </button>
     </template>
     <template #default="{ close }">

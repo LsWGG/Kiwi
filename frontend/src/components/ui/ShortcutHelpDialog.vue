@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 全局键盘快捷键面板：分类筛选 + 即时搜索，入口在顶栏与 `?` 键。 */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { SHORTCUT_GROUPS, type ShortcutGroup } from '@/constants/shortcuts'
@@ -78,17 +78,68 @@ const singleGroupWide = computed(() => {
   return groups.length === 1 && groups[0].items.length > 8
 })
 
+/**
+ * 是否处于两栏断点。CSS `columns` 遇到 `break-inside-avoid` 的大分组时
+ * 只能按顺序切分，无法均衡（例如 8 + 24 条 vs 27 + 11 + 5 + 9 + 3 条），
+ * 会出现左栏早早结束、右栏拖得很长。这里改为按条目数贪心分配到两栏。
+ */
+const wideLayout = ref(false)
+let wideQuery: MediaQueryList | null = null
+
+function syncWideLayout(event?: MediaQueryListEvent) {
+  wideLayout.value = event ? event.matches : Boolean(wideQuery?.matches)
+}
+
+onMounted(() => {
+  wideQuery = window.matchMedia('(min-width: 640px)')
+  syncWideLayout()
+  wideQuery.addEventListener('change', syncWideLayout)
+})
+
+onBeforeUnmount(() => {
+  wideQuery?.removeEventListener('change', syncWideLayout)
+})
+
+const layoutColumns = computed<ShortcutGroup[][]>(() => {
+  const groups = filteredGroups.value
+  if (groups.length <= 1 || !wideLayout.value) return [groups]
+  // 估算高度：标题栏固定开销 + 每条一行（带 hint 的条目略高）。
+  const weightOf = (group: ShortcutGroup) =>
+    2 + group.items.reduce((sum, item) => sum + (item.hint ? 1.5 : 1), 0)
+  const columns: ShortcutGroup[][] = [[], []]
+  const weights = [0, 0]
+  for (const group of groups) {
+    const index = weights[0] <= weights[1] ? 0 : 1
+    columns[index].push(group)
+    weights[index] += weightOf(group)
+  }
+  // 顺序阅读优先：只有两栏都非空时才保留双栏。
+  return columns.every((column) => column.length > 0) ? columns : [groups]
+})
+
 /** 把 `Ctrl / Cmd + Shift + Z` 拆成独立键帽，长组合键更易读。 */
 function keyParts(keys: string): string[] {
   return keys.split(' + ')
 }
+
+/**
+ * 固定面板高度：切换分类或搜索时窗口不再上下跳动。
+ * 面板挂在 zoom 的 body 内，dvh 需要除以 --ui-scale 才能完整落在视口内。
+ */
+const panelHeight = 'min(840px, calc((100dvh - 2rem) / var(--ui-scale, 1)))'
 </script>
 
 <template>
-  <KiwiModal :open="open" title="键盘快捷键" max-w="max-w-5xl" @close="emit('close')">
-    <div class="space-y-4">
+  <KiwiModal
+    :open="open"
+    title="键盘快捷键"
+    max-w="max-w-5xl"
+    :height="panelHeight"
+    @close="emit('close')"
+  >
+    <div class="flex h-full flex-col gap-4">
       <!-- 搜索 -->
-      <div class="relative">
+      <div class="relative shrink-0">
         <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-300">
           <KiwiIcon name="search" :size="14" />
         </span>
@@ -110,7 +161,7 @@ function keyParts(keys: string): string[] {
       </div>
 
       <!-- 分类筛选 -->
-      <div class="-mt-1 flex flex-wrap items-center gap-1.5">
+      <div class="-mt-1 flex shrink-0 flex-wrap items-center gap-1.5">
         <button
           v-for="tab in groupTabs"
           :key="tab.id"
@@ -131,7 +182,7 @@ function keyParts(keys: string): string[] {
 
       <!-- 说明 -->
       <div
-        class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-slate-50/70 px-3 py-2 text-[10.5px] leading-relaxed text-slate-400"
+        class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-slate-50/70 px-3 py-2 text-[10.5px] leading-relaxed text-slate-400"
       >
         <span>
           <kbd class="font-mono text-slate-500">Ctrl / Cmd</kbd>
@@ -145,74 +196,78 @@ function keyParts(keys: string): string[] {
       </div>
 
       <!-- 分组列表 -->
-      <div
-        v-if="filteredGroups.length"
-        :class="
-          filteredGroups.length === 1
-            ? 'grid grid-cols-1'
-            : 'columns-1 gap-3 sm:columns-2'
-        "
-      >
-        <section
-          v-for="group in filteredGroups"
-          :key="group.id"
-          class="break-inside-avoid overflow-hidden rounded-xl border border-slate-200/70 bg-white/75 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
-          :class="filteredGroups.length === 1 ? '' : 'mb-3'"
+      <div class="min-h-0 flex-1 overflow-y-auto pr-0.5">
+        <div
+          v-if="filteredGroups.length"
+          class="grid grid-cols-1 items-start gap-3"
+          :class="layoutColumns.length > 1 ? 'sm:grid-cols-2' : ''"
         >
-          <header
-            class="flex items-center gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50/90 to-white/40 px-3 py-2"
+          <div
+            v-for="(column, columnIndex) in layoutColumns"
+            :key="columnIndex"
+            class="flex min-w-0 flex-col gap-3"
           >
-            <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-kiwi-50 text-kiwi-600">
-              <KiwiIcon :name="group.icon" :size="13" />
-            </span>
-            <h3 class="text-[12px] font-semibold tracking-wide text-slate-700">{{ group.title }}</h3>
-            <span class="ml-auto rounded-full bg-white/80 px-1.5 py-0.5 text-[9.5px] tabular-nums text-slate-400">
-              {{ group.items.length }}
-            </span>
-          </header>
-          <dl
-            class="px-3 py-1"
-            :class="singleGroupWide ? 'grid grid-cols-1 gap-x-6 sm:grid-cols-2' : ''"
-          >
-            <div
-              v-for="item in group.items"
-              :key="`${group.id}-${item.keys}-${item.label}`"
-              class="-mx-1.5 flex items-start justify-between gap-3 rounded-md px-1.5 py-1.5 transition-colors hover:bg-kiwi-50/50"
+            <section
+              v-for="group in column"
+              :key="group.id"
+              class="overflow-hidden rounded-xl border border-slate-200/70 bg-white/75 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
             >
-              <dt class="min-w-0 text-[11.5px] leading-snug text-slate-600">
-                {{ item.label }}
-                <span v-if="item.hint" class="mt-0.5 block text-[10px] leading-snug text-slate-400">
-                  {{ item.hint }}
+              <header
+                class="flex items-center gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50/90 to-white/40 px-3 py-2"
+              >
+                <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-kiwi-50 text-kiwi-600">
+                  <KiwiIcon :name="group.icon" :size="13" />
                 </span>
-              </dt>
-              <dd class="flex shrink-0 flex-wrap items-center justify-end gap-1 pt-px">
-                <template v-for="(part, index) in keyParts(item.keys)" :key="`${part}-${index}`">
-                  <span v-if="index" class="text-[9px] font-medium text-slate-300">+</span>
-                  <kbd
-                    class="inline-flex min-h-[20px] items-center rounded-[5px] border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-1.5 font-mono text-[10px] leading-4 text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.06)]"
-                  >{{ part }}</kbd>
-                </template>
-              </dd>
-            </div>
-          </dl>
-        </section>
-      </div>
+                <h3 class="text-[12px] font-semibold tracking-wide text-slate-700">{{ group.title }}</h3>
+                <span class="ml-auto rounded-full bg-white/80 px-1.5 py-0.5 text-[9.5px] tabular-nums text-slate-400">
+                  {{ group.items.length }}
+                </span>
+              </header>
+              <dl
+                class="px-3 py-1"
+                :class="singleGroupWide ? 'grid grid-cols-1 gap-x-6 sm:grid-cols-2' : ''"
+              >
+                <div
+                  v-for="item in group.items"
+                  :key="`${group.id}-${item.keys}-${item.label}`"
+                  class="-mx-1.5 flex items-start justify-between gap-3 rounded-md px-1.5 py-1.5 transition-colors hover:bg-kiwi-50/50"
+                >
+                  <dt class="min-w-0 text-[11.5px] leading-snug text-slate-600">
+                    {{ item.label }}
+                    <span v-if="item.hint" class="mt-0.5 block text-[10px] leading-snug text-slate-400">
+                      {{ item.hint }}
+                    </span>
+                  </dt>
+                  <dd class="flex shrink-0 flex-wrap items-center justify-end gap-1 pt-px">
+                    <template v-for="(part, index) in keyParts(item.keys)" :key="`${part}-${index}`">
+                      <span v-if="index" class="text-[9px] font-medium text-slate-300">+</span>
+                      <kbd
+                        class="inline-flex min-h-[20px] items-center rounded-[5px] border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-1.5 font-mono text-[10px] leading-4 text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.06)]"
+                      >{{ part }}</kbd>
+                    </template>
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+        </div>
 
-      <!-- 空态 -->
-      <div
-        v-else
-        class="grid place-items-center rounded-xl border border-dashed border-slate-200 bg-white/50 px-4 py-10"
-      >
-        <span class="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-300">
-          <KiwiIcon name="search" :size="20" />
-        </span>
-        <p class="mt-2.5 text-[12px] font-medium text-slate-500">没有匹配的快捷键</p>
-        <p class="mt-1 text-[11px] text-slate-400">试试「保存」「画布」或「Ctrl + K」</p>
+        <!-- 空态 -->
+        <div
+          v-else
+          class="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/50 px-4 py-10"
+        >
+          <span class="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-300">
+            <KiwiIcon name="search" :size="20" />
+          </span>
+          <p class="mt-2.5 text-[12px] font-medium text-slate-500">没有匹配的快捷键</p>
+          <p class="mt-1 text-[11px] text-slate-400">试试「保存」「画布」或「Ctrl + K」</p>
+        </div>
       </div>
 
       <!-- 底部提示 -->
       <p
-        class="flex items-center justify-center gap-1.5 border-t border-slate-100 pt-3 text-[10.5px] text-slate-400"
+        class="flex shrink-0 items-center justify-center gap-1.5 border-t border-slate-100 pt-3 text-[10.5px] text-slate-400"
       >
         随时按
         <kbd

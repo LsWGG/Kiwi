@@ -6,6 +6,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import type { Editor } from '@tiptap/core'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import {
   DEFAULT_DOCX_PREFS,
   DOCX_LINE_HEIGHTS,
@@ -93,16 +94,24 @@ watch(
   { immediate: true },
 )
 
-function onIndentMode(e: Event) {
-  const mode = (e.target as HTMLSelectElement).value as IndentMode
+const indentOptions = [
+  { value: 'none', label: '无' },
+  { value: 'first', label: '首行缩进' },
+  { value: 'hanging', label: '悬挂缩进' },
+]
+const dialogSelectTrigger =
+  '!h-7 !w-full !justify-between !rounded-md !border !border-slate-200 !bg-white !px-1.5 !text-[11px] !text-slate-600'
+
+function onIndentMode(value: string | number) {
+  const mode = String(value) as IndentMode
   indentMode.value = mode
   if (mode === 'none') draft.value.firstLineIndent = 0
   else if ((draft.value.firstLineIndent ?? 0) <= 0) draft.value.firstLineIndent = 2
   draft.value.hangingIndent = mode === 'hanging'
 }
 
-function onLineChoice(e: Event) {
-  const value = (e.target as HTMLSelectElement).value
+function onLineChoice(rawValue: string | number) {
+  const value = String(rawValue)
   lineChoice.value = value
   if (value === 'fixed') {
     draft.value.lineHeightMode = 'fixed'
@@ -129,9 +138,11 @@ const lineValue = computed({
 
 const lineOptions = computed(() => {
   const values = DOCX_LINE_HEIGHTS.map((line) => String(line.value))
-  return values.includes(lineChoice.value) || lineChoice.value === 'fixed'
-    ? DOCX_LINE_HEIGHTS
-    : [...DOCX_LINE_HEIGHTS, { value: Number(lineChoice.value), label: `自定义 ${lineChoice.value} 倍` }]
+  const options =
+    values.includes(lineChoice.value) || lineChoice.value === 'fixed'
+      ? [...DOCX_LINE_HEIGHTS]
+      : [...DOCX_LINE_HEIGHTS, { value: Number(lineChoice.value), label: `自定义 ${lineChoice.value} 倍` }]
+  return [...options, { value: 'fixed', label: '固定值' }]
 })
 
 const previewStyle = computed(() => {
@@ -270,15 +281,14 @@ function confirm() {
               </label>
               <label class="flex items-center gap-2">
                 <span class="w-12 shrink-0 text-[11px] text-slate-500">特殊格式</span>
-                <select
-                  :value="indentMode"
-                  class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                  @change="onIndentMode"
-                >
-                  <option value="none">无</option>
-                  <option value="first">首行缩进</option>
-                  <option value="hanging">悬挂缩进</option>
-                </select>
+                <KiwiSelect
+                  class="min-w-0 flex-1"
+                  :model-value="indentMode"
+                  :options="indentOptions"
+                  width="w-32"
+                  :trigger-class="dialogSelectTrigger"
+                  @update:model-value="onIndentMode"
+                />
               </label>
               <label class="flex items-center gap-2">
                 <span class="w-12 shrink-0 text-[11px] text-slate-500">缩进值</span>
@@ -326,16 +336,14 @@ function confirm() {
               </label>
               <label class="flex items-center gap-2">
                 <span class="w-12 shrink-0 text-[11px] text-slate-500">行距</span>
-                <select
-                  :value="lineChoice"
-                  class="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 outline-none focus:border-kiwi-300"
-                  @change="onLineChoice"
-                >
-                  <option v-for="line in lineOptions" :key="line.value" :value="String(line.value)">
-                    {{ line.label }}
-                  </option>
-                  <option value="fixed">固定值</option>
-                </select>
+                <KiwiSelect
+                  class="min-w-0 flex-1"
+                  :model-value="lineChoice"
+                  :options="lineOptions"
+                  width="w-32"
+                  :trigger-class="dialogSelectTrigger"
+                  @update:model-value="onLineChoice"
+                />
               </label>
               <label class="flex items-center gap-2">
                 <span class="w-12 shrink-0 text-[11px] text-slate-500">设置值</span>

@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { usePushStore } from '@/stores/push'
 import { IS_DESKTOP } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 
 const push = usePushStore()
@@ -12,6 +13,14 @@ const weekly = ref(true)
 const saving = ref(false)
 
 const hourOptions = Array.from({ length: 24 }, (_, index) => index)
+const hourSelectOptions = computed(() =>
+  hourOptions.map((value) => ({ value, label: formatHour(value) })),
+)
+
+function setHour(value: string | number) {
+  hour.value = Number(value)
+  void saveSchedule()
+}
 const enabled = computed(() => push.status?.enabled ?? false)
 const devices = computed(() => push.devices)
 const permissionDenied = computed(() => push.permission === 'denied')
@@ -190,16 +199,15 @@ onMounted(async () => {
             <p class="text-[12.5px] text-slate-600">提醒时间</p>
             <p class="mt-0.5 text-[10.5px] text-slate-400">按本机时区，在设定时间之后送达</p>
           </div>
-          <select
-            v-model.number="hour"
+          <KiwiSelect
+            class="w-[88px] shrink-0"
+            :model-value="hour"
+            :options="hourSelectOptions"
             :disabled="!enabled || saving"
-            class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] tabular-nums text-slate-600 outline-none transition-colors focus:border-kiwi-400 disabled:cursor-not-allowed disabled:opacity-50"
-            @change="saveSchedule"
-          >
-            <option v-for="value in hourOptions" :key="value" :value="value">
-              {{ formatHour(value) }}
-            </option>
-          </select>
+            width="w-24"
+            trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2.5 !text-[12px] !tabular-nums !text-slate-600"
+            @update:model-value="setHour"
+          />
         </div>
 
         <div class="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3.5">

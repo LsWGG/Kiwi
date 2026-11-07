@@ -6,6 +6,7 @@ import { request } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiProgress from '@/components/ui/KiwiProgress.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import KiwiSkeleton from '@/components/ui/KiwiSkeleton.vue'
@@ -157,6 +158,12 @@ const draftTitle = ref('')
 const draftBody = ref('')
 const draftTags = ref('')
 const draftType = ref('concept')
+const typeOptions = computed(() =>
+  Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })),
+)
+function setDraftType(value: string | number) {
+  draftType.value = String(value)
+}
 const deleteOpen = ref(false)
 
 function startEdit() {
@@ -584,17 +591,17 @@ const tabCounts = computed(() => ({
         <!-- 编辑态 -->
         <div v-if="editing" class="space-y-4">
           <div class="flex flex-wrap items-center gap-3">
-            <label class="text-xs text-slate-500 flex items-center gap-1.5">
+            <span class="text-xs text-slate-500 flex items-center gap-1.5">
               页面类型
-              <select
-                v-model="draftType"
-                class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 focus:border-kiwi-400 focus:outline-none"
-              >
-                <option v-for="(label, key) in TYPE_LABEL" :key="key" :value="key">
-                  {{ label }}
-                </option>
-              </select>
-            </label>
+              <KiwiSelect
+                class="w-28"
+                :model-value="draftType"
+                :options="typeOptions"
+                width="w-36"
+                trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2.5 !text-xs !text-slate-600"
+                @update:model-value="setDraftType"
+              />
+            </span>
             <label class="text-xs text-slate-500 flex items-center gap-1.5 flex-1 min-w-[16rem]">
               标签
               <input

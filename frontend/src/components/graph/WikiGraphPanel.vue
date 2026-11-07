@@ -11,6 +11,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { request } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiSkeleton from '@/components/ui/KiwiSkeleton.vue'
 import KiwiEmpty from '@/components/ui/KiwiEmpty.vue'
 import KiwiGraph, {
@@ -291,6 +292,34 @@ const focusOptions = computed(() =>
   })),
 )
 
+const humanOnlyOptions = [
+  { value: 'all', label: '全部页面' },
+  { value: 'edited', label: '仅人工保护' },
+  { value: 'generated', label: '仅编译生成' },
+]
+const focusFilterOptions = computed(() => [
+  { value: '', label: '不聚焦' },
+  ...focusOptions.value.map((n) => ({
+    value: n.id,
+    label: `${n.kind === 'note' ? '笔记' : 'Wiki'}：${n.title}`,
+  })),
+])
+const depthOptions = [
+  { value: 1, label: '1 跳' },
+  { value: 2, label: '2 跳' },
+  { value: 3, label: '3 跳' },
+]
+
+function setHumanOnly(value: string | number) {
+  draft.humanOnly = value as GraphFilters['humanOnly']
+}
+function setFocusNode(value: string | number) {
+  draft.focus = String(value)
+}
+function setDepth(value: string | number) {
+  draft.depth = Number(value) as GraphFilters['depth']
+}
+
 // ---------- G6 降级时展示的关系列表 ----------
 function edgesForNode(id: string) {
   if (!graph.value) return []
@@ -535,35 +564,34 @@ function titleOf(id: string) {
             </label>
 
             <p class="text-[10.5px] text-slate-400 mb-1.5 mt-3">人工编辑状态</p>
-            <select
-              v-model="draft.humanOnly"
-              class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-600 focus:border-kiwi-400 focus:outline-none"
-            >
-              <option value="all">全部页面</option>
-              <option value="edited">仅人工保护</option>
-              <option value="generated">仅编译生成</option>
-            </select>
+            <KiwiSelect
+              class="w-full"
+              :model-value="draft.humanOnly"
+              :options="humanOnlyOptions"
+              width="w-full"
+              trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[11px] !text-slate-600"
+              @update:model-value="setHumanOnly"
+            />
 
             <p class="text-[10.5px] text-slate-400 mb-1.5 mt-3">聚焦节点（1–3 跳邻域）</p>
             <div class="flex gap-1.5">
-              <select
-                v-model="draft.focus"
-                class="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-600 focus:border-kiwi-400 focus:outline-none"
-              >
-                <option value="">不聚焦</option>
-                <option v-for="n in focusOptions" :key="n.id" :value="n.id">
-                  {{ n.kind === 'note' ? '笔记' : 'Wiki' }}：{{ n.title }}
-                </option>
-              </select>
-              <select
-                v-model.number="draft.depth"
-                class="w-16 rounded-lg border border-slate-200 bg-white px-1.5 py-1.5 text-[11px] text-slate-600 focus:border-kiwi-400 focus:outline-none"
+              <KiwiSelect
+                class="min-w-0 flex-1"
+                :model-value="draft.focus"
+                :options="focusFilterOptions"
+                width="w-full"
+                trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[11px] !text-slate-600"
+                @update:model-value="setFocusNode"
+              />
+              <KiwiSelect
+                class="w-[72px] shrink-0"
+                :model-value="draft.depth"
+                :options="depthOptions"
                 :disabled="!draft.focus"
-              >
-                <option :value="1">1 跳</option>
-                <option :value="2">2 跳</option>
-                <option :value="3">3 跳</option>
-              </select>
+                width="w-24"
+                trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[11px] !text-slate-600"
+                @update:model-value="setDepth"
+              />
             </div>
 
             <div class="flex justify-end gap-1.5 mt-4">

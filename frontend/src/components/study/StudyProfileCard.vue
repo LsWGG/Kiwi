@@ -3,6 +3,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useStudyStore } from '@/stores/study'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { toast } from '@/components/ui/toast'
 
 const emit = defineEmits<{
@@ -69,6 +71,19 @@ function removeWeak(i: number) {
 }
 
 /** 选中考试模板时自动带出默认时长 */
+const templateSelectOptions = computed(() => [
+  { value: '', label: '不指定模板（使用通用题型轮换）' },
+  ...examTemplates.value.map((t) => ({
+    value: t.id,
+    label: `${t.name}${t.is_builtin ? '（内置）' : ''}`,
+  })),
+])
+
+function setTemplateId(value: string | number) {
+  templateId.value = String(value) || null
+  onTemplateChange()
+}
+
 function onTemplateChange() {
   const tpl = study.templates.find((t) => t.id === templateId.value)
   if (tpl && goalType.value === 'exam' && tpl.duration_minutes) {
@@ -170,19 +185,21 @@ watch(() => study.templates, () => {}, { deep: true })
       <section v-if="goalType === 'exam'" class="grid sm:grid-cols-2 gap-4">
         <div>
           <p class="text-xs font-medium text-slate-500 mb-2">考试场景模板</p>
-          <select v-model="templateId" class="kiwi-input text-sm" @change="onTemplateChange">
-            <option :value="null">不指定模板（使用通用题型轮换）</option>
-            <option v-for="t in examTemplates" :key="t.id" :value="t.id">
-              {{ t.name }}{{ t.is_builtin ? '（内置）' : '' }}
-            </option>
-          </select>
+          <KiwiSelect
+            :model-value="templateId ?? ''"
+            :options="templateSelectOptions"
+            width="w-72"
+            variant="input"
+            trigger-class="!h-9 !w-full !justify-between !rounded-xl !border !border-slate-200 !bg-white !px-3 !text-sm !text-slate-600"
+            @update:model-value="setTemplateId"
+          />
           <p v-if="examTemplates.find((t) => t.id === templateId)" class="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
             {{ examTemplates.find((t) => t.id === templateId)?.description }}
           </p>
         </div>
         <div>
           <p class="text-xs font-medium text-slate-500 mb-2">目标日期</p>
-          <input v-model="targetDate" type="date" class="kiwi-input text-sm" />
+          <KiwiDateInput v-model="targetDate" trigger-class="!h-9 !text-sm" />
           <p class="text-[10px] text-slate-400 mt-1.5">用于计算剩余天数与冲刺阶段</p>
         </div>
       </section>

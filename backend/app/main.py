@@ -39,6 +39,7 @@ from app.routers import (
     settings_system,
     sources,
     study,
+    themes,
     transcribe,
     wiki,
 )
@@ -195,6 +196,7 @@ app.include_router(study.router)
 app.include_router(push.router)
 app.include_router(transcribe.router)
 app.include_router(plugins.router)
+app.include_router(themes.router)
 app.include_router(editor_extensions.router)
 app.include_router(jobs.router)
 app.include_router(audit.router)

@@ -37,6 +37,7 @@ Kiwi 不是另一个「把东西存起来」的笔记软件。
 
 - **笔记工作区**：文档、数据表、表格、导入、外链、画布、Notebook 共用目录、标签、模板与双向链接。
 - **两种编辑模式**：同一份 Markdown 在标准编辑与 DOCX 间切换——块级写作、交互区块与正式排版各取所需。
+- **主题插件**：导入声明式主题包（颜色令牌、背景图、面板透明度、毛玻璃与字体），内置「经典紫」与「极光」；编辑器、画布、表格与组件插件随主题一起换装。
 - **可执行代码块**：Python 在 bubblewrap 沙箱中运行，输出与退出码以块的形式留在正文；HTML / JS 在隔离 iframe 中预览。
 - **进阶能力**：语音转写、贴一贴浮窗、组件插件、只读分享、表格与 OCR、混合检索问答、待办汇总与按类型导出。
 - **编译任务**：全部可编译笔记统一编译进 Wiki，待办汇总、只读导入与数据表行笔记自动跳过，并追踪任务进度与受影响页面。
@@ -64,6 +65,10 @@ Kiwi 不是另一个「把东西存起来」的笔记软件。
     <td><img src="docs/assets/screenshots/wiki-graph.png" alt="知识星图" /><br /><sub>知识星图：概念关系与被引次数</sub></td>
     <td><img src="docs/assets/screenshots/learn-graph.png" alt="学习图谱" /><br /><sub>学习图谱：掌握度分布与薄弱点</sub></td>
   </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/theme-settings.png" alt="主题画廊" /><br /><sub>主题画廊：导入、预览与切换声明式主题包</sub></td>
+    <td><img src="docs/assets/screenshots/theme-aurora.png" alt="极光深色主题" /><br /><sub>极光：深色表面、玻璃面板与强调色贯穿工作区</sub></td>
+  </tr>
 </table>
 
 ## 技术栈
@@ -84,7 +89,7 @@ cd Kiwi
 
 访问 http://localhost:5173 默认进入产品门户；应用工作区位于 http://localhost:5173/kbs，在设置中填写任意 OpenAI 兼容模型即可使用。若运行环境无法加载本地向量模型，可在 **设置 → 向量模型** 切换为线上 embedding 接口。
 
-首次启动会注入内置的 **「Kiwi 上手指南 · 功能演示知识库」**，包含 22 篇笔记、29 个 Wiki 页面以及完整的学习与考试数据，可自由修改、删除或还原。
+首次启动会注入内置的 **「Kiwi 上手指南 · 功能演示知识库」**，包含 41 篇笔记、34 个 Wiki 页面以及完整的学习与考试数据，可自由修改、删除或还原。
 
 ## Windows 桌面版（可选）
 
@@ -93,7 +98,7 @@ cd Kiwi
 从 Releases 下载 `Kiwi-Setup-<version>.exe`，或在 Windows 10/11 x64 上构建：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.0.0
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.0
 ```
 
 安装、离线边界、本机代码执行、备份恢复与故障排查见 [docs/WINDOWS.md](docs/WINDOWS.md)。

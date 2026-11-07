@@ -80,66 +80,155 @@ let view: EditorView | null = null
 let lastValue = props.modelValue
 let applyingExternal = false
 
-const kiwiTheme = EditorView.theme({
-  '&': {
-    fontSize: '12.5px',
-    backgroundColor: 'transparent',
-    color: '#1e293b',
-  },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': {
-    fontFamily:
-      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-    lineHeight: '1.65',
-    overflow: 'auto',
-  },
-  '.cm-content': {
-    padding: '8px 0',
-    caretColor: '#0284c7',
-  },
-  '.cm-line': { padding: '0 10px' },
-  '.cm-gutters': {
-    backgroundColor: 'transparent',
-    color: '#cbd5e1',
-    border: 'none',
-    paddingLeft: '4px',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: 'transparent',
-    color: '#94a3b8',
-  },
-  '.cm-activeLine': { backgroundColor: 'rgba(14, 165, 233, 0.045)' },
-  '.cm-selectionBackground, ::selection': {
-    backgroundColor: 'rgba(14, 165, 233, 0.18) !important',
-  },
-  '.cm-cursor': { borderLeftColor: '#0284c7', borderLeftWidth: '1.5px' },
-  '.cm-placeholder': { color: '#cbd5e1' },
-  '.cm-tooltip': {
-    border: '1px solid #e2e8f0',
-    backgroundColor: '#ffffff',
-    borderRadius: '8px',
-    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
-  },
-  '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-    backgroundColor: '#e0f2fe',
-    color: '#0c4a6e',
-  },
-})
+/**
+ * 主题在应用启动后才写入 <html>，因此配色要在挂载时读取，
+ * 不能在模块顶层缓存。内置 classic 保持原有蓝色编辑态；
+ * 安装主题后代码区跟随主题令牌与明暗模式。
+ */
+function themeContext() {
+  const root = document.documentElement
+  const custom = root.dataset.kiwiThemeCustom === 'true'
+  const dark = custom && root.dataset.kiwiThemeMode === 'dark'
+  return { custom, dark }
+}
 
-const kiwiHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: '#7c3aed' },
-  { tag: [tags.function(tags.variableName), tags.labelName], color: '#0369a1' },
-  { tag: [tags.typeName, tags.className, tags.number, tags.self, tags.namespace], color: '#c026d3' },
-  { tag: [tags.operator, tags.operatorKeyword, tags.escape, tags.regexp], color: '#0e7490' },
-  { tag: [tags.constant(tags.name), tags.standard(tags.name), tags.atom, tags.bool], color: '#b45309' },
-  { tag: [tags.meta, tags.comment], color: '#94a3b8', fontStyle: 'italic' },
-  { tag: tags.string, color: '#15803d' },
-  { tag: [tags.heading, tags.strong], fontWeight: 'bold', color: '#0f172a' },
-  { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strikethrough, textDecoration: 'line-through' },
-  { tag: tags.link, color: '#0284c7', textDecoration: 'underline' },
-  { tag: tags.invalid, color: '#e11d48' },
-])
+function buildEditorTheme() {
+  const { custom, dark } = themeContext()
+  const colors = custom
+    ? {
+        text: 'rgb(var(--theme-text-primary))',
+        caret: 'rgb(var(--theme-accent))',
+        gutter: 'rgb(var(--theme-text-faint))',
+        gutterActive: 'rgb(var(--theme-text-subtle))',
+        activeLine: 'rgb(var(--theme-accent) / 0.08)',
+        selection: 'rgb(var(--theme-accent) / 0.22)',
+        placeholder: 'rgb(var(--theme-text-faint))',
+        tooltipBg: 'rgb(var(--theme-surface))',
+        tooltipBorder: 'rgb(var(--theme-border))',
+        tooltipShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+        selectedBg: 'rgb(var(--theme-accent) / 0.18)',
+        selectedText: 'rgb(var(--theme-text-primary))',
+      }
+    : {
+        text: '#1e293b',
+        caret: '#0284c7',
+        gutter: '#cbd5e1',
+        gutterActive: '#94a3b8',
+        activeLine: 'rgba(14, 165, 233, 0.045)',
+        selection: 'rgba(14, 165, 233, 0.18)',
+        placeholder: '#cbd5e1',
+        tooltipBg: '#ffffff',
+        tooltipBorder: '#e2e8f0',
+        tooltipShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+        selectedBg: '#e0f2fe',
+        selectedText: '#0c4a6e',
+      }
+  return EditorView.theme(
+    {
+      '&': {
+        fontSize: '12.5px',
+        backgroundColor: 'transparent',
+        color: colors.text,
+      },
+      '&.cm-focused': { outline: 'none' },
+      '.cm-scroller': {
+        fontFamily:
+          'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+        lineHeight: '1.65',
+        overflow: 'auto',
+      },
+      '.cm-content': {
+        padding: '8px 0',
+        caretColor: colors.caret,
+      },
+      '.cm-line': { padding: '0 10px' },
+      '.cm-gutters': {
+        backgroundColor: 'transparent',
+        color: colors.gutter,
+        border: 'none',
+        paddingLeft: '4px',
+      },
+      '.cm-activeLineGutter': {
+        backgroundColor: 'transparent',
+        color: colors.gutterActive,
+      },
+      '.cm-activeLine': { backgroundColor: colors.activeLine },
+      '.cm-selectionBackground, ::selection': {
+        backgroundColor: `${colors.selection} !important`,
+      },
+      '.cm-cursor': { borderLeftColor: colors.caret, borderLeftWidth: '1.5px' },
+      '.cm-placeholder': { color: colors.placeholder },
+      '.cm-tooltip': {
+        border: `1px solid ${colors.tooltipBorder}`,
+        backgroundColor: colors.tooltipBg,
+        color: colors.text,
+        borderRadius: '8px',
+        boxShadow: colors.tooltipShadow,
+      },
+      '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+        backgroundColor: colors.selectedBg,
+        color: colors.selectedText,
+      },
+    },
+    { dark },
+  )
+}
+
+function buildHighlightStyle() {
+  const { custom, dark } = themeContext()
+  const syntax = dark
+    ? {
+        keyword: '#c4b5fd',
+        fn: '#7dd3fc',
+        type: '#f0abfc',
+        operator: '#67e8f9',
+        constant: '#fcd34d',
+        comment: '#94a3b8',
+        string: '#86efac',
+        heading: '#f1f5f9',
+        link: '#5eead4',
+        invalid: '#fb7185',
+      }
+    : custom
+      ? {
+          keyword: '#7c3aed',
+          fn: '#0369a1',
+          type: '#c026d3',
+          operator: '#0e7490',
+          constant: '#b45309',
+          comment: 'rgb(var(--theme-text-subtle))',
+          string: '#15803d',
+          heading: 'rgb(var(--theme-text-primary))',
+          link: 'rgb(var(--theme-accent))',
+          invalid: '#e11d48',
+        }
+      : {
+          keyword: '#7c3aed',
+          fn: '#0369a1',
+          type: '#c026d3',
+          operator: '#0e7490',
+          constant: '#b45309',
+          comment: '#94a3b8',
+          string: '#15803d',
+          heading: '#0f172a',
+          link: '#0284c7',
+          invalid: '#e11d48',
+        }
+  return HighlightStyle.define([
+    { tag: tags.keyword, color: syntax.keyword },
+    { tag: [tags.function(tags.variableName), tags.labelName], color: syntax.fn },
+    { tag: [tags.typeName, tags.className, tags.number, tags.self, tags.namespace], color: syntax.type },
+    { tag: [tags.operator, tags.operatorKeyword, tags.escape, tags.regexp], color: syntax.operator },
+    { tag: [tags.constant(tags.name), tags.standard(tags.name), tags.atom, tags.bool], color: syntax.constant },
+    { tag: [tags.meta, tags.comment], color: syntax.comment, fontStyle: 'italic' },
+    { tag: tags.string, color: syntax.string },
+    { tag: [tags.heading, tags.strong], fontWeight: 'bold', color: syntax.heading },
+    { tag: tags.emphasis, fontStyle: 'italic' },
+    { tag: tags.strikethrough, textDecoration: 'line-through' },
+    { tag: tags.link, color: syntax.link, textDecoration: 'underline' },
+    { tag: tags.invalid, color: syntax.invalid },
+  ])
+}
 
 function languageSupport(language: 'python' | 'markdown') {
   return language === 'markdown' ? markdown() : python()
@@ -183,7 +272,7 @@ onMounted(() => {
         EditorState.allowMultipleSelections.of(true),
         indentOnInput(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-        syntaxHighlighting(kiwiHighlight),
+        syntaxHighlighting(buildHighlightStyle()),
         bracketMatching(),
         closeBrackets(),
         autocompletion({ activateOnTyping: true }),
@@ -210,7 +299,7 @@ onMounted(() => {
           ...completionKeymap,
         ]),
         cmPlaceholder(props.placeholder),
-        kiwiTheme,
+        buildEditorTheme(),
         languageCompartment.of(languageSupport(props.language)),
         editableCompartment.of(
           props.readonly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
@@ -278,10 +367,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .nb-cm-host :deep(.cm-editor) {
-  @apply rounded-lg border border-slate-200/70 bg-slate-50/60 transition-colors;
+  border: 1px solid rgb(var(--theme-border) / 0.7);
+  border-radius: 0.5rem;
+  background: rgb(var(--theme-app) / 0.6);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .nb-cm-host :deep(.cm-editor.cm-focused) {
-  @apply border-kiwi-300 bg-white;
+  border-color: rgb(var(--kiwi-300));
+  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
 }
 .nb-cm-host :deep(.cm-editor .cm-scroller) {
   border-radius: 0.5rem;

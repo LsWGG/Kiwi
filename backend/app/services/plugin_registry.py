@@ -6,7 +6,12 @@ import json
 from typing import Any
 
 from app.db.models import Plugin
-from app.schemas.plugin import PluginBlockOut, PluginManifestIn, PluginOut
+from app.schemas.plugin import (
+    PluginBlockOut,
+    PluginManifestIn,
+    PluginOut,
+    ThemeSpecIn,
+)
 
 
 def manifest_to_dict(manifest: PluginManifestIn) -> dict[str, Any]:
@@ -62,10 +67,31 @@ def block_outputs(plugin: Plugin) -> list[PluginBlockOut]:
     return rows
 
 
-def plugin_out(plugin: Plugin) -> PluginOut:
-    kind = "component" if plugin.kind == "component" else "template"
+def _theme_spec(plugin: Plugin) -> ThemeSpecIn | None:
+    raw = (plugin.manifest or {}).get("theme")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return ThemeSpecIn.model_validate(raw)
+    except Exception:  # noqa: BLE001 - 历史脏数据不影响插件列表
+        return None
+
+
+def _asset_url(plugin: Plugin, path: str) -> str:
+    if not path:
+        return ""
+    clean = path.lstrip("/")
+    if not clean.startswith("assets/"):
+        clean = f"assets/{clean}"
+    return f"/api/plugins/{plugin.id}/asset/{clean}"
+
+
+def plugin_out(plugin: Plugin, assets: list[str] | None = None) -> PluginOut:
+    kind = plugin.kind if plugin.kind in ("component", "theme") else "template"
     has_script = kind == "component" and bool(plugin.script)
     version_tag = int(plugin.updated_at.timestamp() * 1000) if plugin.updated_at else 0
+    theme = _theme_spec(plugin) if kind == "theme" else None
+    asset_paths = list(assets or [])
     return PluginOut(
         id=plugin.id,
         key=plugin.key,
@@ -85,7 +111,11 @@ def plugin_out(plugin: Plugin) -> PluginOut:
         style_size=len(plugin.style or ""),
         script_url=(f"/api/plugins/{plugin.id}/bundle.js?v={version_tag}" if has_script else ""),
         style_url=(f"/api/plugins/{plugin.id}/style.css?v={version_tag}" if plugin.style else ""),
-        blocks=block_outputs(plugin),
+        blocks=block_outputs(plugin) if kind == "component" else [],
+        theme=theme,
+        asset_count=len(asset_paths),
+        assets=asset_paths,
+        preview_url=_asset_url(plugin, theme.preview) if theme else "",
         created_at=plugin.created_at,
         updated_at=plugin.updated_at,
     )

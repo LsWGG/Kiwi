@@ -1,0 +1,167 @@
+/* 极光主题：所有规则限定在 html[data-kiwi-theme="aurora"] 下。
+ * 颜色令牌由 plugin.json 提供，这里只补装饰细节：冷色描边、极光光晕、
+ * 玻璃面板与表格 / Notebook / 画布等笔记类型的局部质感。
+ */
+
+html[data-kiwi-theme='aurora'] body {
+  background-color: #0b1020;
+}
+
+/* 面板加一层冷色描边与内高光，深色背景下更容易分层。 */
+html[data-kiwi-theme='aurora'] .glass,
+html[data-kiwi-theme='aurora'] .glass-strong,
+html[data-kiwi-theme='aurora'] .kiwi-card {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 18px 48px -30px rgb(2 6 23 / 0.8);
+}
+
+html[data-kiwi-theme='aurora'] .sidebar-glass {
+  box-shadow: inset -1px 0 0 rgb(94 234 212 / 0.06);
+}
+
+html[data-kiwi-theme='aurora'] .bg-white,
+html[data-kiwi-theme='aurora'] .bg-white\/70,
+html[data-kiwi-theme='aurora'] .bg-white\/80,
+html[data-kiwi-theme='aurora'] .bg-white\/95 {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 18px 48px rgb(2 6 23 / 0.35);
+}
+
+/* 主按钮：青绿 → 靛蓝的极光渐变。 */
+html[data-kiwi-theme='aurora'] .kiwi-btn-primary {
+  background-image: linear-gradient(135deg, #5eead4 0%, #818cf8 100%);
+  color: #062a25;
+  box-shadow:
+    0 8px 22px -10px rgb(94 234 212 / 0.7),
+    inset 0 1px 0 rgb(255 255 255 / 0.4);
+}
+
+html[data-kiwi-theme='aurora'] .kiwi-btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+html[data-kiwi-theme='aurora'] .kiwi-btn-secondary:hover {
+  border-color: rgb(94 234 212 / 0.35);
+}
+
+html[data-kiwi-theme='aurora'] .kiwi-input:focus {
+  border-color: rgb(94 234 212 / 0.65);
+  box-shadow: 0 0 0 3px rgb(94 234 212 / 0.14);
+}
+
+/* 标题带极光光晕。 */
+html[data-kiwi-theme='aurora'] .ProseMirror h1,
+html[data-kiwi-theme='aurora'] .ProseMirror h2,
+html[data-kiwi-theme='aurora'] .ProseMirror h3 {
+  text-shadow: 0 0 26px rgb(94 234 212 / 0.24);
+}
+
+html[data-kiwi-theme='aurora'] .ProseMirror h2::after {
+  background: linear-gradient(180deg, #5eead4, #818cf8);
+}
+
+/* 代码块与引用块跟随深色表面。 */
+html[data-kiwi-theme='aurora'] .ProseMirror pre {
+  background: rgb(8 13 28 / 0.92);
+  border: 1px solid rgb(94 234 212 / 0.16);
+  box-shadow: inset 0 0 36px rgb(94 234 212 / 0.05);
+}
+
+html[data-kiwi-theme='aurora'] .ProseMirror blockquote {
+  border-left-color: rgb(94 234 212 / 0.55);
+  background: rgb(18 26 48 / 0.6);
+}
+
+/* 编辑器纸张：深色渐变 + 极光内发光（需要覆盖引擎写入的行内底色）。 */
+html[data-kiwi-theme='aurora'] body .editor-sheet {
+  background-image:
+    radial-gradient(120% 90% at 50% 0%, rgb(94 234 212 / 0.09), transparent 58%),
+    linear-gradient(165deg, rgb(23 33 60 / 0.96), rgb(11 16 32 / 0.98)) !important;
+  box-shadow:
+    0 0 0 1px rgb(94 234 212 / 0.12),
+    0 0 70px -26px rgb(94 234 212 / 0.28),
+    0 46px 100px -60px rgb(0 0 0 / 0.85);
+}
+
+/* 表格笔记：工具栏与选中单元格的极光高亮。 */
+html[data-kiwi-theme='aurora'] body .sheet-toolbar {
+  border-color: rgb(94 234 212 / 0.16);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 14px 36px -24px rgb(0 0 0 / 0.8);
+}
+
+html[data-kiwi-theme='aurora'] body .sheet-cell.is-selected {
+  background-image: linear-gradient(
+    rgb(94 234 212 / 0.14),
+    rgb(129 140 248 / 0.12)
+  );
+}
+
+html[data-kiwi-theme='aurora'] body .sheet-cell.is-active {
+  outline-color: #5eead4;
+  box-shadow: inset 0 0 18px rgb(94 234 212 / 0.14);
+}
+
+html[data-kiwi-theme='aurora'] body .sheet-tab.is-active {
+  background: linear-gradient(135deg, rgb(94 234 212 / 0.16), rgb(129 140 248 / 0.12));
+  border-color: rgb(94 234 212 / 0.4);
+  color: #a7f3e9;
+}
+
+/* Notebook：聚焦的代码格带一圈极光。 */
+html[data-kiwi-theme='aurora'] body .nb-cm-host .cm-editor.cm-focused {
+  border-color: rgb(94 234 212 / 0.45);
+  box-shadow: 0 0 0 3px rgb(94 234 212 / 0.09);
+}
+
+html[data-kiwi-theme='aurora'] body .nb-run.is-running {
+  box-shadow: 0 0 16px rgb(94 234 212 / 0.24);
+}
+
+html[data-kiwi-theme='aurora'] body .nb-output {
+  border-color: rgb(94 234 212 / 0.14);
+  background: rgb(18 26 48 / 0.62);
+}
+
+/* 数据表：表头与序号列沿用通用主题表面，有笔记的行只保留左侧极细的
+   极光提示，不再整列铺渐变，避免左侧表头与行号出现突兀的色块。 */
+
+/* 画布：工具栏与魔法棒的极光投影。 */
+html[data-kiwi-theme='aurora'] body .jvs-draw-container .toolbar {
+  border-color: rgb(94 234 212 / 0.16);
+  box-shadow:
+    0 16px 44px -22px rgb(0 0 0 / 0.9),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+html[data-kiwi-theme='aurora'] body .kiwi-draw-wand-panel {
+  border-color: rgb(94 234 212 / 0.2);
+  box-shadow: 0 28px 68px -24px rgb(0 0 0 / 0.85);
+}
+
+/* 学习模式：背景光晕换成青绿 + 靛蓝，与编辑模式共用同一主题。 */
+html[data-kiwi-theme='aurora'] body.theme-learn {
+  background-image:
+    radial-gradient(52rem 32rem at 12% -8%, rgb(94 234 212 / 0.1), transparent 60%),
+    radial-gradient(44rem 30rem at 108% 118%, rgb(129 140 248 / 0.1), transparent 60%),
+    radial-gradient(30rem 20rem at 50% 110%, rgb(94 234 212 / 0.05), transparent 60%);
+}
+
+/* 滚动条。 */
+html[data-kiwi-theme='aurora'] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html[data-kiwi-theme='aurora'] ::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, #5eead4, #818cf8);
+  border: 2px solid rgb(11 16 32 / 0.9);
+}
+
+html[data-kiwi-theme='aurora'] ::-webkit-scrollbar-track {
+  background: rgb(11 16 32 / 0.6);
+}

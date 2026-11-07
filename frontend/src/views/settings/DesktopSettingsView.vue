@@ -8,6 +8,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
@@ -20,6 +21,15 @@ const busy = ref(false)
 const confirmOnline = ref(false)
 const confirmLocal = ref(false)
 const timeoutDraft = ref(60)
+const timeoutOptions = [30, 60, 120, 300, 600].map((value) => ({
+  value,
+  label: `${value} 秒`,
+}))
+
+function setTimeoutDraft(value: string | number) {
+  timeoutDraft.value = Number(value)
+  saveTimeout()
+}
 
 const OFFLINE_FEATURES = [
   { key: 'link_fetch', label: '网页链接抓取', hint: '已有链接笔记的正文仍可阅读' },
@@ -397,23 +407,17 @@ async function copyPath(value: string, label: string): Promise<void> {
             </p>
           </div>
           <div class="rounded-xl border border-slate-200/70 bg-white/55 px-3 py-2">
-            <label for="desktop-code-timeout" class="text-[10.5px] text-slate-400">
-              单次运行超时
-            </label>
+            <span class="text-[10.5px] text-slate-400">单次运行超时</span>
             <div class="mt-1 flex items-center gap-2">
-              <select
-                id="desktop-code-timeout"
-                v-model.number="timeoutDraft"
-                class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700"
+              <KiwiSelect
+                class="w-[92px] shrink-0"
+                :model-value="timeoutDraft"
+                :options="timeoutOptions"
                 :disabled="busy || !desktop.localCodeEnabled"
-                @change="saveTimeout"
-              >
-                <option :value="30">30 秒</option>
-                <option :value="60">60 秒</option>
-                <option :value="120">120 秒</option>
-                <option :value="300">300 秒</option>
-                <option :value="600">600 秒</option>
-              </select>
+                width="w-28"
+                trigger-class="!h-7 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-2 !text-[12px] !text-slate-700"
+                @update:model-value="setTimeoutDraft"
+              />
               <span class="text-[10.5px] text-slate-400">超时后终止整棵进程树</span>
             </div>
           </div>

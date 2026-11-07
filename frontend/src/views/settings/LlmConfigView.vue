@@ -4,6 +4,7 @@ import { useLlmStore, LlmConfig } from '@/stores/llm'
 import { useDesktopStore } from '@/stores/desktop'
 import { IS_DESKTOP, isLoopbackUrl } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
@@ -182,6 +183,14 @@ async function doDelete() {
 watch(() => form.value.base_url, () => (testMsg.value = null))
 
 const canSave = computed(() => form.value.base_url.trim() && form.value.model_name)
+
+const modelSelectOptions = computed(() =>
+  llm.models.map((m) => ({ value: m.id, label: m.id })),
+)
+
+function setModelName(value: string | number) {
+  form.value.model_name = String(value)
+}
 </script>
 
 <template>
@@ -278,10 +287,21 @@ const canSave = computed(() => form.value.base_url.trim() && form.value.model_na
       </div>
       <div>
         <label class="text-xs font-medium text-slate-500">模型</label>
-        <select v-model="form.model_name" class="kiwi-input mt-1.5 bg-white/70 cursor-pointer">
-          <option value="">下拉挑选或手动输入</option>
-          <option v-for="m in llm.models" :key="m.id" :value="m.id">{{ m.id }}</option>
-        </select>
+        <input
+          v-model="form.model_name"
+          class="kiwi-input mt-1.5"
+          placeholder="模型名，如 deepseek-chat"
+          spellcheck="false"
+        />
+        <KiwiSelect
+          class="mt-1.5"
+          :model-value="form.model_name"
+          :options="modelSelectOptions"
+          placeholder="从已加载的模型中选择"
+          width="w-72"
+          trigger-class="!h-8 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white/70 !px-2.5 !text-[12px] !text-slate-500"
+          @update:model-value="setModelName"
+        />
         <p v-if="!llm.models.length" class="text-[11px] text-slate-400 mt-1.5">
           {{ modelLoading ? '加载中…' : '点击「加载模型」或直接输入模型名' }}
         </p>

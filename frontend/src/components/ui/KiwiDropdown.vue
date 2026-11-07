@@ -11,8 +11,10 @@ const props = withDefaults(
     align?: 'left' | 'right'
     width?: string
     panelClass?: string
+    /** 禁用时触发器不响应点击（颜色选择器等需要整块禁用时使用）。 */
+    disabled?: boolean
   }>(),
-  { align: 'left', width: 'w-48', panelClass: '' },
+  { align: 'left', width: 'w-48', panelClass: '', disabled: false },
 )
 
 const open = ref(false)
@@ -40,6 +42,7 @@ function place() {
 }
 
 function toggle() {
+  if (props.disabled) return
   open.value = !open.value
 }
 function close() {
@@ -111,7 +114,7 @@ onBeforeUnmount(() => {
         >
           <div
             ref="panel"
-            class="rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
+            class="kiwi-menu-panel rounded-xl border border-slate-200/90 bg-white/40 p-1.5 shadow-xl backdrop-blur-2xl"
             :class="[width, panelClass]"
             :style="{ zoom: 'var(--ui-scale)' }"
           >

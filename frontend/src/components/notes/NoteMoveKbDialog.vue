@@ -3,6 +3,7 @@
 import { computed, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { request } from '@/api/client'
 import { useKbsStore } from '@/stores/kbs'
 import type { NoteFolder, NoteTree } from '@/stores/notes'
@@ -40,6 +41,25 @@ const flatFolders = computed(() => {
   walk(null, 0)
   return out
 })
+
+const kbOptions = computed(() =>
+  targets.value.map((kb) => ({ value: kb.id, label: kb.name })),
+)
+const folderOptions = computed(() => [
+  { value: '', label: '根目录' },
+  ...flatFolders.value.map((folder) => ({
+    value: folder.id,
+    label: `${'　'.repeat(folder.depth)}${folder.name}`,
+  })),
+])
+
+function setTargetKbId(value: string | number) {
+  targetKbId.value = String(value)
+}
+
+function setFolderId(value: string | number) {
+  folderId.value = String(value)
+}
 
 async function loadFolders() {
   folderId.value = ''
@@ -93,28 +113,27 @@ function submit() {
       <template v-else>
         <div>
           <label class="block text-[11px] font-medium text-slate-500 mb-1.5">目标知识库</label>
-          <select
-            v-model="targetKbId"
-            class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12.5px] text-slate-700 outline-none focus:border-kiwi-300 focus:ring-2 focus:ring-kiwi-100"
-          >
-            <option v-for="kb in targets" :key="kb.id" :value="kb.id">{{ kb.name }}</option>
-          </select>
+          <KiwiSelect
+            :model-value="targetKbId"
+            :options="kbOptions"
+            width="w-72"
+            trigger-class="!h-9 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-3 !text-[12.5px] !text-slate-700"
+            @update:model-value="setTargetKbId"
+          />
         </div>
 
         <div>
           <label class="block text-[11px] font-medium text-slate-500 mb-1.5">
             目标分组<span class="text-slate-300">（可选）</span>
           </label>
-          <select
-            v-model="folderId"
+          <KiwiSelect
+            :model-value="folderId"
+            :options="folderOptions"
             :disabled="loading"
-            class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12.5px] text-slate-700 outline-none focus:border-kiwi-300 focus:ring-2 focus:ring-kiwi-100 disabled:opacity-60"
-          >
-            <option value="">根目录</option>
-            <option v-for="folder in flatFolders" :key="folder.id" :value="folder.id">
-              {{ '　'.repeat(folder.depth) }}{{ folder.name }}
-            </option>
-          </select>
+            width="w-72"
+            trigger-class="!h-9 !w-full !justify-between !rounded-lg !border !border-slate-200 !bg-white !px-3 !text-[12.5px] !text-slate-700"
+            @update:model-value="setFolderId"
+          />
           <p v-if="loading" class="mt-1 text-[10.5px] text-slate-400">正在载入目标分组…</p>
         </div>
       </template>

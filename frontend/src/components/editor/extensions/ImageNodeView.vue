@@ -3,6 +3,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import ZoomableImageOverlay from '@/components/ui/ZoomableImageOverlay.vue'
 import ImageCropDialog from './ImageCropDialog.vue'
 import { toast } from '@/components/ui/toast'
 import { isBlockedExternalAsset } from '@/desktop/env'
@@ -90,7 +91,6 @@ function stopResize() {
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', onResizeMove)
   window.removeEventListener('pointerup', stopResize)
-  window.removeEventListener('keydown', onLightboxKey)
 })
 
 // ---------- 图注 ----------
@@ -119,15 +119,6 @@ function openLightbox() {
   if (resizing.value || externalBlocked.value) return
   lightboxOpen.value = true
 }
-
-function onLightboxKey(event: KeyboardEvent) {
-  if (event.key === 'Escape') lightboxOpen.value = false
-}
-
-watch(lightboxOpen, (open) => {
-  if (open) window.addEventListener('keydown', onLightboxKey)
-  else window.removeEventListener('keydown', onLightboxKey)
-})
 
 async function download() {
   if (externalBlocked.value) {
@@ -311,44 +302,14 @@ function onCropped(file: File) {
       </span>
     </figure>
 
-    <!-- 大图预览 -->
-    <Teleport to="body">
-      <div
-        v-if="lightboxOpen"
-        class="fixed inset-0 z-[130] flex flex-col bg-slate-950/85 p-5 backdrop-blur-sm"
-        @click.self="lightboxOpen = false"
-        @keydown.esc="lightboxOpen = false"
-      >
-        <div class="flex shrink-0 items-center justify-end gap-2">
-          <button
-            type="button"
-            class="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-            title="下载"
-            @click="download"
-          >
-            <KiwiIcon name="download" :size="15" />
-          </button>
-          <button
-            type="button"
-            class="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-            title="关闭"
-            @click="lightboxOpen = false"
-          >
-            <KiwiIcon name="close" :size="15" />
-          </button>
-        </div>
-        <div class="flex min-h-0 flex-1 items-center justify-center">
-          <img
-            :src="src"
-            :alt="alt"
-            class="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
-          />
-        </div>
-        <p v-if="caption" class="mt-3 shrink-0 text-center text-[12px] text-white/60">
-          {{ caption }}
-        </p>
-      </div>
-    </Teleport>
+    <!-- 大图预览：缩放 / 平移 / 点击图片外区域关闭 -->
+    <ZoomableImageOverlay
+      :open="lightboxOpen"
+      :src="src"
+      :alt="alt"
+      :caption="caption"
+      @close="lightboxOpen = false"
+    />
 
     <ImageCropDialog
       :open="cropOpen"

@@ -5,6 +5,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { IS_DESKTOP } from '@/desktop/env'
@@ -27,6 +28,10 @@ const OCR_LANGUAGES = [
   { value: '日本語', label: '日本語' },
   { value: '한국어', label: '한국어' },
 ]
+
+function setLanguage(value: string | number) {
+  form.value.language = String(value)
+}
 
 const system = useSystemStore()
 const loading = ref(true)
@@ -435,14 +440,18 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
                 @blur="clampTimeout"
               />
             </label>
-            <label class="block">
+            <div class="block">
               <span :class="labelClass">文档语言</span>
-              <select v-model="form.language" :class="inputClass">
-                <option v-for="item in OCR_LANGUAGES" :key="item.value" :value="item.value">
-                  {{ item.label }}
-                </option>
-              </select>
-            </label>
+              <KiwiSelect
+                class="mt-1"
+                :model-value="form.language"
+                :options="OCR_LANGUAGES"
+                width="w-48"
+                variant="input"
+                trigger-class="!h-9 !w-full !justify-between !rounded-xl !border !border-slate-200 !bg-white !px-3 !text-[13px] !text-slate-600"
+                @update:model-value="setLanguage"
+              />
+            </div>
           </div>
         </div>
 

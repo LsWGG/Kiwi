@@ -4,6 +4,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useModeStore } from '@/stores/mode'
 import { useSystemStore } from '@/stores/system'
+import { useThemeStore } from '@/stores/theme'
 import { useDesktopStore } from '@/stores/desktop'
 import { useRoute } from 'vue-router'
 import ModeSwitcher from '@/components/layout/ModeSwitcher.vue'
@@ -25,6 +26,7 @@ import { uiScaleForWidth } from '@/utils/uiScale'
 const kbs = useKbsStore()
 const mode = useModeStore()
 const system = useSystemStore()
+const theme = useThemeStore()
 const desktop = useDesktopStore()
 const auth = useAuthStore()
 const commandPalette = useCommandPaletteStore()
@@ -32,6 +34,14 @@ const route = useRoute()
 
 const shortcutsOpen = ref(false)
 const booted = ref(false)
+const refreshing = ref(false)
+
+/** 顶部刷新：重载当前页面，重新拉取知识库 / 笔记 / 设置的最新状态。 */
+function refreshApp() {
+  if (refreshing.value) return
+  refreshing.value = true
+  window.setTimeout(() => window.location.reload(), 180)
+}
 /**
  * 业务数据就绪标记。首次登录后必须先拿到知识库列表再渲染主布局：
  * 之前 kb 列表还是空的，页面按「无知识库」渲染，密钥登录后看起来像
@@ -56,6 +66,8 @@ async function loadAppData() {
   }
   // 品牌信息与主题色来自后端系统设置；失败时保留内置默认值。
   void system.fetchSettings().catch(() => undefined)
+  // 主题插件：登录后校验缓存主题是否仍为当前主题。
+  void theme.init()
   // 桌面运行状态：Docker 构建内部直接返回，不发起请求。
   void desktop.load()
 }
@@ -139,7 +151,8 @@ function onCommandOnlyPaletteKey(event: KeyboardEvent) {
 }
 
 /**
- * 学习模式使用青绿主题色，编辑模式保持冷紫；
+ * 学习模式与编辑模式共用当前主题，但强调色可分别配置
+ * （学习模式有独立的色板、背景与排版变量，互不影响）。
  * 直接访问 /learn 时也按路由切换，避免刷新后主题与页面不一致。
  */
 const isLearn = computed(() => mode.mode === 'learn' || route.path.startsWith('/learn'))
@@ -265,6 +278,16 @@ onBeforeUnmount(() => {
       <!-- 右侧：模式切换 + 知识库切换 + 设置入口（两种模式共用） -->
       <ModeSwitcher class="max-md:hidden" />
       <KbSwitcher :learn="isLearn" />
+      <button
+        type="button"
+        title="刷新页面"
+        aria-label="刷新页面"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
+        :class="refreshing ? 'bg-white/80 text-kiwi-600' : ''"
+        @click="refreshApp"
+      >
+        <KiwiIcon name="refresh" :size="17" :spin="refreshing" />
+      </button>
       <button
         type="button"
         title="键盘快捷键（?）"

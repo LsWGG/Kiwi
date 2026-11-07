@@ -7,3 +7,11 @@ PostScript 名称：AaZNWMMXCT
 来源：用户提供的 AaZhuNiWoMingMeiXiangChunTian-2.ttf，转换为 WOFF2 后随前端构建内置。
 
 该字体仅用于本项目画布手绘主题；如需对外分发，请自行确认字体授权。
+
+画布文本字体（draw-*.woff2）
+来源：Google Fonts（https://fonts.google.com），通过 fonts.googleapis.com 获取。
+包含：Montserrat、Anton、Climate Crisis、Exo、Goldman、Zen Tokyo Zoo、Orbitron。
+授权：SIL Open Font License 1.1（OFL-1.1），可随项目分发。
+用途：补齐 jvs-draw 文本设置里的字体族，避免选择字体后无可见变化。
+说明：Orbitron 仅作为 SaDigitalNumber 的系统字体缺失时的兜底显示。
+

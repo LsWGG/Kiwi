@@ -7,6 +7,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import {
@@ -363,8 +364,19 @@ onBeforeUnmount(() => {
 })
 
 const cardClass = 'animate-fade-up rounded-2xl glass-strong p-5'
-const selectClass =
-  'rounded-xl border border-slate-200/80 bg-white/80 px-2.5 py-1.5 text-[12px] text-slate-600 outline-none transition-colors focus:border-kiwi-300 focus:ring-2 focus:ring-kiwi-200/60'
+const auditActionOptions = [
+  { value: '', label: '全部操作' },
+  ...Object.entries(AUDIT_ACTION).map(([value, label]) => ({ value, label })),
+]
+
+function setStatusFilter(value: string | number) {
+  statusFilter.value = String(value) as '' | JobStatus
+  onStatusChange()
+}
+function setAuditAction(value: string | number) {
+  auditAction.value = String(value)
+  onAuditActionChange()
+}
 </script>
 
 <template>
@@ -469,11 +481,14 @@ const selectClass =
             共 {{ jobsTotal }} 条 · 本页进行中 {{ activeCount }} · 本页失败 {{ failedCount }}
           </span>
           <div class="ml-auto flex items-center gap-2">
-            <select v-model="statusFilter" :class="selectClass" @change="onStatusChange">
-              <option v-for="item in STATUS_OPTIONS" :key="item.value" :value="item.value">
-                {{ item.label }}
-              </option>
-            </select>
+            <KiwiSelect
+              class="w-[112px] shrink-0"
+              :model-value="statusFilter"
+              :options="STATUS_OPTIONS"
+              width="w-36"
+              trigger-class="!h-8 !w-full !justify-between !rounded-xl !border !border-slate-200/80 !bg-white/80 !px-2.5 !text-[12px] !text-slate-600"
+              @update:model-value="setStatusFilter"
+            />
             <button
               class="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
               :disabled="jobsLoading"
@@ -598,12 +613,14 @@ const selectClass =
           </div>
           <span class="text-[10px] text-slate-400">共 {{ auditTotal }} 条 · 记录删除、转移、导出等敏感操作</span>
           <div class="ml-auto flex items-center gap-2">
-            <select v-model="auditAction" :class="selectClass" @change="onAuditActionChange">
-              <option value="">全部操作</option>
-              <option v-for="(label, action) in AUDIT_ACTION" :key="action" :value="action">
-                {{ label }}
-              </option>
-            </select>
+            <KiwiSelect
+              class="w-[112px] shrink-0"
+              :model-value="auditAction"
+              :options="auditActionOptions"
+              width="w-36"
+              trigger-class="!h-8 !w-full !justify-between !rounded-xl !border !border-slate-200/80 !bg-white/80 !px-2.5 !text-[12px] !text-slate-600"
+              @update:model-value="setAuditAction"
+            />
             <a
               :href="auditExportUrl(undefined, auditAction || undefined)"
               class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white/70 px-2 py-1.5 text-[11px] text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600"

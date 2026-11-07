@@ -1,32 +1,61 @@
 /*
  * 示例插件样式。
  *
- * 所有强调色都使用 Kiwi 的 --kiwi-* 主题变量（RGB 三元组），
- * 系统切换主题色或进入学习模式时会自动跟随，无需监听 JS 事件。
+ * 强调色与中性色都使用 Kiwi 主题变量：--plugin-accent 跟随编辑 / 学习模式的
+ * 主题强调色，--plugin-surface / border / text-* 跟随主题插件的明暗与材质，
+ * 系统切换主题或进入学习模式时自动更新，无需监听 JS 事件。
  * 插件加载时样式注入全局，类名请统一加前缀避免污染编辑器。
  */
 .kiwi-counter {
+  /* 插件内部主题别名：未加载主题引擎时回退到浅色默认值。 */
+  --plugin-surface: var(--theme-surface, 255 255 255);
+  --plugin-surface-muted: var(--theme-surface-muted, 241 245 249);
+  --plugin-app: var(--theme-app, 248 250 252);
+  --plugin-border: var(--theme-border, 226 232 240);
+  --plugin-border-strong: var(--theme-border-strong, 203 213 225);
+  --plugin-text-primary: var(--theme-text-primary, 30 41 59);
+  --plugin-text-strong: var(--theme-text-strong, 51 65 85);
+  --plugin-text-secondary: var(--theme-text-secondary, 71 85 105);
+  --plugin-text-muted: var(--theme-text-muted, 100 116 139);
+  --plugin-text-subtle: var(--theme-text-subtle, 148 163 184);
+  --plugin-text-faint: var(--theme-text-faint, 203 213 225);
+  --plugin-accent: var(--theme-accent, 90 85 199);
+  --plugin-accent-foreground: var(--theme-accent-foreground, 255 255 255);
+  --plugin-danger-bg: rgb(254 242 242);
+  --plugin-danger-border: rgb(254 202 202);
+  --plugin-danger-fg: rgb(225 29 72);
+
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid rgb(var(--plugin-border));
   border-radius: 12px;
-  background: linear-gradient(135deg, #ffffff, rgb(var(--kiwi-50)));
+  background: linear-gradient(
+    135deg,
+    rgb(var(--plugin-surface) / var(--theme-surface-opacity, 1)),
+    rgb(var(--plugin-accent) / 0.06)
+  );
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
   font-size: 13px;
-  color: rgb(51 65 85);
+  color: rgb(var(--plugin-text-strong));
   user-select: none;
 }
 
+html[data-kiwi-theme-mode='dark'] .kiwi-counter {
+  --plugin-danger-bg: rgb(244 63 94 / 0.18);
+  --plugin-danger-border: rgb(251 113 133 / 0.4);
+  --plugin-danger-fg: rgb(251 113 133);
+}
+
 .kiwi-counter.is-selected {
-  border-color: rgb(var(--kiwi-500) / 0.55);
-  box-shadow: 0 0 0 2px rgb(var(--kiwi-500) / 0.18);
+  border-color: rgb(var(--plugin-accent) / 0.55);
+  box-shadow: 0 0 0 2px rgb(var(--plugin-accent) / 0.18);
 }
 
 .kiwi-counter__label {
   font-weight: 600;
-  color: rgb(71 85 105);
+  color: rgb(var(--plugin-text-secondary));
 }
 
 .kiwi-counter__value {
@@ -35,7 +64,7 @@
   font-variant-numeric: tabular-nums;
   font-size: 16px;
   font-weight: 600;
-  color: rgb(var(--kiwi-600));
+  color: rgb(var(--plugin-accent));
 }
 
 .kiwi-counter__btn,
@@ -47,9 +76,9 @@
   height: 26px;
   padding: 0 8px;
   border-radius: 8px;
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
-  color: rgb(71 85 105);
+  border: 1px solid rgb(var(--plugin-border));
+  background: rgb(var(--plugin-surface) / var(--theme-surface-opacity, 1));
+  color: rgb(var(--plugin-text-secondary));
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
@@ -57,26 +86,26 @@
 }
 
 .kiwi-counter__btn:hover {
-  border-color: rgb(var(--kiwi-500) / 0.5);
-  background: rgb(var(--kiwi-100) / 0.65);
-  color: rgb(var(--kiwi-700));
+  border-color: rgb(var(--plugin-accent) / 0.5);
+  background: rgb(var(--plugin-accent) / 0.12);
+  color: rgb(var(--plugin-accent));
 }
 
 .kiwi-counter__reset {
-  color: rgb(100 116 139);
+  color: rgb(var(--plugin-text-muted));
 }
 
 /* 删除属于语义化的危险操作，保留红色而不跟随主题色。 */
 .kiwi-counter__remove {
-  border-color: rgb(254 202 202);
-  color: rgb(225 29 72);
+  border-color: var(--plugin-danger-border);
+  color: var(--plugin-danger-fg);
 }
 
 .kiwi-counter__remove:hover {
-  background: rgb(254 242 242);
+  background: var(--plugin-danger-bg);
 }
 
 .kiwi-counter.is-readonly {
-  background: rgb(248 250 252);
+  background: rgb(var(--plugin-surface-muted));
   box-shadow: none;
 }
