@@ -139,6 +139,46 @@ function cssUrl(value: string): string {
 }
 
 let styleLink: HTMLLinkElement | null = null
+let backgroundVideo: HTMLVideoElement | null = null
+
+/**
+ * 背景视频层：固定在 body 的负 z-index，位于暗化遮罩之下、页面内容之上。
+ * 没有视频时移除元素并释放解码器，避免切换主题后仍在后台播放。
+ */
+function syncBackgroundVideo(src: string, blur: number): void {
+  if (typeof document === 'undefined') return
+  const value = src.trim()
+  if (!value) {
+    if (backgroundVideo) {
+      backgroundVideo.pause()
+      backgroundVideo.removeAttribute('src')
+      backgroundVideo.load()
+      backgroundVideo.remove()
+      backgroundVideo = null
+    }
+    return
+  }
+  if (!backgroundVideo) {
+    backgroundVideo = document.createElement('video')
+    backgroundVideo.className = 'theme-background-video'
+    backgroundVideo.autoplay = true
+    backgroundVideo.loop = true
+    backgroundVideo.muted = true
+    backgroundVideo.playsInline = true
+    backgroundVideo.preload = 'auto'
+    backgroundVideo.setAttribute('aria-hidden', 'true')
+    backgroundVideo.setAttribute('tabindex', '-1')
+    document.body.appendChild(backgroundVideo)
+  }
+  if (backgroundVideo.getAttribute('src') !== value) {
+    backgroundVideo.src = value
+    void backgroundVideo.play().catch(() => {
+      // 自动播放被浏览器拦截时保留首帧，不影响页面使用。
+    })
+  }
+  backgroundVideo.style.filter = blur > 0 ? `blur(${blur}px)` : ''
+  backgroundVideo.style.transform = blur > 0 ? 'scale(1.06)' : ''
+}
 
 function syncStyleLink(href: string): void {
   if (!href) {
@@ -235,6 +275,7 @@ export function applyActiveTheme(active: ThemeActive | null): void {
   if (!active) {
     clearThemeVars(root)
     syncStyleLink('')
+    syncBackgroundVideo('', 0)
     applyThemeColor(DEFAULT_THEME_COLOR)
     applyLearnThemeColor(DEFAULT_LEARN_THEME_COLOR)
     return
@@ -277,9 +318,13 @@ export function applyActiveTheme(active: ThemeActive | null): void {
 
   // 3. 背景 / 表面 / 字体
   const themeBackground = spec.background
-  const image = overrides.background_image
-    ? overrides.background_image
-    : resolveThemeAsset(active.asset_base_url, themeBackground.image)
+  const video = (overrides.background_video || '').trim()
+  // 视频优先：同一份覆盖里同时存在图片与视频时，以视频为准。
+  const image = video
+    ? ''
+    : overrides.background_image
+      ? overrides.background_image
+      : resolveThemeAsset(active.asset_base_url, themeBackground.image)
   const size = overrides.background_size || themeBackground.size
   const position = overrides.background_position || themeBackground.position
   const repeat = overrides.background_repeat || themeBackground.repeat
@@ -303,8 +348,9 @@ export function applyActiveTheme(active: ThemeActive | null): void {
   root.dataset.kiwiThemeMode = spec.mode
   if (active.builtin) delete root.dataset.kiwiThemeCustom
   else root.dataset.kiwiThemeCustom = 'true'
-  if (image) root.dataset.kiwiThemeBg = 'true'
+  if (image || video) root.dataset.kiwiThemeBg = 'true'
   else delete root.dataset.kiwiThemeBg
+  syncBackgroundVideo(video, backgroundBlur)
   if (surfaceOpacity < 1) root.dataset.kiwiThemeGlass = 'true'
   else delete root.dataset.kiwiThemeGlass
   if (surfaceBlur > 0) root.dataset.kiwiThemeBlur = 'true'

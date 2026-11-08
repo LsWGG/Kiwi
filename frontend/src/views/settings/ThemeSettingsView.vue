@@ -48,9 +48,16 @@ const spec = ref<ThemeDevSpec | null>(null)
 const customOpen = ref(false)
 const customBusy = ref(false)
 const bgInput = ref<HTMLInputElement | null>(null)
+const bgUploading = ref(false)
+const bgUploadProgress = ref(0)
+const bgUploadName = ref('')
+let bgAbort: AbortController | null = null
+/** 本次弹窗内上传、尚未保存到覆盖值的背景，取消时逐个清理。 */
+const pendingBackgroundUrls: string[] = []
 
 interface CustomDraft {
   background_image: string
+  background_video: string
   background_size: ThemeBackgroundSize
   background_position: string
   background_repeat: ThemeBackgroundRepeat
@@ -66,6 +73,7 @@ interface CustomDraft {
 
 const customDraft = reactive<CustomDraft>({
   background_image: '',
+  background_video: '',
   background_size: 'cover',
   background_position: 'center',
   background_repeat: 'no-repeat',
@@ -79,7 +87,23 @@ const customDraft = reactive<CustomDraft>({
   learnAccent: DEFAULT_LEARN_ACCENT,
 })
 
-const MAX_BACKGROUND_BYTES = 2.5 * 1024 * 1024
+const MAX_BACKGROUND_BYTES = 100 * 1024 * 1024
+const BACKGROUND_ACCEPT = [
+  'image/png',
+  'image/apng',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+  'video/mp4',
+  'video/webm',
+  'video/ogg',
+  'video/quicktime',
+].join(',')
+const BACKGROUND_EXT_RE = /\.(apng|png|jpe?g|gif|webp|avif|bmp|mp4|webm|ogv|mov)$/i
+const VIDEO_EXT_RE = /\.(mp4|webm|ogv|mov)$/i
+const UPLOADED_BG_RE = /^\/media\/theme-backgrounds\//
 
 /** 背景设置使用统一选择器，避免出现浏览器原生下拉。 */
 const BACKGROUND_SIZE_OPTIONS = [
@@ -114,8 +138,11 @@ const activeSpec = computed(() => normalizeThemeSpec(theme.active?.theme))
 const activeModeLabel = computed(() =>
   activeSpec.value.mode === 'dark' ? '深色' : '浅色',
 )
-const backgroundIsUpload = computed(() =>
-  customDraft.background_image.startsWith('data:'),
+const backgroundIsUpload = computed(
+  () =>
+    customDraft.background_image.startsWith('data:') ||
+    UPLOADED_BG_RE.test(customDraft.background_image) ||
+    UPLOADED_BG_RE.test(customDraft.background_video),
 )
 const customPreviewBackground = computed(
   () =>
@@ -125,6 +152,7 @@ const customPreviewBackground = computed(
       activeSpec.value.background.image,
     ),
 )
+const customPreviewVideo = computed(() => customDraft.background_video)
 const customPreviewAccent = computed(() =>
   customDraft.useAccent ? customDraft.accent : undefined,
 )
@@ -337,6 +365,11 @@ function openCustomize() {
   const specValue = normalizeThemeSpec(activeValue.theme)
   const overrides = theme.overrides
   customDraft.background_image = overrides.background_image || ''
+  customDraft.background_video = overrides.background_video || ''
+  pendingBackgroundUrls.length = 0
+  bgUploading.value = false
+  bgUploadProgress.value = 0
+  bgUploadName.value = ''
   customDraft.background_size =
     overrides.background_size || specValue.background.size
   customDraft.background_position =
@@ -359,32 +392,118 @@ function openCustomize() {
   customOpen.value = true
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('读取图片失败'))
-    reader.readAsDataURL(file)
-  })
+function isUploadedBackground(url: string): boolean {
+  return UPLOADED_BG_RE.test(url)
+}
+
+function rememberPending(url: string): void {
+  if (isUploadedBackground(url) && !pendingBackgroundUrls.includes(url)) {
+    pendingBackgroundUrls.push(url)
+  }
+}
+
+function forgetPending(url: string): void {
+  const index = pendingBackgroundUrls.indexOf(url)
+  if (index >= 0) pendingBackgroundUrls.splice(index, 1)
+}
+
+async function discardPending(url: string): Promise<void> {
+  if (!url || !isUploadedBackground(url)) return
+  forgetPending(url)
+  try {
+    await theme.deleteBackground(url)
+  } catch {
+    // 删除失败不阻塞界面；后端会在下次上传时清理长期未引用的文件。
+  }
+}
+
+function clearBackground(): void {
+  bgAbort?.abort()
+  const urls = [customDraft.background_image, customDraft.background_video]
+  customDraft.background_image = ''
+  customDraft.background_video = ''
+  for (const url of urls) void discardPending(url)
+}
+
+/** 把本次弹窗里上传但最终没被保存的文件删掉。 */
+async function cleanupPendingBackgrounds(keep: string[] = []): Promise<void> {
+  const keepSet = new Set(keep.filter(isUploadedBackground))
+  const urls = pendingBackgroundUrls.filter((url) => !keepSet.has(url))
+  pendingBackgroundUrls.length = 0
+  await Promise.allSettled(urls.map((url) => theme.deleteBackground(url)))
+}
+
+async function closeCustomize(): Promise<void> {
+  bgAbort?.abort()
+  bgAbort = null
+  bgUploading.value = false
+  customOpen.value = false
+  await cleanupPendingBackgrounds()
+}
+
+function backgroundFileKind(file: File): 'image' | 'video' | null {
+  const name = file.name || ''
+  if (!BACKGROUND_EXT_RE.test(name)) return null
+  return VIDEO_EXT_RE.test(name) ? 'video' : 'image'
 }
 
 async function onBackgroundFile(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
-  if (!file) return
-  if (!file.type.startsWith('image/')) {
-    toast.error('请选择图片文件')
+  if (!file || bgUploading.value) return
+  const kind = backgroundFileKind(file)
+  if (!kind) {
+    toast.error(
+      '仅支持 PNG / APNG / JPEG / GIF / WebP / AVIF / BMP 图片，或 MP4 / WebM / Ogg / MOV 视频',
+    )
     return
   }
   if (file.size > MAX_BACKGROUND_BYTES) {
-    toast.error('背景图不能超过 2.5MB')
+    toast.error('背景文件不能超过 100MB')
     return
   }
+
+  bgAbort?.abort()
+  const controller = new AbortController()
+  bgAbort = controller
+  bgUploading.value = true
+  bgUploadProgress.value = 0
+  bgUploadName.value = file.name
+  const previousImage = customDraft.background_image
+  const previousVideo = customDraft.background_video
   try {
-    customDraft.background_image = await readFileAsDataUrl(file)
+    const result = await theme.uploadBackground(
+      file,
+      (loaded, total) => {
+        bgUploadProgress.value =
+          total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+      },
+      controller.signal,
+    )
+    if (result.kind === 'video') {
+      customDraft.background_video = result.url
+      customDraft.background_image = ''
+    } else {
+      customDraft.background_image = result.url
+      customDraft.background_video = ''
+    }
+    rememberPending(result.url)
+    // 被替换掉的是本次刚上传、尚未保存的文件时立即清理，避免堆积。
+    for (const old of [previousImage, previousVideo]) {
+      if (old !== result.url && pendingBackgroundUrls.includes(old)) {
+        void discardPending(old)
+      }
+    }
   } catch (e: any) {
-    toast.error(e.message || '读取图片失败')
+    if (e?.name !== 'AbortError') toast.error(e.message || '上传背景失败')
+  } finally {
+    if (bgAbort === controller) {
+      bgAbort = null
+      bgUploading.value = false
+      bgUploadProgress.value = 0
+      bgUploadName.value = ''
+    }
   }
 }
 
@@ -394,6 +513,7 @@ function customOverrides(): ThemeOverrides {
   const position = customDraft.background_position.trim() || 'center'
   return {
     background_image: customDraft.background_image.trim(),
+    background_video: customDraft.background_video.trim(),
     background_size:
       customDraft.background_size !== defaults.background.size
         ? customDraft.background_size
@@ -430,10 +550,12 @@ function closeRemoveConfirm(value: boolean) {
 }
 
 async function saveCustomize() {
-  if (customBusy.value) return
+  if (customBusy.value || bgUploading.value) return
   customBusy.value = true
   try {
-    await theme.saveOverrides(customOverrides())
+    const next = customOverrides()
+    await theme.saveOverrides(next)
+    await cleanupPendingBackgrounds([next.background_image, next.background_video])
     customOpen.value = false
     toast.success('主题微调已保存')
   } catch (e: any) {
@@ -448,6 +570,7 @@ async function resetCustomize() {
   customBusy.value = true
   try {
     await theme.resetOverrides()
+    await cleanupPendingBackgrounds()
     customOpen.value = false
     toast.success('已恢复主题默认外观')
   } catch (e: any) {
@@ -791,12 +914,13 @@ async function resetCustomize() {
       :open="customOpen"
       title="自定义外观"
       max-w="max-w-3xl"
-      @close="customOpen = false"
+      @close="closeCustomize"
     >
       <div class="space-y-4">
         <ThemePreview
           :theme="theme.active?.theme || activeSpec"
           :background-image="customPreviewBackground"
+          :background-video="customPreviewVideo"
           :surface-opacity="customDraft.surface_opacity"
           :surface-blur="customDraft.surface_blur"
           :background-dim="customDraft.background_dim"
@@ -807,81 +931,117 @@ async function resetCustomize() {
         <div class="grid gap-4 md:grid-cols-2">
           <!-- 背景 -->
           <section class="space-y-2.5 rounded-xl border border-slate-200/70 bg-white/60 p-3">
-            <h3 class="text-[12px] font-semibold text-slate-700">背景图</h3>
+            <h3 class="text-[12px] font-semibold text-slate-700">背景</h3>
             <div class="flex flex-wrap items-center gap-1.5">
-              <button class="kiwi-btn-secondary !px-2.5 !py-1.5 text-[11px]" @click="bgInput?.click()">
-                <KiwiIcon name="image" :size="11" /> 上传图片
+              <button
+                class="kiwi-btn-secondary !px-2.5 !py-1.5 text-[11px]"
+                :disabled="bgUploading"
+                @click="bgInput?.click()"
+              >
+                <KiwiIcon
+                  :name="bgUploading ? 'loader' : 'image'"
+                  :size="11"
+                  :spin="bgUploading"
+                />
+                {{ bgUploading ? '上传中…' : '上传图片 / 视频' }}
               </button>
               <button
-                v-if="customDraft.background_image"
+                v-if="customDraft.background_image || customDraft.background_video"
                 class="kiwi-btn-ghost !px-2.5 !py-1.5 text-[11px]"
-                @click="customDraft.background_image = ''"
+                :disabled="bgUploading"
+                @click="clearBackground"
               >
                 <KiwiIcon name="close" :size="11" /> 清除背景
               </button>
-              <span class="text-[10px] text-slate-400">≤ 2.5MB</span>
+              <span class="text-[10px] text-slate-400">≤ 100MB</span>
             </div>
             <input
               ref="bgInput"
               type="file"
-              accept="image/*"
+              :accept="BACKGROUND_ACCEPT"
               class="hidden"
               @change="onBackgroundFile"
             />
             <div
-              v-if="backgroundIsUpload"
+              v-if="bgUploading"
               class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10.5px] text-slate-500"
             >
-              已上传自定义背景图
+              <div class="flex items-center justify-between gap-2">
+                <span class="min-w-0 truncate">{{ bgUploadName }}</span>
+                <span class="shrink-0 font-mono text-slate-400">{{ bgUploadProgress }}%</span>
+              </div>
+              <div class="mt-1 h-1 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  class="h-full rounded-full bg-kiwi-500 transition-all"
+                  :style="{ width: `${bgUploadProgress}%` }"
+                />
+              </div>
+            </div>
+            <div
+              v-else-if="backgroundIsUpload"
+              class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10.5px] text-slate-500"
+            >
+              {{ customDraft.background_video ? '已上传自定义背景视频' : '已上传自定义背景图' }}
             </div>
             <input
-              v-else
+              v-else-if="!customDraft.background_video"
               v-model="customDraft.background_image"
               class="kiwi-input text-[11px]"
               placeholder="或粘贴图片地址：https://… / /uploads/…"
             />
-            <div class="grid grid-cols-2 gap-2">
+            <p class="text-[10px] leading-relaxed text-slate-400">
+              支持 PNG / JPEG / GIF / APNG / WebP / AVIF / BMP 与 MP4 / WebM / Ogg / MOV 视频。
+            </p>
+            <template v-if="!customDraft.background_video">
+              <div class="grid grid-cols-2 gap-2">
+                <div class="block">
+                  <span class="mb-1 block text-[10.5px] text-slate-500">填充方式</span>
+                  <KiwiSelect
+                    :model-value="customDraft.background_size"
+                    :options="BACKGROUND_SIZE_OPTIONS"
+                    variant="input"
+                    width="w-full"
+                    trigger-class="!text-[11px]"
+                    title="背景填充方式"
+                    @update:model-value="
+                      customDraft.background_size = $event as ThemeBackgroundSize
+                    "
+                  />
+                </div>
+                <div class="block">
+                  <span class="mb-1 block text-[10.5px] text-slate-500">重复</span>
+                  <KiwiSelect
+                    :model-value="customDraft.background_repeat"
+                    :options="BACKGROUND_REPEAT_OPTIONS"
+                    variant="input"
+                    width="w-full"
+                    trigger-class="!text-[11px]"
+                    title="背景重复方式"
+                    @update:model-value="
+                      customDraft.background_repeat = $event as ThemeBackgroundRepeat
+                    "
+                  />
+                </div>
+              </div>
               <div class="block">
-                <span class="mb-1 block text-[10.5px] text-slate-500">填充方式</span>
+                <span class="mb-1 block text-[10.5px] text-slate-500">对齐位置</span>
                 <KiwiSelect
-                  :model-value="customDraft.background_size"
-                  :options="BACKGROUND_SIZE_OPTIONS"
+                  :model-value="customDraft.background_position"
+                  :options="BACKGROUND_POSITION_OPTIONS"
                   variant="input"
                   width="w-full"
                   trigger-class="!text-[11px]"
-                  title="背景填充方式"
-                  @update:model-value="
-                    customDraft.background_size = $event as ThemeBackgroundSize
-                  "
+                  title="背景对齐位置"
+                  @update:model-value="customDraft.background_position = String($event)"
                 />
               </div>
-              <div class="block">
-                <span class="mb-1 block text-[10.5px] text-slate-500">重复</span>
-                <KiwiSelect
-                  :model-value="customDraft.background_repeat"
-                  :options="BACKGROUND_REPEAT_OPTIONS"
-                  variant="input"
-                  width="w-full"
-                  trigger-class="!text-[11px]"
-                  title="背景重复方式"
-                  @update:model-value="
-                    customDraft.background_repeat = $event as ThemeBackgroundRepeat
-                  "
-                />
-              </div>
-            </div>
-            <div class="block">
-              <span class="mb-1 block text-[10.5px] text-slate-500">对齐位置</span>
-              <KiwiSelect
-                :model-value="customDraft.background_position"
-                :options="BACKGROUND_POSITION_OPTIONS"
-                variant="input"
-                width="w-full"
-                trigger-class="!text-[11px]"
-                title="背景对齐位置"
-                @update:model-value="customDraft.background_position = String($event)"
-              />
-            </div>
+            </template>
+            <p
+              v-else
+              class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10px] leading-relaxed text-slate-500"
+            >
+              视频背景默认铺满窗口并静音循环，填充方式与对齐位置不生效。
+            </p>
             <label class="block">
               <span class="flex items-center justify-between text-[10.5px] text-slate-500">
                 <span>暗化遮罩</span>
@@ -1028,10 +1188,14 @@ async function resetCustomize() {
           >
             <KiwiIcon name="refresh" :size="13" /> 恢复主题默认
           </button>
-          <button class="kiwi-btn-ghost" @click="customOpen = false">取消</button>
-          <button class="kiwi-btn-primary" :disabled="customBusy" @click="saveCustomize">
+          <button class="kiwi-btn-ghost" @click="closeCustomize">取消</button>
+          <button
+            class="kiwi-btn-primary"
+            :disabled="customBusy || bgUploading"
+            @click="saveCustomize"
+          >
             <KiwiIcon :name="customBusy ? 'loader' : 'check'" :size="13" :spin="customBusy" />
-            {{ customBusy ? '保存中…' : '保存微调' }}
+            {{ customBusy ? '保存中…' : bgUploading ? '上传中…' : '保存微调' }}
           </button>
         </div>
       </div>

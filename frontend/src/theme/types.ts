@@ -125,6 +125,8 @@ export const DEFAULT_THEME_TYPOGRAPHY: ThemeTypography = { body: '', heading: ''
 
 export interface ThemeOverrides {
   background_image: string
+  /** 上传后的背景视频 URL；与 background_image 二选一。 */
+  background_video: string
   background_size: ThemeBackgroundSize | null
   background_position: string | null
   background_repeat: ThemeBackgroundRepeat | null
@@ -140,6 +142,7 @@ export interface ThemeOverrides {
 
 export const EMPTY_THEME_OVERRIDES: ThemeOverrides = {
   background_image: '',
+  background_video: '',
   background_size: null,
   background_position: null,
   background_repeat: null,
@@ -181,6 +184,14 @@ export interface ThemeActive {
   style_url: string
   asset_base_url: string
   overrides: ThemeOverrides
+}
+
+/** 自定义背景上传结果。 */
+export interface ThemeBackgroundUpload {
+  url: string
+  kind: 'image' | 'video'
+  content_type: string
+  size: number
 }
 
 export interface ThemeInspection {

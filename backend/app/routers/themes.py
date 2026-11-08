@@ -8,36 +8,34 @@
 from __future__ import annotations
 
 import io
-import json
 import logging
-import uuid
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Plugin, PluginAsset
+from app.db.models import Plugin
 from app.db.models.system_settings import SYSTEM_SETTINGS_ID, SystemSettings
 from app.db.session import get_session
 from app.routers.plugins import (
-    import_package_file,
-    MAX_MANIFEST_CHARS,
     _assets_for,
-    _read_upload,
-    _parse_package,
     _inspection,
+    _parse_package,
+    _read_upload,
+    import_package_file,
 )
 from app.schemas.plugin import PluginInspectionOut, ThemeSpecIn
 from app.schemas.theme import (
     ThemeActivateIn,
     ThemeActiveOut,
+    ThemeBackgroundOut,
     ThemeOut,
     ThemeOverridesIn,
 )
-from app.services import builtin_themes, system_settings
+from app.services import builtin_themes, system_settings, theme_backgrounds
 
 logger = logging.getLogger("kiwi.themes")
 
@@ -72,8 +70,38 @@ def _active_key(row: SystemSettings | None) -> str:
     return key
 
 
+def _background_refs(value: dict | None) -> set[str]:
+    if not isinstance(value, dict):
+        return set()
+    refs = {
+        str(value.get("background_image") or "").strip(),
+        str(value.get("background_video") or "").strip(),
+    }
+    return {ref for ref in refs if ref}
+
+
 def _asset_base(plugin: Plugin) -> str:
     return f"/api/plugins/{plugin.id}/asset/"
+
+
+def _builtin_asset_base(theme: dict) -> str:
+    if not builtin_themes.asset_paths(theme):
+        return ""
+    return f"/api/themes/builtin/{theme['key']}/asset/"
+
+
+def _builtin_style_url(theme: dict) -> str:
+    if not theme.get("style"):
+        return ""
+    return f"/api/themes/builtin/{theme['key']}/style.css"
+
+
+def _builtin_preview_url(theme: dict) -> str:
+    preview = str((theme.get("theme") or {}).get("preview") or "").strip()
+    base = _builtin_asset_base(theme)
+    if not preview or not base:
+        return ""
+    return f"{base}{preview.lstrip('/')}"
 
 
 def _preview_url(plugin: Plugin, theme: ThemeSpecIn) -> str:
@@ -136,11 +164,11 @@ def _builtin_out(theme: dict, *, active: bool) -> ThemeOut:
         builtin=True,
         enabled=True,
         active=active,
-        style_url="",
-        preview_url="",
-        asset_base_url="",
+        style_url=_builtin_style_url(theme),
+        preview_url=_builtin_preview_url(theme),
+        asset_base_url=_builtin_asset_base(theme),
         theme=spec,
-        assets=[],
+        assets=list(builtin_themes.asset_paths(theme)),
     )
 
 
@@ -169,8 +197,8 @@ async def _active_payload(session: AsyncSession) -> ThemeActiveOut:
             builtin=True,
             enabled=True,
             theme=ThemeSpecIn.model_validate(builtin["theme"]),
-            style_url="",
-            asset_base_url="",
+            style_url=_builtin_style_url(builtin),
+            asset_base_url=_builtin_asset_base(builtin),
             overrides=overrides,
         )
     plugin = await _installed_theme(session, key)
@@ -183,8 +211,8 @@ async def _active_payload(session: AsyncSession) -> ThemeActiveOut:
             builtin=True,
             enabled=True,
             theme=ThemeSpecIn.model_validate(fallback["theme"]),
-            style_url="",
-            asset_base_url="",
+            style_url=_builtin_style_url(fallback),
+            asset_base_url=_builtin_asset_base(fallback),
             overrides=ThemeOverridesIn(),
         )
     raw = (plugin.manifest or {}).get("theme")
@@ -201,8 +229,8 @@ async def _active_payload(session: AsyncSession) -> ThemeActiveOut:
             builtin=True,
             enabled=True,
             theme=ThemeSpecIn.model_validate(fallback["theme"]),
-            style_url="",
-            asset_base_url="",
+            style_url=_builtin_style_url(fallback),
+            asset_base_url=_builtin_asset_base(fallback),
             overrides=ThemeOverridesIn(),
         )
     version_tag = int(plugin.updated_at.timestamp() * 1000) if plugin.updated_at else 0
@@ -238,6 +266,9 @@ async def list_themes(session: AsyncSession = Depends(get_session)):
         .all()
     )
     for plugin in plugins:
+        # 极光已升级为内置主题；旧库里可能还留着同名安装记录，跳过避免重复。
+        if plugin.key in builtin_themes.BUILTIN_KEYS:
+            continue
         assets = await _assets_for(session, plugin.id)
         item = _theme_out_from_plugin(
             plugin,
@@ -246,6 +277,8 @@ async def list_themes(session: AsyncSession = Depends(get_session)):
         )
         if item is not None:
             items.append(item)
+    # 画廊顺序：当前主题置顶，其次内置主题，最后已安装主题；同组按名称排序。
+    items.sort(key=lambda item: (not item.active, not item.builtin, item.name.casefold()))
     return items
 
 
@@ -270,11 +303,54 @@ async def activate_theme(
     if row is None:
         row = SystemSettings(id=SYSTEM_SETTINGS_ID)
         session.add(row)
+    old_backgrounds = _background_refs(row.theme_overrides)
     row.active_theme = key
     if data.overrides is not None:
         row.theme_overrides = data.overrides.model_dump(mode="json", exclude_none=True)
     await session.commit()
+    if data.overrides is not None:
+        # 背景文件在提交成功后清理，避免保存失败把仍在使用的背景删掉。
+        theme_backgrounds.prune_replaced(
+            old_backgrounds, _background_refs(row.theme_overrides)
+        )
     return await _active_payload(session)
+
+
+@router.post("/background", response_model=ThemeBackgroundOut, status_code=201)
+async def upload_background(
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """上传自定义背景（图片 / 动图 / 视频，≤100MB），返回站内 /media URL。"""
+    try:
+        stored = await theme_backgrounds.save_upload(file)
+    except theme_backgrounds.BackgroundTooLarge as exc:
+        raise HTTPException(413, str(exc)) from exc
+    except theme_backgrounds.BackgroundUnsupported as exc:
+        raise HTTPException(415, str(exc)) from exc
+    row = await system_settings.get_row(session)
+    referenced = _background_refs(row.theme_overrides if row else None)
+    theme_backgrounds.prune_orphans(referenced | {stored.url})
+    return ThemeBackgroundOut(
+        url=stored.url,
+        kind=stored.kind,
+        content_type=stored.content_type,
+        size=stored.size,
+    )
+
+
+@router.delete("/background", status_code=204)
+async def delete_background(
+    url: str = Query(..., min_length=1, max_length=2000),
+    session: AsyncSession = Depends(get_session),
+):
+    """删除未被当前覆盖值引用的上传背景，用于取消编辑时清理文件。"""
+    row = await system_settings.get_row(session)
+    if url in _background_refs(row.theme_overrides if row else None):
+        raise HTTPException(400, "该背景正在使用，请先保存新的背景或恢复默认")
+    if not theme_backgrounds.remove_url(url):
+        raise HTTPException(404, "背景文件不存在")
+    return Response(status_code=204)
 
 
 @router.post("/inspect", response_model=PluginInspectionOut)
@@ -471,7 +547,30 @@ async def builtin_theme_style(key: str):
     if theme is None or not theme.get("style"):
         raise HTTPException(404, "内置主题没有样式文件")
     return Response(
-        content=theme["style"],
+        content=builtin_themes.read_style(theme),
         media_type="text/css; charset=utf-8",
-        headers={"Cache-Control": "no-cache"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/builtin/{key}/asset/{path:path}", response_model=None)
+async def builtin_theme_asset(key: str, path: str):
+    theme = builtin_themes.get_builtin(key)
+    if theme is None:
+        raise HTTPException(404, "内置主题不存在")
+    normalized = path.replace("\\", "/").lstrip("/")
+    if ".." in PurePosixPath(normalized).parts:
+        raise HTTPException(400, "资源路径非法")
+    if normalized not in builtin_themes.asset_paths(theme):
+        raise HTTPException(404, "资源不存在")
+    return Response(
+        content=builtin_themes.read_asset(theme, normalized),
+        media_type=builtin_themes.asset_media_type(normalized),
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
     )

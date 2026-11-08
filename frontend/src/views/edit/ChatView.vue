@@ -1559,7 +1559,7 @@ watch(
 
     <!-- 会话侧栏 -->
     <aside
-      class="z-30 flex h-full w-64 shrink-0 flex-col border-r border-slate-200/70 bg-white/70 backdrop-blur-xl"
+      class="chat-sidebar z-30 flex h-full w-64 shrink-0 flex-col border-r border-slate-200/70 bg-white/70 backdrop-blur-xl"
       :class="sidebarOpen ? 'absolute inset-y-0 left-0 flex shadow-xl md:static md:shadow-none' : 'hidden md:flex'"
     >
       <div class="flex items-center gap-2 px-3 pb-2 pt-3">
@@ -1694,9 +1694,9 @@ watch(
     </aside>
 
     <!-- 主区域 -->
-    <div class="relative flex min-w-0 flex-1 flex-col">
+    <div class="chat-main relative flex min-w-0 flex-1 flex-col">
       <!-- 会话标题 / 范围 / 意图 / 模型 -->
-      <header class="relative z-20 shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl">
+      <header class="chat-header relative z-20 shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl">
         <div class="mx-auto flex w-full max-w-[1120px] items-center gap-2">
           <button
             type="button"
@@ -1979,8 +1979,8 @@ watch(
       </header>
 
       <!-- 消息区 -->
-      <div ref="scrollEl" class="flex-1 overflow-y-auto px-4 py-6 sm:px-6" @scroll="onScroll">
-        <div class="mx-auto w-full space-y-6" style="max-width: min(1120px, 100%)">
+      <div ref="scrollEl" class="chat-scroll flex-1 overflow-y-auto px-4 py-6 sm:px-6" @scroll="onScroll">
+        <div class="chat-thread mx-auto w-full space-y-6" style="max-width: min(1120px, 100%)">
           <!-- 空态：建议 chips；桌面版未配置模型时给出明确入口 -->
           <div v-if="!messages.length" class="text-center pt-12 sm:pt-16 animate-fade-up">
             <template v-if="llmMissing">
@@ -2250,7 +2250,7 @@ watch(
       </button>
 
       <!-- 输入区：透明背景，与聊天区的环境渐变保持连续 -->
-      <div class="px-4 pb-4 pt-2 sm:px-6">
+      <div class="chat-composer px-4 pb-4 pt-2 sm:px-6">
         <div class="mx-auto w-full" style="max-width: min(1120px, 100%)">
           <!-- 已选 @ 范围：只作用于本轮检索，不改变知识库选择 -->
           <div v-if="mentions.length" class="mb-1.5 flex flex-wrap items-center gap-1.5">
@@ -2286,7 +2286,7 @@ watch(
           <!-- data-chat-menu：点击输入区时不应关闭 @ 选择器 -->
           <div
             data-chat-menu
-            class="relative rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
+            class="chat-composer-inner relative rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
           >
             <div class="flex items-end gap-2">
               <textarea

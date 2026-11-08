@@ -128,6 +128,25 @@ theme.zip
 `text-slate-300…900`、`border-slate-100/200/300` 及其透明度、hover 变体都会
 自动映射到令牌。主题 CSS 可以继续覆盖具体组件。
 
+### 用户自定义背景（运行时上传）
+
+主题包内的背景图仍受包体限制（单个 4MB / 合计 10MB）；用户在「设置 → 主题 →
+自定义外观」里上传的背景走独立接口与存储，与主题包无关：
+
+| 项目 | 限制 |
+|---|---|
+| 文件大小 | ≤ 100MB |
+| 图片 | PNG（含 APNG）/ JPEG / GIF / WebP（含动态）/ AVIF / BMP |
+| 视频 | MP4 / WebM / Ogg / MOV，静音循环播放；优先 MP4 / WebM |
+| 存储位置 | `/media/theme-backgrounds/`，覆盖值只保存站内 URL |
+
+上传接口为 `POST /api/themes/background`，返回 `url`、`kind` 与 `content_type`；
+未被覆盖值引用的文件会在一段时间后自动清理，也可用
+`DELETE /api/themes/background?url=` 主动删除。图片 URL 写入
+`background_image`，视频 URL 写入 `background_video`；两者同时存在时视频优先。
+`background_dim`、`background_blur` 与 `surface.*` 同样作用于视频背景。
+出于安全考虑，SVG 与 `data:` 视频会被拒绝。
+
 ## 5. theme.css
 
 `theme.css` 会作为全局样式注入。**所有规则必须限定在主题 key 下**：

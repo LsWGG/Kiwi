@@ -6,7 +6,13 @@
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { download, request, upload } from '@/api/client'
+import {
+  download,
+  request,
+  upload,
+  uploadWithProgress,
+  type UploadProgressHandler,
+} from '@/api/client'
 import {
   applyActiveTheme,
   applyCachedTheme,
@@ -15,6 +21,7 @@ import {
 import {
   EMPTY_THEME_OVERRIDES,
   type ThemeActive,
+  type ThemeBackgroundUpload,
   type ThemeDevSpec,
   type ThemeInspection,
   type ThemeItem,
@@ -45,6 +52,7 @@ export const useThemeStore = defineStore('theme', () => {
     const value = overrides.value
     return Boolean(
       value.background_image ||
+        value.background_video ||
         value.background_size ||
         value.background_position ||
         value.background_repeat ||
@@ -69,6 +77,19 @@ export const useThemeStore = defineStore('theme', () => {
       ...item,
       active: item.key === key,
     }))
+    reorderThemes()
+  }
+
+  /** 与后端画廊排序保持一致：当前主题 → 内置主题 → 已安装主题。 */
+  function reorderThemes(): void {
+    themes.value = [...themes.value].sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1
+      if (a.builtin !== b.builtin) return a.builtin ? -1 : 1
+      // 与后端 name.casefold() 的码点排序保持一致，避免刷新前后顺序跳动。
+      const left = a.name.toLowerCase()
+      const right = b.name.toLowerCase()
+      return left < right ? -1 : left > right ? 1 : 0
+    })
   }
 
   async function refreshActive(): Promise<ThemeActive> {
@@ -151,6 +172,31 @@ export const useThemeStore = defineStore('theme', () => {
     return activate(active.value.key, { ...EMPTY_THEME_OVERRIDES })
   }
 
+  /** 上传自定义背景（图片 / 动图 / 视频，≤100MB），返回 /media 站内 URL。 */
+  async function uploadBackground(
+    file: File,
+    onProgress?: UploadProgressHandler,
+    signal?: AbortSignal,
+  ): Promise<ThemeBackgroundUpload> {
+    const form = new FormData()
+    form.append('file', file)
+    return uploadWithProgress<ThemeBackgroundUpload>(
+      '/themes/background',
+      form,
+      null,
+      onProgress,
+      signal,
+    )
+  }
+
+  /** 删除未被当前覆盖值引用的上传背景（用于取消编辑后的清理）。 */
+  async function deleteBackground(url: string): Promise<void> {
+    await request<void>(
+      `/themes/background?url=${encodeURIComponent(url)}`,
+      { method: 'DELETE' },
+    )
+  }
+
   /** 启用 / 停用已安装主题。停用当前主题时后端会回落到内置主题。 */
   async function setEnabled(item: ThemeItem, enabled: boolean): Promise<void> {
     if (item.builtin) return
@@ -224,6 +270,8 @@ export const useThemeStore = defineStore('theme', () => {
     activate,
     saveOverrides,
     resetOverrides,
+    uploadBackground,
+    deleteBackground,
     setEnabled,
     remove,
     inspectFile,
