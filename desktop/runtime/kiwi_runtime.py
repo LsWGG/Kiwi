@@ -365,11 +365,48 @@ def short_windows_path(path: Path) -> Path | None:
     return None
 
 
+def prefer_ascii_bin_path(bin_dir: Path) -> Path:
+    """PostgreSQL initdb 对非 ASCII 路径敏感，优先换成 8.3 短路径。
+
+    安装目录可能含中文（例如安装到 `D:\\...\\Kiwi 安装`），而 initdb 会从
+    自身可执行文件路径推导 ``share`` 与 ``postgres.exe``。启动时通过短路径
+    调用后，推导结果全为 ASCII，非 ASCII 安装目录也能正常初始化。
+    """
+    if os.name != "nt" or str(bin_dir).isascii():
+        return bin_dir
+    short = short_windows_path(bin_dir)
+    if short is not None and str(short).isascii():
+        return short
+    return bin_dir
+
+
+def _apply_pgserver_bin_path(bin_dir: Path) -> Path:
+    """把最终选定的二进制目录回填到 pgserver 的各处模块属性。"""
+    try:
+        import pgserver
+    except Exception:  # noqa: BLE001 - 由调用方处理缺失依赖
+        return bin_dir
+    resolved = prefer_ascii_bin_path(bin_dir)
+    with contextlib.suppress(ImportError):
+        from pgserver import _commands as commands
+
+        commands.POSTGRES_BIN_PATH = resolved
+    with contextlib.suppress(ImportError):
+        from pgserver import postgres_server as server_module
+
+        server_module.POSTGRES_BIN_PATH = resolved
+    pgserver.POSTGRES_BIN_PATH = resolved
+    if resolved != bin_dir:
+        logger.info("安装目录含非 ASCII 路径，PostgreSQL 改用短路径：%s", resolved)
+    return resolved
+
+
 def ensure_pgserver_binaries() -> Path | None:
     """PyInstaller 会把模块放进 PYZ，``__file__`` 可能指向不存在的路径。
 
     优先使用 pgserver 计算出的 ``POSTGRES_BIN_PATH``；若目录不存在，则在
     bundle 内查找 ``collect_all`` 收集的 ``pginstall/bin`` 并回填模块属性。
+    两种情况都会尝试把非 ASCII 安装目录换成 8.3 短路径。
     """
     try:
         import pgserver
@@ -377,7 +414,7 @@ def ensure_pgserver_binaries() -> Path | None:
         return None
     current = Path(str(getattr(pgserver, "POSTGRES_BIN_PATH", "") or ""))
     if current.is_dir():
-        return current
+        return _apply_pgserver_bin_path(current)
     candidates = [
         bundle_root() / "pgserver" / "pginstall" / "bin",
         bundle_root() / "pginstall" / "bin",
@@ -385,17 +422,9 @@ def ensure_pgserver_binaries() -> Path | None:
     for candidate in candidates:
         if not candidate.is_dir():
             continue
-        with contextlib.suppress(ImportError):
-            from pgserver import _commands as commands
-
-            commands.POSTGRES_BIN_PATH = candidate
-        with contextlib.suppress(ImportError):
-            from pgserver import postgres_server as server_module
-
-            server_module.POSTGRES_BIN_PATH = candidate
-        pgserver.POSTGRES_BIN_PATH = candidate
-        logger.info("已从 bundle 解析 PostgreSQL 二进制：%s", candidate)
-        return candidate
+        resolved = _apply_pgserver_bin_path(candidate)
+        logger.info("已从 bundle 解析 PostgreSQL 二进制：%s", resolved)
+        return resolved
     return None
 
 

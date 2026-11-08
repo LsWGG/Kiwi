@@ -159,3 +159,22 @@ def test_short_windows_path_only_on_windows(runtime, tmp_path):
     if os.name == "nt":
         pytest.skip("Windows 上由共享文件夹路径行为决定，不在此断言")
     assert runtime.short_windows_path(tmp_path) is None
+
+
+def test_prefer_ascii_bin_path_switches_to_short_path(runtime, tmp_path):
+    bin_dir = tmp_path / "Kiwi 安装" / "pginstall" / "bin"
+    short = tmp_path / "KIWIIN~1" / "pginstall" / "bin"
+    with (
+        mock.patch.object(runtime, "os", SimpleNamespace(name="nt")),
+        mock.patch.object(runtime, "short_windows_path", return_value=short),
+    ):
+        assert runtime.prefer_ascii_bin_path(bin_dir) == short
+
+
+def test_prefer_ascii_bin_path_keeps_ascii_and_falls_back(runtime, tmp_path):
+    ascii_dir = tmp_path / "pginstall" / "bin"
+    chinese_dir = tmp_path / "Kiwi 安装" / "pginstall" / "bin"
+    with mock.patch.object(runtime, "os", SimpleNamespace(name="nt")):
+        assert runtime.prefer_ascii_bin_path(ascii_dir) == ascii_dir
+        with mock.patch.object(runtime, "short_windows_path", return_value=None):
+            assert runtime.prefer_ascii_bin_path(chinese_dir) == chinese_dir

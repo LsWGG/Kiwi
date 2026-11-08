@@ -186,6 +186,14 @@ jobs:
           }
           $smokeLog = Join-Path $env:LOCALAPPDATA "Kiwi\logs\smoke-test.log"
           if (Test-Path $smokeLog) { Get-Content $smokeLog }
+          # 先落盘日志再判断退出码，失败时 artifact 里也能拿到 runtime.log。
+          New-Item -ItemType Directory -Force -Path "desktop/dist/logs" | Out-Null
+          foreach ($log in @($smokeLog, (Join-Path $env:LOCALAPPDATA "Kiwi\logs\runtime.log"),
+                             (Join-Path $env:LOCALAPPDATA "Kiwi\logs\desktop.log"))) {
+            if (Test-Path $log) {
+              Copy-Item $log "desktop/dist/logs" -Force
+            }
+          }
           if ($proc.ExitCode -ne 0) {
             throw "安装后 smoke-test 失败，退出码 $($proc.ExitCode)"
           }
@@ -213,14 +221,6 @@ jobs:
             throw "卸载后安装目录仍有文件：$installDir"
           }
           Write-Host "静默安装、smoke-test、卸载与数据保留均通过。"
-
-          New-Item -ItemType Directory -Force -Path "desktop/dist/logs" | Out-Null
-          foreach ($log in @($smokeLog, (Join-Path $env:LOCALAPPDATA "Kiwi\logs\runtime.log"),
-                             (Join-Path $env:LOCALAPPDATA "Kiwi\logs\desktop.log"))) {
-            if (Test-Path $log) {
-              Copy-Item $log "desktop/dist/logs" -Force
-            }
-          }
 
       - name: Upload artifacts
         if: always()
