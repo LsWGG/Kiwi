@@ -155,11 +155,17 @@ services:
           create_host_path: false
     # Notebook 的 bubblewrap 沙箱需要创建命名空间与挂载点。
     # 沙箱内部仍会 --cap-drop ALL、--unshare-* 并只挂载 /work。
+    #
+    # systempaths=unconfined 用于移除 Docker 默认在 /proc 下覆盖的 masked /
+    # readonly 路径。否则内核在用户命名空间里挂载新的 procfs 时会因
+    # mount_too_revealing() 返回 EPERM，bwrap 报
+    # 「Can't mount proc on /newroot/proc: Operation not permitted」。
     cap_add:
       - SYS_ADMIN
     security_opt:
       - seccomp=unconfined
       - apparmor=unconfined
+      - systempaths=unconfined
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health || exit 1"]
       interval: 10s

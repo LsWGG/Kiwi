@@ -546,14 +546,27 @@ Notebook 使用 bubblewrap 创建命名空间。Compose 已为 backend 添加：
 
 ```yaml
 cap_add: [SYS_ADMIN]
-security_opt: [seccomp=unconfined, apparmor=unconfined]
+security_opt: [seccomp=unconfined, apparmor=unconfined, systempaths=unconfined]
 ```
 
-验证：
+其中 `systempaths=unconfined` 不能省略：Docker 默认会在 `/proc` 下挂载 masked /
+readonly 路径，内核在用户命名空间内挂载新的 procfs 时会因
+`mount_too_revealing()` 返回 `EPERM`，表现为
+`bwrap: Can't mount proc on /newroot/proc: Operation not permitted`，Notebook
+内核随即退出。
+
+验证（必须带上 `--proc /proc`，否则测不到该故障）：
 
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend \
-  bwrap --unshare-user --ro-bind /usr /usr -- true && echo sandbox-ok
+  bwrap --unshare-user --unshare-pid --proc /proc --ro-bind /usr /usr -- true \
+  && echo sandbox-ok
+```
+
+修改 `security_opt` 后需要重建容器（仅重启不会应用新配置）：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate backend
 ```
 
 若仍失败，检查宿主机是否允许用户命名空间：
