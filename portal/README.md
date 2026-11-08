@@ -42,3 +42,4 @@ assets/screenshots/*.webp   产品截图（最长边 1600px，按页面需要压
 - 动效必须尊重 `prefers-reduced-motion`；新增交互需保留键盘可达性。
 - 学习闭环使用 `setupShowcase({ auto })` 自动轮播：悬停、键盘聚焦、页面不可见或区块离开视口时暂停，减少动态偏好下不启用。
 - 更新首页标题或主视觉后，同步重新生成 `assets/og-image.png`，并更新 `sitemap.xml` 的 `lastmod`。
+- 发布新版本时，同步更新 `brand-ver`、版本提示条、Windows 下载按钮、页脚版本，以及直链 `releases/download/vX.Y.Z/Kiwi-Setup-X.Y.Z.exe`（点击应直接下载安装包，不跳转 Release 页）。
