@@ -79,7 +79,7 @@ services:
         PGDG_MIRROR: ${PGDG_MIRROR:-https://mirrors.aliyun.com/postgresql/repos/apt}
         KIWI_BUILD_COMMIT: ${KIWI_BUILD_COMMIT:-}
         KIWI_BUILD_TIME: ${KIWI_BUILD_TIME:-}
-    image: kiwi-backend:1.1.0
+    image: kiwi-backend:1.1.1
     container_name: kiwi-prod-backend
     restart: unless-stopped
     init: true

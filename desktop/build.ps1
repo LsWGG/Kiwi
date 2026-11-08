@@ -7,7 +7,7 @@
   必须在 Windows 10/11 x64 上运行；产物默认输出到 desktop\dist。
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.0
+  powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.1
   powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Clean -SkipTests
 #>
 [CmdletBinding()]
@@ -185,7 +185,7 @@ if (-not $Version) {
     $Version = [string]$package.version
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
-    Fail "版本号无效：$Version（示例：1.1.0）"
+    Fail "版本号无效：$Version（示例：1.1.1）"
 }
 Write-Info "版本：$Version"
 

@@ -98,7 +98,7 @@ cd Kiwi
 从 Releases 下载 `Kiwi-Setup-<version>.exe`，或在 Windows 10/11 x64 上构建：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.0
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.1
 ```
 
 安装、离线边界、本机代码执行、备份恢复与故障排查见 [docs/WINDOWS.md](docs/WINDOWS.md)。

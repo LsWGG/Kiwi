@@ -98,7 +98,7 @@ A standalone Windows x64 build wraps the same app in a WebView2 window and bundl
 Download `Kiwi-Setup-<version>.exe` from Releases, or build it on Windows 10/11 x64:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.0
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.1
 ```
 
 See [docs/WINDOWS.md](docs/WINDOWS.md) for installation, offline boundaries, local code execution, backup/restore, and troubleshooting.
