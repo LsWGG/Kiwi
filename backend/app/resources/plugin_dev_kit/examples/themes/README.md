@@ -8,14 +8,15 @@ cd aurora && zip -r ../aurora-1.0.0.zip .
 
 | 示例 | 说明 | 适合参考 |
 |---|---|---|
-| [`aurora/`](aurora/) | 深色极光：冷色玻璃面板 + 青绿强调色 | 完整颜色令牌、背景图、面板透明度 / 毛玻璃、`theme.css` 装饰样式、预览图 |
+| [`aurora/`](aurora/) | 深色极光：冷色玻璃面板 + 青绿强调色 | 完整颜色令牌、背景图（`video` 字段的占位写法）、面板透明度 / 毛玻璃、`theme.css` 装饰样式、预览图 |
 
 主题示例遵循以下约定：
 
 - `plugin.json` 的 `kind` 固定为 `theme`，`entry` 与 `blocks` 为空；
 - 颜色只使用规范列出的令牌（`app.background`、`surface.*`、`border.*`、`text.*`、`accent`）；
 - 深色主题同时覆盖表面、文本、边框三组色阶，避免只改背景导致不可读；
-- 背景图、预览图与字体放在 `assets/`，单文件 ≤ 4MB；
+- 背景图、预览图、字体与背景视频放在 `assets/`；图片 / 字体单个 ≤ 4MB，
+  视频单个 ≤ 48MB，资源合计 ≤ 60MB；
 - `theme.css` 的每条规则都限定在 `html[data-kiwi-theme="<key>"]` 下，并提供真实可用的背景与预览图。
 
 完整规范见 [`docs/THEME_SPEC.md`](../../THEME_SPEC.md)，AI 辅助开发见

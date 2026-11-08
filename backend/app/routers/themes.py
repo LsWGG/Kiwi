@@ -35,7 +35,12 @@ from app.schemas.theme import (
     ThemeOut,
     ThemeOverridesIn,
 )
-from app.services import builtin_themes, system_settings, theme_backgrounds
+from app.services import (
+    builtin_themes,
+    system_settings,
+    theme_backgrounds,
+    theme_overrides,
+)
 
 logger = logging.getLogger("kiwi.themes")
 
@@ -58,26 +63,20 @@ DEFAULT_BUILTIN_KEY = builtin_themes.BUILTIN_THEMES[0]["key"]
 def _overrides_from_row(row: SystemSettings | None) -> ThemeOverridesIn:
     if row is None or not row.theme_overrides:
         return ThemeOverridesIn()
+    active_key = _active_key(row)
+    raw = theme_overrides.split_stored(row.theme_overrides, active_key).get(active_key)
+    if not isinstance(raw, dict):
+        return ThemeOverridesIn()
     try:
-        return ThemeOverridesIn.model_validate(row.theme_overrides)
+        return ThemeOverridesIn.model_validate(raw)
     except ValidationError:
-        logger.warning("主题覆盖配置损坏，已忽略")
+        logger.warning("主题 %s 的覆盖配置损坏，已忽略", active_key)
         return ThemeOverridesIn()
 
 
 def _active_key(row: SystemSettings | None) -> str:
     key = (row.active_theme if row else "") or DEFAULT_BUILTIN_KEY
     return key
-
-
-def _background_refs(value: dict | None) -> set[str]:
-    if not isinstance(value, dict):
-        return set()
-    refs = {
-        str(value.get("background_image") or "").strip(),
-        str(value.get("background_video") or "").strip(),
-    }
-    return {ref for ref in refs if ref}
 
 
 def _asset_base(plugin: Plugin) -> str:
@@ -303,15 +302,20 @@ async def activate_theme(
     if row is None:
         row = SystemSettings(id=SYSTEM_SETTINGS_ID)
         session.add(row)
-    old_backgrounds = _background_refs(row.theme_overrides)
+    # 覆盖值按主题 key 分组保存：切走再切回同一主题时恢复原有自定义外观。
+    old_key = _active_key(row)
+    stored = theme_overrides.split_stored(row.theme_overrides, old_key)
+    old_backgrounds = theme_overrides.stored_refs(stored)
     row.active_theme = key
     if data.overrides is not None:
-        row.theme_overrides = data.overrides.model_dump(mode="json", exclude_none=True)
+        stored[key] = data.overrides.model_dump(mode="json", exclude_none=True)
+    row.theme_overrides = stored
     await session.commit()
     if data.overrides is not None:
-        # 背景文件在提交成功后清理，避免保存失败把仍在使用的背景删掉。
+        # 背景文件在提交成功后清理，避免保存失败把仍在使用的背景删掉；
+        # 比较的是所有主题的引用，不影响其他主题保存的背景。
         theme_backgrounds.prune_replaced(
-            old_backgrounds, _background_refs(row.theme_overrides)
+            old_backgrounds, theme_overrides.stored_refs(stored)
         )
     return await _active_payload(session)
 
@@ -329,7 +333,9 @@ async def upload_background(
     except theme_backgrounds.BackgroundUnsupported as exc:
         raise HTTPException(415, str(exc)) from exc
     row = await system_settings.get_row(session)
-    referenced = _background_refs(row.theme_overrides if row else None)
+    referenced = theme_overrides.all_background_refs(
+        row.theme_overrides if row else None, _active_key(row)
+    )
     theme_backgrounds.prune_orphans(referenced | {stored.url})
     return ThemeBackgroundOut(
         url=stored.url,
@@ -344,9 +350,12 @@ async def delete_background(
     url: str = Query(..., min_length=1, max_length=2000),
     session: AsyncSession = Depends(get_session),
 ):
-    """删除未被当前覆盖值引用的上传背景，用于取消编辑时清理文件。"""
+    """删除未被任何主题覆盖值引用的上传背景，用于取消编辑时清理文件。"""
     row = await system_settings.get_row(session)
-    if url in _background_refs(row.theme_overrides if row else None):
+    referenced = theme_overrides.all_background_refs(
+        row.theme_overrides if row else None, _active_key(row)
+    )
+    if url in referenced:
         raise HTTPException(400, "该背景正在使用，请先保存新的背景或恢复默认")
     if not theme_backgrounds.remove_url(url):
         raise HTTPException(404, "背景文件不存在")
@@ -433,6 +442,7 @@ async def theme_spec():
             },
             "background": {
                 "image": "assets/aurora.svg",
+                "video": "",
                 "size": "cover",
                 "position": "center",
                 "repeat": "no-repeat",
@@ -453,8 +463,10 @@ async def theme_spec():
         "ai_prompt": (
             "使用 kiwi-theme skill 为 Kiwi 开发一个主题插件。先阅读 docs/THEME_SPEC.md "
             "与 docs/examples/themes/aurora/，输出可直接压缩为 zip 的 plugin.json、"
-            "可选 theme.css 与 assets/ 资源。主题只允许声明式 JSON + CSS，不执行 JavaScript；"
-            "颜色令牌必须使用规范中的 key，装饰样式限定在 html[data-kiwi-theme=\"<key>\"] 下。"
+            "可选 theme.css 与 assets/ 资源（背景图 / 字体 / 背景视频）。主题只允许"
+            "声明式 JSON + CSS，不执行 JavaScript；颜色令牌必须使用规范中的 key，"
+            "装饰样式限定在 html[data-kiwi-theme=\"<key>\"] 下。背景视频写入 "
+            "theme.background.video，并用 theme.background.image 提供封面。"
             "完成后用 /api/themes/inspect 校验并导入。"
         ),
         "rules": [
@@ -462,7 +474,8 @@ async def theme_spec():
             "key 为全局唯一小写 slug（字母、数字、连字符），发布后不可修改；不能与内置主题重名",
             "主题只包含 plugin.json / theme.css / assets/，禁止 JavaScript",
             "颜色令牌只允许规范列出的 key；未知 key 会被拒绝",
-            "背景图与预览图放在 assets/ 下，单文件不超过 4MB，整包不超过 10MB",
+            "背景图、预览图、字体与背景视频放在 assets/ 下；图片 / 字体单个不超过 4MB，"
+            "视频单个不超过 48MB，资源合计不超过 60MB，整包不超过 64MB",
             "theme.css 必须用 html[data-kiwi-theme=\"<key>\"] 限定作用域，避免影响其他主题",
             "透明度 opacities 过低会影响可读性，surface.opacity 最低 0.35",
             "深色主题请把 mode 设为 dark，并同时覆盖文本、边框与表面色阶",
@@ -480,11 +493,12 @@ async def theme_spec():
             "style": "theme.css 在 zip 内的相对路径，可选",
             "theme.mode": "light / dark，决定 color-scheme",
             "theme.colors": "颜色令牌：app.background / surface.* / border.* / text.* / accent",
-            "theme.background": "背景图、填充方式、暗化 dim 与模糊 blur",
+            "theme.background": "背景图 / 视频、填充方式、暗化 dim 与模糊 blur；"
+            "视频写入 video，image 同时作为封面",
             "theme.surface": "面板不透明度 opacity、毛玻璃 blur",
             "theme.typography": "body / heading / mono 字体栈",
             "theme.preview": "主题画廊缩略图（assets/ 下相对路径）",
-            "assets/": "背景图、预览图、字体等二进制资源",
+            "assets/": "背景图、预览图、字体与背景视频等二进制资源",
         },
         "example": example,
         "examples": {"theme": example},
@@ -513,7 +527,9 @@ async def theme_dev_kit():
             "# AI 主题开发提示词\n\n"
             "请先阅读 skill/kiwi-theme/SKILL.md 与 THEME_SPEC.md，再参考 "
             "examples/themes/aurora/。输出一个可压缩为 zip 的 Kiwi 主题插件包，"
-            "包含 plugin.json、可选 theme.css 与 assets/；颜色令牌只能使用规范中的 key。"
+            "包含 plugin.json、可选 theme.css 与 assets/（背景图 / 字体 / 背景视频）；"
+            "颜色令牌只能使用规范中的 key，背景视频写入 theme.background.video，"
+            "并用 theme.background.image 提供封面。"
             "安装前用 `/api/themes/inspect` 校验。\n",
         )
     return Response(

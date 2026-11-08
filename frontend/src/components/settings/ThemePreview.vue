@@ -113,6 +113,7 @@ const styles = computed(() => ({
       v-if="backgroundVideo"
       class="absolute inset-0 h-full w-full object-cover"
       :src="backgroundVideo"
+      :poster="image || undefined"
       autoplay
       muted
       loop

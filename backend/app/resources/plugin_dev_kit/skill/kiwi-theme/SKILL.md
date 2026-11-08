@@ -1,13 +1,13 @@
 ---
 name: kiwi-theme
-description: 为 Kiwi 开发、检查、打包或修复主题插件，包括 plugin.json 的 theme 规格、颜色令牌、背景与透明度、theme.css 作用域、预览图与导入验证。
+description: 为 Kiwi 开发、检查、打包或修复主题插件，包括 plugin.json 的 theme 规格、颜色令牌、背景图与背景视频、透明度、theme.css 作用域、预览图与导入验证。
 ---
 
 # Kiwi 主题插件开发
 
 主题插件（`kind: "theme"`）用**声明式 JSON + CSS** 定制整个 Kiwi 界面：
-颜色、背景图、面板透明度 / 毛玻璃、字体与装饰样式。主题不执行 JavaScript，
-安装后在「设置 → 主题」启用，即时生效，可随时切换回内置主题。
+颜色、背景图 / 背景视频、面板透明度 / 毛玻璃、字体与装饰样式。主题不执行
+JavaScript，安装后在「设置 → 主题」启用，即时生效，可随时切换回内置主题。
 
 完整规范以仓库 `docs/THEME_SPEC.md` 为准；可运行样例在
 `docs/examples/themes/aurora/`（深色极光：完整色板、背景图、玻璃面板、
@@ -15,21 +15,23 @@ description: 为 Kiwi 开发、检查、打包或修复主题插件，包括 plu
 
 ## 交付物
 
-主题插件 zip（≤ 12MB）：
+主题插件 zip（≤ 64MB）：
 
 ```
 my-theme/
   plugin.json     # 必须：manifest + theme 规格
   theme.css       # 可选：装饰样式（style 指向它），≤ 512KB
   README.md       # 可选
-  assets/         # 可选：背景图、预览图、字体
-    background.webp
+  assets/         # 可选：背景图 / 视频、预览图、字体
+    background.webp   # 背景图 / 视频封面
+    background.mp4    # 背景视频（可选）
     preview.png
     font.woff2
 ```
 
-必须以 `.zip` 交付；资源仅支持图片（png / jpg / jpeg / webp / gif / svg /
-avif / bmp）与字体（woff2 / woff / ttf / otf），单个 ≤ 4MB、合计 ≤ 10MB、
+必须以 `.zip` 交付；资源支持图片（png / jpg / jpeg / webp / gif / svg /
+avif / bmp）、字体（woff2 / woff / ttf / otf）与视频（mp4 / webm / ogv /
+ogg / mov）。图片与字体单个 ≤ 4MB，视频单个 ≤ 48MB，资源合计 ≤ 60MB，
 最多 40 个。
 
 ## manifest 字段
@@ -57,6 +59,7 @@ avif / bmp）与字体（woff2 / woff / ttf / otf），单个 ≤ 4MB、合计 �
     },
     "background": {
       "image": "assets/aurora.svg",
+      "video": "",
       "size": "cover",
       "position": "center",
       "repeat": "no-repeat",
@@ -112,9 +115,13 @@ avif / bmp）与字体（woff2 / woff / ttf / otf），单个 ≤ 4MB、合计 �
 ## 背景与表面
 
 - `background.image`：`assets/` 相对路径、`https://` 或 `data:image/...`。
+  声明 `video` 时它同时作为视频封面（poster）。
+- `background.video`：`assets/` 下的 mp4 / webm / ogv / ogg / mov，或
+  `https://` URL；静音自动循环播放。与 `image` 同时声明时视频优先，图片
+  作为封面。只声明视频也可以，但建议提供一张压缩后的封面图。
 - `background.size`：`cover` / `contain` / `auto`；`position` 为 CSS
   `background-position`；`repeat` 为 `no-repeat` / `repeat` / `repeat-x` /
-  `repeat-y`。
+  `repeat-y`。视频始终按 `cover` 铺满，`dim` / `blur` 同样生效。
 - `background.dim`：暗化遮罩 0–0.9，深色背景下常用 0.2–0.4 压低图片对比度。
 - `background.blur`：背景模糊 0–40px。
 - `surface.opacity`：面板不透明度 0.35–1；`surface.blur`：面板毛玻璃 0–40px；
@@ -124,8 +131,12 @@ avif / bmp）与字体（woff2 / woff / ttf / otf），单个 ≤ 4MB、合计 �
 `text-slate-*`、`border-slate-*` 及其透明度 / hover 变体都会映射到令牌，
 不需要逐个组件写覆盖。
 
-用户自定义背景与主题包资源是两套限制：主题包内单个资源 ≤ 4MB、合计 ≤ 10MB；
-用户在「设置 → 主题 → 自定义外观」上传的背景走独立接口，≤ 100MB，支持
+背景解析优先级：用户视频 > 用户图片 > 主题视频 > 主题图片；用户设置背景后
+会完整替换主题背景，不会叠加。
+
+用户自定义背景与主题包资源是两套限制：主题包内图片 / 字体单个 ≤ 4MB、
+视频单个 ≤ 48MB、资源合计 ≤ 60MB；用户在「设置 → 主题 → 自定义外观」
+上传的背景走独立接口，≤ 100MB，支持
 PNG（含 APNG）/ JPEG / GIF / WebP（含动态）/ AVIF / BMP，以及 MP4 / WebM /
 Ogg / MOV 视频（静音循环，优先 MP4 / WebM）。上传后图片 URL 写入
 `background_image`、视频 URL 写入 `background_video`；两者同时存在时视频优先，
@@ -167,39 +178,20 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
   （纸张取 `surface.background`）。需要纸张纹理或半透明时，覆盖
   `.editor-sheet` 并用 `!important` 压过引擎写入的行内底色。
 
-### 面板不透明度必须跟随用户设置
-
-「设置 → 主题 → 自定义外观」的面板不透明度写入 `--theme-surface-opacity`
-（0.35–1），毛玻璃模糊写入 `--theme-surface-blur`。主面板的 alpha 直接取
-变量，**不要再乘 0.9 / 0.8 之类的设计系数**，否则实际比预览更实：
-
-```css
-html[data-kiwi-theme="aurora"] .sidebar-glass {
-  background-color: rgb(251 246 232 / var(--theme-surface-opacity));
-  backdrop-filter: blur(var(--theme-surface-blur));
-}
-```
-
-不要写死 `rgb(... / 0.9)`、`#fbf6e8` 或 `blur(24px)`；也不要在一个已有
-`background-color` 的元素上再叠半透明 `background-image` 渐变（双层覆盖率
-≈ 1-(1-a)(1-b)，会比设置值更不透明）。侧栏、页头、页面容器、卡片、
-编辑器画布 / 纸张、Notebook、聊天区、数据表容器都属于大面积表面；菜单、
-下拉框、tooltip、按钮、选中高亮与画布内容可保持不透明以保证可读性。
-
-自查：不透明度设 35%、模糊设 0，DevTools 里主面板的
-`backgroundColor` alpha 应正好 0.35、`backdropFilter` 应为 `none`。
-
 ## 用户可覆盖项
 
-启用主题后，用户仍可在「设置 → 主题 → 自定义」覆盖背景图、暗化、模糊、
-面板透明度 / 毛玻璃与强调色；用户覆盖优先于主题包默认值。设计时不要把关键
-信息只放在背景图里，也不要把 `surface.opacity` 压到 0.6 以下而不加模糊。
+启用主题后，用户仍可在「设置 → 主题 → 自定义」覆盖背景（图片 / 视频）、
+暗化、模糊、面板透明度 / 毛玻璃与强调色；用户覆盖优先于主题包默认值。
+自定义外观按主题 key 独立保存，切到其他主题再切回来会自动恢复；删除主题时
+对应的覆盖值与只被它引用的上传背景文件会一并清理。设计时不要把关键信息只
+放在背景图 / 视频里，也不要把 `surface.opacity` 压到 0.6 以下而不加模糊。
 
 ## 开发流程
 
 1. 复制 `docs/examples/themes/aurora/` 作为起点，先改 `key` / `name` 与
    颜色令牌，再补背景与装饰。
-2. 准备 `assets/preview.svg|png`（建议 640×400）作为画廊缩略图。
+2. 准备 `assets/preview.svg|png`（建议 640×400）作为画廊缩略图；若使用
+   背景视频，再准备一张同画面的 WebP / JPEG 封面。
 3. 压缩为 zip（`plugin.json` 可在 zip 根目录或单一子目录内）：
 
    ```bash
@@ -213,7 +205,9 @@ html[data-kiwi-theme="aurora"] .sidebar-glass {
    ```
 
 5. 在「设置 → 主题 → 导入主题」导入并启用，逐页检查：笔记列表、编辑器、
-   阅读态、弹窗、表格、画布、聊天、设置页、登录页。
+   阅读态、弹窗、表格、画布、聊天、设置页、登录页。使用视频时确认首屏
+   显示封面、循环播放无明显跳帧，并在 DevTools Network 里确认资源请求
+   返回 `206 Partial Content` 与 `Accept-Ranges: bytes`。
 6. 从主题卡片「导出」下载 zip，重新导入验证往返一致。
 7. 若改动了仓库代码，运行前端 `npm run type-check` / `npm run build` 与后端
    相关测试。
@@ -225,6 +219,9 @@ html[data-kiwi-theme="aurora"] .sidebar-glass {
 - `surface.opacity` 低于 0.7 时，提高 `surface.blur` 并加深 `background.dim`。
 - 背景优先 SVG / WebP，控制在 500KB 以内；装饰元素优先用 CSS 渐变 / 伪元素，
   避免堆叠大图。
+- 背景视频建议 1080p、10–20 秒无缝循环、无音轨、MP4（H.264，
+  `-movflags +faststart`）或 WebM，控制在 15MB 以内；同时提供 WebP / JPEG
+  封面。视频只做氛围层，不要把关键信息放进视频。
 - 古风 / 科技 / 动漫等强风格主题：用 `area` 级的 `theme.css`（标题装饰、卡片
   描边、滚动条、纹理）承载风格，颜色令牌保持可读性优先。
 

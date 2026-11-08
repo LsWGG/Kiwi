@@ -32,6 +32,7 @@
     },
     "background": {
       "image": "assets/aurora.svg",
+      "video": "",
       "size": "cover",
       "position": "center",
       "repeat": "no-repeat",
