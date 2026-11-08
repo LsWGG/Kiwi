@@ -555,11 +555,18 @@ readonly 路径，内核在用户命名空间内挂载新的 procfs 时会因
 `bwrap: Can't mount proc on /newroot/proc: Operation not permitted`，Notebook
 内核随即退出。
 
-验证（必须带上 `--proc /proc`，否则测不到该故障）：
+验证（必须带上 `--proc /proc`，否则测不到该故障；`--symlink` 与真实沙箱
+参数保持一致，否则最小根目录缺少 `/lib64/ld-linux-x86-64.so.2`，会报
+`bwrap: execvp true: No such file or directory`——这条错误说明 proc 已能挂载，
+只是验证命令漏了动态链接器）：
 
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend \
-  bwrap --unshare-user --unshare-pid --proc /proc --ro-bind /usr /usr -- true \
+  bwrap --unshare-user --unshare-pid --proc /proc \
+    --ro-bind /usr /usr \
+    --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+    --symlink usr/bin /bin --symlink usr/sbin /sbin \
+    -- /usr/bin/true \
   && echo sandbox-ok
 ```
 
