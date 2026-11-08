@@ -163,7 +163,7 @@ onMounted(load)
   gap: 10px;
   padding: 9px 11px 9px 13px;
   border-radius: 11px;
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid rgb(var(--theme-border));
   background: linear-gradient(180deg, #fff, rgb(var(--kiwi-50) / 0.45));
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
@@ -192,7 +192,7 @@ onMounted(load)
 }
 .kiwi-note-embed-block.is-missing .kiwi-note-embed-card {
   border-style: dashed;
-  background: rgb(248 250 252);
+  background: rgb(var(--theme-app));
   cursor: default;
 }
 .kiwi-note-embed-icon {

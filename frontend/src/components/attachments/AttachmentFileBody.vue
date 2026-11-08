@@ -1039,13 +1039,13 @@ const csvView = computed<CsvView | null>(() => {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #f8fafc;
-  color: #475569;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-secondary));
   font-weight: 600;
   white-space: nowrap;
 }
 .kiwi-file-table tbody tr:nth-child(even) {
-  background: #fbfcfd;
+  background: rgb(var(--theme-app) / 0.55);
 }
 .kiwi-file-table tbody tr:hover {
   background: rgb(var(--kiwi-50) / 0.6);
@@ -1056,8 +1056,8 @@ const csvView = computed<CsvView | null>(() => {
   z-index: 1;
   width: 44px;
   min-width: 44px;
-  background: #f8fafc;
-  color: #94a3b8;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-faint));
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1076,16 +1076,16 @@ const csvView = computed<CsvView | null>(() => {
   width: 46px;
   padding-right: 10px;
   text-align: right;
-  color: #94a3b8;
-  background: #f8fafc;
-  border-right: 1px solid #eef2f6;
+  color: rgb(var(--theme-text-faint));
+  background: rgb(var(--theme-app));
+  border-right: 1px solid rgb(var(--theme-border));
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
 .diff-text {
   flex: 1 1 auto;
   padding: 0 12px;
-  color: #334155;
+  color: rgb(var(--theme-text-primary));
   white-space: pre;
 }
 .diff-row.is-add {

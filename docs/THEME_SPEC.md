@@ -126,7 +126,8 @@ theme.zip
 
 背景图与面板透明度由 Kiwi 的兼容层统一接管：`bg-white`、`bg-slate-50/100`、
 `text-slate-300…900`、`border-slate-100/200/300` 及其透明度、hover 变体都会
-自动映射到令牌。主题 CSS 可以继续覆盖具体组件。
+自动映射到令牌。主题 CSS 可以继续覆盖具体组件，但大面积表面的 alpha 必须
+乘以 `--theme-surface-opacity`（见第 5 节「面板不透明度必须响应自定义外观」）。
 
 ### 用户自定义背景（运行时上传）
 
@@ -177,6 +178,34 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
   `url("assets/...")` 会解析到 `/api/plugins/<id>/assets/...`。
 - 不建议使用外部 `@import`，离线 / 内网部署会加载失败。
 - 不使用 JavaScript；需要交互效果请用纯 CSS（transition / animation）。
+
+### 面板不透明度必须响应「自定义外观」
+
+用户在「设置 → 主题 → 自定义外观」里调整的面板不透明度会写入
+`--theme-surface-opacity`（0.35–1），编辑模式与学习模式共用。`theme.css`
+里**所有大面积表面**的 alpha 都必须乘以这个变量：
+
+```css
+html[data-kiwi-theme="aurora"] .sidebar-glass {
+  /* 基色 0.9 × 用户设置；不要写死成 0.9 */
+  background-color: rgb(251 246 232 / calc(0.9 * var(--theme-surface-opacity)));
+}
+```
+
+以下写法会让滑块失效，禁止用于大面积表面：
+
+```css
+background: rgb(251 246 232 / 0.9); /* 写死 alpha */
+background: #fbf6e8;                /* 完全不透明 */
+```
+
+小面积控件可以保持不透明或固定 alpha，以保证可读性：菜单 / 下拉框、
+tooltip、`kbd`、按钮、选中高亮、状态徽标，以及图表与画布内容。判断标准：
+调低不透明度时，侧栏、页头、页面容器、卡片、编辑器画布 / 纸张、Notebook、
+聊天区、数据表容器等应透出壁纸，文字与控件本身不被削弱。
+
+自查：在浏览器 DevTools 把 `--theme-surface-opacity` 从 `1` 改成 `0.35`，
+大面积背景颜色不变化即说明 alpha 被写死。
 
 常用可覆盖区域：
 

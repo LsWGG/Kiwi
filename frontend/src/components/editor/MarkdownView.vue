@@ -1610,16 +1610,16 @@ function onClick(event: MouseEvent) {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  border: 1px dashed rgb(203 213 225);
+  border: 1px dashed rgb(var(--theme-border-strong));
   border-radius: 0.6rem;
-  background: rgb(248 250 252 / 0.8);
+  background: rgb(var(--theme-app) / 0.8);
   padding: 1rem 1.25rem;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .markdown-view .md-external-blocked-label {
   font-size: 0.78em;
   font-weight: 500;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .markdown-view .md-external-blocked-alt {
   max-width: 100%;
@@ -1632,20 +1632,20 @@ function onClick(event: MouseEvent) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border: 1px dashed rgb(203 213 225);
+  border: 1px dashed rgb(var(--theme-border-strong));
   border-radius: 0.75rem;
-  background: rgb(248 250 252 / 0.8);
+  background: rgb(var(--theme-app) / 0.8);
   padding: 1rem 1.25rem;
   margin: 0.85rem 0;
 }
 .markdown-view .md-embed-blocked-title {
   font-size: 0.86em;
   font-weight: 600;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .markdown-view .md-embed-blocked-hint {
   font-size: 0.75em;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 
 .markdown-view .md-gallery {
@@ -1895,15 +1895,15 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-datatable {
   margin: 0.9rem 0;
   padding: 8px;
-  border: 1px solid rgb(241 245 249);
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 10px;
-  background: rgb(255 255 255 / 0.6);
+  background: rgb(var(--theme-app) / calc(0.6 * var(--theme-surface-opacity)));
 }
 .markdown-view .md-datatable figcaption {
   margin: 0 2px 6px;
   font-size: 12.5px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
 }
 .markdown-view .md-datatable-scroll {
   overflow-x: auto;
@@ -1915,16 +1915,16 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-datatable th,
 .markdown-view .md-datatable td {
-  border-bottom: 1px solid rgb(241 245 249);
+  border-bottom: 1px solid rgb(var(--theme-border));
   padding: 6px 8px;
   min-width: 90px;
   text-align: left;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
 }
 .markdown-view .md-datatable thead th {
-  background: rgb(248 250 252 / 0.6);
+  background: rgb(var(--theme-app) / calc(0.6 * var(--theme-surface-opacity)));
   font-weight: 500;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   font-size: 10.5px;
 }
 .markdown-view .md-datatable tbody tr:last-child td {
@@ -1936,13 +1936,13 @@ function onClick(event: MouseEvent) {
   text-underline-offset: 2px;
 }
 .markdown-view .md-datatable-empty {
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
 }
 .markdown-view .md-datatable-empty-state {
   margin: 10px 0;
   text-align: center;
   font-size: 11px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .markdown-view .md-db-chip {
   display: inline-flex;
@@ -1968,7 +1968,7 @@ function onClick(event: MouseEvent) {
   flex: 1;
   height: 5px;
   border-radius: 999px;
-  background: rgb(226 232 240);
+  background: rgb(var(--theme-border));
   overflow: hidden;
 }
 .markdown-view .md-db-progress-track i {
@@ -1999,7 +1999,7 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-db-kanban-col {
   border-radius: 8px;
-  background: rgb(248 250 252 / 0.7);
+  background: rgb(var(--theme-app) / calc(0.7 * var(--theme-surface-opacity)));
   padding: 6px;
   min-height: 54px;
 }
@@ -2021,19 +2021,19 @@ function onClick(event: MouseEvent) {
   margin-left: auto;
   font-style: normal;
   font-size: 9.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .markdown-view .md-db-kanban-card {
-  border: 1px solid rgb(241 245 249);
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 7px;
-  background: white;
+  background: rgb(var(--theme-surface));
   padding: 6px 7px;
   margin-bottom: 5px;
 }
 .markdown-view .md-db-kanban-card p {
   margin: 0;
   font-size: 11px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
 }
 .markdown-view .md-db-kanban-meta {
   display: flex;
@@ -2041,7 +2041,7 @@ function onClick(event: MouseEvent) {
   gap: 3px;
   margin-top: 3px;
   font-size: 9px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .markdown-view .md-db-gallery {
   display: grid;
@@ -2049,10 +2049,10 @@ function onClick(event: MouseEvent) {
   gap: 8px;
 }
 .markdown-view .md-db-gallery-card {
-  border: 1px solid rgb(241 245 249);
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 9px;
   overflow: hidden;
-  background: white;
+  background: rgb(var(--theme-surface));
 }
 .markdown-view .md-db-gallery-cover {
   height: 64px;
@@ -2071,7 +2071,7 @@ function onClick(event: MouseEvent) {
   margin: 0;
   font-size: 11px;
   font-weight: 500;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
 }
 .markdown-view .md-db-gallery-meta {
   display: flex;
@@ -2080,12 +2080,12 @@ function onClick(event: MouseEvent) {
   gap: 4px;
   margin-top: 4px;
   font-size: 9px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .markdown-view .md-db-empty {
   margin: 6px 2px;
   font-size: 10px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 
 .markdown-view .md-embed-card {
@@ -2095,8 +2095,8 @@ function onClick(event: MouseEvent) {
   margin: 0.8rem 0;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: linear-gradient(135deg, rgb(248 250 252), rgb(255 255 255));
+  border: 1px solid rgb(var(--theme-border));
+  background: linear-gradient(135deg, rgb(var(--theme-app)), rgb(var(--theme-surface)));
   text-decoration: none;
   color: inherit;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
@@ -2182,9 +2182,9 @@ function onClick(event: MouseEvent) {
   height: 22px;
   flex: 0 0 auto;
   border-radius: 6px;
-  border: 1px solid rgb(226 232 240);
-  background: white;
-  color: rgb(100 116 139);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-muted));
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
@@ -2225,11 +2225,11 @@ function onClick(event: MouseEvent) {
   gap: 7px;
   padding: 4px 10px 4px 5px;
   border-radius: 999px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app));
   font-size: 12.5px;
   font-weight: 500;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
   text-decoration: none;
 }
 .markdown-view .md-embed-title-line > a:hover {
@@ -2240,17 +2240,17 @@ function onClick(event: MouseEvent) {
   margin: 0.9rem 0;
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: white;
-  box-shadow: 0 6px 18px rgb(15 23 42 / 0.05);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 6px 18px rgb(var(--theme-border) / 0.2);
 }
 .markdown-view .md-embed-web-bar {
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 7px 10px;
-  border-bottom: 1px solid rgb(241 245 249);
-  background: rgb(248 250 252);
+  border-bottom: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app));
 }
 .markdown-view .md-embed-web-title {
   display: flex;
@@ -2269,7 +2269,7 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-embed-open {
   flex: 0 0 auto;
   font-size: 11px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   text-decoration: none;
 }
 .markdown-view .md-embed-open:hover {
@@ -2285,9 +2285,9 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-embed-tip {
   margin: 0;
   padding: 5px 10px;
-  border-top: 1px solid rgb(241 245 249);
+  border-top: 1px solid rgb(var(--theme-border));
   font-size: 10.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 
 .markdown-view .md-columns {
@@ -2340,13 +2340,13 @@ function onClick(event: MouseEvent) {
   margin: 0.75rem 0;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252 / 0.55);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app) / calc(0.55 * var(--theme-surface-opacity)));
 }
 .markdown-view .md-details > summary {
   cursor: pointer;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
   font-size: 13px;
 }
 .markdown-view .md-details-body {

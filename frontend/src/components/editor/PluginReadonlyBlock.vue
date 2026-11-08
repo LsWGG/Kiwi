@@ -72,9 +72,9 @@ onMounted(() => {
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px dashed rgb(203 213 225);
+  border: 1px dashed rgb(var(--theme-border-strong));
   border-radius: 12px;
-  background: rgb(248 250 252 / 0.8);
+  background: rgb(var(--theme-app) / 0.8);
 }
 .kiwi-plugin-embed-icon {
   display: grid;
@@ -82,8 +82,8 @@ onMounted(() => {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: rgb(241 245 249);
-  color: rgb(100 116 139);
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-muted));
   flex-shrink: 0;
 }
 .kiwi-plugin-embed-title {

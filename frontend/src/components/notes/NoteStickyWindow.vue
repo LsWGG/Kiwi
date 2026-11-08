@@ -530,12 +530,12 @@ onBeforeUnmount(() => {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   transition: background 0.15s ease, color 0.15s ease;
 }
 .sticky-icon-button:hover {
-  background: rgb(241 245 249);
-  color: rgb(30 41 59);
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-primary));
 }
 .sticky-editor {
   tab-size: 2;

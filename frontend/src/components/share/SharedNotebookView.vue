@@ -118,13 +118,13 @@ function codeCellsBefore(cell: NotebookCell): number {
 
 .shared-notebook :deep(th),
 .shared-notebook :deep(td) {
-  border: 1px solid rgb(226 232 240 / 0.8);
+  border: 1px solid rgb(var(--theme-border) / 0.8);
   padding: 4px 8px;
   text-align: left;
 }
 
 .shared-notebook :deep(thead th) {
-  background: rgb(248 250 252);
+  background: rgb(var(--theme-app));
   font-weight: 600;
 }
 </style>

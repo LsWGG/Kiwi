@@ -170,15 +170,15 @@ const view = computed<NotebookView>(() => {
 
 <style scoped>
 .nb-cell {
-  border: 1px solid #eef2f6;
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 10px;
   overflow: hidden;
 }
 .nb-code {
   margin: 0;
   padding: 12px 14px;
-  background: #f8fafc;
-  color: #334155;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-primary));
   font-size: 12px;
   line-height: 1.65;
   white-space: pre-wrap;
@@ -188,19 +188,19 @@ const view = computed<NotebookView>(() => {
 .nb-markdown {
   padding: 10px 14px;
   font-size: 13.5px;
-  color: #334155;
+  color: rgb(var(--theme-text-primary));
 }
 .nb-markdown :deep(pre) {
-  background: #f8fafc;
-  color: #334155;
-  border: 1px solid #e2e8f0;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-primary));
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 8px;
 }
 .nb-raw {
   margin: 0;
   padding: 12px 14px;
-  background: #f8fafc;
-  color: #64748b;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-muted));
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -211,15 +211,15 @@ const view = computed<NotebookView>(() => {
   flex-direction: column;
   gap: 8px;
   padding: 10px 14px;
-  border-top: 1px dashed #e2e8f0;
-  background: #fff;
+  border-top: 1px dashed rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
 }
 .nb-output {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f1f5f9;
-  color: #334155;
+  background: rgb(var(--theme-surface-muted));
+  color: rgb(var(--theme-text-primary));
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;

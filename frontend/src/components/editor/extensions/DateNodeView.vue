@@ -309,7 +309,7 @@ onBeforeUnmount(() => {
   padding: 10px;
   border: 1px solid rgb(var(--kiwi-200));
   border-radius: 14px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
   box-shadow: 0 18px 44px rgb(15 23 42 / 0.16), 0 2px 8px rgb(15 23 42 / 0.06);
   font-family: inherit;
   animation: kiwi-date-pop-in 0.14s ease;
@@ -405,7 +405,7 @@ onBeforeUnmount(() => {
   background: rgb(var(--kiwi-100));
 }
 .kiwi-date-quick.is-muted {
-  background: rgb(248 250 252);
+  background: rgb(var(--theme-app));
   color: rgb(100 116 139);
 }
 .kiwi-date-hint {

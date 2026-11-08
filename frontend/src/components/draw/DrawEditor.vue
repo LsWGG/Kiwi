@@ -1692,8 +1692,8 @@ html.kiwi-draw-theme .template-dialog .custom-dialog-header,
 html.kiwi-draw-theme .infographic-dialog .custom-dialog-header {
   height: 56px;
   padding: 0 20px;
-  border-bottom: 1px solid rgb(226 232 240 / 0.75);
-  background: #fff;
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.75);
+  background: rgb(var(--theme-surface));
 }
 html.kiwi-draw-theme .template-dialog .custom-dialog-header .title-box,
 html.kiwi-draw-theme .infographic-dialog .custom-dialog-header .title-box {
@@ -1707,7 +1707,7 @@ html.kiwi-draw-theme .infographic-dialog .custom-dialog-header .title-box > svg 
 }
 html.kiwi-draw-theme .template-dialog .custom-dialog-header .title-box .title,
 html.kiwi-draw-theme .infographic-dialog .custom-dialog-header .title-box .title {
-  color: rgb(30 41 59);
+  color: rgb(var(--theme-text-strong));
   font-size: 15px;
   font-weight: 600;
 }
@@ -1721,7 +1721,7 @@ html.kiwi-draw-theme .infographic-dialog .custom-dialog-header .close-icon {
 }
 html.kiwi-draw-theme .template-dialog .custom-dialog-header .close-icon:hover,
 html.kiwi-draw-theme .infographic-dialog .custom-dialog-header .close-icon:hover {
-  background: rgb(241 245 249);
+  background: rgb(var(--theme-surface-muted));
 }
 html.kiwi-draw-theme .template-dialog .el-dialog__body {
   max-height: none !important;
@@ -1732,8 +1732,8 @@ html.kiwi-draw-theme .template-dialog .template-container {
 }
 html.kiwi-draw-theme .template-dialog .template-sidebar {
   padding: 10px 8px;
-  background: rgb(248 250 252);
-  border-right: 1px solid rgb(226 232 240 / 0.8);
+  background: rgb(var(--theme-app));
+  border-right: 1px solid rgb(var(--theme-border) / 0.8);
 }
 html.kiwi-draw-theme .template-dialog .sidebar-categories {
   padding: 2px 4px 10px;
@@ -1742,11 +1742,11 @@ html.kiwi-draw-theme .template-dialog .category-item {
   height: 38px;
   padding: 0 10px;
   border-radius: 8px;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
   font-size: 12.5px;
 }
 html.kiwi-draw-theme .template-dialog .category-item:hover {
-  background: rgb(241 245 249);
+  background: rgb(var(--theme-surface-muted));
 }
 html.kiwi-draw-theme .template-dialog .category-item.active {
   background: rgb(var(--kiwi-50));
@@ -1754,7 +1754,7 @@ html.kiwi-draw-theme .template-dialog .category-item.active {
   font-weight: 500;
 }
 html.kiwi-draw-theme .template-dialog .category-item .cat-badge {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
   font-size: 11px;
 }
 html.kiwi-draw-theme .template-dialog .category-item.active .cat-badge {
@@ -1766,7 +1766,7 @@ html.kiwi-draw-theme .template-dialog .content-header {
   box-sizing: border-box;
   align-items: center;
   padding: 14px 20px;
-  border-bottom: 1px solid rgb(241 245 249);
+  border-bottom: 1px solid rgb(var(--theme-border));
 }
 html.kiwi-draw-theme .template-dialog .content-header .search-input {
   width: min(320px, 100%) !important;
@@ -1774,15 +1774,15 @@ html.kiwi-draw-theme .template-dialog .content-header .search-input {
 html.kiwi-draw-theme .template-dialog .content-header .search-input .el-input__wrapper {
   height: 34px;
   border-radius: 8px;
-  background: rgb(248 250 252);
-  box-shadow: 0 0 0 1px rgb(226 232 240) inset;
+  background: rgb(var(--theme-app));
+  box-shadow: 0 0 0 1px rgb(var(--theme-border)) inset;
 }
 html.kiwi-draw-theme .template-dialog .content-header .search-input .el-input__wrapper:hover {
   box-shadow: 0 0 0 1px rgb(var(--kiwi-300)) inset;
 }
 html.kiwi-draw-theme .template-dialog .content-header .search-input .el-input__wrapper.is-focus {
   box-shadow: 0 0 0 1px rgb(var(--kiwi-600)) inset;
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 html.kiwi-draw-theme .template-dialog .template-grid {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1791,9 +1791,9 @@ html.kiwi-draw-theme .template-dialog .template-grid {
 }
 html.kiwi-draw-theme .template-dialog .template-card {
   height: 176px;
-  border: 1px solid rgb(226 232 240 / 0.9);
+  border: 1px solid rgb(var(--theme-border) / 0.9);
   border-radius: 12px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 html.kiwi-draw-theme .template-dialog .template-card:hover {
   border-color: rgb(var(--kiwi-300));
@@ -1801,13 +1801,13 @@ html.kiwi-draw-theme .template-dialog .template-card:hover {
   transform: translateY(-2px);
 }
 html.kiwi-draw-theme .template-dialog .template-name {
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
   font-size: 12.5px;
   font-weight: 500;
 }
 html.kiwi-draw-theme .template-dialog .template-icon-wrapper {
   border-radius: 8px;
-  background: rgb(248 250 252);
+  background: rgb(var(--theme-app));
   overflow: hidden;
 }
 html.kiwi-draw-theme .infographic-dialog .el-dialog__body {
@@ -1822,7 +1822,7 @@ html.kiwi-draw-theme .infographic-dialog .template-selector {
   margin-bottom: 18px;
 }
 html.kiwi-draw-theme .infographic-dialog .template-selector .selector-label {
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
   font-size: 12.5px;
   font-weight: 500;
 }
@@ -1832,8 +1832,8 @@ html.kiwi-draw-theme .infographic-dialog .template-selector .el-select {
 html.kiwi-draw-theme .infographic-dialog .el-select__wrapper {
   min-height: 36px;
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgb(226 232 240) inset;
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 0 0 1px rgb(var(--theme-border)) inset;
 }
 html.kiwi-draw-theme .infographic-dialog .el-select__wrapper:hover {
   box-shadow: 0 0 0 1px rgb(var(--kiwi-300)) inset;
@@ -1843,7 +1843,7 @@ html.kiwi-draw-theme .infographic-dialog .el-select__wrapper.is-focused {
 }
 html.kiwi-draw-theme .infographic-dialog .editor-label {
   margin-bottom: 8px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-primary));
   font-size: 12.5px;
   font-weight: 500;
 }
@@ -1855,21 +1855,21 @@ html.kiwi-draw-theme .infographic-dialog .editor-label .el-button.is-link {
 html.kiwi-draw-theme .infographic-dialog .dsl-textarea .el-textarea__inner {
   min-height: 320px !important;
   border-radius: 10px;
-  background: rgb(248 250 252);
-  box-shadow: 0 0 0 1px rgb(226 232 240) inset;
-  color: rgb(30 41 59);
+  background: rgb(var(--theme-app));
+  box-shadow: 0 0 0 1px rgb(var(--theme-border)) inset;
+  color: rgb(var(--theme-text-primary));
 }
 html.kiwi-draw-theme .infographic-dialog .dsl-textarea .el-textarea__inner:hover {
   box-shadow: 0 0 0 1px rgb(var(--kiwi-300)) inset;
 }
 html.kiwi-draw-theme .infographic-dialog .dsl-textarea .el-textarea__inner:focus {
   box-shadow: 0 0 0 1px rgb(var(--kiwi-600)) inset;
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 html.kiwi-draw-theme .infographic-dialog .el-dialog__footer {
   padding: 12px 24px;
-  border-top: 1px solid rgb(241 245 249);
-  background: rgb(248 250 252 / 0.7);
+  border-top: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app) / 0.7);
 }
 html.kiwi-draw-theme .infographic-dialog .custom-footer .el-button {
   height: 34px;
@@ -1878,8 +1878,8 @@ html.kiwi-draw-theme .infographic-dialog .custom-footer .el-button {
   font-size: 12.5px;
 }
 html.kiwi-draw-theme .infographic-dialog .custom-footer .el-button:not(.el-button--primary) {
-  border-color: rgb(226 232 240);
-  color: rgb(71 85 105);
+  border-color: rgb(var(--theme-border));
+  color: rgb(var(--theme-text-secondary));
 }
 html.kiwi-draw-theme .infographic-dialog .custom-footer .el-button--primary {
   border-color: rgb(var(--kiwi-600));

@@ -412,8 +412,8 @@ function setTitle(event: Event) {
   margin: 0.75rem 0;
   padding: 10px 12px 8px;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(255 255 255 / 0.82);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / calc(0.82 * var(--theme-surface-opacity)));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .kiwi-calendar-block.is-selected {
@@ -453,7 +453,7 @@ function setTitle(event: Event) {
   gap: 4px;
   font-size: 11px;
   font-weight: 500;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-calendar-title {
   min-width: 0;
@@ -511,7 +511,7 @@ function setTitle(event: Event) {
 }
 .kiwi-calendar-band {
   position: relative;
-  background: rgb(248 250 252 / 0.45);
+  background: rgb(var(--theme-app) / calc(0.45 * var(--theme-surface-opacity)));
 }
 .kiwi-calendar-range {
   position: absolute;
@@ -553,7 +553,7 @@ function setTitle(event: Event) {
   cursor: pointer;
 }
 .kiwi-calendar-day.is-clickable:hover {
-  background: rgb(241 245 249);
+  background: rgb(var(--theme-surface-muted));
 }
 .kiwi-calendar-day.is-outside .kiwi-calendar-daynum {
   color: rgb(203 213 225);
@@ -578,7 +578,7 @@ function setTitle(event: Event) {
   display: inline-grid;
   place-items: center;
   font-size: 10px;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
   font-variant-numeric: tabular-nums;
 }
 .kiwi-calendar-chips {
@@ -659,9 +659,9 @@ function setTitle(event: Event) {
   color: rgb(100 116 139);
 }
 .kiwi-calendar-date-field input {
-  border: 1px solid rgb(226 232 240);
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 5px;
-  background: white;
+  background: rgb(var(--theme-surface));
   padding: 1px 3px;
   font-size: 10px;
   color: rgb(51 65 85);
@@ -712,7 +712,7 @@ function setTitle(event: Event) {
   padding: 2px 6px;
 }
 .kiwi-calendar-cancel:hover {
-  background: rgb(241 245 249);
+  background: rgb(var(--theme-surface-muted));
 }
 .kiwi-calendar-clear {
   flex-shrink: 0;
@@ -739,7 +739,7 @@ function setTitle(event: Event) {
   padding: 2px 4px;
   text-align: left;
   font-size: 10.5px;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-calendar-day-event:hover {
   background: rgb(var(--kiwi-50));

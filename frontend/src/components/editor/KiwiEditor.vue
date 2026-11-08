@@ -3310,13 +3310,13 @@ defineExpose({
 .editor-canvas {
   @apply relative flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200/60 p-5 transition-colors;
   /* 冷灰底 + 左上紫罗兰环境光 + 右下青蓝环境光 + 细点阵，让纸张浮起来 */
-  background-color: #eef1f7;
+  background-color: rgb(var(--theme-app));
   background-image:
     radial-gradient(900px 420px at 8% -10%, rgb(var(--kiwi-500) / 0.16), transparent 62%),
-    radial-gradient(820px 380px at 100% 108%, rgba(94, 183, 214, 0.09), transparent 66%),
-    radial-gradient(circle at 1px 1px, rgba(100, 116, 139, 0.17) 1px, transparent 0);
+    radial-gradient(820px 380px at 100% 108%, rgb(var(--theme-accent) / 0.09), transparent 66%),
+    radial-gradient(circle at 1px 1px, rgb(var(--theme-text-muted) / 0.17) 1px, transparent 0);
   background-size: auto, auto, 18px 18px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgb(var(--theme-surface) / 0.7);
 }
 .editor-canvas-inner {
   @apply flex w-full flex-1 items-stretch justify-center gap-3;
@@ -3499,14 +3499,14 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  background: #eef2f7;
+  background: rgb(var(--theme-app));
   padding-right: 14px;
   box-shadow:
     inset 0 9px 14px -12px rgba(15, 23, 42, 0.28),
     inset 0 -9px 14px -12px rgba(15, 23, 42, 0.2);
 }
 .kiwi-editor :deep(.kiwi-page-gap-band span) {
-  color: #94a3b8;
+  color: rgb(var(--theme-text-faint));
   font-size: 10px;
   letter-spacing: 0.06em;
 }
@@ -3534,7 +3534,7 @@ defineExpose({
   transform: translate(-50%, -50%);
   padding: 0 8px;
   background: var(--doc-bg, #fff);
-  color: #94a3b8;
+  color: rgb(var(--theme-text-faint));
   font-size: 10px;
   letter-spacing: 0.08em;
   white-space: nowrap;

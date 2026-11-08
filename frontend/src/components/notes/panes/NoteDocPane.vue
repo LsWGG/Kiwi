@@ -1780,6 +1780,6 @@ async function copyMarkdown() {
   inset: 0;
   z-index: 100;
   overflow: hidden;
-  background: #f8fafc;
+  background: rgb(var(--theme-app));
 }
 </style>
