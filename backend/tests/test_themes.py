@@ -47,6 +47,7 @@ def theme_manifest(key: str, **overrides) -> dict:
             },
             "background": {
                 "image": "assets/bg.svg",
+                "video": "",
                 "size": "cover",
                 "position": "center",
                 "repeat": "no-repeat",
@@ -62,7 +63,12 @@ def theme_manifest(key: str, **overrides) -> dict:
     return data
 
 
-def make_theme_zip(manifest: dict, *, directory: str = "aurora") -> bytes:
+def make_theme_zip(
+    manifest: dict,
+    *,
+    directory: str = "aurora",
+    extra_assets: dict[str, bytes] | None = None,
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         prefix = f"{directory}/" if directory else ""
@@ -79,6 +85,8 @@ def make_theme_zip(manifest: dict, *, directory: str = "aurora") -> bytes:
             f"{prefix}assets/preview.svg",
             '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="5"><rect width="8" height="5" fill="#121a30"/></svg>',
         )
+        for path, data in (extra_assets or {}).items():
+            archive.writestr(f"{prefix}{path}", data)
     return buffer.getvalue()
 
 
@@ -161,6 +169,84 @@ async def test_activate_theme_with_overrides(client):
     assert cleared_overrides["accent"] is None
     assert cleared_overrides["learn_accent"] is None
     assert cleared_overrides["background_image"] == ""
+
+
+async def test_custom_overrides_follow_theme_switch(client, theme_plugin):
+    key = theme_plugin["key"]
+    saved = await client.put(
+        "/api/themes/active",
+        json={
+            "key": key,
+            "overrides": {"surface_opacity": 0.66, "accent": "#ff00aa"},
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    # 切回内置主题：内置主题自己的覆盖值不受影响。
+    builtin = await client.put("/api/themes/active", json={"key": DEFAULT_KEY})
+    assert builtin.status_code == 200, builtin.text
+    assert builtin.json()["overrides"]["surface_opacity"] is None
+
+    # 再切回已安装主题：不传 overrides 时恢复该主题原有自定义外观。
+    restored = await client.put("/api/themes/active", json={"key": key})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["overrides"]["surface_opacity"] == 0.66
+    assert restored.json()["overrides"]["accent"] == "#ff00aa"
+
+
+async def test_theme_package_supports_video_asset_and_range(client):
+    key = f"pytest-video-{uuid.uuid4().hex[:8]}"
+    manifest = theme_manifest(key)
+    manifest["theme"]["background"]["video"] = "assets/background.mp4"
+    video = b"\x00\x00\x00\x18ftypisom" + bytes(range(64))
+    package = make_theme_zip(
+        manifest, extra_assets={"assets/background.mp4": video}
+    )
+    imported = await client.post(
+        "/api/themes/import",
+        files={"file": ("video.zip", package, "application/zip")},
+    )
+    assert imported.status_code == 201, imported.text
+    data = imported.json()
+    try:
+        assert "assets/background.mp4" in data["assets"]
+        url = f"/api/plugins/{data['id']}/asset/assets/background.mp4"
+
+        full = await client.get(url)
+        assert full.status_code == 200
+        assert full.headers["content-type"] == "video/mp4"
+        assert full.headers["accept-ranges"] == "bytes"
+        assert full.content == video
+
+        part = await client.get(url, headers={"Range": "bytes=8-15"})
+        assert part.status_code == 206
+        assert part.headers["content-range"] == f"bytes 8-15/{len(video)}"
+        assert part.content == video[8:16]
+
+        suffix = await client.get(url, headers={"Range": "bytes=-4"})
+        assert suffix.status_code == 206
+        assert suffix.content == video[-4:]
+
+        unsatisfiable = await client.get(
+            url, headers={"Range": f"bytes={len(video)}-"}
+        )
+        assert unsatisfiable.status_code == 416
+        assert unsatisfiable.headers["content-range"] == f"bytes */{len(video)}"
+    finally:
+        await client.delete(f"/api/plugins/{data['id']}")
+
+
+async def test_theme_video_ref_must_be_video(client):
+    key = f"pytest-badvideo-{uuid.uuid4().hex[:8]}"
+    manifest = theme_manifest(key)
+    manifest["theme"]["background"]["video"] = "assets/bg.svg"
+    package = make_theme_zip(manifest)
+    rejected = await client.post(
+        "/api/themes/import",
+        files={"file": ("bad.zip", package, "application/zip")},
+    )
+    assert rejected.status_code == 400
+    assert "视频" in rejected.text
 
 
 async def test_theme_override_validation(client):
@@ -626,3 +712,33 @@ async def test_background_delete_blocks_active_file(client, upload_background):
         "/api/themes/background", params={"url": body["url"]}
     )
     assert gone.status_code == 404
+
+
+async def test_delete_theme_removes_its_uploaded_background(
+    client, upload_background
+):
+    key = f"pytest-del-{uuid.uuid4().hex[:8]}"
+    package = make_theme_zip(theme_manifest(key))
+    imported = await client.post(
+        "/api/themes/import",
+        files={"file": ("del.zip", package, "application/zip")},
+    )
+    assert imported.status_code == 201, imported.text
+    plugin = imported.json()
+
+    body = await upload_background(PNG_BYTES, filename="delete-me.png")
+    saved = await client.put(
+        "/api/themes/active",
+        json={"key": key, "overrides": {"background_image": body["url"]}},
+    )
+    assert saved.status_code == 200, saved.text
+    assert (await client.get(body["url"])).status_code == 200
+
+    deleted = await client.delete(f"/api/plugins/{plugin['id']}")
+    assert deleted.status_code == 204
+
+    # 主题删除后回落到内置主题，自定义外观与其上传文件一并清理。
+    assert (await client.get(body["url"])).status_code == 404
+    active = (await client.get("/api/themes/active")).json()
+    assert active["key"] == DEFAULT_KEY
+    assert active["overrides"]["background_image"] == ""

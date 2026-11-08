@@ -83,6 +83,8 @@ export type ThemeBackgroundRepeat = 'no-repeat' | 'repeat' | 'repeat-x' | 'repea
 
 export interface ThemeBackground {
   image: string
+  /** 背景视频；声明时优先于 image 播放，image 作为视频封面（poster）。 */
+  video: string
   size: ThemeBackgroundSize
   position: string
   repeat: ThemeBackgroundRepeat
@@ -113,6 +115,7 @@ export interface ThemeSpec {
 
 export const DEFAULT_THEME_BACKGROUND: ThemeBackground = {
   image: '',
+  video: '',
   size: 'cover',
   position: 'center',
   repeat: 'no-repeat',

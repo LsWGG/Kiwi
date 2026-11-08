@@ -60,10 +60,16 @@ def _validate_css_value(value: str, label: str) -> str:
 
 
 class ThemeBackgroundIn(BaseModel):
-    """应用背景层：图片 / 纹理 + 暗化与模糊。"""
+    """应用背景层：图片 / 视频 + 暗化与模糊。
+
+    `image` 在声明了 `video` 时同时充当视频封面（poster），首帧解码前
+    不会露出底色；`video` 与用户上传的视频覆盖走同一套渲染层。
+    """
 
     # 主题包内 assets/ 下的相对路径，或 https:// / data: URL。
     image: str = Field(default="", max_length=400)
+    # 背景视频：assets/ 下的 mp4 / webm / ogv / mov，或 https:// URL。
+    video: str = Field(default="", max_length=400)
     size: Literal["cover", "contain", "auto"] = "cover"
     position: str = Field(default="center", max_length=40)
     repeat: Literal["no-repeat", "repeat", "repeat-x", "repeat-y"] = "no-repeat"

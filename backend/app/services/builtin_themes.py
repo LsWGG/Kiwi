@@ -198,7 +198,7 @@ def _readme(theme: dict[str, Any]) -> str:
             "## 开发",
             "",
             "`plugin.json` 的 `theme` 字段定义颜色令牌、背景、透明度与字体；",
-            "可选 `theme.css` 补充装饰性样式，`assets/` 存放背景图、预览图与字体。",
+            "可选 `theme.css` 补充装饰性样式，`assets/` 存放背景图、预览图、字体与背景视频。",
             "完整规范见 `docs/THEME_SPEC.md`。",
             "",
         ]

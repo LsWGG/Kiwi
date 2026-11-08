@@ -16,13 +16,23 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 import uuid
 import zipfile
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,20 +49,31 @@ from app.schemas.plugin import (
     PluginOut,
     PluginUpdate,
 )
-from app.services import plugin_registry
+from app.services import (
+    builtin_themes,
+    plugin_registry,
+    theme_backgrounds,
+    theme_overrides,
+)
 
 logger = logging.getLogger("kiwi.plugins")
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 
-MAX_IMPORT_BYTES = 12 * 1024 * 1024
+MAX_COMPONENT_IMPORT_BYTES = 12 * 1024 * 1024
+# 主题包可以携带背景视频，整包上限随之提高；组件插件仍沿用 12MB。
+MAX_IMPORT_BYTES = 64 * 1024 * 1024
 MAX_MANIFEST_FILE_BYTES = 1024 * 1024
 MAX_SCRIPT_BYTES = 2 * 1024 * 1024
 MAX_STYLE_BYTES = 512 * 1024
-# 主题资源：背景图 / 预览图 / 字体。单文件与整包都有上限，避免 zip 炸弹。
+# 主题资源：背景图 / 预览图 / 字体 / 背景视频。单文件与整包都有上限，避免 zip 炸弹。
 MAX_ASSET_BYTES = 4 * 1024 * 1024
-MAX_ASSETS_TOTAL_BYTES = 10 * 1024 * 1024
+MAX_VIDEO_ASSET_BYTES = 48 * 1024 * 1024
+MAX_ASSETS_TOTAL_BYTES = 60 * 1024 * 1024
 MAX_ASSET_COUNT = 40
+# 解压后的总字节数：主题资源上限 + 文本文件余量，防止高压缩比 zip 炸弹。
+MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+VIDEO_SUFFIXES = frozenset({".mp4", ".webm", ".ogv", ".ogg", ".mov"})
 ASSET_CONTENT_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -62,6 +83,11 @@ ASSET_CONTENT_TYPES = {
     ".svg": "image/svg+xml",
     ".avif": "image/avif",
     ".bmp": "image/bmp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".ogv": "video/ogg",
+    ".ogg": "video/ogg",
+    ".mov": "video/quicktime",
     ".woff2": "font/woff2",
     ".woff": "font/woff",
     ".ttf": "font/ttf",
@@ -145,11 +171,15 @@ async def _assets_for(session: AsyncSession, plugin_id: uuid.UUID) -> list[Plugi
 
 
 async def _clear_active_theme(session: AsyncSession, key: str) -> None:
-    """停用 / 删除主题时回退到内置主题，避免应用层继续引用失效主题。"""
+    """停用主题时回退到内置主题，但保留该主题的自定义外观。"""
     row = await session.get(SystemSettings, SYSTEM_SETTINGS_ID)
     if row is not None and row.active_theme == key:
+        # 顺手把旧版扁平结构迁移成按主题 key 分组，避免回退到内置主题后
+        # 把原主题的背景 / 透明度误当成内置主题的覆盖值。
+        row.theme_overrides = theme_overrides.split_stored(
+            row.theme_overrides, row.active_theme
+        )
         row.active_theme = ""
-        row.theme_overrides = {}
 
 
 def _parse_manifest_bytes(raw: bytes) -> PluginManifestIn:
@@ -258,15 +288,20 @@ def _read_theme_assets(
         if content_type is None:
             raise HTTPException(
                 400,
-                f"不支持的资源类型：{relative}（仅支持图片与字体）",
+                f"不支持的资源类型：{relative}（仅支持图片、字体与视频）",
             )
-        if info.file_size > MAX_ASSET_BYTES:
+        limit = MAX_VIDEO_ASSET_BYTES if suffix in VIDEO_SUFFIXES else MAX_ASSET_BYTES
+        if info.file_size > limit:
             raise HTTPException(
-                413, f"资源过大：{relative}（单文件上限 {MAX_ASSET_BYTES // 1024 // 1024}MB）"
+                413,
+                f"资源过大：{relative}（上限 {limit // 1024 // 1024}MB）",
             )
         total += info.file_size
         if total > MAX_ASSETS_TOTAL_BYTES:
-            raise HTTPException(413, "主题资源总大小超出限制（上限 10MB）")
+            raise HTTPException(
+                413,
+                f"主题资源总大小超出限制（上限 {MAX_ASSETS_TOTAL_BYTES // 1024 // 1024}MB）",
+            )
         if len(assets) >= MAX_ASSET_COUNT:
             raise HTTPException(413, f"主题资源数量超出限制（上限 {MAX_ASSET_COUNT} 个）")
         try:
@@ -286,7 +321,11 @@ def _read_theme_assets(
 
 
 def _check_theme_asset_ref(
-    value: str, assets: list[PluginAssetData], label: str
+    value: str,
+    assets: list[PluginAssetData],
+    label: str,
+    *,
+    allowed_suffixes: frozenset[str] | None = None,
 ) -> None:
     """主题里引用的相对资源必须真实存在于 zip 中。"""
     text = value.strip()
@@ -295,6 +334,12 @@ def _check_theme_asset_ref(
     normalized = text.lstrip("/")
     if not normalized.startswith("assets/"):
         normalized = f"assets/{normalized}"
+    suffix = PurePosixPath(normalized).suffix.lower()
+    if allowed_suffixes is not None and suffix not in allowed_suffixes:
+        raise HTTPException(
+            400,
+            f"{label}必须是视频文件（{' / '.join(sorted(allowed_suffixes))}）：{value}",
+        )
     if not any(asset.path == normalized for asset in assets):
         raise HTTPException(400, f"{label}引用的资源不存在：{value}")
 
@@ -309,10 +354,21 @@ def _parse_package(raw: bytes, filename: str) -> PluginPackage:
     except zipfile.BadZipFile:
         raise HTTPException(400, "无法识别压缩包格式") from None
     with archive:
+        uncompressed = sum(info.file_size for info in archive.infolist())
+        if uncompressed > MAX_UNCOMPRESSED_BYTES:
+            raise HTTPException(
+                413,
+                f"压缩包解压后过大（上限 {MAX_UNCOMPRESSED_BYTES // 1024 // 1024}MB）",
+            )
         manifest_info = _manifest_info(archive)
         if manifest_info.file_size > MAX_MANIFEST_FILE_BYTES:
             raise HTTPException(400, "manifest 文件过大")
         manifest = _parse_manifest_bytes(archive.read(manifest_info))
+        if manifest.kind != "theme" and len(raw) > MAX_COMPONENT_IMPORT_BYTES:
+            raise HTTPException(
+                413,
+                f"组件插件包不能超过 {MAX_COMPONENT_IMPORT_BYTES // 1024 // 1024}MB",
+            )
 
         base_dir = PurePosixPath(manifest_info.filename).parent
         if manifest.kind == "theme":
@@ -337,6 +393,12 @@ def _parse_package(raw: bytes, filename: str) -> PluginPackage:
             theme = manifest.theme
             if theme is not None:
                 _check_theme_asset_ref(theme.background.image, assets, "背景图")
+                _check_theme_asset_ref(
+                    theme.background.video,
+                    assets,
+                    "背景视频",
+                    allowed_suffixes=VIDEO_SUFFIXES,
+                )
                 _check_theme_asset_ref(theme.preview, assets, "预览图")
             return PluginPackage(
                 manifest=manifest,
@@ -391,7 +453,10 @@ async def _read_upload(file: UploadFile) -> bytes:
             break
         size += len(chunk)
         if size > MAX_IMPORT_BYTES:
-            raise HTTPException(413, "插件包不能超过 5MB")
+            raise HTTPException(
+                413,
+                f"插件包不能超过 {MAX_IMPORT_BYTES // 1024 // 1024}MB",
+            )
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -802,8 +867,42 @@ async def plugin_style(plugin_id: uuid.UUID, session: AsyncSession = Depends(get
     )
 
 
+_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def _requested_range(header: str, size: int) -> tuple[int, int] | None:
+    """解析单段 Range 请求，返回闭区间。
+
+    返回 None 表示忽略 Range（多段 / 格式不合法），按完整响应处理；
+    返回 (-1, -1) 表示范围不可满足，需要回 416。
+    """
+    match = _RANGE_RE.match((header or "").strip())
+    if match is None or size <= 0:
+        return None
+    start_text, end_text = match.groups()
+    if not start_text and not end_text:
+        return None
+    if start_text:
+        start = int(start_text)
+        if start >= size:
+            return (-1, -1)
+        end = int(end_text) if end_text else size - 1
+        end = min(end, size - 1)
+        if end < start:
+            return (-1, -1)
+        return start, end
+    # 后缀范围 `bytes=-N`：最后 N 个字节。
+    suffix = int(end_text)
+    if suffix <= 0:
+        return (-1, -1)
+    return max(0, size - suffix), size - 1
+
+
 async def _serve_asset(
-    plugin_id: uuid.UUID, path: str, session: AsyncSession
+    plugin_id: uuid.UUID,
+    path: str,
+    session: AsyncSession,
+    request: Request,
 ) -> Response:
     plugin = await _get_plugin(session, plugin_id)
     normalized = path.replace("\\", "/").lstrip("/")
@@ -822,13 +921,38 @@ async def _serve_asset(
     ).scalars().first()
     if asset is None:
         raise HTTPException(404, "资源不存在")
+
+    # 视频播放器依赖 Range 请求跳转 / 分段加载；图片请求不受影响。
+    headers = {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Accept-Ranges": "bytes",
+    }
+    data = asset.data
+    requested = _requested_range(request.headers.get("range", ""), len(data))
+    if requested == (-1, -1):
+        return Response(
+            content=b"",
+            status_code=416,
+            media_type=asset.content_type,
+            headers={**headers, "Content-Range": f"bytes */{len(data)}"},
+        )
+    if requested is not None:
+        start, end = requested
+        return Response(
+            content=data[start : end + 1],
+            status_code=206,
+            media_type=asset.content_type,
+            headers={
+                **headers,
+                "Content-Range": f"bytes {start}-{end}/{len(data)}",
+                "Content-Length": str(end - start + 1),
+            },
+        )
     return Response(
-        content=asset.data,
+        content=data,
         media_type=asset.content_type,
-        headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "X-Content-Type-Options": "nosniff",
-        },
+        headers=headers,
     )
 
 
@@ -836,20 +960,22 @@ async def _serve_asset(
 async def plugin_asset(
     plugin_id: uuid.UUID,
     path: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
-    """下发主题插件 assets/ 下的图片与字体。"""
-    return await _serve_asset(plugin_id, path, session)
+    """下发主题插件 assets/ 下的图片、字体与视频。"""
+    return await _serve_asset(plugin_id, path, session, request)
 
 
 @router.get("/{plugin_id}/assets/{path:path}", response_model=None)
 async def plugin_asset_alias(
     plugin_id: uuid.UUID,
     path: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
-    """别名：让主题 CSS 里的 url("assets/...") 直接可用。"""
-    return await _serve_asset(plugin_id, path, session)
+    """别名：让主题 CSS / 背景视频里的 url("assets/...") 直接可用。"""
+    return await _serve_asset(plugin_id, path, session, request)
 
 
 @router.get("/{plugin_id}/export", response_model=None)
@@ -870,8 +996,21 @@ async def export_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(ge
 @router.delete("/{plugin_id}", status_code=204)
 async def delete_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     plugin = await _get_plugin(session, plugin_id)
+    orphaned_backgrounds: set[str] = set()
     if plugin.kind == "theme":
-        await _clear_active_theme(session, plugin.key)
+        row = await session.get(SystemSettings, SYSTEM_SETTINGS_ID)
+        if row is not None:
+            active_key = row.active_theme or builtin_themes.BUILTIN_THEMES[0]["key"]
+            stored, orphaned_backgrounds = theme_overrides.without_theme(
+                row.theme_overrides, active_key, plugin.key
+            )
+            row.theme_overrides = stored
+            if row.active_theme == plugin.key:
+                row.active_theme = ""
     await session.execute(delete(PluginAsset).where(PluginAsset.plugin_id == plugin.id))
     await session.delete(plugin)
     await session.commit()
+    # 数据库提交成功后再删文件：只清理该主题独占的上传背景，
+    # 其他主题仍引用的 URL 会保留。
+    for url in orphaned_backgrounds:
+        theme_backgrounds.remove_url(url)

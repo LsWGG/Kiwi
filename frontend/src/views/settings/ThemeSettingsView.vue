@@ -15,7 +15,6 @@ import {
   DEFAULT_ACCENT,
   DEFAULT_LEARN_ACCENT,
   DEFAULT_THEME_COLORS,
-  EMPTY_THEME_OVERRIDES,
   THEME_COLOR_LABELS,
   normalizeThemeSpec,
   type ThemeBackgroundRepeat,
@@ -144,15 +143,24 @@ const backgroundIsUpload = computed(
     UPLOADED_BG_RE.test(customDraft.background_image) ||
     UPLOADED_BG_RE.test(customDraft.background_video),
 )
-const customPreviewBackground = computed(
-  () =>
-    customDraft.background_image ||
-    resolveThemeAsset(
-      theme.active?.asset_base_url || '',
-      activeSpec.value.background.image,
-    ),
+const themeVideoUrl = computed(() =>
+  resolveThemeAsset(
+    theme.active?.asset_base_url || '',
+    activeSpec.value.background.video || '',
+  ),
 )
-const customPreviewVideo = computed(() => customDraft.background_video)
+const customPreviewBackground = computed(() => {
+  if (customDraft.background_image) return customDraft.background_image
+  // 用户上传了视频时不再拿主题图当封面，避免预览先闪一张无关背景。
+  if (customDraft.background_video) return ''
+  return resolveThemeAsset(
+    theme.active?.asset_base_url || '',
+    activeSpec.value.background.image,
+  )
+})
+const customPreviewVideo = computed(
+  () => customDraft.background_video || (customDraft.background_image ? '' : themeVideoUrl.value),
+)
 const customPreviewAccent = computed(() =>
   customDraft.useAccent ? customDraft.accent : undefined,
 )
@@ -199,6 +207,13 @@ function galleryBackground(item: ThemeItem) {
   )
 }
 
+function galleryVideo(item: ThemeItem) {
+  return resolveThemeAsset(
+    item.asset_base_url,
+    normalizeThemeSpec(item.theme).background.video || '',
+  )
+}
+
 function swatchColor(item: ThemeItem, key: ThemeColorKey) {
   const value = normalizeThemeSpec(item.theme).colors[key]
   return value || DEFAULT_THEME_COLORS[key] || DEFAULT_ACCENT
@@ -215,12 +230,9 @@ function swatches(item: ThemeItem) {
 async function applyTheme(item: ThemeItem) {
   if (theme.applyingKey) return
   try {
-    // 切换主题时清空上一主题的个性化覆盖，避免背景/透明度串主题。
-    const same = theme.activeKey === item.key
-    await theme.activate(
-      item.key,
-      same ? undefined : { ...EMPTY_THEME_OVERRIDES },
-    )
+    // 每套主题的自定义外观独立保存：切走再切回来仍沿用原有配置，
+    // 只有「恢复主题默认外观」才会清空当前主题的覆盖值。
+    await theme.activate(item.key)
     // 同步预览弹窗里的对象，让「应用」按钮立即变为「当前使用中」。
     const refreshed = theme.themes.find((row) => row.key === item.key)
     if (previewItem.value?.key === item.key && refreshed) {
@@ -852,7 +864,7 @@ async function resetCustomize() {
     >
       <div v-if="previewItem" class="space-y-4">
         <img
-          v-if="previewItem.preview_url"
+          v-if="previewItem.preview_url && !galleryVideo(previewItem)"
           :src="previewItem.preview_url"
           :alt="`${previewItem.name} 预览`"
           class="w-full rounded-xl border border-slate-200/70"
@@ -861,6 +873,7 @@ async function resetCustomize() {
           v-else
           :theme="previewItem.theme"
           :background-image="galleryBackground(previewItem)"
+          :background-video="galleryVideo(previewItem)"
         />
 
         <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
@@ -1267,7 +1280,11 @@ async function resetCustomize() {
           <span>
             背景：
             <strong class="font-medium text-slate-700">
-              {{ inspection.theme.background.image || '无' }}
+              {{
+                inspection.theme.background.video
+                  ? `${inspection.theme.background.video}（视频）`
+                  : inspection.theme.background.image || '无'
+              }}
             </strong>
           </span>
           <span>

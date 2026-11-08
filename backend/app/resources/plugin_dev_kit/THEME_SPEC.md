@@ -11,8 +11,9 @@ theme.zip
 ├─ plugin.json          # 必须：manifest + theme 规格
 ├─ theme.css            # 可选：装饰性样式
 ├─ README.md            # 可选
-└─ assets/              # 可选：背景图、预览图、字体
-   ├─ background.webp
+└─ assets/              # 可选：背景图 / 视频、预览图、字体
+   ├─ background.mp4    # 背景视频（可选）
+   ├─ background.webp   # 背景图 / 视频封面（poster）
    ├─ preview.png
    └─ font.woff2
 ```
@@ -21,15 +22,18 @@ theme.zip
 
 | 项目 | 上限 |
 |---|---|
-| 整包 | 12MB |
+| 整包 | 64MB |
 | `plugin.json` | 1MB |
 | `theme.css` | 512KB |
-| 单个资源 | 4MB |
-| 资源总量 | 10MB |
+| 单个图片 / 字体 | 4MB |
+| 单个视频 | 48MB |
+| 资源总量 | 60MB |
 | 资源数量 | 40 |
 
-资源仅支持图片（png / jpg / jpeg / webp / gif / svg / avif / bmp）与字体
-（woff2 / woff / ttf / otf）。
+资源支持图片（png / jpg / jpeg / webp / gif / svg / avif / bmp）、字体
+（woff2 / woff / ttf / otf）与视频（mp4 / webm / ogv / ogg / mov）。
+视频建议使用 MP4（H.264）或 WebM，静音循环播放；`image` 同时作为视频
+封面，避免首帧解码前露出应用底色。
 
 ## 2. plugin.json
 
@@ -52,6 +56,7 @@ theme.zip
     "colors": { "...": "见第 3 节" },
     "background": {
       "image": "assets/aurora.svg",
+      "video": "",
       "size": "cover",
       "position": "center",
       "repeat": "no-repeat",
@@ -109,12 +114,27 @@ theme.zip
 
 | 字段 | 说明 |
 |---|---|
-| `image` | 背景图：`assets/` 相对路径、`https://` 或 `data:image/...` |
+| `image` | 背景图：`assets/` 相对路径、`https://` 或 `data:image/...`；声明 `video` 时作为视频封面（poster） |
+| `video` | 背景视频：`assets/` 下的 mp4 / webm / ogv / ogg / mov，或 `https://` URL；静音自动循环播放 |
 | `size` | `cover` / `contain` / `auto` |
 | `position` | CSS `background-position`，如 `center` / `top left` |
 | `repeat` | `no-repeat` / `repeat` / `repeat-x` / `repeat-y` |
 | `dim` | 暗化遮罩，0–0.9 |
 | `blur` | 背景模糊，0–40px |
+
+`video` 与 `image` 同时声明时优先播放视频，图片作为视频封面；只声明
+`video` 也可以，但建议同时提供一张压缩后的 WebP / JPEG 封面，首屏与
+视频加载失败时仍有背景。`size` / `position` / `dim` / `blur` 对视频同样
+生效（视频固定按 `cover` 铺满，模糊时自动放大 6% 避免边缘露底）。
+
+背景优先级：用户上传的视频 > 用户上传的图片 > 主题包 `video` > 主题包
+`image`。用户只要在「自定义外观」里设置了背景，就会完整替换主题背景，
+不会出现两层叠加。
+
+> 主题包视频以站内资源接口下发，支持 HTTP Range（206）分段加载与跳转。
+> 视频不会进入 `localStorage` 主题缓存，刷新首屏先显示封面，随后开始播放。
+> 主题 CSS 中不能用 `url()` 播放视频，视频只通过 `theme.background.video`
+> 声明。
 
 `theme.surface`：
 
@@ -131,8 +151,9 @@ theme.zip
 
 ### 用户自定义背景（运行时上传）
 
-主题包内的背景图仍受包体限制（单个 4MB / 合计 10MB）；用户在「设置 → 主题 →
-自定义外观」里上传的背景走独立接口与存储，与主题包无关：
+主题包内的背景仍受包体限制（图片与字体单个 4MB、视频单个 48MB、资源合计
+60MB）；用户在「设置 → 主题 → 自定义外观」里上传的背景走独立接口与存储，
+与主题包无关：
 
 | 项目 | 限制 |
 |---|---|
@@ -269,11 +290,17 @@ html[data-kiwi-theme="gufeng"] .editor-sheet {
 ## 6. 生命周期与优先级
 
 1. 启动时前端读取缓存的当前主题并立即应用，随后从 `/api/themes/active` 刷新。
-2. 主题包内 `theme.colors` 写入 CSS 变量；`theme.css` 随后注入。
+2. 主题包内 `theme.colors` 写入 CSS 变量；背景视频与 `theme.css` 随后注入。
 3. 用户在「设置 → 主题」里的背景 / 透明度 / 强调色覆盖优先于主题包默认值；
-   编辑模式覆盖写入 `accent`，学习模式覆盖写入 `learn_accent`，二者互不影响。
-4. 主题未声明 `accent` 时，编辑模式用内置冷紫、学习模式用内置翠绿；声明后两种模式默认跟随主题强调色。
-5. 停用或删除当前主题会自动回退到内置「经典紫」。
+   背景按「用户视频 > 用户图片 > 主题视频 > 主题图片」解析；编辑模式覆盖
+   写入 `accent`，学习模式覆盖写入 `learn_accent`，二者互不影响。
+4. 自定义外观按主题 key 独立保存：切到其他主题不会清空，切回来时自动恢复；
+   只有「恢复主题默认外观」会清空当前主题的覆盖值。
+5. 主题未声明 `accent` 时，编辑模式用内置冷紫、学习模式用内置翠绿；声明后两种模式默认跟随主题强调色。
+6. 停用或删除当前主题会自动回退到内置「经典紫」，同时停止并释放背景视频解码器。
+   删除主题时，其自定义外观记录一并删除；只被该主题引用的上传背景图片 /
+   视频也会立即从 `/media/theme-backgrounds/` 清理，其他主题仍在使用的文件
+   会保留。
 
 ## 7. 校验与导入
 
@@ -289,5 +316,8 @@ html[data-kiwi-theme="gufeng"] .editor-sheet {
   文字与边框不可读。
 - `surface.opacity` 低于 0.7 时，建议提高 `surface.blur` 并加深背景暗化。
 - 背景图优先使用 SVG / WebP；大图请压缩到 500KB 以内。
+- 背景视频建议 1080p、10–20 秒无缝循环、无音轨、MP4（H.264，
+  `-movflags +faststart`）或 WebM，控制在 15MB 以内；同时提供 WebP / JPEG
+  封面。视频只做氛围层，不要把关键信息放进视频。
 - 装饰元素（边框、角花、纹理）优先用 CSS 渐变 / 伪元素实现，避免堆叠大图。
 - 逐页检查：笔记列表、编辑器、弹窗、表格、聊天、设置页、登录页。

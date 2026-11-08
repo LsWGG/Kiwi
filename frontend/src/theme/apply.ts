@@ -145,13 +145,14 @@ let backgroundVideo: HTMLVideoElement | null = null
  * 背景视频层：固定在 body 的负 z-index，位于暗化遮罩之下、页面内容之上。
  * 没有视频时移除元素并释放解码器，避免切换主题后仍在后台播放。
  */
-function syncBackgroundVideo(src: string, blur: number): void {
+function syncBackgroundVideo(src: string, blur: number, poster = ''): void {
   if (typeof document === 'undefined') return
   const value = src.trim()
   if (!value) {
     if (backgroundVideo) {
       backgroundVideo.pause()
       backgroundVideo.removeAttribute('src')
+      backgroundVideo.removeAttribute('poster')
       backgroundVideo.load()
       backgroundVideo.remove()
       backgroundVideo = null
@@ -170,6 +171,10 @@ function syncBackgroundVideo(src: string, blur: number): void {
     backgroundVideo.setAttribute('tabindex', '-1')
     document.body.appendChild(backgroundVideo)
   }
+  // 主题图片作为视频封面：首帧解码前不会露出应用底色。
+  const posterValue = poster.trim()
+  if (posterValue) backgroundVideo.poster = posterValue
+  else backgroundVideo.removeAttribute('poster')
   if (backgroundVideo.getAttribute('src') !== value) {
     backgroundVideo.src = value
     void backgroundVideo.play().catch(() => {
@@ -318,13 +323,16 @@ export function applyActiveTheme(active: ThemeActive | null): void {
 
   // 3. 背景 / 表面 / 字体
   const themeBackground = spec.background
-  const video = (overrides.background_video || '').trim()
-  // 视频优先：同一份覆盖里同时存在图片与视频时，以视频为准。
-  const image = video
-    ? ''
-    : overrides.background_image
-      ? overrides.background_image
-      : resolveThemeAsset(active.asset_base_url, themeBackground.image)
+  const overrideVideo = (overrides.background_video || '').trim()
+  const overrideImage = (overrides.background_image || '').trim()
+  const themeVideo = resolveThemeAsset(active.asset_base_url, themeBackground.video || '')
+  const themeImage = resolveThemeAsset(active.asset_base_url, themeBackground.image)
+  // 优先级：用户视频 > 用户图片 > 主题视频 > 主题图片。
+  // 用户只要覆盖了图片或视频，就完整替换主题背景，避免两层背景叠加。
+  const video = overrideVideo || (overrideImage ? '' : themeVideo)
+  const image = video ? '' : overrideImage || themeImage
+  // 主题视频用主题图片做 poster；用户覆盖的背景没有配套封面。
+  const poster = video && video === themeVideo ? themeImage : ''
   const size = overrides.background_size || themeBackground.size
   const position = overrides.background_position || themeBackground.position
   const repeat = overrides.background_repeat || themeBackground.repeat
@@ -350,7 +358,7 @@ export function applyActiveTheme(active: ThemeActive | null): void {
   else root.dataset.kiwiThemeCustom = 'true'
   if (image || video) root.dataset.kiwiThemeBg = 'true'
   else delete root.dataset.kiwiThemeBg
-  syncBackgroundVideo(video, backgroundBlur)
+  syncBackgroundVideo(video, backgroundBlur, poster)
   if (surfaceOpacity < 1) root.dataset.kiwiThemeGlass = 'true'
   else delete root.dataset.kiwiThemeGlass
   // 始终写出 true / false：毛玻璃模糊为 0 时 app 样式需要明确关掉
