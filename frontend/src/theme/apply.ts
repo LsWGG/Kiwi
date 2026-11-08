@@ -353,8 +353,9 @@ export function applyActiveTheme(active: ThemeActive | null): void {
   syncBackgroundVideo(video, backgroundBlur)
   if (surfaceOpacity < 1) root.dataset.kiwiThemeGlass = 'true'
   else delete root.dataset.kiwiThemeGlass
-  if (surfaceBlur > 0) root.dataset.kiwiThemeBlur = 'true'
-  else delete root.dataset.kiwiThemeBlur
+  // 始终写出 true / false：毛玻璃模糊为 0 时 app 样式需要明确关掉
+  // 组件自带的 backdrop-blur-*，否则「自定义外观」预览与实机不一致。
+  root.dataset.kiwiThemeBlur = surfaceBlur > 0 ? 'true' : 'false'
 
   const bodyFont = spec.typography.body.trim()
   const headingFont = spec.typography.heading.trim() || bodyFont
