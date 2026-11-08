@@ -27,7 +27,7 @@ Docker / Web 仍是主线部署方式；桌面版由独立开关启用，不改�
 发布页提供的 SHA-256 后再运行：
 
 ```powershell
-Get-FileHash .\Kiwi-Setup-1.1.0.exe -Algorithm SHA256
+Get-FileHash .\Kiwi-Setup-1.1.1.exe -Algorithm SHA256
 ```
 
 ### 升级与卸载
@@ -204,15 +204,15 @@ WebView2 Runtime 后启动。也可以改用携带 Fixed Version 运行时的构
 
 ```powershell
 # 完整构建：前端 + runtime + 宿主 + 安装包
-powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.0
+powershell -ExecutionPolicy Bypass -File desktop\build.ps1 -Version 1.1.1
 
 # 或双击 desktop\build.cmd
 ```
 
 产物：
 
-- `desktop\dist\Kiwi-Setup-1.1.0.exe`
-- `desktop\dist\Kiwi-Setup-1.1.0.exe.sha256`
+- `desktop\dist\Kiwi-Setup-1.1.1.exe`
+- `desktop\dist\Kiwi-Setup-1.1.1.exe.sha256`
 - `desktop\build\app\`：未打包的暂存目录，便于调试
 
 ### 参数

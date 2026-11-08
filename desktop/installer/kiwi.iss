@@ -1,14 +1,14 @@
 ; Kiwi Windows 桌面版安装脚本（Inno Setup 6）。
 ;
 ; 由 desktop\build.ps1 调用：
-;   ISCC.exe /DAppVersion=1.1.0 /DStageDir=...\build\app /DPrereqsDir=...\build\prereqs
+;   ISCC.exe /DAppVersion=1.1.1 /DStageDir=...\build\app /DPrereqsDir=...\build\prereqs
 ;            /DOutputDir=...\dist /DFixedWebView2=0 kiwi.iss
 ;
 ; 安装到当前用户目录，不请求管理员权限；用户数据在 %LOCALAPPDATA%\Kiwi，
 ; 卸载时保留。
 
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.1.1"
 #endif
 #ifndef StageDir
   #define StageDir "..\build\app"
