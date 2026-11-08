@@ -127,7 +127,7 @@ theme.zip
 背景图与面板透明度由 Kiwi 的兼容层统一接管：`bg-white`、`bg-slate-50/100`、
 `text-slate-300…900`、`border-slate-100/200/300` 及其透明度、hover 变体都会
 自动映射到令牌。主题 CSS 可以继续覆盖具体组件，但大面积表面的 alpha 必须
-乘以 `--theme-surface-opacity`（见第 5 节「面板不透明度必须响应自定义外观」）。
+直接取 `--theme-surface-opacity`（见第 5 节「面板不透明度必须响应自定义外观」）。
 
 ### 用户自定义背景（运行时上传）
 
