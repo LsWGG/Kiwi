@@ -503,7 +503,7 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
   margin-top: -3px;
   border: 2px solid var(--db-progress-color);
   border-radius: 999px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.16);
   transition: transform 0.12s ease;
 }
@@ -513,7 +513,7 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
 .db-progress-input::-moz-range-track {
   height: 6px;
   border-radius: 999px;
-  background: rgb(226 232 240);
+  background: rgb(var(--theme-border));
 }
 .db-progress-input::-moz-range-progress {
   height: 6px;
@@ -525,7 +525,7 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
   height: 12px;
   border: 2px solid var(--db-progress-color);
   border-radius: 999px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.16);
 }
 .db-progress-label {

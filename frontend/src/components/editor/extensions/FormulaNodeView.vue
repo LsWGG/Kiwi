@@ -150,8 +150,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 .kiwi-formula-block {
   margin: 0.75rem 0;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252 / 0.75);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app) / calc(0.75 * var(--theme-surface-opacity)));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 /* 阅读模式：去掉组件外框，只展示公式本身 */
@@ -185,7 +185,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   align-items: center;
   gap: 4px;
   font-weight: 500;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-formula-hint {
   color: rgb(148 163 184);
@@ -221,9 +221,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
 .kiwi-formula-btn {
   border-radius: 6px;
   padding: 2px 9px;
-  color: rgb(71 85 105);
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
+  color: rgb(var(--theme-text-secondary));
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
 }
 .kiwi-formula-btn.is-primary {
   color: #fff;
@@ -239,8 +239,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   resize: vertical;
   padding: 10px 12px;
   border: 0;
-  border-bottom: 1px dashed rgb(203 213 225);
-  background: rgb(255 255 255 / 0.7);
+  border-bottom: 1px dashed rgb(var(--theme-border-strong));
+  background: rgb(var(--theme-surface) / calc(0.7 * var(--theme-surface-opacity)));
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.6;

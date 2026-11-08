@@ -364,8 +364,8 @@ onBeforeUnmount(() => {
 .kiwi-gallery-block {
   margin: 0.75rem 0;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252 / 0.7);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app) / calc(0.7 * var(--theme-surface-opacity)));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 /* 阅读模式：去掉组件外框与编辑控件，让图片成为主体 */
@@ -406,8 +406,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-height: 30px;
   padding: 4px 10px;
-  border-bottom: 1px solid rgb(226 232 240 / 0.8);
-  color: rgb(100 116 139);
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
   font-size: 11px;
 }
 .kiwi-gallery-tag {
@@ -415,14 +415,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   font-weight: 500;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-gallery-tag em {
   font-style: normal;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .kiwi-gallery-status {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .kiwi-gallery-status.is-error {
   color: rgb(220 38 38);
@@ -432,26 +432,26 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 1px;
   border-radius: 7px;
-  background: rgb(241 245 249);
+  background: rgb(var(--theme-surface-muted));
 }
 .kiwi-gallery-seg button {
   min-width: 20px;
   height: 20px;
   padding: 0 4px;
   border-radius: 6px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
   font-size: 10.5px;
   line-height: 1;
 }
 .kiwi-gallery-seg button.is-on {
-  color: rgb(63 98 18);
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08);
+  color: rgb(var(--theme-text-primary));
+  background: rgb(var(--theme-surface));
+  box-shadow: 0 1px 2px rgb(var(--theme-border) / 0.3);
 }
 .kiwi-gallery-action {
   padding: 3px;
   border-radius: 6px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
 }
 .kiwi-gallery-action:hover {
   color: rgb(var(--kiwi-600));
@@ -494,14 +494,14 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   border-radius: 9px;
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
 }
 .kiwi-gallery-thumb {
   display: block;
   width: 100%;
   overflow: hidden;
-  background: rgb(241 245 249);
+  background: rgb(var(--theme-surface-muted));
 }
 .kiwi-gallery-thumb img {
   display: block;
@@ -521,7 +521,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-faint));
   font-size: 11px;
 }
 .kiwi-gallery-blocked-lightbox {
@@ -544,19 +544,19 @@ onBeforeUnmount(() => {
   outline: none;
   background: transparent;
   font-size: 11px;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-gallery-caption::placeholder {
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-gallery-mini {
   padding: 3px;
   border-radius: 5px;
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-gallery-mini:hover {
-  color: rgb(71 85 105);
-  background: rgb(241 245 249);
+  color: rgb(var(--theme-text-secondary));
+  background: rgb(var(--theme-surface-muted));
 }
 .kiwi-gallery-mini.is-danger:hover {
   color: rgb(220 38 38);
@@ -582,8 +582,8 @@ onBeforeUnmount(() => {
   scroll-snap-align: center;
   overflow: hidden;
   border-radius: 9px;
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
 }
 .kiwi-gallery-slide .kiwi-gallery-thumb img {
   height: 200px;
@@ -591,7 +591,7 @@ onBeforeUnmount(() => {
 .kiwi-gallery-slide-caption {
   padding: 6px 9px;
   font-size: 11px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -603,10 +603,10 @@ onBeforeUnmount(() => {
   height: 26px;
   flex: 0 0 auto;
   border-radius: 999px;
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
-  color: rgb(100 116 139);
-  box-shadow: 0 2px 6px rgb(15 23 42 / 0.06);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-muted));
+  box-shadow: 0 2px 6px rgb(var(--theme-border) / 0.2);
 }
 .kiwi-gallery-arrow:hover {
   color: rgb(var(--kiwi-600));

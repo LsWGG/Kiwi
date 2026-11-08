@@ -393,11 +393,11 @@ watch(token, () => {
 <style scoped>
 /* 与笔记工作区的编辑画布同一套底纹：冷灰底 + 环境光 + 细点阵 */
 .share-page {
-  background-color: #eef1f7;
+  background-color: rgb(var(--theme-app));
   background-image:
     radial-gradient(900px 420px at 8% -10%, rgb(var(--kiwi-500) / 0.16), transparent 62%),
-    radial-gradient(820px 380px at 100% 108%, rgba(94, 183, 214, 0.09), transparent 66%),
-    radial-gradient(circle at 1px 1px, rgba(100, 116, 139, 0.17) 1px, transparent 0);
+    radial-gradient(820px 380px at 100% 108%, rgb(var(--theme-accent) / 0.09), transparent 66%),
+    radial-gradient(circle at 1px 1px, rgb(var(--theme-text-muted) / 0.17) 1px, transparent 0);
   background-size: auto, auto, 18px 18px;
   background-attachment: fixed;
 }
@@ -406,10 +406,10 @@ watch(token, () => {
 .share-sheet {
   position: relative;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid rgb(var(--theme-surface) / 0.7);
   padding: 2.4rem 2.6rem 2.2rem;
   box-shadow:
-    0 0 0 1px rgba(226, 232, 240, 0.55),
+    0 0 0 1px rgb(var(--theme-border) / 0.55),
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 12px 28px -20px rgba(15, 23, 42, 0.26),
     0 46px 90px -56px rgba(15, 23, 42, 0.4);
@@ -435,10 +435,10 @@ watch(token, () => {
 .share-pane {
   overflow: hidden;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  background: #fff;
+  border: 1px solid rgb(var(--theme-surface) / 0.8);
+  background: rgb(var(--theme-surface));
   box-shadow:
-    0 0 0 1px rgba(226, 232, 240, 0.55),
+    0 0 0 1px rgb(var(--theme-border) / 0.55),
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 12px 28px -20px rgba(15, 23, 42, 0.26),
     0 46px 90px -56px rgba(15, 23, 42, 0.4);
@@ -448,8 +448,8 @@ watch(token, () => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.7);
-  background: rgba(255, 255, 255, 0.55);
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.7);
+  background: rgb(var(--theme-surface) / calc(0.55 * var(--theme-surface-opacity)));
   padding: 0.6rem 1rem;
 }
 .share-pane-body {

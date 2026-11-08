@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
 }
 /* 数据表视觉：表头淡主题色，集合记录行左侧高亮 + 小书标。 */
 .db-head-row {
-  background: linear-gradient(90deg, rgb(var(--kiwi-50) / 0.9), #fff 55%);
+  background: linear-gradient(90deg, rgb(var(--kiwi-50) / 0.9), rgb(var(--theme-surface)) 55%);
 }
 .db-index-head {
   background: rgb(var(--kiwi-50) / 0.9);
@@ -468,10 +468,10 @@ onBeforeUnmount(() => {
   background: rgb(var(--kiwi-50) / 0.55);
 }
 .db-index-cell {
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 .has-note .db-index-cell {
-  background: linear-gradient(90deg, rgb(var(--kiwi-100) / 0.9), #fff 78%);
+  background: linear-gradient(90deg, rgb(var(--kiwi-100) / 0.9), rgb(var(--theme-surface)) 78%);
 }
 .has-note .db-index-cell::before {
   content: '';
@@ -508,7 +508,7 @@ onBeforeUnmount(() => {
   transition: background 0.15s ease;
 }
 .db-add-row:hover .db-add-icon {
-  background: #fff;
+  background: rgb(var(--theme-surface));
   border-style: solid;
 }
 .db-col-resizer {
@@ -527,7 +527,7 @@ onBeforeUnmount(() => {
   bottom: 24%;
   left: 3px;
   width: 1px;
-  background: #cbd5e1;
+  background: rgb(var(--theme-border-strong));
   opacity: 0;
   transition:
     opacity 0.12s ease,

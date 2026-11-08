@@ -674,8 +674,8 @@ onBeforeUnmount(() => {
 .kiwi-draw-block {
   margin: 0.75rem 0;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(248 250 252 / 0.75);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app) / calc(0.75 * var(--theme-surface-opacity)));
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .kiwi-draw-block.is-readonly {
@@ -704,7 +704,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   font-weight: 500;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-draw-stats {
   color: rgb(148 163 184);
@@ -745,14 +745,14 @@ onBeforeUnmount(() => {
   width: 1px;
   height: 14px;
   margin: 0 2px;
-  background: rgb(226 232 240);
+  background: rgb(var(--theme-border));
 }
 .kiwi-draw-btn {
   border-radius: 6px;
   padding: 2px 9px;
-  color: rgb(71 85 105);
-  border: 1px solid rgb(226 232 240);
-  background: #fff;
+  color: rgb(var(--theme-text-secondary));
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
 }
 .kiwi-draw-btn.is-primary {
   color: #fff;
@@ -778,7 +778,7 @@ onBeforeUnmount(() => {
   padding: 0;
   /* 不显示滚动条：超出部分通过缩放 / 拖拽平移查看。 */
   overflow: hidden;
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 .kiwi-draw-view.is-empty {
   display: flex;
@@ -790,7 +790,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .kiwi-draw-view.is-clickable:hover {
-  background: rgb(248 250 252 / 0.9);
+  background: rgb(var(--theme-app) / calc(0.9 * var(--theme-surface-opacity)));
 }
 .kiwi-draw-view.is-pannable {
   cursor: grab;

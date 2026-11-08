@@ -167,6 +167,22 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
   （纸张取 `surface.background`）。需要纸张纹理或半透明时，覆盖
   `.editor-sheet` 并用 `!important` 压过引擎写入的行内底色。
 
+### 面板不透明度必须跟随用户设置
+
+「设置 → 主题 → 自定义外观」的面板不透明度写入 `--theme-surface-opacity`
+（0.35–1）。`theme.css` 里所有大面积表面的 alpha 都要乘上它，否则滑块失效：
+
+```css
+html[data-kiwi-theme="aurora"] .sidebar-glass {
+  background-color: rgb(251 246 232 / calc(0.9 * var(--theme-surface-opacity)));
+}
+```
+
+不要写死 `rgb(... / 0.9)` 或直接 `#fbf6e8`。侧栏、页头、页面容器、卡片、
+编辑器画布 / 纸张、Notebook、聊天区、数据表容器都属于大面积表面；菜单、
+下拉框、tooltip、按钮、选中高亮与画布内容可保持不透明以保证可读性。
+自查：DevTools 里把变量从 `1` 调到 `0.35`，大面积背景不变即写死了。
+
 ## 用户可覆盖项
 
 启用主题后，用户仍可在「设置 → 主题 → 自定义」覆盖背景图、暗化、模糊、

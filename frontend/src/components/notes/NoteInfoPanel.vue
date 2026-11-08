@@ -917,7 +917,7 @@ onBeforeUnmount(stopCompilePolling)
     right: 0;
     z-index: 45;
     width: min(88vw, 320px);
-    background: rgb(255 255 255 / 0.94);
+    background: rgb(var(--theme-surface) / calc(0.94 * var(--theme-surface-opacity)));
     box-shadow: 0 20px 50px rgb(15 23 42 / 0.22);
   }
 }
