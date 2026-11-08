@@ -763,7 +763,7 @@ const SHORTCUTS: { keys: string; label: string }[] = [
         class="min-h-0 overflow-auto"
         :class="splitMode ? 'w-1/2 border-r border-slate-200/60' : 'flex-1'"
       >
-        <div class="mx-auto w-full max-w-[940px] px-3 py-3 pb-20 sm:px-5">
+        <div class="notebook-paper mx-auto my-3 w-full max-w-[1040px] px-4 py-4 pb-20 sm:px-6">
           <div
             v-if="splitMode"
             class="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-slate-400"
@@ -841,7 +841,7 @@ const SHORTCUTS: { keys: string; label: string }[] = [
         ref="previewScrollEl"
         class="min-h-0 w-1/2 overflow-auto bg-slate-50/30"
       >
-        <div class="mx-auto w-full max-w-[940px] px-4 py-3">
+        <div class="notebook-paper mx-auto my-3 w-full max-w-[1040px] px-4 py-4 sm:px-6">
           <div
             class="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-slate-400"
           >
@@ -870,7 +870,10 @@ const SHORTCUTS: { keys: string; label: string }[] = [
           ref="readScrollEl"
           class="h-full min-w-0 flex-1 overflow-auto cursor-none"
         >
-          <div class="mx-auto w-full max-w-[900px] px-5 py-5 pb-24" :style="{ zoom: readZoom }">
+          <div
+            class="notebook-paper mx-auto my-3 w-full max-w-[1000px] px-5 py-5 pb-24"
+            :style="{ zoom: readZoom }"
+          >
             <NotebookPreview
               :doc="doc"
               :running-cell-id="runningCellId"
@@ -931,6 +934,18 @@ const SHORTCUTS: { keys: string; label: string }[] = [
 </template>
 
 <style scoped>
+/* Notebook 的大背景：半透明表面，壁纸仍然透出，正文保持可读。
+   不用 backdrop-filter：它会采样不到固定的壁纸图层，反而让纸张显得不透明。 */
+.notebook-paper {
+  min-height: calc(100% - 1.5rem);
+  background: rgb(var(--theme-surface) / calc(0.72 * var(--theme-surface-opacity)));
+  border: 1px solid rgb(var(--theme-border) / 0.55);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 1px 2px rgb(15 23 42 / 0.04),
+    0 18px 40px -34px rgb(15 23 42 / 0.4);
+}
 .reading-zen {
   position: fixed;
   inset: 0;

@@ -1229,12 +1229,12 @@ html[data-kiwi-theme-custom='true'] body .fmt-select:hover {
 }
 html[data-kiwi-theme-custom='true'] body .formula-bar {
   border-bottom-color: rgb(var(--theme-border) / 0.7);
-  background: rgb(var(--theme-surface) / var(--theme-surface-opacity));
+  background: rgb(var(--theme-surface));
 }
 html[data-kiwi-theme-custom='true'] body .name-box,
 html[data-kiwi-theme-custom='true'] body .formula-input {
   border-color: rgb(var(--theme-border));
-  background: rgb(var(--theme-surface-muted) / 0.7);
+  background: rgb(var(--theme-surface-muted));
   color: rgb(var(--theme-text-primary));
 }
 html[data-kiwi-theme-custom='true'] body .name-box:focus,
@@ -1250,7 +1250,7 @@ html[data-kiwi-theme-custom='true'] body .selection-chip {
   color: rgb(var(--theme-text-muted));
 }
 html[data-kiwi-theme-custom='true'] body .sheet-scroll {
-  background: rgb(var(--theme-app));
+  background: rgb(var(--theme-surface));
 }
 html[data-kiwi-theme-custom='true'] body .sheet-table th,
 html[data-kiwi-theme-custom='true'] body .sheet-table td {
@@ -1260,7 +1260,7 @@ html[data-kiwi-theme-custom='true'] body .sheet-table td {
 html[data-kiwi-theme-custom='true'] body .corner-cell,
 html[data-kiwi-theme-custom='true'] body .col-head,
 html[data-kiwi-theme-custom='true'] body .row-head {
-  background: rgb(var(--theme-app));
+  background: rgb(var(--theme-surface-muted));
   color: rgb(var(--theme-text-muted));
 }
 html[data-kiwi-theme-custom='true'] body .col-head.is-active,
