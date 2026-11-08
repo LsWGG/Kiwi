@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -159,3 +160,78 @@ def test_short_windows_path_only_on_windows(runtime, tmp_path):
     if os.name == "nt":
         pytest.skip("Windows 上由共享文件夹路径行为决定，不在此断言")
     assert runtime.short_windows_path(tmp_path) is None
+
+
+def test_prefer_ascii_bin_path_switches_to_short_path(runtime, tmp_path):
+    bin_dir = tmp_path / "Kiwi 安装" / "pginstall" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "initdb.exe").write_text("", encoding="utf-8")
+    short = tmp_path / "KIWIIN~1" / "pginstall" / "bin"
+    short.mkdir(parents=True)
+    (short / "initdb.exe").write_text("", encoding="utf-8")
+    with (
+        mock.patch.object(runtime, "os", SimpleNamespace(name="nt")),
+        mock.patch.object(runtime, "short_windows_path", return_value=short),
+    ):
+        assert runtime.prefer_ascii_bin_path(bin_dir) == short
+
+
+def test_prefer_ascii_bin_path_keeps_ascii_and_falls_back(runtime, tmp_path):
+    ascii_dir = tmp_path / "pginstall" / "bin"
+    ascii_dir.mkdir(parents=True)
+    (ascii_dir / "initdb.exe").write_text("", encoding="utf-8")
+    chinese_dir = tmp_path / "Kiwi 安装" / "pginstall" / "bin"
+    chinese_dir.mkdir(parents=True)
+    (chinese_dir / "initdb.exe").write_text("", encoding="utf-8")
+    with mock.patch.object(runtime, "os", SimpleNamespace(name="nt")):
+        assert runtime.prefer_ascii_bin_path(ascii_dir) == ascii_dir
+        with mock.patch.object(runtime, "short_windows_path", return_value=None):
+            assert runtime.prefer_ascii_bin_path(chinese_dir) == chinese_dir
+
+
+def test_prefer_ascii_bin_path_copies_when_no_short_path(runtime, tmp_path):
+    source = tmp_path / "Kiwi 安装" / "pginstall"
+    bin_dir = source / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "initdb.exe").write_text("", encoding="utf-8")
+    (source / "share").mkdir()
+    (source / "share" / "postgresql.conf.sample").write_text("", encoding="utf-8")
+    data_dir = tmp_path / "Local"
+    fake_os = SimpleNamespace(name="nt", getpid=os.getpid)
+    with (
+        mock.patch.object(runtime, "os", fake_os),
+        mock.patch.object(runtime, "short_windows_path", return_value=None),
+    ):
+        resolved = runtime.prefer_ascii_bin_path(bin_dir, data_dir)
+        assert resolved != bin_dir
+        assert str(resolved).isascii()
+        assert (resolved / "initdb.exe").is_file()
+        assert (resolved.parent / "share" / "postgresql.conf.sample").is_file()
+        # 第二次启动直接复用缓存副本，不再复制。
+        assert runtime.prefer_ascii_bin_path(bin_dir, data_dir) == resolved
+
+
+def test_pgserver_bin_dir_reads_commands_module(runtime, tmp_path, monkeypatch):
+    """回归：pgserver 包本身没有 POSTGRES_BIN_PATH，不能拿空字符串兜底成 CWD。"""
+    bin_dir = tmp_path / "pginstall" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "initdb.exe").write_text("", encoding="utf-8")
+
+    commands = types.ModuleType("pgserver._commands")
+    commands.POSTGRES_BIN_PATH = bin_dir
+    server_module = types.ModuleType("pgserver.postgres_server")
+    server_module.POSTGRES_BIN_PATH = bin_dir
+    package = types.ModuleType("pgserver")
+    package._commands = commands
+    package.postgres_server = server_module
+    monkeypatch.setitem(sys.modules, "pgserver", package)
+    monkeypatch.setitem(sys.modules, "pgserver._commands", commands)
+    monkeypatch.setitem(sys.modules, "pgserver.postgres_server", server_module)
+
+    assert runtime.pgserver_bin_dir() == bin_dir
+
+
+def test_pgserver_bin_dir_never_falls_back_to_cwd(runtime, monkeypatch):
+    package = types.ModuleType("pgserver")
+    monkeypatch.setitem(sys.modules, "pgserver", package)
+    assert runtime.pgserver_bin_dir() is None

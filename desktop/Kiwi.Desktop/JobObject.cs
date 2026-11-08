@@ -25,7 +25,7 @@ internal sealed class JobObject : IDisposable
             throw new Win32Exception(Marshal.GetLastWin32Error(), "创建 Job Object 失败");
         }
 
-        var info = new JobObjectExtendedLimitInformation
+        var info = new JobObjectExtendedLimitInfo
         {
             BasicLimitInformation = new JobObjectBasicLimitInformation
             {
@@ -38,7 +38,7 @@ internal sealed class JobObject : IDisposable
             JobMemoryLimit = new UIntPtr(8UL * 1024 * 1024 * 1024),
         };
 
-        var size = Marshal.SizeOf<JobObjectExtendedLimitInformation>();
+        var size = Marshal.SizeOf<JobObjectExtendedLimitInfo>();
         var pointer = Marshal.AllocHGlobal(size);
         try
         {
@@ -126,8 +126,9 @@ internal sealed class JobObject : IDisposable
         public ulong OtherTransferCount;
     }
 
+    // 与上面的 Win32 信息类常量同名会触发 CS0102，结构体单独取名。
     [StructLayout(LayoutKind.Sequential)]
-    private struct JobObjectExtendedLimitInformation
+    private struct JobObjectExtendedLimitInfo
     {
         public JobObjectBasicLimitInformation BasicLimitInformation;
         public IoCounters IoInfo;

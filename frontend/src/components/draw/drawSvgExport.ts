@@ -787,11 +787,14 @@ function renderConnector(element: DrawElement, context: RenderContext): string {
   const heads =
     arrowheadMarkup(element.startArrowhead, route[0], startAngle, element) +
     arrowheadMarkup(element.endArrowhead, last, endAngle, element)
+  // 箭头改为内联几何图形（V 形 / 三角 / 圆点）后不再使用 <marker>；
+  // 统一包一层语义分组，阅读态与分享页的测试可以稳定断言。
+  const headGroup = heads ? `<g class="kiwi-draw-arrowhead">${heads}</g>` : ''
   return (
     `<g${groupAttributes(element)}>` +
     `<path d="${path}" fill="none" stroke="${attr(stroke)}" stroke-width="${strokeWidth}" ` +
     `stroke-opacity="${opacity(element.strokeOpacity)}" stroke-linecap="round" stroke-linejoin="round"` +
-    `${dashArray(element)}/>${heads}</g>`
+    `${dashArray(element)}/>${headGroup}</g>`
   )
 }
 

@@ -19,6 +19,8 @@ const props = withDefaults(
     theme: ThemeSpec
     /** 已解析为可访问 URL 的背景图；不传则使用主题声明。 */
     backgroundImage?: string
+    /** 已解析为可访问 URL 的背景视频；存在时优先于背景图。 */
+    backgroundVideo?: string
     surfaceOpacity?: number
     surfaceBlur?: number
     backgroundDim?: number
@@ -27,6 +29,7 @@ const props = withDefaults(
   }>(),
   {
     backgroundImage: undefined,
+    backgroundVideo: undefined,
     surfaceOpacity: undefined,
     surfaceBlur: undefined,
     backgroundDim: undefined,
@@ -70,6 +73,11 @@ const imageStyle = computed(() => {
   }
 })
 
+const videoStyle = computed(() => ({
+  filter: imageBlur.value > 0 ? `blur(${imageBlur.value}px)` : undefined,
+  transform: imageBlur.value > 0 ? 'scale(1.06)' : undefined,
+}))
+
 const dimStyle = computed(() => ({
   backgroundColor: `rgb(0 0 0 / ${dim.value})`,
 }))
@@ -101,7 +109,17 @@ const styles = computed(() => ({
     class="relative aspect-[16/10] w-full overflow-hidden rounded-xl border"
     :style="rootStyle"
   >
-    <div v-if="image" class="absolute inset-0" :style="imageStyle" />
+    <video
+      v-if="backgroundVideo"
+      class="absolute inset-0 h-full w-full object-cover"
+      :src="backgroundVideo"
+      autoplay
+      muted
+      loop
+      playsinline
+      :style="videoStyle"
+    />
+    <div v-else-if="image" class="absolute inset-0" :style="imageStyle" />
     <div v-if="dim > 0" class="absolute inset-0" :style="dimStyle" />
     <div class="relative flex h-full gap-2 p-2.5">
       <aside

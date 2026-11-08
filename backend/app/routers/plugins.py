@@ -18,7 +18,8 @@ import json
 import logging
 import uuid
 import zipfile
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile

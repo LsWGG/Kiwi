@@ -112,7 +112,9 @@ function revokeFidelity() {
  */
 async function renderFidelityPreview() {
   const token = ++fidelityToken
-  if (!hasContent.value || editing.value) {
+  // 阅读态不加载 20MB 级白板运行时：静态 SVG 与分享页 / 导出同源，
+  // 也避免异步替换 DOM 造成预览闪烁。高保真预览只服务编辑态。
+  if (!hasContent.value || editing.value || !editable.value) {
     revokeFidelity()
     fidelitySize.value = null
     return
@@ -216,7 +218,7 @@ function onPreviewClick() {
 }
 
 watch(
-  [svg, editing],
+  [svg, editing, editable],
   () => {
     void nextTick(updatePreviewOverflow)
     void renderFidelityPreview()

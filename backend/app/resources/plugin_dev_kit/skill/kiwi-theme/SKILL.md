@@ -124,6 +124,13 @@ avif / bmp）与字体（woff2 / woff / ttf / otf），单个 ≤ 4MB、合计 �
 `text-slate-*`、`border-slate-*` 及其透明度 / hover 变体都会映射到令牌，
 不需要逐个组件写覆盖。
 
+用户自定义背景与主题包资源是两套限制：主题包内单个资源 ≤ 4MB、合计 ≤ 10MB；
+用户在「设置 → 主题 → 自定义外观」上传的背景走独立接口，≤ 100MB，支持
+PNG（含 APNG）/ JPEG / GIF / WebP（含动态）/ AVIF / BMP，以及 MP4 / WebM /
+Ogg / MOV 视频（静音循环，优先 MP4 / WebM）。上传后图片 URL 写入
+`background_image`、视频 URL 写入 `background_video`；两者同时存在时视频优先，
+`dim` / `blur` 与 `surface.*` 同样作用于视频。SVG 与 `data:` 视频会被拒绝。
+
 ## theme.css
 
 `theme.css` 作为全局样式注入。**每条规则都必须限定在主题 key 下**：

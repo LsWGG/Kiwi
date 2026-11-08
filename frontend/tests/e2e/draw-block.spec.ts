@@ -108,14 +108,17 @@ test.describe('画布块', () => {
     expect(saved).toContain('```kiwi-draw')
     expect(saved).toContain('画布上一段正文')
 
-    // 完成编辑后回到静态 SVG，正文块仍然保留。
+    // 完成编辑后回到预览：编辑态会异步升级为高保真 PNG，
+    // 因此断言画布容器内有渲染结果（静态 SVG 或 PNG 均可）。
     await block.getByRole('button', { name: '完成' }).click()
-    await expect(block.locator('.kiwi-draw-svg svg')).toBeVisible()
+    await expect(block.locator('.kiwi-draw-canvas svg, .kiwi-draw-canvas img').first()).toBeVisible()
     await expect(page.locator('.kiwi-draw-block')).toHaveCount(1)
 
     await page.reload()
     const reloaded = page.locator('.kiwi-draw-block').first()
-    await expect(reloaded.locator('.kiwi-draw-svg svg')).toBeVisible()
+    await expect(
+      reloaded.locator('.kiwi-draw-canvas svg, .kiwi-draw-canvas img').first(),
+    ).toBeVisible()
   })
 
   test('阅读态与分享页用静态 SVG 渲染画布围栏', async ({ page, kb, notesApi }) => {
@@ -131,7 +134,7 @@ test.describe('画布块', () => {
     const readonlySvg = page.locator('.ProseMirror .kiwi-draw-block.is-readonly .kiwi-draw-svg svg').first()
     await expect(readonlySvg).toBeVisible()
     await expect(readonlySvg).toContainText('静态渲染节点')
-    await expect(readonlySvg.locator('marker')).toHaveCount(1)
+    await expect(readonlySvg.locator('.kiwi-draw-arrowhead')).toHaveCount(1)
     await expect(page.locator('.ProseMirror')).toContainText('画布下方正文')
 
     // 分享页走 MarkdownView 的 markdown-it 分支，验证 DOMPurify 不清除 SVG 结构。
@@ -144,7 +147,7 @@ test.describe('画布块', () => {
     const sharedSvg = page.locator('.markdown-view .md-draw svg').first()
     await expect(sharedSvg).toBeVisible()
     await expect(sharedSvg).toContainText('静态渲染节点')
-    await expect(sharedSvg.locator('marker')).toHaveCount(1)
+    await expect(sharedSvg.locator('.kiwi-draw-arrowhead')).toHaveCount(1)
     await expect(page.locator('.markdown-view')).toContainText('画布下方正文')
   })
 })

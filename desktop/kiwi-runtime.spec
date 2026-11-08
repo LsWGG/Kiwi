@@ -24,6 +24,16 @@ datas = [
         str(backend_dir / "app" / "services" / "builtin_demo_assets"),
         "app/services/builtin_demo_assets",
     ),
+    # 内置主题（经典紫 / 极光）的样式与图片，以及主题开发套件下载内容。
+    # builtin_themes.py 以 app/resources 为根目录读取，必须随 runtime 一起打包。
+    (
+        str(backend_dir / "app" / "resources" / "builtin_themes"),
+        "app/resources/builtin_themes",
+    ),
+    (
+        str(backend_dir / "app" / "resources" / "plugin_dev_kit"),
+        "app/resources/plugin_dev_kit",
+    ),
 ]
 datas += collect_data_files("trafilatura")
 

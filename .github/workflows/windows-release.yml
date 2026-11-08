@@ -111,27 +111,51 @@ jobs:
           restore-keys: |
             pip-${{ runner.os }}-
 
+      # 分阶段构建：任何一步失败都能在 Actions 里直接定位，且各阶段 transcript
+      # 会写入 desktop/dist/logs/ 并随 artifact 上传。
+      - name: Build desktop frontend
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+          INPUT_SIGN: ${{ inputs.sign }}
+        run: >-
+          ./desktop/scripts/ci-build.ps1
+          -Stage frontend
+          -Version "${{ steps.version.outputs.value }}"
+
+      - name: Build Python runtime
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+          INPUT_SIGN: ${{ inputs.sign }}
+        run: >-
+          ./desktop/scripts/ci-build.ps1
+          -Stage runtime
+          -Version "${{ steps.version.outputs.value }}"
+
+      - name: Publish .NET host
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+          INPUT_SIGN: ${{ inputs.sign }}
+        run: >-
+          ./desktop/scripts/ci-build.ps1
+          -Stage host
+          -Version "${{ steps.version.outputs.value }}"
+
       - name: Build installer
         shell: pwsh
         env:
           SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
           SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
           INPUT_SIGN: ${{ inputs.sign }}
-        run: |
-          $params = @{
-            Version   = "${{ steps.version.outputs.value }}"
-            SkipTests = $true
-          }
-          $wantSign = ("$env:INPUT_SIGN" -eq "true") -or
-            (-not [string]::IsNullOrWhiteSpace($env:SIGN_PFX_BASE64))
-          if ($wantSign) {
-            if ([string]::IsNullOrWhiteSpace($env:SIGN_PFX_BASE64)) {
-              throw "已要求签名，但未配置 SIGN_PFX_BASE64 secret。"
-            }
-            $params.Sign = $true
-            $params.RequireSignature = $true
-          }
-          & ./desktop/build.ps1 @params
+        run: >-
+          ./desktop/scripts/ci-build.ps1
+          -Stage installer
+          -Version "${{ steps.version.outputs.value }}"
 
       - name: Install, smoke test and uninstall
         shell: pwsh
@@ -162,6 +186,14 @@ jobs:
           }
           $smokeLog = Join-Path $env:LOCALAPPDATA "Kiwi\logs\smoke-test.log"
           if (Test-Path $smokeLog) { Get-Content $smokeLog }
+          # 先落盘日志再判断退出码，失败时 artifact 里也能拿到 runtime.log。
+          New-Item -ItemType Directory -Force -Path "desktop/dist/logs" | Out-Null
+          foreach ($log in @($smokeLog, (Join-Path $env:LOCALAPPDATA "Kiwi\logs\runtime.log"),
+                             (Join-Path $env:LOCALAPPDATA "Kiwi\logs\desktop.log"))) {
+            if (Test-Path $log) {
+              Copy-Item $log "desktop/dist/logs" -Force
+            }
+          }
           if ($proc.ExitCode -ne 0) {
             throw "安装后 smoke-test 失败，退出码 $($proc.ExitCode)"
           }
@@ -189,14 +221,6 @@ jobs:
             throw "卸载后安装目录仍有文件：$installDir"
           }
           Write-Host "静默安装、smoke-test、卸载与数据保留均通过。"
-
-          New-Item -ItemType Directory -Force -Path "desktop/dist/logs" | Out-Null
-          foreach ($log in @($smokeLog, (Join-Path $env:LOCALAPPDATA "Kiwi\logs\runtime.log"),
-                             (Join-Path $env:LOCALAPPDATA "Kiwi\logs\desktop.log"))) {
-            if (Test-Path $log) {
-              Copy-Item $log "desktop/dist/logs" -Force
-            }
-          }
 
       - name: Upload artifacts
         if: always()
