@@ -182,30 +182,48 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
 ### 面板不透明度必须响应「自定义外观」
 
 用户在「设置 → 主题 → 自定义外观」里调整的面板不透明度会写入
-`--theme-surface-opacity`（0.35–1），编辑模式与学习模式共用。`theme.css`
-里**所有大面积表面**的 alpha 都必须乘以这个变量：
+`--theme-surface-opacity`（0.35–1），编辑模式与学习模式共用。
+
+**主面板的 alpha 直接取这个变量，不要再乘 0.9 / 0.8 之类的设计系数。**
+实际界面和设置里的预览必须一致：用户设为 35%，侧栏、页头、页面容器、
+聊天区、纸张等主面板的最终不透明度就应当是 35%。乘系数属于暗加权重，
+会让人误以为滑块没生效。
 
 ```css
 html[data-kiwi-theme="aurora"] .sidebar-glass {
-  /* 基色 0.9 × 用户设置；不要写死成 0.9 */
-  background-color: rgb(251 246 232 / calc(0.9 * var(--theme-surface-opacity)));
+  background-color: rgb(251 246 232 / var(--theme-surface-opacity));
+  backdrop-filter: blur(var(--theme-surface-blur));
 }
 ```
 
-以下写法会让滑块失效，禁止用于大面积表面：
+以下写法会让预览与实际不一致，禁止用于主面板：
 
 ```css
-background: rgb(251 246 232 / 0.9); /* 写死 alpha */
-background: #fbf6e8;                /* 完全不透明 */
+background: rgb(251 246 232 / 0.9);                    /* 写死 alpha */
+background: #fbf6e8;                                   /* 完全不透明 */
+background: rgb(251 246 232 / calc(0.9 * var(--...))); /* 暗加系数 */
+/* 双层叠加：background-color 与半透明 background-image 同时生效，
+   实际覆盖率约等于 1-(1-a)(1-b)，比设置值更实 */
+background-color: rgb(251 246 232 / var(--theme-surface-opacity));
+background-image: linear-gradient(rgb(251 246 232 / 0.9), rgb(251 246 232 / 0.8));
 ```
 
-小面积控件可以保持不透明或固定 alpha，以保证可读性：菜单 / 下拉框、
-tooltip、`kbd`、按钮、选中高亮、状态徽标，以及图表与画布内容。判断标准：
-调低不透明度时，侧栏、页头、页面容器、卡片、编辑器画布 / 纸张、Notebook、
-聊天区、数据表容器等应透出壁纸，文字与控件本身不被削弱。
+大面积表面只允许**一层**底色；渐变、纹理等装饰用不透明度极低
+（≤ 0.05）的叠加，或放到伪元素里，避免抬高整体不透明度。
 
-自查：在浏览器 DevTools 把 `--theme-surface-opacity` 从 `1` 改成 `0.35`，
-大面积背景颜色不变化即说明 alpha 被写死。
+毛玻璃模糊同样跟随用户设置：一律写
+`backdrop-filter: blur(var(--theme-surface-blur))`，不要写死
+`blur(24px)`。用户把「毛玻璃模糊」调到 0 时，宿主会关闭主面板上的
+`backdrop-filter`，包括组件里 `@apply backdrop-blur-*` 的固定模糊。
+
+小面积控件可以保持不透明或固定 alpha / 固定模糊，以保证可读性：菜单 /
+下拉框、tooltip、`kbd`、按钮、选中高亮、状态徽标，以及图表与画布内容。
+判断标准：调低不透明度、调低模糊时，侧栏、页头、页面容器、卡片、编辑器
+画布 / 纸张、Notebook、聊天区、数据表容器等应正确透出壁纸。
+
+自查：把不透明度设为 35%、模糊设为 0，然后在 DevTools 检查主面板：
+`backgroundColor` 的 alpha 应正好是 0.35，`backdropFilter` 应为 `none`，
+`backgroundImage` 不应再叠一层半透明渐变。
 
 常用可覆盖区域：
 

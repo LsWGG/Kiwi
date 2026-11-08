@@ -170,18 +170,24 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
 ### 面板不透明度必须跟随用户设置
 
 「设置 → 主题 → 自定义外观」的面板不透明度写入 `--theme-surface-opacity`
-（0.35–1）。`theme.css` 里所有大面积表面的 alpha 都要乘上它，否则滑块失效：
+（0.35–1），毛玻璃模糊写入 `--theme-surface-blur`。主面板的 alpha 直接取
+变量，**不要再乘 0.9 / 0.8 之类的设计系数**，否则实际比预览更实：
 
 ```css
 html[data-kiwi-theme="aurora"] .sidebar-glass {
-  background-color: rgb(251 246 232 / calc(0.9 * var(--theme-surface-opacity)));
+  background-color: rgb(251 246 232 / var(--theme-surface-opacity));
+  backdrop-filter: blur(var(--theme-surface-blur));
 }
 ```
 
-不要写死 `rgb(... / 0.9)` 或直接 `#fbf6e8`。侧栏、页头、页面容器、卡片、
+不要写死 `rgb(... / 0.9)`、`#fbf6e8` 或 `blur(24px)`；也不要在一个已有
+`background-color` 的元素上再叠半透明 `background-image` 渐变（双层覆盖率
+≈ 1-(1-a)(1-b)，会比设置值更不透明）。侧栏、页头、页面容器、卡片、
 编辑器画布 / 纸张、Notebook、聊天区、数据表容器都属于大面积表面；菜单、
 下拉框、tooltip、按钮、选中高亮与画布内容可保持不透明以保证可读性。
-自查：DevTools 里把变量从 `1` 调到 `0.35`，大面积背景不变即写死了。
+
+自查：不透明度设 35%、模糊设 0，DevTools 里主面板的
+`backgroundColor` alpha 应正好 0.35、`backdropFilter` 应为 `none`。
 
 ## 用户可覆盖项
 
