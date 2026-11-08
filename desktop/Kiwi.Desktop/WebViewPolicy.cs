@@ -7,7 +7,8 @@ internal static class WebViewPolicy
     /// Chromium 启动参数：关闭后台联网、组件更新、遥测与 hosts 解析。
     /// 真正的外联拦截仍在 WebResourceRequested 中完成，这里只是纵深防御。
     /// </summary>
-    public const string BrowserArguments = string.Join(
+    // string.Join 不是编译期常量，不能用 const。
+    public static readonly string BrowserArguments = string.Join(
         " ",
         "--disable-background-networking",
         "--disable-component-update",
