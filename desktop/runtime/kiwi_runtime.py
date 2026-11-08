@@ -24,6 +24,7 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -265,9 +266,7 @@ def configure_logging(log_dir: Path) -> Path:
     """
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "runtime.log"
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
     console = logging.StreamHandler(sys.stderr)
     console.setFormatter(formatter)
     file_handler = RotatingFileHandler(
@@ -365,28 +364,121 @@ def short_windows_path(path: Path) -> Path | None:
     return None
 
 
-def prefer_ascii_bin_path(bin_dir: Path) -> Path:
-    """PostgreSQL initdb 对非 ASCII 路径敏感，优先换成 8.3 短路径。
+def _is_pg_bin_dir(path: Path) -> bool:
+    """目录里确实有 initdb，避免把当前工作目录之类的路径当成 PG 二进制。"""
+    return path.is_dir() and any((path / name).is_file() for name in ("initdb.exe", "initdb"))
 
-    安装目录可能含中文（例如安装到 `D:\\...\\Kiwi 安装`），而 initdb 会从
-    自身可执行文件路径推导 ``share`` 与 ``postgres.exe``。启动时通过短路径
-    调用后，推导结果全为 ASCII，非 ASCII 安装目录也能正常初始化。
+
+def pgserver_bin_dir() -> Path | None:
+    """读取 pgserver 真正使用的二进制目录。
+
+    ``pgserver/__init__.py`` 用 ``from ._commands import *`` 只导出命令函数，
+    没有 ``POSTGRES_BIN_PATH`` 属性；真正的值在 ``_commands`` 中（导入时按
+    ``__file__`` 计算），``postgres_server`` 里另有一份导入绑定。不能用空
+    字符串兜底：``Path("")`` 等于当前工作目录，会把 PostgreSQL 命令指向 CWD。
+    """
+    try:
+        import pgserver
+    except Exception:  # noqa: BLE001 - 未安装时由调用方给出统一错误
+        return None
+    candidates: list[str] = []
+    with contextlib.suppress(ImportError):
+        from pgserver import _commands as commands
+
+        candidates.append(str(getattr(commands, "POSTGRES_BIN_PATH", "") or ""))
+    with contextlib.suppress(ImportError):
+        from pgserver import postgres_server as server_module
+
+        candidates.append(str(getattr(server_module, "POSTGRES_BIN_PATH", "") or ""))
+    candidates.append(str(getattr(pgserver, "POSTGRES_BIN_PATH", "") or ""))
+    for value in candidates:
+        if value and _is_pg_bin_dir(Path(value)):
+            return Path(value)
+    return None
+
+
+def _ascii_cache_root(data_dir: Path) -> Path | None:
+    """为 pginstall 副本选一个全 ASCII 的缓存目录。"""
+    root = data_dir / "pgbin"
+    root.mkdir(parents=True, exist_ok=True)
+    if str(root).isascii():
+        return root
+    short = short_windows_path(root)
+    if short is not None and str(short).isascii():
+        return short
+    return None
+
+
+def copy_pginstall_to_ascii(bin_dir: Path, data_dir: Path | None) -> Path | None:
+    """把 pginstall 复制到 ASCII 目录后执行 PostgreSQL。
+
+    安装目录所在卷可能没有生成 8.3 短名（``GetShortPathNameW`` 原样返回），
+    此时只能换一个全 ASCII 的路径：initdb 会从自身可执行文件位置推导
+    ``share`` 与 ``postgres.exe``，非 ASCII 路径会按 ANSI 编码截断。
+    副本按 initdb.exe 的大小与修改时间缓存，应用升级后自动重建。
+    """
+    if os.name != "nt" or data_dir is None:
+        return None
+    initdb = bin_dir / "initdb.exe"
+    try:
+        stat = initdb.stat()
+    except OSError:
+        return None
+    root = _ascii_cache_root(data_dir)
+    if root is None:
+        logger.warning("无法为 PostgreSQL 二进制找到 ASCII 缓存目录：%s", data_dir)
+        return None
+    version = root / f"{stat.st_size}-{stat.st_mtime_ns}"
+    target = version / "pginstall"
+    if _is_pg_bin_dir(target / "bin"):
+        return target / "bin"
+    tmp = root / f".tmp-{os.getpid()}"
+    with contextlib.suppress(FileNotFoundError):
+        shutil.rmtree(tmp)
+    try:
+        shutil.copytree(bin_dir.parent, tmp, ignore=shutil.ignore_patterns("include"))
+        version.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            shutil.rmtree(target)  # 只清理本程序自己的缓存目录
+        tmp.rename(target)
+    except OSError as exc:
+        logger.warning("复制 PostgreSQL 二进制失败：%s", exc)
+        with contextlib.suppress(OSError):
+            shutil.rmtree(tmp)
+        return None
+    # 旧版本副本没有再使用的价值，顺手清理，避免数据目录膨胀。
+    for stale in root.iterdir():
+        if stale.name != version.name and not stale.name.startswith(".tmp-") and stale.is_dir():
+            with contextlib.suppress(OSError):
+                shutil.rmtree(stale)
+    logger.info("安装目录含非 ASCII 路径，PostgreSQL 改用副本：%s", target / "bin")
+    return target / "bin"
+
+
+def prefer_ascii_bin_path(bin_dir: Path, data_dir: Path | None = None) -> Path:
+    """PostgreSQL initdb 对非 ASCII 路径敏感：优先 8.3 短路径，其次 ASCII 副本。
+
+    安装目录可能含中文（例如安装到 ``D:\\...\\Kiwi 安装``）。通过短路径或
+    副本调用后，initdb 推导出的 ``share`` / ``postgres.exe`` 全为 ASCII。
     """
     if os.name != "nt" or str(bin_dir).isascii():
         return bin_dir
     short = short_windows_path(bin_dir)
-    if short is not None and str(short).isascii():
+    if short is not None and str(short).isascii() and _is_pg_bin_dir(short):
         return short
+    copied = copy_pginstall_to_ascii(bin_dir, data_dir)
+    if copied is not None:
+        return copied
     return bin_dir
 
 
-def _apply_pgserver_bin_path(bin_dir: Path) -> Path:
+def _apply_pgserver_bin_path(bin_dir: Path, data_dir: Path | None = None) -> Path:
     """把最终选定的二进制目录回填到 pgserver 的各处模块属性。"""
     try:
         import pgserver
     except Exception:  # noqa: BLE001 - 由调用方处理缺失依赖
         return bin_dir
-    resolved = prefer_ascii_bin_path(bin_dir)
+    resolved = prefer_ascii_bin_path(bin_dir, data_dir)
     with contextlib.suppress(ImportError):
         from pgserver import _commands as commands
 
@@ -397,32 +489,28 @@ def _apply_pgserver_bin_path(bin_dir: Path) -> Path:
         server_module.POSTGRES_BIN_PATH = resolved
     pgserver.POSTGRES_BIN_PATH = resolved
     if resolved != bin_dir:
-        logger.info("安装目录含非 ASCII 路径，PostgreSQL 改用短路径：%s", resolved)
+        logger.info("安装目录含非 ASCII 路径，PostgreSQL 改用 ASCII 路径：%s", resolved)
     return resolved
 
 
-def ensure_pgserver_binaries() -> Path | None:
+def ensure_pgserver_binaries(data_dir: Path | None = None) -> Path | None:
     """PyInstaller 会把模块放进 PYZ，``__file__`` 可能指向不存在的路径。
 
-    优先使用 pgserver 计算出的 ``POSTGRES_BIN_PATH``；若目录不存在，则在
+    优先使用 pgserver 计算出的 ``POSTGRES_BIN_PATH``；若目录不可用，则在
     bundle 内查找 ``collect_all`` 收集的 ``pginstall/bin`` 并回填模块属性。
-    两种情况都会尝试把非 ASCII 安装目录换成 8.3 短路径。
+    两种情况都会把非 ASCII 安装目录换成 ASCII 路径或副本。
     """
-    try:
-        import pgserver
-    except Exception:  # noqa: BLE001 - 未安装时给出统一错误
-        return None
-    current = Path(str(getattr(pgserver, "POSTGRES_BIN_PATH", "") or ""))
-    if current.is_dir():
-        return _apply_pgserver_bin_path(current)
+    current = pgserver_bin_dir()
+    if current is not None:
+        return _apply_pgserver_bin_path(current, data_dir)
     candidates = [
         bundle_root() / "pgserver" / "pginstall" / "bin",
         bundle_root() / "pginstall" / "bin",
     ]
     for candidate in candidates:
-        if not candidate.is_dir():
+        if not _is_pg_bin_dir(candidate):
             continue
-        resolved = _apply_pgserver_bin_path(candidate)
+        resolved = _apply_pgserver_bin_path(candidate, data_dir)
         logger.info("已从 bundle 解析 PostgreSQL 二进制：%s", resolved)
         return resolved
     return None
@@ -435,12 +523,13 @@ def find_pg_dump() -> Path | None:
     except Exception:  # noqa: BLE001 - 未安装时由启动流程报错
         return None
     candidates: list[Path] = []
-    bin_dir = Path(str(getattr(pgserver, "POSTGRES_BIN_PATH", "") or ""))
-    if bin_dir.is_dir():
+    bin_dir = pgserver_bin_dir()
+    if bin_dir is not None:
         candidates.extend([bin_dir / "pg_dump.exe", bin_dir / "pg_dump"])
-    package_dir = Path(pgserver.__file__).resolve().parent
-    candidates.extend(package_dir.rglob("pg_dump.exe"))
-    candidates.extend(package_dir.rglob("pg_dump"))
+    with contextlib.suppress(Exception):
+        package_dir = Path(pgserver.__file__).resolve().parent
+        candidates.extend(package_dir.rglob("pg_dump.exe"))
+        candidates.extend(package_dir.rglob("pg_dump"))
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -449,10 +538,9 @@ def find_pg_dump() -> Path | None:
 
 def start_postgres(paths: RuntimePaths) -> tuple[object, str]:
     """启动 pgserver，返回 (server, asyncpg URL)；失败时抛出带日志位置的错误。"""
-    if ensure_pgserver_binaries() is None:
+    if ensure_pgserver_binaries(paths.data_dir) is None:
         raise RuntimeError(
-            "未找到 PostgreSQL 二进制（pgserver / pginstall），"
-            f"请检查打包资源：{bundle_root()}"
+            f"未找到 PostgreSQL 二进制（pgserver / pginstall），请检查打包资源：{bundle_root()}"
         )
     import pgserver
     from pgserver.postgres_server import PostgresServer
@@ -697,7 +785,9 @@ def hard_exit_after(seconds: float, code: int) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Kiwi 桌面 runtime")
     parser.add_argument("--data-dir", required=True, help="桌面数据目录（绝对路径）")
-    parser.add_argument("--resources", required=True, help="随包资源目录（frontend / qdrant / python）")
+    parser.add_argument(
+        "--resources", required=True, help="随包资源目录（frontend / qdrant / python）"
+    )
     parser.add_argument(
         "--frontend-dist",
         default="",
@@ -790,9 +880,7 @@ def run(args: argparse.Namespace) -> int:
 
         state.update(stage="qdrant")
         qdrant_process, qdrant_port = start_qdrant(paths)
-        qdrant_url = (
-            f"http://127.0.0.1:{qdrant_port}" if qdrant_port else "http://127.0.0.1:6333"
-        )
+        qdrant_url = f"http://127.0.0.1:{qdrant_port}" if qdrant_port else "http://127.0.0.1:6333"
 
         http_sock = create_listen_socket()
         http_port = int(http_sock.getsockname()[1])
@@ -847,9 +935,7 @@ def run(args: argparse.Namespace) -> int:
         deadline = time.monotonic() + HTTP_START_TIMEOUT
         while time.monotonic() < deadline:
             if not server_thread.is_alive():
-                raise RuntimeError(
-                    f"uvicorn 提前退出，请查看日志：{paths.log_dir / 'backend.log'}"
-                )
+                raise RuntimeError(f"uvicorn 提前退出，请查看日志：{paths.log_dir / 'backend.log'}")
             if http_ok(health_url):
                 break
             if shutdown.is_set():
