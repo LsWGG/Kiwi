@@ -131,7 +131,7 @@ test.describe('画布块', () => {
     const readonlySvg = page.locator('.ProseMirror .kiwi-draw-block.is-readonly .kiwi-draw-svg svg').first()
     await expect(readonlySvg).toBeVisible()
     await expect(readonlySvg).toContainText('静态渲染节点')
-    await expect(readonlySvg.locator('marker')).toHaveCount(1)
+    await expect(readonlySvg.locator('.kiwi-draw-arrowhead')).toHaveCount(1)
     await expect(page.locator('.ProseMirror')).toContainText('画布下方正文')
 
     // 分享页走 MarkdownView 的 markdown-it 分支，验证 DOMPurify 不清除 SVG 结构。
@@ -144,7 +144,7 @@ test.describe('画布块', () => {
     const sharedSvg = page.locator('.markdown-view .md-draw svg').first()
     await expect(sharedSvg).toBeVisible()
     await expect(sharedSvg).toContainText('静态渲染节点')
-    await expect(sharedSvg.locator('marker')).toHaveCount(1)
+    await expect(sharedSvg.locator('.kiwi-draw-arrowhead')).toHaveCount(1)
     await expect(page.locator('.markdown-view')).toContainText('画布下方正文')
   })
 })

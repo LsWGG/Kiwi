@@ -11,6 +11,7 @@ GitHub 的 windows-latest 自带 PostgreSQL 14，与生产/打包的 16 不一�
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -19,6 +20,35 @@ import urllib.parse
 from pathlib import Path
 
 TEST_DATABASE = "kiwi_windows_test"
+# Windows 托管 runner 首次启动 PostgreSQL 时可能被 Defender 扫描拖慢，
+# pgserver 0.1.4 在 Windows 分支把 pg_ctl 超时写死为 10 秒，CI 上会误判失败。
+PG_CTL_TIMEOUT_SECONDS = 180
+
+
+def _patch_pg_ctl_timeout() -> None:
+    """放宽 pgserver 的 pg_ctl 超时，并保留调用方显式传入的值。"""
+    from pgserver import postgres_server
+
+    original = postgres_server.pg_ctl
+
+    def pg_ctl_with_timeout(*args, **kwargs):
+        # pgserver 0.1.4 自己传了 timeout=10，必须覆盖而不是 setdefault。
+        kwargs["timeout"] = PG_CTL_TIMEOUT_SECONDS
+        return original(*args, **kwargs)
+
+    postgres_server.pg_ctl = pg_ctl_with_timeout
+
+
+def _print_pg_log(pgdata: Path) -> None:
+    log = pgdata / "log"
+    if not log.is_file():
+        print(f"[warn] 未找到 PostgreSQL 日志：{log}", file=sys.stderr)
+        return
+    print(f"--- PostgreSQL 日志 {log} ---", file=sys.stderr)
+    try:
+        print(log.read_text(encoding="utf-8", errors="replace")[-20000:], file=sys.stderr)
+    except OSError as exc:
+        print(f"[warn] 读取 PostgreSQL 日志失败：{exc}", file=sys.stderr)
 
 
 def main() -> int:
@@ -26,11 +56,22 @@ def main() -> int:
         print("该脚本只用于 Windows CI。", file=sys.stderr)
         return 2
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     import pgserver
+
+    _patch_pg_ctl_timeout()
 
     base = Path(tempfile.gettempdir()) / "kiwi-windows-tests"
     base.mkdir(parents=True, exist_ok=True)
-    server = pgserver.get_server(str(base / "pgdata"), cleanup_mode="stop")
+    pgdata = base / "pgdata"
+    try:
+        server = pgserver.get_server(str(pgdata), cleanup_mode="stop")
+    except Exception:
+        _print_pg_log(pgdata)
+        raise
     try:
         uri = server.get_uri()
         parsed = urllib.parse.urlsplit(uri)
