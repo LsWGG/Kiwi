@@ -369,10 +369,6 @@ if (-not $SkipRuntime) {
     $portablePython = Get-ChildItem -Path $pythonExtract -Recurse -Filter python.exe | Select-Object -First 1
     if (-not $portablePython) { Fail '便携 Python 压缩包中未找到 python.exe。' }
     Copy-Directory $portablePython.Directory.FullName (Join-Path $StageDir 'resources\python')
-    $sitePackages = Join-Path $StageDir 'resources\python\Lib\site-packages'
-    New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
-    Copy-Item (Join-Path $DesktopDir 'runtime\sitecustomize.py') (Join-Path $sitePackages 'sitecustomize.py') -Force
-
     $portableExe = Join-Path $StageDir 'resources\python\python.exe'
     if (-not $SkipDownloads) {
         # 用 find_spec 探测，避免 pip 缺失时向 stderr 打印 traceback 影响日志。
@@ -396,6 +392,12 @@ if (-not $SkipRuntime) {
         & $portableExe -c "import numpy, pandas, matplotlib, openpyxl, PIL; print('runner packages ok')"
         if ($LASTEXITCODE -ne 0) { Fail '便携 Python 运行包冒烟失败。' }
     }
+
+    # sitecustomize.py 会把 socket 限制为 loopback，必须在 ensurepip / pip 联网
+    # 安装之后才放进 site-packages，否则构建阶段自己也连不上 PyPI。
+    $sitePackages = Join-Path $StageDir 'resources\python\Lib\site-packages'
+    New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
+    Copy-Item (Join-Path $DesktopDir 'runtime\sitecustomize.py') (Join-Path $sitePackages 'sitecustomize.py') -Force
 }
 
 if (-not $NoWebView2Bundle -and -not $FixedWebView2) {
