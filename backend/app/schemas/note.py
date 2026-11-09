@@ -150,6 +150,8 @@ class NoteSummary(BaseModel):
     wiki_page_id: uuid.UUID | None = None
     is_locked: bool = False
     lock_hint: str | None = None
+    # 懒加载目录：折叠状态也要能显示展开箭头，由服务端告知是否存在子笔记。
+    has_children: bool = False
     created_at: datetime
     updated_at: datetime
 

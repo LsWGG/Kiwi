@@ -15,6 +15,7 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiLogo from '@/components/ui/KiwiLogo.vue'
 import KiwiToastHost from '@/components/ui/KiwiToastHost.vue'
 import ShortcutHelpDialog from '@/components/ui/ShortcutHelpDialog.vue'
+import { toast } from '@/components/ui/toast'
 import NoteStickyLayer from '@/components/notes/NoteStickyLayer.vue'
 import NoteSearchDialog from '@/components/notes/NoteSearchDialog.vue'
 import PluginFloatLayer from '@/components/editor/PluginFloatLayer.vue'
@@ -41,6 +42,15 @@ function refreshApp() {
   if (refreshing.value) return
   refreshing.value = true
   window.setTimeout(() => window.location.reload(), 180)
+}
+
+/** 顶栏亮 / 暗切换：与「设置 → 主题」中绑定的两套主题联动。 */
+async function toggleAppearance() {
+  try {
+    await theme.toggleAppearance()
+  } catch (e: any) {
+    toast.error(e?.message || '切换亮暗色失败')
+  }
 }
 /**
  * 业务数据就绪标记。首次登录后必须先拿到知识库列表再渲染主布局：
@@ -278,6 +288,15 @@ onBeforeUnmount(() => {
       <!-- 右侧：模式切换 + 知识库切换 + 设置入口（两种模式共用） -->
       <ModeSwitcher class="max-md:hidden" />
       <KbSwitcher :learn="isLearn" />
+      <button
+        type="button"
+        :title="theme.currentMode === 'dark' ? '切换到亮色' : '切换到暗色'"
+        :aria-label="theme.currentMode === 'dark' ? '切换到亮色' : '切换到暗色'"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
+        @click="toggleAppearance"
+      >
+        <KiwiIcon :name="theme.currentMode === 'dark' ? 'sun' : 'moon'" :size="17" />
+      </button>
       <button
         type="button"
         title="刷新页面"

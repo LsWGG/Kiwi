@@ -20,6 +20,11 @@ const router = createRouter({
         { path: '', redirect: '/kbs' },
         { path: 'kbs', name: 'kb-manager', component: () => import('@/views/edit/KbManagerView.vue') },
         {
+          path: 'overview',
+          name: 'overview',
+          component: () => import('@/views/edit/KbDashboardView.vue'),
+        },
+        {
           path: 'notes/:id?',
           name: 'notes',
           component: () => import('@/views/edit/NotesWorkspaceView.vue'),

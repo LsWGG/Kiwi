@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 主题插件：画廊、应用、预览、导入导出与个性化微调。 */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
@@ -17,9 +17,11 @@ import {
   DEFAULT_THEME_COLORS,
   THEME_COLOR_LABELS,
   normalizeThemeSpec,
+  type ThemeAppearance,
   type ThemeBackgroundRepeat,
   type ThemeBackgroundSize,
   type ThemeColorKey,
+  type ThemeSwitchMode,
   type ThemeDevSpec,
   type ThemeInspection,
   type ThemeItem,
@@ -173,6 +175,98 @@ const SWATCH_KEYS: ThemeColorKey[] = [
   'text.muted',
   'accent',
 ]
+
+// ---------- 亮 / 暗色外观偏好 ----------
+const appearanceDraft = reactive<ThemeAppearance>({ ...theme.appearance })
+const appearanceBusy = ref(false)
+
+watch(
+  () => theme.appearance,
+  (value) => Object.assign(appearanceDraft, value),
+  { immediate: true, deep: true },
+)
+
+/** 两个下拉只展示对应明暗模式的已启用主题。 */
+function appearanceOptions(mode: 'light' | 'dark') {
+  return theme.themes
+    .filter((item) => item.enabled && themeMode(item) === mode)
+    .map((item) => ({
+      value: item.key,
+      label: `${item.name}${item.builtin ? '（内置）' : ''}`,
+    }))
+}
+
+const lightThemeOptions = computed(() => appearanceOptions('light'))
+const darkThemeOptions = computed(() => appearanceOptions('dark'))
+
+const SWITCH_MODE_OPTIONS: { value: ThemeSwitchMode; label: string }[] = [
+  { value: 'off', label: '关闭（仅手动切换）' },
+  { value: 'system', label: '跟随系统' },
+  { value: 'schedule', label: '按时间范围' },
+]
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
+  const value = String(hour).padStart(2, '0')
+  return { value, label: `${value} 时` }
+})
+
+function minuteOptionsFor(value: string) {
+  const base = Array.from({ length: 12 }, (_, index) => {
+    const minute = String(index * 5).padStart(2, '0')
+    return { value: minute, label: `${minute} 分` }
+  })
+  const current = value.slice(3, 5)
+  // 兼容手改过的非 5 分钟整数时间，避免下拉显示不出当前值。
+  if (current && !base.some((option) => option.value === current)) {
+    base.push({ value: current, label: `${current} 分` })
+    base.sort((a, b) => a.value.localeCompare(b.value))
+  }
+  return base
+}
+
+function timePart(value: string, start: number, fallback: string) {
+  const part = value.slice(start, start + 2)
+  return /^\d{2}$/.test(part) ? part : fallback
+}
+
+function updateDarkTime(
+  field: 'dark_start' | 'dark_end',
+  part: 'hour' | 'minute',
+  value: string,
+) {
+  const current = appearanceDraft[field]
+  const hour = part === 'hour' ? value : timePart(current, 0, '19')
+  const minute = part === 'minute' ? value : timePart(current, 3, '00')
+  appearanceDraft[field] = `${hour}:${minute}`
+}
+
+const darkStartHour = computed(() => timePart(appearanceDraft.dark_start, 0, '19'))
+const darkStartMinute = computed(() => timePart(appearanceDraft.dark_start, 3, '00'))
+const darkEndHour = computed(() => timePart(appearanceDraft.dark_end, 0, '07'))
+const darkEndMinute = computed(() => timePart(appearanceDraft.dark_end, 3, '00'))
+const darkStartMinuteOptions = computed(() => minuteOptionsFor(appearanceDraft.dark_start))
+const darkEndMinuteOptions = computed(() => minuteOptionsFor(appearanceDraft.dark_end))
+
+function setSwitchMode(value: string | number) {
+  appearanceDraft.switch_mode = value as ThemeSwitchMode
+}
+
+async function saveAppearance() {
+  if (appearanceBusy.value) return
+  if (!appearanceDraft.light_theme || !appearanceDraft.dark_theme) {
+    toast.error('请先选择亮色与暗色主题')
+    return
+  }
+  appearanceBusy.value = true
+  try {
+    await theme.saveAppearance({ ...appearanceDraft })
+    toast.success('亮 / 暗外观设置已保存')
+  } catch (e: any) {
+    toast.error(e.message || '保存外观设置失败')
+  } finally {
+    appearanceBusy.value = false
+  }
+}
 
 onMounted(async () => {
   // 规范与列表并行加载，打开弹窗时无需等待。
@@ -715,6 +809,137 @@ async function resetCustomize() {
             <KiwiIcon name="fileExport" :size="12" /> 导出
           </button>
         </div>
+      </div>
+    </section>
+
+    <!-- 亮 / 暗色外观与自动切换 -->
+    <section class="mb-5 animate-fade-up rounded-2xl glass-strong p-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <span
+          class="grid h-10 w-10 shrink-0 place-items-center rounded-xl shadow-glow"
+          :style="{
+            backgroundImage:
+              'linear-gradient(135deg, rgb(var(--theme-accent)), rgb(var(--theme-accent) / 0.55))',
+            color: 'rgb(var(--theme-accent-foreground))',
+          }"
+        >
+          <KiwiIcon :name="theme.currentMode === 'dark' ? 'moon' : 'sun'" :size="18" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="text-[10.5px] font-medium uppercase tracking-wide text-slate-400">亮 / 暗色外观</p>
+          <h2 class="mt-0.5 text-[15px] font-semibold text-slate-800">顶栏切换与自动规则</h2>
+          <p class="mt-1 text-[11px] leading-relaxed text-slate-500">
+            顶栏月亮 / 太阳图标在绑定的两套主题间切换；自动规则按系统偏好或时间范围生效，手动切换后等到下一个切换点再交还自动规则。
+          </p>
+        </div>
+        <button
+          class="kiwi-btn-primary whitespace-nowrap !py-1.5 text-[11.5px] sm:ml-auto"
+          :disabled="appearanceBusy"
+          @click="saveAppearance"
+        >
+          <KiwiIcon :name="appearanceBusy ? 'loader' : 'check'" :size="12" :spin="appearanceBusy" />
+          保存外观设置
+        </button>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <label class="block min-w-0">
+          <span class="mb-1 flex items-center gap-1 text-[10.5px] text-slate-500">
+            <KiwiIcon name="sun" :size="11" /> 亮色主题
+          </span>
+          <KiwiSelect
+            class="w-full"
+            variant="input"
+            width="w-60"
+            :model-value="appearanceDraft.light_theme"
+            :options="lightThemeOptions"
+            placeholder="选择亮色主题"
+            @update:model-value="appearanceDraft.light_theme = String($event)"
+          />
+        </label>
+        <label class="block min-w-0">
+          <span class="mb-1 flex items-center gap-1 text-[10.5px] text-slate-500">
+            <KiwiIcon name="moon" :size="11" /> 暗色主题
+          </span>
+          <KiwiSelect
+            class="w-full"
+            variant="input"
+            width="w-60"
+            :model-value="appearanceDraft.dark_theme"
+            :options="darkThemeOptions"
+            placeholder="选择暗色主题"
+            @update:model-value="appearanceDraft.dark_theme = String($event)"
+          />
+        </label>
+        <label class="block min-w-0">
+          <span class="mb-1 block text-[10.5px] text-slate-500">自动切换</span>
+          <KiwiSelect
+            class="w-full"
+            variant="input"
+            width="w-60"
+            :model-value="appearanceDraft.switch_mode"
+            :options="SWITCH_MODE_OPTIONS"
+            @update:model-value="setSwitchMode"
+          />
+        </label>
+      </div>
+
+      <div
+        v-if="appearanceDraft.switch_mode === 'schedule'"
+        class="mt-3 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200/70 bg-white/60 p-3"
+      >
+        <div class="min-w-0">
+          <span class="mb-1 flex items-center gap-1 text-[10.5px] text-slate-500">
+            <KiwiIcon name="moon" :size="11" /> 暗色开始
+          </span>
+          <div class="flex items-center gap-1.5">
+            <KiwiSelect
+              class="w-24"
+              variant="input"
+              width="w-24"
+              :model-value="darkStartHour"
+              :options="HOUR_OPTIONS"
+              @update:model-value="updateDarkTime('dark_start', 'hour', String($event))"
+            />
+            <span class="text-slate-400">:</span>
+            <KiwiSelect
+              class="w-24"
+              variant="input"
+              width="w-24"
+              :model-value="darkStartMinute"
+              :options="darkStartMinuteOptions"
+              @update:model-value="updateDarkTime('dark_start', 'minute', String($event))"
+            />
+          </div>
+        </div>
+        <KiwiIcon name="arrowRight" :size="14" class="mb-2.5 text-slate-400" />
+        <div class="min-w-0">
+          <span class="mb-1 flex items-center gap-1 text-[10.5px] text-slate-500">
+            <KiwiIcon name="sun" :size="11" /> 暗色结束
+          </span>
+          <div class="flex items-center gap-1.5">
+            <KiwiSelect
+              class="w-24"
+              variant="input"
+              width="w-24"
+              :model-value="darkEndHour"
+              :options="HOUR_OPTIONS"
+              @update:model-value="updateDarkTime('dark_end', 'hour', String($event))"
+            />
+            <span class="text-slate-400">:</span>
+            <KiwiSelect
+              class="w-24"
+              variant="input"
+              width="w-24"
+              :model-value="darkEndMinute"
+              :options="darkEndMinuteOptions"
+              @update:model-value="updateDarkTime('dark_end', 'minute', String($event))"
+            />
+          </div>
+        </div>
+        <p class="mb-1 text-[10px] leading-relaxed text-slate-400 sm:max-w-[280px]">
+          支持跨午夜，例如 19:00 → 07:00；起止时间相同表示不自动变暗。
+        </p>
       </div>
     </section>
 

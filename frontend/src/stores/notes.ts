@@ -56,6 +56,8 @@ export interface NoteSummary {
   lock_hint?: string | null
   /** 正文是否以密文存储 */
   encrypted?: boolean
+  /** 是否还有子笔记；懒加载目录据此显示展开箭头。 */
+  has_children?: boolean
   /** 反向链接条目附带引用上下文 */
   context?: string
   created_at?: string
@@ -405,6 +407,11 @@ export const useNotesStore = defineStore('notes', () => {
     const summary = noteSummary(note)
     if (idx >= 0) notes.value[idx] = { ...notes.value[idx], ...summary }
     else notes.value.push(summary)
+    // 新建 / 移入子笔记后，父节点立即出现展开箭头，不必等下一次目录刷新。
+    if (note.parent_note_id) {
+      const parent = notes.value.find((n) => n.id === note.parent_note_id)
+      if (parent) parent.has_children = true
+    }
   }
 
   /** 记录正文快照；只有当前笔记就是它时才同步 currentNote。 */

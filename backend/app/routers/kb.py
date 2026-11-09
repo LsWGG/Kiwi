@@ -3,10 +3,10 @@
 import re
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,11 @@ from app.config import settings
 from app.db.models import (
     KnowledgeBase,
     Note,
+    NoteAttachment,
+    NoteFolder,
+    NoteRevision,
+    NoteTag,
+    NoteTagLink,
     Source,
     StudyProfile,
     StudyReview,
@@ -26,12 +31,20 @@ from app.db.session import get_session
 from app.schemas.kb import (
     BuiltinKbStatus,
     KBCreate,
+    KBDashboardActivity,
+    KBDashboardCounts,
+    KBDashboardDayNote,
+    KBDashboardDayOut,
+    KBDashboardOut,
+    KBDashboardStudy,
+    KBDashboardTag,
     KBImportOut,
     KBOut,
     KBOverview,
     KBReorderIn,
     KBUpdate,
 )
+from app.schemas.note import NoteSummary
 from app.services import audit, kb_transfer, qdrant_store, todo_sync
 from app.services.builtin_demo import (
     get_builtin_status,
@@ -175,6 +188,317 @@ async def _overview(session: AsyncSession, kb: KnowledgeBase) -> KBOverview:
         todo_open_count=int(todo_open or 0),
         todo_done_count=int(todo_done or 0),
         last_activity_at=last_activity,
+    )
+
+
+@router.get("/{kb_id}/dashboard", response_model=KBDashboardOut)
+async def kb_dashboard(
+    kb_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+):
+    """知识库总览：计数、近半年活动、标签分布与推荐笔记。
+
+    只做只读聚合，不写任何业务数据；「常用」以近 90 天历史版本数量衡量，
+    历史版本不足时用最近更新的笔记补齐，保证推荐列表始终可用。
+    """
+    kb = await _get_kb(session, kb_id)
+    now = datetime.now(timezone.utc)
+    active = (Note.kb_id == kb.id, Note.status == "active")
+
+    kind_rows = (
+        await session.execute(
+            select(Note.kind, func.count()).where(*active).group_by(Note.kind)
+        )
+    ).all()
+    by_kind = {str(kind): int(count) for kind, count in kind_rows}
+
+    async def count_rows(*where) -> int:
+        return int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(Note).where(*where)
+                )
+            ).scalar_one()
+        )
+
+    archived = await count_rows(Note.kb_id == kb.id, Note.status == "archived")
+    trash = await count_rows(Note.kb_id == kb.id, Note.status == "trash")
+    folders = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(NoteFolder)
+                .where(NoteFolder.kb_id == kb.id)
+            )
+        ).scalar_one()
+    )
+    tags = int(
+        (
+            await session.execute(
+                select(func.count()).select_from(NoteTag).where(NoteTag.kb_id == kb.id)
+            )
+        ).scalar_one()
+    )
+    attachments = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(NoteAttachment)
+                .where(NoteAttachment.kb_id == kb.id)
+            )
+        ).scalar_one()
+    )
+    words = int(
+        (
+            await session.execute(
+                select(
+                    func.coalesce(func.sum(func.char_length(Note.body_md)), 0)
+                ).where(*active)
+            )
+        ).scalar_one()
+    )
+
+    # 近 182 天活动：新建笔记 + 自动保存产生的历史版本。
+    since = now - timedelta(days=182)
+    revision_rows = (
+        await session.execute(
+            select(func.date(NoteRevision.created_at), func.count())
+            .where(
+                NoteRevision.kb_id == kb.id,
+                NoteRevision.created_at >= since,
+            )
+            .group_by(func.date(NoteRevision.created_at))
+        )
+    ).all()
+    created_rows = (
+        await session.execute(
+            select(func.date(Note.created_at), func.count())
+            .where(*active, Note.created_at >= since)
+            .group_by(func.date(Note.created_at))
+        )
+    ).all()
+    activity_by_day: dict[date, int] = {}
+    for day, count in (*revision_rows, *created_rows):
+        if day is None:
+            continue
+        activity_by_day[day] = activity_by_day.get(day, 0) + int(count)
+    activity = [
+        KBDashboardActivity(date=day, count=count)
+        for day, count in sorted(activity_by_day.items())
+    ]
+
+    tag_rows = (
+        await session.execute(
+            select(NoteTag.name, func.count(NoteTagLink.note_id))
+            .join(NoteTagLink, NoteTagLink.tag_id == NoteTag.id)
+            .join(Note, Note.id == NoteTagLink.note_id)
+            .where(*active)
+            .group_by(NoteTag.name)
+            .order_by(func.count(NoteTagLink.note_id).desc(), NoteTag.name)
+            .limit(10)
+        )
+    ).all()
+    tag_stats = [KBDashboardTag(name=name, count=int(count)) for name, count in tag_rows]
+
+    profile = (
+        (await session.execute(select(StudyProfile).where(StudyProfile.kb_id == kb.id)))
+        .scalars()
+        .first()
+    )
+    mastery = dict(profile.mastery or {}) if profile else {}
+    mastered = sum(1 for value in mastery.values() if float(value) >= 0.7)
+    due_reviews = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(StudyReview)
+                .where(
+                    StudyReview.kb_id == kb.id,
+                    StudyReview.due_at <= now,
+                )
+            )
+        ).scalar_one()
+    )
+    todo_open = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(TodoMirror)
+                .where(TodoMirror.kb_id == kb.id, TodoMirror.status == "open")
+            )
+        ).scalar_one()
+    )
+    todo_done = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(TodoMirror)
+                .where(TodoMirror.kb_id == kb.id, TodoMirror.status == "done")
+            )
+        ).scalar_one()
+    )
+    wiki_count = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(WikiPage)
+                .where(WikiPage.kb_id == kb.id)
+            )
+        ).scalar_one()
+    )
+
+    pinned_expr = Note.props_json.op("->>")("pinned").in_(("true", "True", "1"))
+    latest_rows = (
+        (
+            await session.execute(
+                select(Note)
+                .where(*active)
+                .order_by(Note.created_at.desc())
+                .limit(6)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    pinned_rows = (
+        (
+            await session.execute(
+                select(Note)
+                .where(*active, pinned_expr)
+                .order_by(Note.updated_at.desc())
+                .limit(6)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    recent_cutoff = now - timedelta(days=90)
+    frequent_rows = (
+        await session.execute(
+            select(Note, func.count(NoteRevision.id))
+            .join(NoteRevision, NoteRevision.note_id == Note.id)
+            .where(*active, NoteRevision.created_at >= recent_cutoff)
+            .group_by(Note.id)
+            .order_by(func.count(NoteRevision.id).desc(), Note.updated_at.desc())
+            .limit(6)
+        )
+    ).all()
+    frequent_notes = [row[0] for row in frequent_rows]
+    if len(frequent_notes) < 6:
+        exclude = [note.id for note in frequent_notes]
+        fill_stmt = select(Note).where(*active)
+        if exclude:
+            fill_stmt = fill_stmt.where(Note.id.notin_(exclude))
+        frequent_notes.extend(
+            (
+                await session.execute(
+                    fill_stmt.order_by(Note.updated_at.desc()).limit(
+                        6 - len(frequent_notes)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    def summary(note: Note) -> NoteSummary:
+        return NoteSummary.model_validate(note, from_attributes=True)
+
+    return KBDashboardOut(
+        kb_id=kb.id,
+        kb_name=kb.name,
+        description=kb.description or "",
+        counts=KBDashboardCounts(
+            notes=sum(by_kind.values()),
+            archived=archived,
+            trash=trash,
+            folders=folders,
+            tags=tags,
+            attachments=attachments,
+            words=words,
+            by_kind=by_kind,
+            wiki=wiki_count,
+        ),
+        study=KBDashboardStudy(
+            due_reviews=due_reviews,
+            attempted_topics=len(mastery),
+            mastered_topics=mastered,
+            mastery_coverage=round(mastered / wiki_count, 3) if wiki_count else 0.0,
+            todo_open=todo_open,
+            todo_done=todo_done,
+        ),
+        activity=activity,
+        tags=tag_stats,
+        latest=[summary(note) for note in latest_rows],
+        pinned=[summary(note) for note in pinned_rows],
+        frequent=[summary(note) for note in frequent_notes],
+        generated_at=now,
+    )
+
+
+@router.get("/{kb_id}/dashboard/activity", response_model=KBDashboardDayOut)
+async def kb_dashboard_activity(
+    kb_id: uuid.UUID,
+    day: date = Query(alias="date"),
+    session: AsyncSession = Depends(get_session),
+):
+    """单日活动明细：热力图 / 日历点击某一天时按需加载。
+
+    口径与总览热力图一致：当天创建笔记 + 自动保存产生的历史版本；
+    只返回仍活跃（非归档 / 回收站）的笔记，避免给已删除的内容提供入口。
+    """
+    kb = await _get_kb(session, kb_id)
+    events: dict[uuid.UUID, int] = {}
+    revision_rows = (
+        await session.execute(
+            select(NoteRevision.note_id, func.count())
+            .join(Note, Note.id == NoteRevision.note_id)
+            .where(
+                NoteRevision.kb_id == kb.id,
+                Note.status == "active",
+                func.date(NoteRevision.created_at) == day,
+            )
+            .group_by(NoteRevision.note_id)
+        )
+    ).all()
+    for note_id, count in revision_rows:
+        events[note_id] = events.get(note_id, 0) + int(count)
+    created_ids = (
+        (
+            await session.execute(
+                select(Note.id).where(
+                    Note.kb_id == kb.id,
+                    Note.status == "active",
+                    func.date(Note.created_at) == day,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for note_id in created_ids:
+        events[note_id] = events.get(note_id, 0) + 1
+    if not events:
+        return KBDashboardDayOut(date=day)
+
+    notes = (
+        (await session.execute(select(Note).where(Note.id.in_(list(events)))))
+        .scalars()
+        .all()
+    )
+    notes.sort(key=lambda note: (events.get(note.id, 0), note.updated_at), reverse=True)
+    limit = 20
+    return KBDashboardDayOut(
+        date=day,
+        total=sum(events.values()),
+        note_count=len(notes),
+        notes=[
+            KBDashboardDayNote(
+                note=NoteSummary.model_validate(note, from_attributes=True),
+                events=events.get(note.id, 0),
+            )
+            for note in notes[:limit]
+        ],
     )
 
 

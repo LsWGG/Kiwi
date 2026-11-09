@@ -72,6 +72,40 @@ def _pinned_expr():
     return Note.props_json.op("->>")("pinned").in_(("true", "True", "1"))
 
 
+async def _summaries_with_children(
+    session: AsyncSession, kb_id: uuid.UUID, notes: list[Note]
+) -> list[NoteSummary]:
+    """生成摘要并补充 has_children。
+
+    目录树在懒加载模式下只返回根级节点，子笔记要等展开才拉取；如果展开
+    箭头只依据「已加载的子节点」判断，折叠的父笔记会概率性丢失箭头。
+    这里一次性查出这批笔记中哪些确实有活跃子笔记。
+    """
+    if not notes:
+        return []
+    parent_ids = set(
+        (
+            await session.execute(
+                select(Note.parent_note_id)
+                .where(
+                    Note.kb_id == kb_id,
+                    Note.status == "active",
+                    Note.parent_note_id.in_([note.id for note in notes]),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    summaries: list[NoteSummary] = []
+    for note in notes:
+        summary = NoteSummary.model_validate(note, from_attributes=True)
+        summary.has_children = note.id in parent_ids
+        summaries.append(summary)
+    return summaries
+
+
 @router.get("/tree", response_model=NoteTreeOut)
 async def note_tree(
     kb_id: uuid.UUID,
@@ -155,7 +189,7 @@ async def note_tree(
         }
         return NoteTreeOut(
             folders=[NoteFolderOut.model_validate(f, from_attributes=True) for f in folders],
-            notes=[NoteSummary.model_validate(n, from_attributes=True) for n in changed_notes],
+            notes=await _summaries_with_children(session, kb_id, changed_notes),
             incremental=True,
             server_time=server_time,
             deleted_note_ids=sorted(deleted_note_ids, key=str),
@@ -186,7 +220,7 @@ async def note_tree(
     notes = (await session.execute(notes_stmt)).scalars().all()
     return NoteTreeOut(
         folders=[NoteFolderOut.model_validate(f, from_attributes=True) for f in folders],
-        notes=[NoteSummary.model_validate(n, from_attributes=True) for n in notes],
+        notes=await _summaries_with_children(session, kb_id, notes),
         server_time=server_time,
         lazy=lazy,
         total_notes=total_notes,
@@ -228,9 +262,7 @@ async def note_tree_children(
     )
     truncated = len(rows) > limit
     return NoteTreeChildrenOut(
-        notes=[
-            NoteSummary.model_validate(n, from_attributes=True) for n in rows[:limit]
-        ],
+        notes=await _summaries_with_children(session, kb_id, rows[:limit]),
         truncated=truncated,
     )
 
@@ -286,7 +318,7 @@ async def locate_tree_node(
         guard += 1
 
     return NoteTreeLocationOut(
-        note=NoteSummary.model_validate(note, from_attributes=True),
+        note=(await _summaries_with_children(session, kb_id, [note]))[0],
         ancestor_ids=ancestors,
     )
 

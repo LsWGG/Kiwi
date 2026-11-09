@@ -109,6 +109,33 @@ class ThemeActivateIn(BaseModel):
     overrides: ThemeOverridesIn | None = None
 
 
+_TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class ThemeAppearanceIn(BaseModel):
+    """亮 / 暗色主题绑定与自动切换规则。
+
+    亮色 / 暗色主题留空表示沿用内置默认（经典紫 / 极光）；切换规则为
+    off（仅手动）、system（跟随系统）或 schedule（按时间范围）。
+    """
+
+    light_theme: str = Field(default="", max_length=64)
+    dark_theme: str = Field(default="", max_length=64)
+    switch_mode: Literal["off", "system", "schedule"] = "off"
+    dark_start: str = Field(default="19:00", pattern=_TIME_PATTERN)
+    dark_end: str = Field(default="07:00", pattern=_TIME_PATTERN)
+
+
+class ThemeAppearanceOut(BaseModel):
+    """对外返回已解析的外观偏好：主题 key 一定可直接启用。"""
+
+    light_theme: str
+    dark_theme: str
+    switch_mode: Literal["off", "system", "schedule"] = "off"
+    dark_start: str = "19:00"
+    dark_end: str = "07:00"
+
+
 class ThemeBackgroundOut(BaseModel):
     """自定义背景上传结果：站内 URL 与浏览器可直接使用的媒体类型。"""
 

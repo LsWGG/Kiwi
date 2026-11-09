@@ -6,6 +6,7 @@ import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 const route = useRoute()
 const items = [
   { to: '/kbs', icon: 'database', label: '知识库' },
+  { to: '/overview', icon: 'chart', label: '总览' },
   { to: '/notes', icon: 'note', label: '笔记' },
   { to: '/wiki', icon: 'wiki', label: 'Wiki' },
   { to: '/sources', icon: 'bookOpen', label: '编译任务' },

@@ -514,7 +514,8 @@ const rows = computed<TreeRow[]>(() => {
       depth,
       note,
       hoisted,
-      hasChildren: children.length > 0,
+      // 懒加载下子节点还没请求时，用服务端返回的 has_children 保证箭头不丢。
+      hasChildren: Boolean(note.has_children) || children.length > 0,
     })
     if (children.length && expanded.value.has(note.id)) {
       for (const child of children) walkNote(child, depth + 1, hoisted)

@@ -31,6 +31,8 @@ from app.schemas.plugin import PluginInspectionOut, ThemeSpecIn
 from app.schemas.theme import (
     ThemeActivateIn,
     ThemeActiveOut,
+    ThemeAppearanceIn,
+    ThemeAppearanceOut,
     ThemeBackgroundOut,
     ThemeOut,
     ThemeOverridesIn,
@@ -58,6 +60,11 @@ THEME_DEV_KIT_FILES = (
     "skill/kiwi-theme/SKILL.md",
 )
 DEFAULT_BUILTIN_KEY = builtin_themes.BUILTIN_THEMES[0]["key"]
+# 亮 / 暗色主题绑定存放在 theme_overrides 的保留键下。主题 key 不允许下划线，
+# 因此不会与任何真实主题冲突，也不需要新增数据库列。
+APPEARANCE_KEY = "__appearance__"
+DEFAULT_LIGHT_THEME = "kiwi-classic"
+DEFAULT_DARK_THEME = "aurora"
 
 
 def _overrides_from_row(row: SystemSettings | None) -> ThemeOverridesIn:
@@ -318,6 +325,87 @@ async def activate_theme(
             old_backgrounds, theme_overrides.stored_refs(stored)
         )
     return await _active_payload(session)
+
+
+def _stored_appearance(row: SystemSettings | None) -> ThemeAppearanceIn:
+    stored = theme_overrides.split_stored(
+        row.theme_overrides if row else None, _active_key(row)
+    )
+    raw = stored.get(APPEARANCE_KEY)
+    if not isinstance(raw, dict):
+        return ThemeAppearanceIn()
+    try:
+        return ThemeAppearanceIn.model_validate(raw)
+    except ValidationError:
+        logger.warning("外观偏好配置损坏，已忽略")
+        return ThemeAppearanceIn()
+
+
+async def _resolve_theme_key(
+    session: AsyncSession, key: str, fallback: str
+) -> str:
+    """解析亮 / 暗色主题 key；主题被删除或停用时回落到内置默认。"""
+    candidate = (key or "").strip()
+    if not candidate:
+        return fallback
+    if candidate in builtin_themes.BUILTIN_KEYS:
+        return candidate
+    plugin = await _installed_theme(session, candidate)
+    if plugin is not None and plugin.enabled:
+        return candidate
+    return fallback
+
+
+async def _appearance_payload(session: AsyncSession) -> ThemeAppearanceOut:
+    row = await system_settings.get_row(session)
+    stored = _stored_appearance(row)
+    return ThemeAppearanceOut(
+        light_theme=await _resolve_theme_key(
+            session, stored.light_theme, DEFAULT_LIGHT_THEME
+        ),
+        dark_theme=await _resolve_theme_key(
+            session, stored.dark_theme, DEFAULT_DARK_THEME
+        ),
+        switch_mode=stored.switch_mode,
+        dark_start=stored.dark_start,
+        dark_end=stored.dark_end,
+    )
+
+
+@router.get("/appearance", response_model=ThemeAppearanceOut)
+async def get_theme_appearance(session: AsyncSession = Depends(get_session)):
+    """亮 / 暗色主题绑定与自动切换规则；与当前主题互不影响。"""
+    return await _appearance_payload(session)
+
+
+@router.put("/appearance", response_model=ThemeAppearanceOut)
+async def save_theme_appearance(
+    data: ThemeAppearanceIn,
+    session: AsyncSession = Depends(get_session),
+):
+    light = data.light_theme.strip()
+    dark = data.dark_theme.strip()
+    for key in (light, dark):
+        if not key or key in builtin_themes.BUILTIN_KEYS:
+            continue
+        plugin = await _installed_theme(session, key)
+        if plugin is None or not plugin.enabled:
+            raise HTTPException(400, f"主题不可用，请先启用：{key}")
+    row = await system_settings.get_row(session)
+    if row is None:
+        row = SystemSettings(id=SYSTEM_SETTINGS_ID)
+        session.add(row)
+    stored = theme_overrides.split_stored(row.theme_overrides, _active_key(row))
+    stored[APPEARANCE_KEY] = {
+        "light_theme": light,
+        "dark_theme": dark,
+        "switch_mode": data.switch_mode,
+        "dark_start": data.dark_start,
+        "dark_end": data.dark_end,
+    }
+    row.theme_overrides = stored
+    await session.commit()
+    return await _appearance_payload(session)
 
 
 @router.post("/background", response_model=ThemeBackgroundOut, status_code=201)

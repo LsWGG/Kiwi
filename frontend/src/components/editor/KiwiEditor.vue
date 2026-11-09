@@ -304,7 +304,9 @@ function shouldShowFormatBubble({ editor: ed }: { editor: Editor }): boolean {
 }
 
 function shouldShowTableBubble({ editor: ed }: { editor: Editor }): boolean {
-  return !props.readonly && ed.isActive('table')
+  // 仅光标停在表格里时不弹操作气泡（会挡住单元格内容）；
+  // 选中单元格文字或跨单元格选区时才展示。
+  return !props.readonly && ed.isActive('table') && !ed.state.selection.empty
 }
 
 /**
@@ -897,6 +899,8 @@ function attachOutlineHeightListeners() {
 /** 当前滚动位置对应的目录项；-1 表示尚未定位。 */
 const activeHeading = ref(-1)
 let headingFrame = 0
+/** 目录跳转后的短暂锁定：平滑滚动期间不让 scroll spy 把高亮改回上一项。 */
+let outlineJumpLockUntil = 0
 
 // ---------- 目录层级：展开 / 折叠与最大展示级别 ----------
 const OUTLINE_DEPTH_KEY = 'kiwi.outline.depth'
@@ -1098,18 +1102,51 @@ function outlineAnchors(): Array<{ el: HTMLElement; index: number }> {
   })
 }
 
-/** 以滚动容器可视区顶部为基准，取最后一个越过分界线的标题。 */
+/**
+ * 滚动容器顶部被吸顶工具栏遮挡的高度。
+ * 目录跳转与高亮判定都以它为准，避免标题滚到工具栏后面。
+ * 返回值与 getBoundingClientRect 同属视口坐标（含 body zoom），
+ * 内部滚动容器换算 scrollTop 时需再除以 --ui-scale。
+ */
+function stickyToolbarInset(scroller: HTMLElement, target: HTMLElement): number {
+  const scale = uiScale()
+  const root = target.closest('.kiwi-editor')
+  const toolbar =
+    root?.querySelector<HTMLElement>('.kiwi-toolbar') ??
+    document.querySelector<HTMLElement>('#note-docx-toolbar-slot .kiwi-toolbar') ??
+    document.querySelector<HTMLElement>('.kiwi-toolbar')
+  if (!toolbar || toolbar.offsetParent === null) return 12 * scale
+  const viewportTop =
+    scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top
+  const rect = toolbar.getBoundingClientRect()
+  const inset = rect.height + 12 * scale
+  // 工具栏已经吸在容器顶部：直接让出它的高度。
+  if (rect.top <= viewportTop + 1 && rect.bottom > viewportTop) return inset
+  // 尚未吸顶时（例如从文档顶部跳转），若目标位置会滚过工具栏的自然位置，
+  // 跳转后它同样会吸顶遮住标题，因此仍按吸顶高度预留。
+  // 比较两者的 rect 即可：原实现两边同加 scrollTop，基准会相互抵消。
+  if (target.getBoundingClientRect().top - rect.top > inset) return inset
+  return 12 * scale
+}
+
+/** 以滚动容器可视区顶部（让出吸顶工具栏）为基准，取最后一个越过分界线的标题。 */
 function updateActiveHeading() {
+  // 刚点击目录跳转时保持被点击项高亮，避免平滑滚动途中被上一项抢走。
+  if (Date.now() < outlineJumpLockUntil) return
   const anchors = outlineAnchors()
   if (!anchors.length) {
     activeHeading.value = -1
     return
   }
   const scroller = nearestScrollParent(anchors[0].el)
-  const boundary = (scroller?.getBoundingClientRect().top ?? 0) + 84
+  const viewportTop = scroller === document.scrollingElement
+    ? 0
+    : scroller?.getBoundingClientRect().top ?? 0
+  const boundary = viewportTop + (scroller ? stickyToolbarInset(scroller, anchors[0].el) : 12)
   let active = anchors[0].index
+  // 2px 容差：跳转后标题正好压在分界线上，避免浮点误差把高亮判回上一项。
   for (const anchor of anchors) {
-    if (anchor.el.getBoundingClientRect().top <= boundary) active = anchor.index
+    if (anchor.el.getBoundingClientRect().top <= boundary + 2) active = anchor.index
     else break
   }
   activeHeading.value = active
@@ -1131,21 +1168,43 @@ function onPreviewRendered() {
 function scrollToHeading(item: OutlineItem) {
   const ed = editor.value
   if (!ed) return
+  const index = headings.value.indexOf(item)
+  // 跳转后锁定高亮一小段时间，让平滑滚动结束前始终指向被点击的标题。
+  outlineJumpLockUntil = Date.now() + 1200
+  activeHeading.value = index
   const preview = document.querySelector<HTMLElement>('.word-preview-pane')
   if (preview && preview.offsetParent !== null) {
-    const target = outlineAnchors().find((anchor) => anchor.index === headings.value.indexOf(item))
+    const target = outlineAnchors().find((anchor) => anchor.index === index)
     if (target) {
       target.el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      activeHeading.value = headings.value.indexOf(item)
       return
     }
   }
   ed.chain().focus().setTextSelection(item.pos + 1).run()
   const dom = ed.view.nodeDOM(item.pos)
   if (dom instanceof HTMLElement) {
-    dom.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // 焦点 / 选区可能触发原生 scrollIntoView，等它落定后再按工具栏高度定位。
+    requestAnimationFrame(() => scrollHeadingIntoView(dom))
   }
-  activeHeading.value = headings.value.indexOf(item)
+}
+
+/** 目录跳转：手动滚动并让出吸顶工具栏的高度，避免标题停在工具栏下面。 */
+function scrollHeadingIntoView(dom: HTMLElement) {
+  const scroller = nearestScrollParent(dom)
+  if (!scroller) {
+    dom.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  const isRoot =
+    scroller === document.scrollingElement || scroller === document.documentElement
+  const viewportTop = isRoot ? 0 : scroller.getBoundingClientRect().top
+  const base = isRoot ? window.scrollY : scroller.scrollTop
+  const inset = stickyToolbarInset(scroller, dom)
+  const offset = dom.getBoundingClientRect().top - viewportTop - inset
+  // body zoom 下 rect 是缩放后的视口坐标，内部滚动容器的 scrollTop 仍是布局
+  // 坐标：不除以 --ui-scale 的话，第一次跳转偏差与距离成正比，要连点几次才收敛。
+  const top = base + (isRoot ? offset : offset / uiScale())
+  scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
 }
 
 watch(
@@ -2812,6 +2871,12 @@ defineExpose({
             <span class="tabular-nums">{{ chars }} 字</span>
           </div>
         </div>
+        <!-- 大纲打开时在纸张下方留出滚动余量：让接近文末的标题也能滚到工具栏下方。 -->
+        <div
+          v-if="showOutline && !isDocx"
+          class="outline-scroll-spacer"
+          aria-hidden="true"
+        />
         </div>
 
         <!-- 文档目录：浮动在编辑区域右侧，不挤压正文 -->
@@ -3323,6 +3388,13 @@ defineExpose({
 }
 .editor-page-stack {
   @apply flex min-w-0 flex-1 flex-col items-center;
+}
+/* 目录跳转需要把任意标题滚到吸顶工具栏下方；文末没有余量时补一段画布空白。 */
+.outline-scroll-spacer {
+  flex: 0 0 40vh;
+  width: 100%;
+  min-height: 220px;
+  pointer-events: none;
 }
 /* 普通模式：纸张在空内容时也向下铺满画布；Word 模式保持真实纸张高度 */
 .editor-page-stack:not(.is-docx) > .editor-sheet {

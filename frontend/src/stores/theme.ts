@@ -19,8 +19,10 @@ import {
   cacheActiveTheme,
 } from '@/theme/apply'
 import {
+  DEFAULT_APPEARANCE,
   EMPTY_THEME_OVERRIDES,
   type ThemeActive,
+  type ThemeAppearance,
   type ThemeBackgroundUpload,
   type ThemeDevSpec,
   type ThemeInspection,
@@ -47,6 +49,20 @@ export const useThemeStore = defineStore('theme', () => {
   const overrides = computed<ThemeOverrides>(
     () => active.value?.overrides || { ...EMPTY_THEME_OVERRIDES },
   )
+
+  // ---------- 亮 / 暗色切换 ----------
+  const appearance = ref<ThemeAppearance>({ ...DEFAULT_APPEARANCE })
+  const appearanceLoaded = ref(false)
+  /** 当前生效主题自身的明暗模式；顶部切换图标与自动规则都以它为准。 */
+  const currentMode = computed<'light' | 'dark'>(() =>
+    active.value?.theme?.mode === 'dark' ? 'dark' : 'light',
+  )
+  let autoStarted = false
+  let autoTimer: number | null = null
+  let mediaQuery: MediaQueryList | null = null
+  let manualHold = false
+  let holdTimer: number | null = null
+  let autoSwitching = false
   /** 用户是否对当前主题做了个性化覆盖（背景、透明度、强调色）。 */
   const customized = computed(() => {
     const value = overrides.value
@@ -112,6 +128,13 @@ export const useThemeStore = defineStore('theme', () => {
       } catch {
         // 保留缓存主题即可，等进入设置页或下次启动再同步。
       }
+      try {
+        await refreshAppearance()
+        startAutoSwitch()
+        await applyAutoMode(true)
+      } catch {
+        // 外观偏好不可用时保持当前主题，不阻塞启动。
+      }
     })()
     return initPromise
   }
@@ -145,6 +168,12 @@ export const useThemeStore = defineStore('theme', () => {
     key: string,
     nextOverrides?: ThemeOverrides,
   ): Promise<ThemeActive> {
+    // 手动启用主题（画廊 / 顶栏切换）后，自动规则等到下一个切换边界再接管，
+    // 避免刚点完立刻被定时规则改回去。
+    if (!autoSwitching && autoStarted && appearance.value.switch_mode !== 'off') {
+      manualHold = true
+      releaseHoldAfterBoundary()
+    }
     applyingKey.value = key
     try {
       const body: Record<string, unknown> = { key }
@@ -170,6 +199,149 @@ export const useThemeStore = defineStore('theme', () => {
   async function resetOverrides(): Promise<ThemeActive> {
     if (!active.value) throw new Error('当前还没有启用主题')
     return activate(active.value.key, { ...EMPTY_THEME_OVERRIDES })
+  }
+
+  // ---------- 亮 / 暗色外观偏好 ----------
+
+  async function refreshAppearance(): Promise<ThemeAppearance> {
+    const data = await request<ThemeAppearance>('/themes/appearance')
+    appearance.value = { ...DEFAULT_APPEARANCE, ...data }
+    appearanceLoaded.value = true
+    return appearance.value
+  }
+
+  async function saveAppearance(next: ThemeAppearance): Promise<ThemeAppearance> {
+    const data = await request<ThemeAppearance>('/themes/appearance', {
+      method: 'PUT',
+      body: JSON.stringify(next),
+    })
+    appearance.value = { ...DEFAULT_APPEARANCE, ...data }
+    appearanceLoaded.value = true
+    manualHold = false
+    restartAutoTimer()
+    await applyAutoMode(true)
+    return appearance.value
+  }
+
+  function parseMinutes(value: string): number {
+    const [hour, minute] = value.split(':').map((part) => Number.parseInt(part, 10))
+    return (
+      (Number.isFinite(hour) ? hour : 0) * 60 +
+      (Number.isFinite(minute) ? minute : 0)
+    )
+  }
+
+  function systemPrefersDark(): boolean {
+    return typeof window !== 'undefined' && !!window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false
+  }
+
+  /** 定时规则：支持跨午夜（如 19:00 → 07:00）；起止相同表示不自动变暗。 */
+  function inDarkRange(now = new Date()): boolean {
+    const start = parseMinutes(appearance.value.dark_start)
+    const end = parseMinutes(appearance.value.dark_end)
+    if (start === end) return false
+    const current = now.getHours() * 60 + now.getMinutes()
+    return start < end
+      ? current >= start && current < end
+      : current >= start || current < end
+  }
+
+  function autoTargetMode(): 'light' | 'dark' | null {
+    if (appearance.value.switch_mode === 'system') {
+      return systemPrefersDark() ? 'dark' : 'light'
+    }
+    if (appearance.value.switch_mode === 'schedule') {
+      return inDarkRange() ? 'dark' : 'light'
+    }
+    return null
+  }
+
+  async function switchToMode(mode: 'light' | 'dark'): Promise<void> {
+    const key =
+      mode === 'dark' ? appearance.value.dark_theme : appearance.value.light_theme
+    if (!key || key === active.value?.key) return
+    autoSwitching = true
+    try {
+      await activate(key)
+    } finally {
+      autoSwitching = false
+    }
+  }
+
+  async function applyAutoMode(force = false): Promise<void> {
+    const target = autoTargetMode()
+    if (!target || (!force && manualHold) || currentMode.value === target) return
+    try {
+      await switchToMode(target)
+    } catch {
+      // 自动切换失败（离线 / 主题被删除）时保持当前外观，由下次检查重试。
+    }
+  }
+
+  /** 顶栏亮 / 暗切换：立即切到另一套主题，并让自动规则等到下一边界。 */
+  async function toggleAppearance(): Promise<void> {
+    const target = currentMode.value === 'dark' ? 'light' : 'dark'
+    const key =
+      target === 'dark' ? appearance.value.dark_theme : appearance.value.light_theme
+    if (!key) throw new Error('请先在设置 → 主题中绑定亮色与暗色主题')
+    await activate(key)
+  }
+
+  function nextBoundaryDelay(): number {
+    const now = new Date()
+    const current = now.getHours() * 60 + now.getMinutes()
+    const points = [
+      parseMinutes(appearance.value.dark_start),
+      parseMinutes(appearance.value.dark_end),
+    ]
+    const delays = points
+      .filter((point) => point !== current)
+      .map((point) => (point > current ? point - current : 24 * 60 - current + point))
+    const minutes = delays.length ? Math.min(...delays) : 24 * 60
+    return Math.max(5_000, minutes * 60_000 + 1_000)
+  }
+
+  function releaseHoldAfterBoundary(): void {
+    if (holdTimer !== null) {
+      window.clearTimeout(holdTimer)
+      holdTimer = null
+    }
+    if (appearance.value.switch_mode !== 'schedule') return
+    holdTimer = window.setTimeout(() => {
+      holdTimer = null
+      manualHold = false
+      void applyAutoMode(true)
+    }, nextBoundaryDelay())
+  }
+
+  function onSystemSchemeChange(): void {
+    // 系统明暗变化是自动规则的信号：解除手动保持并立即应用。
+    manualHold = false
+    void applyAutoMode(true)
+  }
+
+  function restartAutoTimer(): void {
+    if (autoTimer !== null) {
+      window.clearInterval(autoTimer)
+      autoTimer = null
+    }
+    if (!appearanceLoaded.value || appearance.value.switch_mode === 'off') return
+    // 定时规则每 30 秒检查一次；跟随系统也保留兜底轮询。
+    autoTimer = window.setInterval(() => {
+      void applyAutoMode()
+    }, 30_000)
+  }
+
+  function startAutoSwitch(): void {
+    if (autoStarted) return
+    autoStarted = true
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      mediaQuery.addEventListener('change', onSystemSchemeChange)
+    }
+    restartAutoTimer()
   }
 
   /** 上传自定义背景（图片 / 动图 / 视频，≤100MB），返回 /media 站内 URL。 */
@@ -263,6 +435,13 @@ export const useThemeStore = defineStore('theme', () => {
     installedThemes,
     overrides,
     customized,
+    appearance,
+    appearanceLoaded,
+    currentMode,
+    refreshAppearance,
+    saveAppearance,
+    toggleAppearance,
+    applyAutoMode,
     init,
     loadList,
     load,

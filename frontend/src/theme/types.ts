@@ -189,6 +189,25 @@ export interface ThemeActive {
   overrides: ThemeOverrides
 }
 
+export type ThemeSwitchMode = 'off' | 'system' | 'schedule'
+
+/** 亮 / 暗色主题绑定与自动切换规则。 */
+export interface ThemeAppearance {
+  light_theme: string
+  dark_theme: string
+  switch_mode: ThemeSwitchMode
+  dark_start: string
+  dark_end: string
+}
+
+export const DEFAULT_APPEARANCE: ThemeAppearance = {
+  light_theme: 'kiwi-classic',
+  dark_theme: 'aurora',
+  switch_mode: 'off',
+  dark_start: '19:00',
+  dark_end: '07:00',
+}
+
 /** 自定义背景上传结果。 */
 export interface ThemeBackgroundUpload {
   url: string
