@@ -715,7 +715,7 @@ const tagBarWidth = (count: number) => `${Math.max(4, (count / tagMax.value) * 1
           </div>
 
           <!-- 趋势：近 26 周热力图（格子随卡片宽度自适应，铺满不留空） -->
-          <div v-if="activityView === 'trend'" class="mt-3 flex flex-1 flex-col justify-center">
+          <div v-if="activityView === 'trend'" class="mt-3 flex flex-1 flex-col justify-center lg:min-h-[330px]">
             <div
               class="mx-auto grid w-full max-w-[920px] gap-1"
               :style="{ gridTemplateColumns: 'auto repeat(26, minmax(0, 1fr))' }"
@@ -770,7 +770,7 @@ const tagBarWidth = (count: number) => `${Math.max(4, (count / tagMax.value) * 1
           </div>
 
           <!-- 日历：按月浏览；右侧按活动量列出本月活跃日，点选后共用右侧当天明细 -->
-          <div v-else class="mt-3 grid flex-1 items-start gap-4 lg:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
+          <div v-else class="mt-3 grid flex-1 items-start gap-4 lg:min-h-[330px] lg:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
             <div class="mx-auto w-full max-w-[520px] lg:mx-0">
               <div class="grid grid-cols-7 gap-1.5 text-center text-[10px] text-slate-400">
                 <span v-for="label in WEEKDAY_LABELS" :key="label">{{ label }}</span>
@@ -865,7 +865,7 @@ const tagBarWidth = (count: number) => `${Math.max(4, (count / tagMax.value) * 1
         </section>
 
         <!-- 活动概览 / 当天明细 -->
-        <section class="flex max-h-[360px] min-h-[280px] flex-col rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-soft backdrop-blur-xl">
+        <section class="flex min-h-[280px] flex-col rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-soft backdrop-blur-xl">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <h2 class="flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
@@ -917,7 +917,7 @@ const tagBarWidth = (count: number) => `${Math.max(4, (count / tagMax.value) * 1
             >
               这一天没有活动记录
             </p>
-            <div v-else class="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5">
+            <div v-else class="mt-2 max-h-[300px] min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-0.5">
               <RouterLink
                 v-for="item in dayDetail?.notes ?? []"
                 :key="item.note.id"
