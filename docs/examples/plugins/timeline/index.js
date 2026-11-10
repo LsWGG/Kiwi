@@ -6,6 +6,7 @@
  * - 正文使用宿主提供的富文本编辑器（`host.components.NoteEditor`），
  *   与文本笔记一样支持待办勾选框、列表、标题等格式；旧宿主回退为 textarea；
  * - 可标记关键时间点（琥珀色圆点），可自由增删时间点；
+ * - 每个时间点可用 ↑ / ↓ 调整先后顺序（手动顺序即展示顺序）；
  * - 状态全部保存在 props.points 中，随笔记一起持久化。
  */
 export function setup(host) {
@@ -117,6 +118,18 @@ export function setup(host) {
         }
       }
 
+      /** 手动调整顺序：direct 为 -1 上移、1 下移；展示顺序即 points 数组顺序。 */
+      function movePoint(id, direct) {
+        if (props.readonly) return
+        const list = points.value.slice()
+        const index = list.findIndex((point) => point.id === id)
+        const target = index + direct
+        if (index < 0 || target < 0 || target >= list.length) return
+        const [point] = list.splice(index, 1)
+        list.splice(target, 0, point)
+        commitPoints(list)
+      }
+
       function renderTitle() {
         if (props.readonly) {
           return h('p', { class: 'kiwi-timeline__title' }, title.value)
@@ -172,7 +185,7 @@ export function setup(host) {
         })
       }
 
-      function renderPoint(point) {
+      function renderPoint(point, index) {
         const open = isOpen(point.id)
         const row = [
           props.readonly
@@ -206,6 +219,34 @@ export function setup(host) {
                     summary: text(event.target.value, MAX_SUMMARY),
                   }),
               }),
+          props.readonly
+            ? null
+            : h(
+                'button',
+                {
+                  type: 'button',
+                  class: ['kiwi-timeline__icon', 'kiwi-timeline__move'],
+                  title: '上移时间点',
+                  'aria-label': '上移时间点',
+                  disabled: index === 0,
+                  onClick: () => movePoint(point.id, -1),
+                },
+                '↑',
+              ),
+          props.readonly
+            ? null
+            : h(
+                'button',
+                {
+                  type: 'button',
+                  class: ['kiwi-timeline__icon', 'kiwi-timeline__move'],
+                  title: '下移时间点',
+                  'aria-label': '下移时间点',
+                  disabled: index === points.value.length - 1,
+                  onClick: () => movePoint(point.id, 1),
+                },
+                '↓',
+              ),
           props.readonly
             ? null
             : h(
@@ -310,7 +351,7 @@ export function setup(host) {
                   // `.ProseMirror ol` 规则渲染出 1 / 2 / 3 序号。
                   'div',
                   { class: 'kiwi-timeline__list', role: 'list' },
-                  points.value.map((point) => renderPoint(point)),
+                  points.value.map((point, index) => renderPoint(point, index)),
                 )
               : h(
                   'p',

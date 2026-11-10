@@ -124,6 +124,7 @@ import {
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { request, uploadWithProgress } from '@/api/client'
+import { importMdBundle } from '@/api/attachments'
 import { runPython, type RunCodeResult } from '@/api/run'
 import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
@@ -1391,6 +1392,23 @@ function insertLinkEmbed(payload: {
 async function insertAttachmentEmbeds(payload: { files: File[] }) {
   closeEmbedDialog()
   for (const file of payload.files) {
+    // 压缩包版 Markdown：解析包内 md 与图片 / 附件，重写引用后直接插入正文。
+    if (/\.zip$/i.test(file.name)) {
+      try {
+        const bundle = await importMdBundle(file, props.noteId ?? null, kbs.currentKbId)
+        if (bundle.found && bundle.markdown.trim()) {
+          insertMarkdown(bundle.markdown)
+          const extra = bundle.attachments.length
+            ? `，已保存 ${bundle.attachments.length} 个图片 / 附件`
+            : ''
+          toast.success(`已插入「${bundle.title}」${extra}`)
+          continue
+        }
+      } catch (e: any) {
+        toast.error(e?.message || `${file.name} 解析失败`)
+        continue
+      }
+    }
     try {
       const att = await uploadFile(file)
       const ed = editor.value
