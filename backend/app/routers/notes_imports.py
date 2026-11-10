@@ -43,6 +43,7 @@ from app.schemas.note import (
 from app.services import (
     import_service,
     ingest_service,
+    md_bundle,
     upload_session,
 )
 from app.services.desktop_guard import require_online_feature
@@ -90,6 +91,8 @@ ALLOWED_IMPORT_EXT = {
     ".gif",
     ".tif",
     ".tiff",
+    # 压缩包版 Markdown：包内需包含 md（可带图片 / 附件目录），走 md_bundle。
+    ".zip",
 }
 
 
@@ -158,6 +161,24 @@ async def import_file(
         raise HTTPException(400, "缺少文件或 upload_id")
 
     ext = Path(filename).suffix.lower()
+    if ext == ".zip":
+        # 压缩包版 Markdown：解包 → 资源落盘为附件 → 重写正文引用 → 直接成稿。
+        try:
+            return await _start_bundle_import(
+                session,
+                kb,
+                filename=filename,
+                content=content,
+                folder_id=folder_id,
+                parent_note_id=parent_note_id,
+                title=title,
+                batch_id=batch_id,
+                readonly=readonly,
+                provider="upload",
+            )
+        finally:
+            if session_upload is not None:
+                upload_session.abort_session(session_upload)
     if ext not in ALLOWED_IMPORT_EXT:
         raise HTTPException(
             415, f"不支持的文件类型 {ext}，允许：{', '.join(sorted(ALLOWED_IMPORT_EXT))}"
@@ -187,6 +208,103 @@ async def import_file(
     finally:
         if session_upload is not None:
             upload_session.abort_session(session_upload)
+
+
+async def _start_bundle_import(
+    session: AsyncSession,
+    kb: KnowledgeBase,
+    *,
+    filename: str,
+    content: bytes,
+    folder_id: uuid.UUID | None,
+    parent_note_id: uuid.UUID | None,
+    title: str | None,
+    batch_id: uuid.UUID | None,
+    readonly: bool,
+    provider: str,
+) -> NoteImportStartOut:
+    """压缩包版 Markdown：md 与图片 / 附件一起导入为普通可编辑笔记。"""
+    kb_id = kb.id
+    parent = await _validate_note_parent(session, kb_id, None, parent_note_id)
+    if parent is not None:
+        folder_id = parent.folder_id
+
+    note = Note(
+        kb_id=kb_id,
+        title=(title or Path(filename).stem or "Markdown 笔记")[:300],
+        kind="doc",
+        body_md="",
+        folder_id=folder_id,
+        parent_note_id=parent_note_id,
+        status="active",
+        # 只读导入只影响打开方式，正文仍是可直接阅读的普通笔记。
+        view_mode="read" if readonly else "edit",
+        sort_order=await _next_note_sort(
+            session, kb_id, folder_id, parent_note_id
+        ),
+        props_json={},
+    )
+    session.add(note)
+    await session.flush()
+
+    try:
+        bundle = await md_bundle.import_md_bundle(
+            session,
+            kb_id=kb_id,
+            note_id=note.id,
+            content=content,
+            filename=filename,
+            user_title=title,
+        )
+    except md_bundle.MdBundleError as exc:
+        await session.rollback()
+        raise HTTPException(exc.status_code, exc.message) from exc
+    assert bundle is not None  # require_markdown 默认 True
+
+    note.title = bundle.title[:300]
+    note.body_md = bundle.markdown
+    note.props_json = {
+        "import": {
+            "status": "ready",
+            "progress": 1.0,
+            "source": "md_bundle",
+            "filename": filename,
+            "main_entry": bundle.main_entry,
+            "attachment_count": len(bundle.attachments),
+            "rewritten_refs": bundle.rewritten_refs,
+            "warnings": bundle.warnings[:20],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
+    if readonly:
+        note.props_json["readonly"] = True
+    await session.flush()
+
+    created_batch = False
+    if batch_id is not None:
+        batch = await session.get(ImportBatch, batch_id)
+        if batch is None or batch.kb_id != kb_id:
+            await session.rollback()
+            raise HTTPException(404, "导入批次不存在")
+    else:
+        batch = await import_service.create_batch(
+            kb_id, provider=provider, label=filename, expected_count=1
+        )
+        created_batch = True
+    await import_service.record_item(
+        batch.id,
+        title=note.title,
+        status="ready",
+        warnings=bundle.warnings,
+    )
+    if created_batch:
+        await import_service.mark_closed(batch.id)
+
+    await session.commit()
+    await session.refresh(note)
+    return NoteImportStartOut(
+        note=NoteOut.model_validate(note, from_attributes=True), job_id=None
+    )
 
 
 async def _create_readonly_file_note(

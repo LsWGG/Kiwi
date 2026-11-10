@@ -30,6 +30,8 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'created', note: NoteOut): vo
 const ACCEPT = [
   '.md', '.markdown', '.txt', '.text', '.pdf', '.docx', '.doc', '.ipynb',
   '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff',
+  // 压缩包版 Markdown：包内 md + 图片 / 附件目录，导入后图片与附件正常展示
+  '.zip',
 ]
 const TABLE_ACCEPT = ['.csv', '.xlsx', '.xls']
 const MAX_BYTES = 200 * 1024 * 1024
@@ -832,7 +834,10 @@ function formatTime(value?: string | null) {
           </div>
           <p class="text-[12.5px] font-medium text-slate-600">拖拽文件到这里，或点击选择（支持多选）</p>
           <p class="text-[11px] text-slate-400 mt-0.5">
-            Markdown / 文本 / PDF / Word / Jupyter Notebook / 图片（OCR）；≤20MB 直传，更大文件自动分片续传，单文件上限 200MB；Notebook 上限 20MB
+            Markdown / 文本 / PDF / Word / Jupyter Notebook / 图片（OCR）/ Markdown 压缩包；≤20MB 直传，更大文件自动分片续传，单文件上限 200MB；Notebook 上限 20MB
+          </p>
+          <p class="text-[11px] text-slate-400 mt-0.5">
+            压缩包内可包含 md 原始文件与图片 / 附件目录，导入后正文按正常笔记展示，图片与附件引用自动修复
           </p>
         </div>
 

@@ -315,6 +315,27 @@ html[data-kiwi-theme-mode='dark'] .kiwi-timeline {
   color: rgb(var(--plugin-accent));
 }
 
+/* 排序按钮：平时弱化，悬停到时间点卡片时提亮；首 / 末项禁用。 */
+.kiwi-timeline__move {
+  opacity: 0.55;
+  font-size: 12px;
+}
+
+.kiwi-timeline__item:hover .kiwi-timeline__move,
+.kiwi-timeline__move:focus-visible {
+  opacity: 1;
+}
+
+.kiwi-timeline__move:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+
+.kiwi-timeline__move:disabled:hover {
+  background: transparent;
+  color: rgb(var(--plugin-text-subtle));
+}
+
 .kiwi-timeline__icon.is-key {
   color: var(--plugin-warning-strong);
 }

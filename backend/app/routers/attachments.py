@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import Note, NoteAttachment
 from app.db.session import get_session
-from app.schemas.attachment import AttachmentOut
+from app.schemas.attachment import AttachmentOut, MdBundleOut
+from app.services import md_bundle
+from app.services.file_security import MAX_UPLOAD_BYTES
 
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
 
@@ -138,6 +140,63 @@ async def list_attachments(
         .all()
     )
     return [attachment_out(a) for a in rows]
+
+
+@router.post("/md-bundle", response_model=MdBundleOut)
+async def import_md_bundle(
+    kb_id: uuid.UUID,
+    note_id: uuid.UUID | None = None,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+):
+    """把「md + 图片 / 附件目录」压缩包解析进当前笔记。
+
+    编辑器「插入附件」上传 `.zip` 时调用：包内资源落盘为附件并重写正文引用，
+    返回可直接插入的 Markdown；包内没有 Markdown 时返回 ``found=false``，
+    前端回退为普通附件上传。
+    """
+    filename = (file.filename or "bundle.zip").strip() or "bundle.zip"
+    if Path(filename).suffix.lower() != ".zip":
+        raise HTTPException(415, "请上传 .zip 压缩包")
+    if note_id is not None:
+        note = await session.get(Note, note_id)
+        if note is None or note.kb_id != kb_id:
+            raise HTTPException(404, "笔记不存在")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "空文件")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413, f"压缩包超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 上限"
+        )
+
+    try:
+        bundle = await md_bundle.import_md_bundle(
+            session,
+            kb_id=kb_id,
+            note_id=note_id,
+            content=content,
+            filename=filename,
+            require_markdown=False,
+        )
+    except md_bundle.MdBundleError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+
+    if bundle is None:
+        # 普通附件压缩包：不落任何数据，交给前端按文件卡片插入。
+        return MdBundleOut(found=False)
+
+    await session.commit()
+    return MdBundleOut(
+        found=True,
+        title=bundle.title,
+        markdown=bundle.markdown,
+        main_entry=bundle.main_entry,
+        attachments=[attachment_out(a) for a in bundle.attachments],
+        warnings=bundle.warnings,
+        rewritten_refs=bundle.rewritten_refs,
+    )
 
 
 @router.delete("/{attachment_id}", status_code=204)

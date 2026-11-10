@@ -236,6 +236,7 @@ function submitFiles() {
           {{ dragging ? '松开鼠标添加文件' : '点击选择文件，或拖拽到这里' }}
         </p>
         <p class="mt-0.5 text-[11px] text-slate-400">支持 Word / Excel / PPT / PDF / 图片 / 音视频等，文件大小不限</p>
+        <p class="mt-0.5 text-[11px] text-slate-400">选择 Markdown 压缩包（md + 图片 / 附件目录）会解析成正文插入，引用自动修复</p>
         <input ref="fileInput" type="file" multiple class="hidden" @change="onPick" />
       </div>
 
