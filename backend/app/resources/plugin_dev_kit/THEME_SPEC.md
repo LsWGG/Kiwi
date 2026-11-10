@@ -2,7 +2,8 @@
 
 主题插件（`kind: "theme"`）用声明式 JSON + CSS 定制整个 Kiwi 界面：颜色、
 背景、面板透明度、毛玻璃、字体与装饰样式。主题包不执行 JavaScript，安装
-后在「设置 → 主题」中启用，即时生效。
+后在「设置 → 主题」中启用，即时生效。完整示例见 `examples/themes/aurora/`
+（深色）与 `examples/themes/ink-dusk/`（浅色古风，含合规预览图）。
 
 ## 1. 包结构
 
@@ -80,7 +81,7 @@ theme.zip
 | `style` | `theme.css` 在包内的相对路径，留空时自动查找 `theme.css` |
 | `blocks` | 必须为空 |
 | `theme.mode` | `light` / `dark`，决定 `color-scheme` |
-| `theme.preview` | 主题画廊缩略图，`assets/` 下相对路径 |
+| `theme.preview` | 主题画廊缩略图，`assets/` 下相对路径；必须是「欢迎使用 Kiwi」笔记的真实截图（见第 7.1 节） |
 
 ## 3. 颜色令牌
 
@@ -302,7 +303,58 @@ html[data-kiwi-theme="gufeng"] .editor-sheet {
    视频也会立即从 `/media/theme-backgrounds/` 清理，其他主题仍在使用的文件
    会保留。
 
-## 7. 校验与导入
+## 7. 预览图与设计流程
+
+### 7.1 画廊预览图必须截「欢迎使用 Kiwi」笔记
+
+主题画廊的 `theme.preview` 必须使用**「欢迎使用 Kiwi」笔记页面的真实截图**
+（首次启动的「Kiwi 上手指南」知识库中的同名笔记），不能使用设计稿、纯背景
+图、色板拼图或示意图。该笔记包含标题、正文、表格、引用、代码与侧栏等典型
+结构，是判断主题实际观感的统一基准，也保证画廊里所有主题的预览图条件一致、
+可以横向比较。
+
+截图步骤：
+
+1. 导入并启用待验收主题，打开「欢迎使用 Kiwi」笔记页面（默认视图，保留侧栏），
+   确认面板、正文、强调色与背景都已经是该主题。
+2. 视口 1440×900（或同比例），`deviceScaleFactor` 设为 1.5–2，截取整个页面。
+3. 缩放 / 裁切为 640×400 左右（16:10），保存为 `assets/preview.webp`
+   （或 png / jpg），文件建议 ≤ 200KB。
+4. 预览图里的标题与正文要清晰可辨，能一眼看出亮 / 暗模式与主题气质。
+5. 主题的配色、背景或主要装饰改动后，必须重新截图，不能沿用旧图。
+
+> `examples/themes/aurora/assets/preview.svg` 只是开发套件里的占位示例；
+> 正式交付的主题必须换成真实笔记截图。
+
+### 7.2 设计前先做调研
+
+不要拿到需求就直接配色。先联网检索资料，把结论落到色板与层级上，再写
+`plugin.json` 与 `theme.css`：
+
+1. **UI 设计规范**：对比度（WCAG 2.2：正文 ≥ 4.5:1，大字号 / 图形 ≥ 3:1）、
+   色彩体系（主色 / 中性色 / 语义色）、排版层级与间距节奏、背景图与玻璃
+   拟态的可读性边界。
+2. **优秀样例**：同类笔记 / 效率工具的主题、设计平台（如 Dribbble、
+   Behance、Awwwards）上的同风格作品、系统级暗色模式指南（Material
+   Design、Apple Human Interface Guidelines）。记录参考链接与取色依据。
+3. **本项目物料**：`kiwi-theme` skill、本规范、`examples/themes/aurora/`
+   与至少一个已上线主题，确认哪些区域由令牌自动接管、哪些需要 `theme.css`。
+4. 先定色板（底色 / 表面 / 文本四级 / 边框三级 / 强调）与背景方案，再写
+   装饰 CSS；每完成一版都用真实笔记截图对比参考样例。
+
+### 7.3 交付验收清单
+
+- [ ] `key` 全局唯一、`version` 已更新、`description` 能说明主题气质
+- [ ] 正文 / 次级 / 弱化文本在背景与面板上的对比度达标（正文 ≥ 4.5:1）
+- [ ] 背景图已压缩，`dim` / `blur` 合理，面板上的文字仍清晰
+- [ ] 主面板透明度 / 模糊跟随 `--theme-surface-opacity` / `--theme-surface-blur`
+- [ ] `theme.css` 每条规则都限定在 `html[data-kiwi-theme="<key>"]` 下
+- [ ] 逐页检查：笔记列表、编辑器、阅读态、弹窗、表格、画布、聊天、设置页、登录页
+- [ ] 画廊预览图截自「欢迎使用 Kiwi」笔记，640×400，主题已生效
+- [ ] `POST /api/themes/inspect` 通过，导出后重新导入结果一致
+- [ ] 资源体积符合上限，背景视频同时提供封面
+
+## 8. 校验与导入
 
 - 预检：`POST /api/themes/inspect`（multipart `file`），不落库。
 - 导入：`POST /api/themes/import?overwrite=true`。
@@ -310,7 +362,7 @@ html[data-kiwi-theme="gufeng"] .editor-sheet {
 - 内置主题导出：`GET /api/themes/builtin/kiwi-classic/export`。
 - 开发套件：`GET /api/themes/dev-kit`。
 
-## 8. 设计建议
+## 9. 设计建议
 
 - 深色主题必须同时调整 `surface`、`text`、`border` 三组令牌；只改背景会导致
   文字与边框不可读。

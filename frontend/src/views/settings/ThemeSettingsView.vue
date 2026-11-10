@@ -11,6 +11,7 @@ import ThemePreview from '@/components/settings/ThemePreview.vue'
 import { toast } from '@/components/ui/toast'
 import { useThemeStore } from '@/stores/theme'
 import { resolveThemeAsset } from '@/theme/apply'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import {
   DEFAULT_ACCENT,
   DEFAULT_LEARN_ACCENT,
@@ -294,6 +295,25 @@ function themeMode(item: ThemeItem) {
   return normalizeThemeSpec(item.theme).mode
 }
 
+/** 主题画廊明暗筛选：全部 / 浅色 / 深色。 */
+type ThemeModeFilter = 'all' | 'light' | 'dark'
+const MODE_FILTERS: { value: ThemeModeFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+]
+const modeFilter = ref<ThemeModeFilter>('all')
+const modeFilterCounts = computed(() => {
+  const counts = { all: theme.themes.length, light: 0, dark: 0 }
+  for (const item of theme.themes) counts[themeMode(item)] += 1
+  return counts
+})
+const galleryThemes = computed(() =>
+  modeFilter.value === 'all'
+    ? theme.themes
+    : theme.themes.filter((item) => themeMode(item) === modeFilter.value),
+)
+
 function galleryBackground(item: ThemeItem) {
   return resolveThemeAsset(
     item.asset_base_url,
@@ -457,10 +477,9 @@ async function openSpec() {
 }
 
 async function copyText(value: string, label: string) {
-  try {
-    await navigator.clipboard.writeText(value)
+  if (await copyTextToClipboard(value)) {
     toast.success(`${label}已复制`)
-  } catch {
+  } else {
     toast.error('复制失败，请手动选择文本')
   }
 }
@@ -958,11 +977,33 @@ async function resetCustomize() {
         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
           内置 {{ theme.builtinThemes.length }} · 已安装 {{ theme.installedThemes.length }}
         </span>
+        <div
+          class="ml-auto inline-flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white/70 p-0.5"
+          role="group"
+          aria-label="按明暗模式筛选主题"
+        >
+          <button
+            v-for="option in MODE_FILTERS"
+            :key="option.value"
+            type="button"
+            class="rounded-md px-2.5 py-1 text-[11px] transition-colors"
+            :class="
+              modeFilter === option.value
+                ? 'bg-kiwi-50 text-kiwi-700 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
+            :aria-pressed="modeFilter === option.value"
+            @click="modeFilter = option.value"
+          >
+            {{ option.label }}
+            <span class="ml-0.5 text-[10px] opacity-60">{{ modeFilterCounts[option.value] }}</span>
+          </button>
+        </div>
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <article
-          v-for="item in theme.themes"
+          v-for="item in galleryThemes"
           :key="item.key"
           class="flex flex-col overflow-hidden rounded-2xl border border-slate-200/70 bg-white/70 shadow-soft backdrop-blur-xl transition-all"
           :class="item.active ? 'ring-1 ring-kiwi-300' : ''"
@@ -1077,6 +1118,12 @@ async function resetCustomize() {
         class="rounded-2xl border border-dashed border-slate-200 bg-white/50 px-4 py-10 text-center text-[12px] text-slate-400"
       >
         还没有主题，点击右上角「导入主题」安装一个。
+      </p>
+      <p
+        v-else-if="!galleryThemes.length"
+        class="rounded-2xl border border-dashed border-slate-200 bg-white/50 px-4 py-10 text-center text-[12px] text-slate-400"
+      >
+        当前筛选下没有{{ modeFilter === 'light' ? '浅色' : '深色' }}主题，换个筛选看看。
       </p>
     </template>
 

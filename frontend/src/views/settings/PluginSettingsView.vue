@@ -16,6 +16,7 @@ import {
   type PluginSpec,
 } from '@/stores/plugins'
 import { useExtensionsStore, type EditorExtension } from '@/stores/extensions'
+import { copyTextToClipboard } from '@/utils/clipboard'
 
 // 阅读视图体积较大，仅在首次打开内置组件预览时加载。
 const BuiltinExtensionPreviewDialog = defineAsyncComponent(
@@ -331,10 +332,9 @@ async function openSpec() {
 }
 
 async function copyText(value: string, label: string) {
-  try {
-    await navigator.clipboard.writeText(value)
+  if (await copyTextToClipboard(value)) {
     toast.success(`${label}已复制`)
-  } catch {
+  } else {
     toast.error('复制失败，请手动选择文本')
   }
 }

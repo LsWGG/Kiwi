@@ -13,6 +13,7 @@ import KiwiConfirm from '@/components/ui/KiwiConfirm.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import { useDesktopStore, type DesktopSettingsPatch } from '@/stores/desktop'
+import { copyTextToClipboard } from '@/utils/clipboard'
 
 const desktop = useDesktopStore()
 const router = useRouter()
@@ -124,10 +125,9 @@ function saveTimeout(): void {
 
 async function copyPath(value: string, label: string): Promise<void> {
   if (!value) return
-  try {
-    await navigator.clipboard.writeText(value)
+  if (await copyTextToClipboard(value)) {
     toast.success(`${label}已复制`)
-  } catch {
+  } else {
     toast.error('复制失败，请手动选择路径')
   }
 }
