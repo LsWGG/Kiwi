@@ -57,6 +57,11 @@ THEME_DEV_KIT_FILES = (
     "examples/themes/aurora/README.md",
     "examples/themes/aurora/assets/aurora.svg",
     "examples/themes/aurora/assets/preview.svg",
+    "examples/themes/ink-dusk/plugin.json",
+    "examples/themes/ink-dusk/theme.css",
+    "examples/themes/ink-dusk/README.md",
+    "examples/themes/ink-dusk/assets/background.webp",
+    "examples/themes/ink-dusk/assets/preview.webp",
     "skill/kiwi-theme/SKILL.md",
 )
 DEFAULT_BUILTIN_KEY = builtin_themes.BUILTIN_THEMES[0]["key"]
@@ -549,16 +554,21 @@ async def theme_spec():
         "skill": "kiwi-theme",
         "dev_kit_url": "/api/themes/dev-kit",
         "ai_prompt": (
-            "使用 kiwi-theme skill 为 Kiwi 开发一个主题插件。先阅读 docs/THEME_SPEC.md "
-            "与 docs/examples/themes/aurora/，输出可直接压缩为 zip 的 plugin.json、"
+            "使用 kiwi-theme skill 为 Kiwi 开发一个主题插件。设计前先联网检索 UI 设计"
+            "规范（WCAG 2.2 对比度、色彩体系、排版层级）与优秀主题样例，把调研结论"
+            "落成色板后再开始设计；同时阅读 docs/THEME_SPEC.md 与 "
+            "docs/examples/themes/aurora/、ink-dusk/ 示例，输出可直接压缩为 zip 的 plugin.json、"
             "可选 theme.css 与 assets/ 资源（背景图 / 字体 / 背景视频）。主题只允许"
             "声明式 JSON + CSS，不执行 JavaScript；颜色令牌必须使用规范中的 key，"
             "装饰样式限定在 html[data-kiwi-theme=\"<key>\"] 下。背景视频写入 "
             "theme.background.video，并用 theme.background.image 提供封面。"
+            "画廊预览图必须截取「欢迎使用 Kiwi」笔记页面（默认视图，640×400）。"
             "完成后用 /api/themes/inspect 校验并导入。"
         ),
         "rules": [
             "主题插件 kind 必须为 theme，且必须以 zip 交付",
+            "设计前先联网检索 UI 设计规范（对比度、色彩体系、排版层级）与优秀主题样例，再开始配色与排版",
+            "画廊预览图必须截取「欢迎使用 Kiwi」笔记页面（默认视图、640×400），不能用设计稿或纯背景图",
             "key 为全局唯一小写 slug（字母、数字、连字符），发布后不可修改；不能与内置主题重名",
             "主题只包含 plugin.json / theme.css / assets/，禁止 JavaScript",
             "颜色令牌只允许规范列出的 key；未知 key 会被拒绝",
@@ -585,7 +595,8 @@ async def theme_spec():
             "视频写入 video，image 同时作为封面",
             "theme.surface": "面板不透明度 opacity、毛玻璃 blur",
             "theme.typography": "body / heading / mono 字体栈",
-            "theme.preview": "主题画廊缩略图（assets/ 下相对路径）",
+            "theme.preview": "主题画廊缩略图（assets/ 下相对路径）；"
+            "必须是「欢迎使用 Kiwi」笔记的真实截图（默认视图，640×400）",
             "assets/": "背景图、预览图、字体与背景视频等二进制资源",
         },
         "example": example,
@@ -613,11 +624,14 @@ async def theme_dev_kit():
         archive.writestr(
             "kiwi-theme-dev-kit/AI_PROMPT.md",
             "# AI 主题开发提示词\n\n"
+            "设计前先联网检索 UI 设计规范（WCAG 2.2 对比度、色彩体系、排版层级）\n"
+            "与优秀主题样例，把调研结论落成色板后再开始设计。\n\n"
             "请先阅读 skill/kiwi-theme/SKILL.md 与 THEME_SPEC.md，再参考 "
             "examples/themes/aurora/。输出一个可压缩为 zip 的 Kiwi 主题插件包，"
             "包含 plugin.json、可选 theme.css 与 assets/（背景图 / 字体 / 背景视频）；"
             "颜色令牌只能使用规范中的 key，背景视频写入 theme.background.video，"
             "并用 theme.background.image 提供封面。"
+            "画廊预览图必须截取「欢迎使用 Kiwi」笔记页面（默认视图，640×400）。"
             "安装前用 `/api/themes/inspect` 校验。\n",
         )
     return Response(

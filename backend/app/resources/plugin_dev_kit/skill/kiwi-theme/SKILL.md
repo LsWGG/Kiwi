@@ -1,6 +1,6 @@
 ---
 name: kiwi-theme
-description: 为 Kiwi 开发、检查、打包或修复主题插件，包括 plugin.json 的 theme 规格、颜色令牌、背景图与背景视频、透明度、theme.css 作用域、预览图与导入验证。
+description: 为 Kiwi 开发、检查、打包或修复主题插件，包括设计前联网调研 UI 规范与优秀样例、plugin.json 的 theme 规格、颜色令牌、背景图与背景视频、透明度、theme.css 作用域、「欢迎使用 Kiwi」笔记预览图与导入验证。
 ---
 
 # Kiwi 主题插件开发
@@ -10,8 +10,36 @@ description: 为 Kiwi 开发、检查、打包或修复主题插件，包括 plu
 JavaScript，安装后在「设置 → 主题」启用，即时生效，可随时切换回内置主题。
 
 完整规范以仓库 `docs/THEME_SPEC.md` 为准；可运行样例在
-`docs/examples/themes/aurora/`（深色极光：完整色板、背景图、玻璃面板、
-装饰 CSS 与预览图）。
+`docs/examples/themes/aurora/`（深色极光）与 `docs/examples/themes/ink-dusk/`
+（浅色古风，含符合规范的「欢迎使用 Kiwi」笔记预览图）。
+
+## 设计前调研
+
+先联网检索，再开始配色。跳过调研直接写令牌，通常只能得到「能看」而不是
+「好看」的主题。
+
+1. **UI 设计规范**：WCAG 2.2 对比度（正文 ≥ 4.5:1，大字号 / 图形 ≥ 3:1）、
+   色彩体系（主色 / 中性色 / 语义色）、排版层级、间距与圆角节奏、背景图与
+   玻璃面板的可读性边界。
+2. **优秀样例**：同类笔记 / 效率工具主题、系统暗色模式指南（Material
+   Design、Apple Human Interface Guidelines）、设计平台上的同风格作品。
+   记录参考链接与取色依据。
+3. **本项目物料**：本 skill、`docs/THEME_SPEC.md`、`examples/themes/aurora/`
+   与至少一个已上线主题，确认哪些区域由令牌自动接管、哪些需要 `theme.css`。
+4. 先把调研结论落成色板（底色 / 表面 / 文本四级 / 边框三级 / 强调）与背景
+   方案，再写 `plugin.json` 和装饰 CSS。
+
+## 画廊预览图
+
+`theme.preview` **必须使用「欢迎使用 Kiwi」笔记页面的真实截图**（首次启动的
+「Kiwi 上手指南」知识库中的同名笔记），不能使用设计稿、纯背景图、色板拼图
+或示意图：
+
+1. 导入并启用待验收主题，打开「欢迎使用 Kiwi」笔记页面（默认视图，保留侧栏），
+   确认主题已生效。
+2. 1440×900 视口、`deviceScaleFactor` 1.5–2 截图。
+3. 缩放 / 裁切到 640×400 左右，保存为 `assets/preview.webp`。
+4. 标题与正文清晰可辨；配色或背景改动后重新截图。
 
 ## 交付物
 
@@ -25,7 +53,7 @@ my-theme/
   assets/         # 可选：背景图 / 视频、预览图、字体
     background.webp   # 背景图 / 视频封面
     background.mp4    # 背景视频（可选）
-    preview.png
+    preview.webp      # 必须：「欢迎使用 Kiwi」笔记真实截图（640×400）
     font.woff2
 ```
 
@@ -190,8 +218,9 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
 
 1. 复制 `docs/examples/themes/aurora/` 作为起点，先改 `key` / `name` 与
    颜色令牌，再补背景与装饰。
-2. 准备 `assets/preview.svg|png`（建议 640×400）作为画廊缩略图；若使用
-   背景视频，再准备一张同画面的 WebP / JPEG 封面。
+2. 按「画廊预览图」要求，用「欢迎使用 Kiwi」笔记的真实截图生成
+   `assets/preview.webp`（640×400）；若使用背景视频，再准备一张同画面的
+   WebP / JPEG 封面。
 3. 压缩为 zip（`plugin.json` 可在 zip 根目录或单一子目录内）：
 
    ```bash
@@ -225,10 +254,23 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
 - 古风 / 科技 / 动漫等强风格主题：用 `area` 级的 `theme.css`（标题装饰、卡片
   描边、滚动条、纹理）承载风格，颜色令牌保持可读性优先。
 
+## 验收清单
+
+- [ ] 设计前做过调研，色板与层级有明确依据
+- [ ] 正文 / 次级 / 弱化文本对比度达标（正文 ≥ 4.5:1）
+- [ ] `theme.css` 全部限定在 `html[data-kiwi-theme="<key>"]` 下
+- [ ] 主面板透明度 / 模糊响应 `--theme-surface-opacity` / `--theme-surface-blur`
+- [ ] 逐页检查：笔记列表、编辑器、阅读态、弹窗、表格、画布、聊天、设置页、登录页
+- [ ] 预览图截自「欢迎使用 Kiwi」笔记，640×400，主题已生效
+- [ ] `/api/themes/inspect` 通过，导出后重新导入一致
+- [ ] 背景图 / 视频体积与格式符合上限，视频同时提供封面
+
 ## 参考
 
 - 完整规范：`docs/THEME_SPEC.md`
-- 示例主题：`docs/examples/themes/aurora/`
+- 示例主题：`docs/examples/themes/aurora/`（深色）、
+  `docs/examples/themes/ink-dusk/`（浅色古风，含符合规范的「欢迎使用 Kiwi」
+  笔记预览图）
 - 内置主题导出：`GET /api/themes/builtin/kiwi-classic/export`
 - 主题开发套件：`GET /api/themes/dev-kit`（根目录 `THEME_SPEC.md`、
   `examples/themes/`、`skill/kiwi-theme/SKILL.md` 与 `AI_PROMPT.md`）
