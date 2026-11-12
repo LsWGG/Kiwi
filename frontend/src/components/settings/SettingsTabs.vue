@@ -1,10 +1,28 @@
 <script setup lang="ts">
 /** 设置页统一导航：品牌 / 模型（大模型·向量·OCR）/ 运维 / 插件与区块。 */
+import { nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { IS_DESKTOP } from '@/desktop/env'
 
 const route = useRoute()
+const navRef = ref<HTMLElement | null>(null)
+
+/**
+ * 手机端标签条是横向滚动的：切到「主题 / 插件」等靠右页面时，
+ * 把当前标签滚进视野，避免用户误以为没有选中。
+ */
+watch(
+  () => route.path,
+  () => {
+    void nextTick(() => {
+      navRef.value
+        ?.querySelector<HTMLElement>('a[aria-current="page"]')
+        ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+    })
+  },
+  { immediate: true },
+)
 
 const tabs = [
   { path: '/settings', label: '品牌', icon: 'palette' },
@@ -23,6 +41,7 @@ function isActive(path: string) {
 
 <template>
   <nav
+    ref="navRef"
     class="mb-6 flex w-full items-center gap-1 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60 p-1 backdrop-blur-xl"
     aria-label="设置分类"
   >

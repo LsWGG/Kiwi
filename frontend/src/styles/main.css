@@ -216,6 +216,19 @@ body.kiwi-tree-dragging * {
     transition-all duration-200 hover:shadow-glow hover:brightness-105 active:scale-[0.98];
 }
 
+/* 空状态操作区：窄屏改成整列按钮，避免多个按钮把空态卡撑出屏幕。 */
+@media (max-width: 639px) {
+  .kiwi-empty-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    gap: 0.5rem;
+  }
+  .kiwi-empty-actions > * {
+    width: 100%;
+  }
+}
+
 /* ---------- 输入框基座 ---------- */
 .kiwi-input {
   @apply w-full px-3.5 py-2 rounded-xl border border-slate-200/80 bg-white/70 text-sm text-slate-700
@@ -333,6 +346,14 @@ html.kiwi-sticky-expanding .page-enter-from {
 .page-wrap-slim {
   width: min(calc(100% - 3rem), 1280px);
   margin-inline: auto;
+}
+
+/* 手机上不再额外留白：边距交给各页自己的响应式 padding，避免正文只剩窄窄一条。 */
+@media (max-width: 767px) {
+  .page-wrap,
+  .page-wrap-slim {
+    width: 100%;
+  }
 }
 
 /* markdown 正文排版微调 */
@@ -821,6 +842,19 @@ html.kiwi-sticky-expanding .page-enter-from {
   padding: 6px 10px;
   vertical-align: top;
   position: relative;
+}
+
+/* 手机上正文只有两百多像素：给表格留出最低可读宽度，改为表内横向滚动，
+   避免三列表格把每列压成一两个字一行。 */
+@media (max-width: 767px) {
+  .kiwi-editor .ProseMirror .tableWrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kiwi-editor .ProseMirror table {
+    /* 表格扩展会把 colwidth 结果写成行内 min-width，这里必须用 !important 才会生效。 */
+    min-width: 30rem !important;
+  }
 }
 
 /* 列宽拖拽手柄：悬停列边框时出现，拖动后 colwidth 持久化到表格 HTML。 */

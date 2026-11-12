@@ -313,7 +313,7 @@ async function resetToEnv() {
 </script>
 
 <template>
-  <div :class="embedded ? '' : 'page-wrap-slim px-8 py-8'">
+  <div :class="embedded ? '' : 'page-wrap-slim px-3 py-4 sm:px-8 sm:py-8'">
     <!-- 页头 -->
     <div v-if="!embedded" class="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up">
       <div class="flex items-center gap-3">
@@ -395,7 +395,7 @@ async function resetToEnv() {
           <div class="flex flex-wrap items-center gap-2">
             <p class="truncate font-medium text-slate-700">{{ displayName }}</p>
             <span
-              class="rounded-full px-2 py-[1px] text-[10px] font-medium"
+              class="shrink-0 whitespace-nowrap rounded-full px-2 py-[1px] text-[10px] font-medium"
               :class="
                 config.source === 'saved'
                   ? 'bg-gradient-to-r from-kiwi-500 to-kiwi-700 text-white'
@@ -419,30 +419,32 @@ async function resetToEnv() {
             </span>
           </p>
         </div>
-        <span
-          v-if="config.provider === 'openai'"
-          class="flex shrink-0 items-center gap-1 text-xs text-slate-400"
-          :title="hasKey ? '已配置密钥' : '无密钥'"
-        >
-          <KiwiIcon
-            :name="hasKey ? 'check' : 'close'"
-            :size="12"
-            :class="hasKey ? 'text-emerald-500' : 'text-slate-300'"
-          />
-          {{ hasKey ? '有 Key' : '无 Key' }}
-        </span>
-        <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0" @click="startEdit">
-          <KiwiIcon name="edit" :size="13" />
-          编辑
-        </button>
-        <button
-          v-if="config.source === 'saved'"
-          class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0 !text-slate-400 hover:!text-red-500"
-          title="恢复环境变量配置"
-          @click="showReset = true"
-        >
-          <KiwiIcon name="refresh" :size="13" />
-        </button>
+        <div class="flex w-full items-center justify-end gap-1.5 sm:w-auto sm:justify-start sm:gap-3">
+          <span
+            v-if="config.provider === 'openai'"
+            class="flex shrink-0 items-center gap-1 text-xs text-slate-400"
+            :title="hasKey ? '已配置密钥' : '无密钥'"
+          >
+            <KiwiIcon
+              :name="hasKey ? 'check' : 'close'"
+              :size="12"
+              :class="hasKey ? 'text-emerald-500' : 'text-slate-300'"
+            />
+            {{ hasKey ? '有 Key' : '无 Key' }}
+          </span>
+          <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0" @click="startEdit">
+            <KiwiIcon name="edit" :size="13" />
+            编辑
+          </button>
+          <button
+            v-if="config.source === 'saved'"
+            class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0 !text-slate-400 hover:!text-red-500"
+            title="恢复环境变量配置"
+            @click="showReset = true"
+          >
+            <KiwiIcon name="refresh" :size="13" />
+          </button>
+        </div>
       </div>
 
       <!-- 编辑表单 -->

@@ -520,8 +520,8 @@ onBeforeUnmount(() => {
   <div class="animate-fade-up">
     <!-- ================= 列表 ================= -->
     <template v-if="view === 'list'">
-      <div class="flex items-center justify-between mb-5">
-        <div class="flex items-center gap-2.5">
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex min-w-0 items-center gap-2.5">
           <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-400 to-violet-600 text-white grid place-items-center shadow-sm">
             <KiwiIcon name="book" :size="16" />
           </span>

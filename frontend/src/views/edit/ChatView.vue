@@ -1553,14 +1553,14 @@ watch(
     <!-- 移动端遮罩 -->
     <div
       v-if="sidebarOpen"
-      class="fixed inset-0 z-20 bg-slate-900/20 backdrop-blur-[1px] md:hidden"
+      class="fixed inset-0 z-20 bg-slate-900/20 backdrop-blur-[1px] lg:hidden"
       @click="sidebarOpen = false"
     />
 
     <!-- 会话侧栏 -->
     <aside
       class="chat-sidebar z-30 flex h-full w-64 shrink-0 flex-col border-r border-slate-200/70 bg-white/70 backdrop-blur-xl"
-      :class="sidebarOpen ? 'absolute inset-y-0 left-0 flex shadow-xl md:static md:shadow-none' : 'hidden md:flex'"
+      :class="sidebarOpen ? 'absolute inset-y-0 left-0 flex shadow-xl lg:static lg:shadow-none' : 'hidden lg:flex'"
     >
       <div class="flex items-center gap-2 px-3 pb-2 pt-3">
         <button
@@ -1573,7 +1573,7 @@ watch(
         </button>
         <button
           type="button"
-          class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 md:hidden"
+          class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 lg:hidden"
           title="关闭"
           @click="sidebarOpen = false"
         >
@@ -1696,11 +1696,11 @@ watch(
     <!-- 主区域 -->
     <div class="chat-main relative flex min-w-0 flex-1 flex-col">
       <!-- 会话标题 / 范围 / 意图 / 模型 -->
-      <header class="chat-header relative z-20 shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl">
-        <div class="mx-auto flex w-full max-w-[1120px] items-center gap-2">
+      <header class="chat-header relative z-20 shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl max-md:px-2">
+        <div class="mx-auto flex w-full max-w-[1120px] flex-wrap items-center gap-2">
           <button
             type="button"
-            class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 hover:border-kiwi-300 hover:text-kiwi-700 md:hidden"
+            class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 hover:border-kiwi-300 hover:text-kiwi-700 lg:hidden"
             title="会话历史"
             @click="sidebarOpen = true"
           >
@@ -1725,15 +1725,15 @@ watch(
             </p>
           </div>
 
-          <div class="flex shrink-0 items-center gap-1.5">
-            <div class="relative" data-chat-menu>
+          <div class="flex shrink-0 items-center gap-1.5 max-md:w-full max-md:justify-end max-md:overflow-x-auto max-md:pb-0.5">
+            <div class="relative shrink-0" data-chat-menu>
               <button
                 type="button"
                 class="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
                 @click="toggleScopeMenu"
               >
                 <KiwiIcon name="database" :size="12" class="text-slate-400" />
-                <span class="max-w-[11rem] truncate">范围：{{ scopeLabel }}</span>
+                <span class="max-w-[11rem] truncate max-md:max-w-[5.5rem]">范围：{{ scopeLabel }}</span>
                 <KiwiIcon name="chevron" :size="11" class="text-slate-400" />
               </button>
               <div
@@ -1799,10 +1799,10 @@ watch(
               </div>
             </div>
 
-            <div class="relative" data-chat-menu>
+            <div class="relative shrink-0" data-chat-menu>
               <button
                 type="button"
-                class="inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition"
+                class="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-[11px] transition"
                 :class="activeFilterCount
                   ? 'border-kiwi-300 bg-kiwi-50/70 text-kiwi-700'
                   : 'border-slate-200 bg-white/80 text-slate-600 hover:border-kiwi-300 hover:text-kiwi-700'"
@@ -1886,10 +1886,10 @@ watch(
               </div>
             </div>
 
-            <div class="relative" data-chat-menu>
+            <div class="relative shrink-0" data-chat-menu>
               <button
                 type="button"
-                class="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
+                class="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white/80 px-2.5 text-[11px] text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700"
                 :title="intentHint"
                 @click="toggleIntentMenu"
               >
@@ -2293,7 +2293,7 @@ watch(
                 ref="composerEl"
                 v-model="input"
                 rows="1"
-                placeholder="输入问题，@ 引用笔记或目录，Enter 发送…"
+                placeholder="输入问题，@ 引用笔记或目录…"
                 class="max-h-36 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
                 @input="onComposerInput"
                 @keydown="onComposerKeydown"

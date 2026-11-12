@@ -3,7 +3,7 @@
  * 学习模式左侧导航：与编辑模式 SideNav 同宽、同样式、共用收起状态。
  * 独立于 StudyView，进入设置等双模共享页面时菜单仍然保留。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useStudyStore } from '@/stores/study'
@@ -89,6 +89,22 @@ function toggleNav() {
   navCollapsed.value = !navCollapsed.value
 }
 
+/** 窄屏与编辑模式一致：强制收起为图标轨道，把横向空间留给学习正文。 */
+const narrow = ref(false)
+let narrowQuery: MediaQueryList | null = null
+const isCollapsed = computed(() => navCollapsed.value || narrow.value)
+
+function onNarrowChange(event: MediaQueryListEvent) {
+  narrow.value = event.matches
+}
+
+onMounted(() => {
+  narrowQuery = window.matchMedia('(max-width: 767px)')
+  narrow.value = narrowQuery.matches
+  narrowQuery.addEventListener('change', onNarrowChange)
+})
+onBeforeUnmount(() => narrowQuery?.removeEventListener('change', onNarrowChange))
+
 const navItems = computed<{ key: NavKey; label: string; icon: string }[]>(() => {
   const items: { key: NavKey; label: string; icon: string }[] = [
     { key: 'review', label: '今日复习', icon: 'refresh' },
@@ -125,19 +141,19 @@ function onNav(key: NavKey) {
 <template>
   <aside
     class="shrink-0 sidebar-glass h-full flex flex-col py-3 gap-0.5 overflow-visible transition-[width] duration-300 ease-out"
-    :class="navCollapsed ? 'w-14' : 'w-44'"
+    :class="isCollapsed ? 'w-14' : 'w-44'"
   >
     <nav class="flex-1 min-h-0 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
       <button
         v-for="n in navItems"
         :key="n.key"
         type="button"
-        :title="navLocked(n.key) ? lockedHint(n.key) : navCollapsed ? n.label : undefined"
+        :title="navLocked(n.key) ? lockedHint(n.key) : isCollapsed ? n.label : undefined"
         :disabled="navLocked(n.key)"
         :aria-disabled="navLocked(n.key) || undefined"
         class="group relative rounded-xl flex items-center gap-2.5 text-sm transition-all duration-200"
         :class="[
-          navCollapsed ? 'mx-2 justify-center px-0 py-2.5' : 'mx-2 px-3 py-2',
+          isCollapsed ? 'mx-2 justify-center px-0 py-2.5' : 'mx-2 px-3 py-2',
           navLocked(n.key)
             ? 'opacity-40 cursor-not-allowed'
             : activeKey === n.key
@@ -163,17 +179,17 @@ function onNav(key: NavKey) {
             "
           />
         </span>
-        <span v-if="!navCollapsed" class="relative z-[1] flex-1 whitespace-nowrap text-left">
+        <span v-if="!isCollapsed" class="relative z-[1] flex-1 whitespace-nowrap text-left">
           {{ n.label }}
         </span>
         <span
-          v-if="!navCollapsed && n.key === 'review' && study.dueReviews.length"
+          v-if="!isCollapsed && n.key === 'review' && study.dueReviews.length"
           class="relative z-[1] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[10px] font-semibold leading-none tabular-nums"
         >
           {{ study.dueReviews.length }}
         </span>
         <span
-          v-else-if="!navCollapsed && n.key === 'resume' && study.activeSession"
+          v-else-if="!isCollapsed && n.key === 'resume' && study.activeSession"
           class="relative z-[1] px-1.5 py-0.5 rounded-md bg-kiwi-100 text-kiwi-700 text-[10px] font-semibold leading-none tabular-nums"
         >
           {{ study.activeSession.answered_count }}
@@ -181,16 +197,16 @@ function onNav(key: NavKey) {
       </button>
     </nav>
 
-    <div class="mt-auto px-2 pt-2">
+    <div v-if="!narrow" class="mt-auto px-2 pt-2">
       <button
         type="button"
         class="flex w-full items-center gap-2.5 rounded-xl py-2 text-[11px] text-slate-400 transition-colors hover:bg-white/50 hover:text-slate-600"
-        :class="navCollapsed ? 'justify-center px-0' : 'px-3'"
-        :title="navCollapsed ? '展开菜单' : '收起菜单'"
+        :class="isCollapsed ? 'justify-center px-0' : 'px-3'"
+        :title="isCollapsed ? '展开菜单' : '收起菜单'"
         @click="toggleNav"
       >
-        <KiwiIcon :name="navCollapsed ? 'panelLeftOpen' : 'panelLeftClose'" :size="16" />
-        <span v-if="!navCollapsed" class="whitespace-nowrap">收起菜单</span>
+        <KiwiIcon :name="isCollapsed ? 'panelLeftOpen' : 'panelLeftClose'" :size="16" />
+        <span v-if="!isCollapsed" class="whitespace-nowrap">收起菜单</span>
       </button>
     </div>
   </aside>

@@ -127,8 +127,8 @@ onMounted(reload)
 
 <template>
   <div class="space-y-3 animate-fade-up">
-    <div class="flex items-center justify-between mb-1">
-      <div class="flex items-center gap-2">
+    <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex min-w-0 items-center gap-2">
         <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-400 to-rose-600 text-white grid place-items-center shadow-sm">
           <KiwiIcon name="target" :size="16" />
         </span>

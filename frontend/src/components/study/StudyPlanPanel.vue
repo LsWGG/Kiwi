@@ -127,8 +127,8 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 animate-fade-up">
-    <div class="flex items-start justify-between gap-3">
-      <div class="flex items-center gap-2.5">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="flex min-w-0 items-center gap-2.5">
         <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 text-white grid place-items-center shadow-sm">
           <KiwiIcon name="calendar" :size="16" />
         </span>

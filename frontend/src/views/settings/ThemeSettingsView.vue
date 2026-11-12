@@ -844,7 +844,7 @@ async function resetCustomize() {
         >
           <KiwiIcon :name="theme.currentMode === 'dark' ? 'moon' : 'sun'" :size="18" />
         </span>
-        <div class="min-w-0 flex-1">
+        <div class="min-w-0 flex-1 max-sm:min-w-[10rem]">
           <p class="text-[10.5px] font-medium uppercase tracking-wide text-slate-400">亮 / 暗色外观</p>
           <h2 class="mt-0.5 text-[15px] font-semibold text-slate-800">顶栏切换与自动规则</h2>
           <p class="mt-1 text-[11px] leading-relaxed text-slate-500">
@@ -852,7 +852,7 @@ async function resetCustomize() {
           </p>
         </div>
         <button
-          class="kiwi-btn-primary whitespace-nowrap !py-1.5 text-[11.5px] sm:ml-auto"
+          class="kiwi-btn-primary whitespace-nowrap !py-1.5 text-[11.5px] max-sm:w-full sm:ml-auto"
           :disabled="appearanceBusy"
           @click="saveAppearance"
         >

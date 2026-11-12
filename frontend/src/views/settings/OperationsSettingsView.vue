@@ -380,7 +380,7 @@ function setAuditAction(value: string | number) {
 </script>
 
 <template>
-  <div class="page-wrap-slim px-8 py-8">
+  <div class="page-wrap-slim px-3 py-4 sm:px-8 sm:py-8">
     <div class="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up">
       <div class="flex items-center gap-3">
         <span class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-slate-500 to-kiwi-600 text-white shadow-glow">

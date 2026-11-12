@@ -417,7 +417,7 @@ const tabCounts = computed(() => ({
 </script>
 
 <template>
-  <div class="page-wrap px-6 py-6 max-w-[1500px] mx-auto">
+  <div class="page-wrap px-3 py-4 sm:px-6 sm:py-6 max-w-[1500px] mx-auto">
     <!-- 页头 -->
     <div class="flex items-center gap-2 mb-5 animate-fade-up">
       <button
@@ -491,8 +491,8 @@ const tabCounts = computed(() => ({
       </aside>
 
       <!-- 正文 -->
-      <article ref="articleRef" class="kiwi-card p-6 md:p-9 min-w-0 animate-fade-up">
-        <div class="flex items-start gap-3">
+      <article ref="articleRef" class="kiwi-card p-4 sm:p-6 md:p-9 min-w-0 animate-fade-up">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
           <div class="min-w-0 flex-1">
             <input
               v-if="editing"
@@ -528,7 +528,7 @@ const tabCounts = computed(() => ({
             </div>
           </div>
 
-          <div class="flex items-center gap-1.5 shrink-0">
+          <div class="flex shrink-0 items-center gap-1.5 max-sm:self-start">
             <template v-if="editing">
               <button class="kiwi-btn-secondary !py-1.5" :disabled="saving" @click="cancelEdit">
                 取消

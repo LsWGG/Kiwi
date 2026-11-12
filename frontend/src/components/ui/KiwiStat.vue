@@ -65,16 +65,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="el" class="kiwi-card p-5 flex items-start gap-4">
+  <div ref="el" class="kiwi-card p-3 sm:p-5 flex items-start gap-2.5 sm:gap-4">
     <div
-      class="w-10 h-10 rounded-xl bg-gradient-to-br grid place-items-center shrink-0 border border-white/60"
+      class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br grid place-items-center shrink-0 border border-white/60"
       :class="accentClass[accent]"
     >
       <slot name="icon" />
     </div>
     <div class="min-w-0">
-      <p class="text-3xl font-bold tabular-nums text-slate-800 leading-none">{{ shown }}</p>
-      <p class="text-xs text-slate-500 mt-1.5">{{ label }}</p>
+      <p class="text-2xl sm:text-3xl font-bold tabular-nums text-slate-800 leading-none">{{ shown }}</p>
+      <p class="text-[11px] sm:text-xs text-slate-500 mt-1.5">{{ label }}</p>
     </div>
   </div>
 </template>

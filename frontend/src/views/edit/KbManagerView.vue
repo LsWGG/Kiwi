@@ -707,7 +707,7 @@ async function onImportKbFile(event: Event) {
 </script>
 
 <template>
-  <div class="page-wrap px-8 py-8">
+  <div class="page-wrap px-3 py-4 sm:px-8 sm:py-8">
     <!-- 页头 -->
     <div class="flex items-end justify-between mb-8">
       <div class="animate-fade-up">

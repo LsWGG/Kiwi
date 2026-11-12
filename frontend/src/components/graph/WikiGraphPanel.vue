@@ -649,11 +649,11 @@ function titleOf(id: string) {
 
       <!-- 底部：图例胶囊 -->
       <div
-        class="absolute bottom-4 left-1/2 -translate-x-1/2 animate-fade-up"
+        class="absolute inset-x-0 bottom-4 flex justify-center px-3 animate-fade-up"
         style="animation-delay: 120ms"
       >
         <div
-          class="flex items-center gap-3.5 px-4 py-2 rounded-full glass-strong shadow-soft pointer-events-none"
+          class="pointer-events-none flex max-w-full flex-wrap items-center justify-center gap-x-3.5 gap-y-1 rounded-2xl px-4 py-2 shadow-soft glass-strong sm:rounded-full"
         >
           <span v-for="t in legendTypes" :key="t" class="flex items-center gap-1.5">
             <i class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: NODE_COLOR[t] }" />
@@ -677,7 +677,7 @@ function titleOf(id: string) {
 
       <!-- 右下：操作提示 -->
       <div
-        class="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full glass-strong px-3 py-1.5 text-[11px] text-slate-400 shadow-soft pointer-events-none animate-fade-up"
+        class="absolute bottom-4 right-4 hidden items-center gap-1.5 rounded-full glass-strong px-3 py-1.5 text-[11px] text-slate-400 shadow-soft pointer-events-none animate-fade-up sm:flex"
         style="animation-delay: 180ms"
       >
         <KiwiIcon name="graph" :size="11" class="text-kiwi-400" />

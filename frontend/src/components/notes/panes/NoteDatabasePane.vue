@@ -532,7 +532,7 @@ async function updateCell(rowId: string, fieldId: string, value: any) {
 
 <template>
   <div class="h-full flex flex-col">
-    <header class="shrink-0 flex items-center gap-2 px-4 pt-2.5">
+    <header class="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-2.5 max-md:gap-1.5 max-md:px-2">
       <NoteTitleBreadcrumb
         v-model:title="title"
         :note-id="note.id"
@@ -540,9 +540,10 @@ async function updateCell(rowId: string, fieldId: string, value: any) {
         kind="database"
         :folder-id="note.folder_id"
         placeholder="无标题数据表"
+        class="max-md:basis-full"
         @input="autosave.schedule()"
       />
-      <div class="flex-1" />
+      <div class="flex-1 max-md:hidden" />
       <span class="shrink-0 text-[10px] text-slate-400 tabular-nums">{{ db.rows.length }} 条记录</span>
       <NoteTagButton :note="note" />
       <button
@@ -553,7 +554,7 @@ async function updateCell(rowId: string, fieldId: string, value: any) {
         <KiwiIcon name="plus" :size="12" />
         新建记录
       </button>
-      <span class="shrink-0 text-[10px] text-slate-400">
+      <span class="hidden shrink-0 text-[10px] text-slate-400 sm:inline">
         <template v-if="autosave.saving.value">保存中…</template>
         <template v-else-if="autosave.savedAt.value">已保存 {{ autosave.savedAt.value }}</template>
       </span>
