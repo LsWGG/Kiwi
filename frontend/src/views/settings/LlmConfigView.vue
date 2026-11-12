@@ -194,7 +194,7 @@ function setModelName(value: string | number) {
 </script>
 
 <template>
-  <div :class="embedded ? '' : 'page-wrap-slim px-8 py-8'">
+  <div :class="embedded ? '' : 'page-wrap-slim px-3 py-4 sm:px-8 sm:py-8'">
     <!-- 页头 -->
     <div v-if="!embedded" class="flex items-end justify-between mb-5 animate-fade-up">
       <div class="flex items-center gap-3">
@@ -339,10 +339,10 @@ function setModelName(value: string | number) {
       <div
         v-for="(c, i) in llm.configs"
         :key="c.id"
-        class="group kiwi-card !shadow-soft p-4 flex items-center gap-3 animate-fade-up"
+        class="group kiwi-card !shadow-soft flex flex-wrap items-center gap-2.5 p-3 animate-fade-up sm:gap-3 sm:p-4"
         :style="{ animationDelay: `${i * 50}ms` }"
       >
-        <span class="w-9 h-9 shrink-0 grid place-items-center rounded-xl bg-gradient-to-br from-slate-100 to-white border border-slate-200/60 text-slate-500 group-hover:text-kiwi-600 group-hover:border-kiwi-200 transition-all">
+        <span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-slate-200/60 bg-gradient-to-br from-slate-100 to-white text-slate-500 transition-all group-hover:border-kiwi-200 group-hover:text-kiwi-600 sm:h-9 sm:w-9">
           <KiwiIcon name="settings" :size="16" />
         </span>
         <div class="flex-1 min-w-0">
@@ -350,24 +350,26 @@ function setModelName(value: string | number) {
             <p class="font-medium text-slate-700 truncate">{{ c.name }}</p>
             <span
               v-if="c.is_default"
-              class="text-[10px] px-2 py-[1px] rounded-full bg-gradient-to-r from-kiwi-500 to-kiwi-700 text-white"
+              class="shrink-0 whitespace-nowrap rounded-full bg-gradient-to-r from-kiwi-500 to-kiwi-700 px-2 py-[1px] text-[10px] text-white"
             >默认</span>
           </div>
           <p class="text-xs text-slate-400 mt-0.5 truncate font-mono">
             {{ c.base_url.replace(/^https?:\/\//, '') }} · {{ c.model_name }}
           </p>
         </div>
-        <span class="text-xs text-slate-400 shrink-0 flex items-center gap-1" :title="c.has_api_key ? '已配置密钥' : '无密钥'">
-          <KiwiIcon :name="c.has_api_key ? 'check' : 'close'" :size="12" :class="c.has_api_key ? 'text-emerald-500' : 'text-slate-300'" />
-          {{ c.has_api_key ? '有 Key' : '无 Key' }}
-        </span>
-        <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0" @click="startEdit(c)">
-          <KiwiIcon name="edit" :size="13" />
-          编辑
-        </button>
-        <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0 !text-slate-400 hover:!text-red-500" @click="showDelete = c.id">
-          <KiwiIcon name="trash" :size="13" />
-        </button>
+        <div class="flex w-full items-center justify-end gap-1.5 sm:w-auto sm:justify-start sm:gap-3">
+          <span class="flex shrink-0 items-center gap-1 text-xs text-slate-400" :title="c.has_api_key ? '已配置密钥' : '无密钥'">
+            <KiwiIcon :name="c.has_api_key ? 'check' : 'close'" :size="12" :class="c.has_api_key ? 'text-emerald-500' : 'text-slate-300'" />
+            {{ c.has_api_key ? '有 Key' : '无 Key' }}
+          </span>
+          <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0" @click="startEdit(c)">
+            <KiwiIcon name="edit" :size="13" />
+            编辑
+          </button>
+          <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0 !text-slate-400 hover:!text-red-500" @click="showDelete = c.id">
+            <KiwiIcon name="trash" :size="13" />
+          </button>
+        </div>
       </div>
     </div>
 

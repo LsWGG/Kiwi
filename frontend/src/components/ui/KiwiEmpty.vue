@@ -9,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex flex-col items-center justify-center py-16 text-center animate-fade-up">
+  <div class="flex min-w-0 max-w-full flex-col items-center justify-center py-16 text-center animate-fade-up">
     <div
       class="w-16 h-16 rounded-2xl bg-gradient-to-br from-kiwi-100 to-kiwi-50 border border-kiwi-100 grid place-items-center text-kiwi-400 mb-4 shadow-soft"
     >
@@ -17,7 +17,7 @@ defineProps<{
     </div>
     <h3 class="font-medium text-slate-600">{{ title }}</h3>
     <p v-if="desc" class="text-sm text-slate-400 mt-1 max-w-xs">{{ desc }}</p>
-    <div class="mt-5 flex gap-3">
+    <div class="kiwi-empty-actions mt-5 flex flex-wrap items-center justify-center gap-3">
       <slot />
     </div>
   </div>

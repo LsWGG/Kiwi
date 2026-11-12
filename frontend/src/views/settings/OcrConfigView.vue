@@ -221,7 +221,7 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
 </script>
 
 <template>
-  <div :class="embedded ? '' : 'page-wrap-slim px-8 py-8'">
+  <div :class="embedded ? '' : 'page-wrap-slim px-3 py-4 sm:px-8 sm:py-8'">
     <div v-if="!embedded" class="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up">
       <div class="flex items-center gap-3">
         <span class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-slate-500 to-kiwi-600 text-white shadow-glow">
@@ -285,7 +285,7 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
               {{ saved.ocr_api_model || '扫描件 OCR' }}
             </p>
             <span
-              class="rounded-full px-2 py-[1px] text-[10px] font-medium"
+              class="shrink-0 whitespace-nowrap rounded-full px-2 py-[1px] text-[10px] font-medium"
               :class="
                 saved.ocr_enabled
                   ? 'bg-gradient-to-r from-kiwi-500 to-kiwi-700 text-white'
@@ -303,28 +303,30 @@ const labelClass = 'mb-1.5 block text-[11.5px] font-medium text-slate-600'
             语言 {{ languageLabel }} · 超时 {{ saved.ocr_timeout }} 秒
           </p>
         </div>
-        <span
-          class="flex shrink-0 items-center gap-1 text-xs text-slate-400"
-          :title="saved.has_ocr_api_key ? '已配置密钥' : '无密钥'"
-        >
-          <KiwiIcon
-            :name="saved.has_ocr_api_key ? 'check' : 'close'"
-            :size="12"
-            :class="saved.has_ocr_api_key ? 'text-emerald-500' : 'text-slate-300'"
-          />
-          {{ saved.has_ocr_api_key ? '有 Key' : '无 Key' }}
-        </span>
-        <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0" @click="startEdit">
-          <KiwiIcon name="edit" :size="13" />
-          编辑
-        </button>
-        <button
-          class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0 !text-slate-400 hover:!text-red-500"
-          title="清除 OCR 配置"
-          @click="showClear = true"
-        >
-          <KiwiIcon name="trash" :size="13" />
-        </button>
+        <div class="flex w-full items-center justify-end gap-1.5 sm:w-auto sm:justify-start sm:gap-3">
+          <span
+            class="flex shrink-0 items-center gap-1 text-xs text-slate-400"
+            :title="saved.has_ocr_api_key ? '已配置密钥' : '无密钥'"
+          >
+            <KiwiIcon
+              :name="saved.has_ocr_api_key ? 'check' : 'close'"
+              :size="12"
+              :class="saved.has_ocr_api_key ? 'text-emerald-500' : 'text-slate-300'"
+            />
+            {{ saved.has_ocr_api_key ? '有 Key' : '无 Key' }}
+          </span>
+          <button class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0" @click="startEdit">
+            <KiwiIcon name="edit" :size="13" />
+            编辑
+          </button>
+          <button
+            class="kiwi-btn-ghost !px-2.5 !py-1 text-xs shrink-0 !text-slate-400 hover:!text-red-500"
+            title="清除 OCR 配置"
+            @click="showClear = true"
+          >
+            <KiwiIcon name="trash" :size="13" />
+          </button>
+        </div>
       </div>
 
       <!-- 空态 -->

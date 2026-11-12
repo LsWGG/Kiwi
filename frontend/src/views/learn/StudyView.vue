@@ -437,7 +437,7 @@ onMounted(() => {
 <template>
   <div class="h-full min-h-0 flex">
     <!-- 中栏：主舞台 -->
-    <main class="flex-1 min-w-0 overflow-y-auto p-6">
+    <main class="flex-1 min-w-0 overflow-y-auto p-3 sm:p-6">
       <!-- 有知识库但均未开启学习模式 -->
       <KiwiEmpty
         v-if="noLearnableKb"
@@ -738,7 +738,7 @@ onMounted(() => {
     <!-- 右栏：掌握度 -->
     <aside
       v-if="showRight"
-      class="w-72 shrink-0 border-l border-slate-200/50 bg-white/40 backdrop-blur-xl p-4 overflow-y-auto"
+      class="hidden w-72 shrink-0 border-l border-slate-200/50 bg-white/40 backdrop-blur-xl p-4 overflow-y-auto lg:block"
     >
       <MasteryPanel @open-plan="active = 'plan'" @open-review="active = 'review'" />
     </aside>

@@ -164,12 +164,12 @@ function onCellMouseDown(event: MouseEvent) {
     <div class="min-w-0 flex-1">
       <!-- 单元格头：类型 + 操作 -->
       <div class="flex h-6 items-center gap-1.5">
-        <span class="nb-type" :class="isCode ? 'is-code' : 'is-md'">
+        <span class="nb-type shrink-0 whitespace-nowrap" :class="isCode ? 'is-code' : 'is-md'">
           <KiwiIcon :name="isCode ? 'code' : 'type'" :size="9" />
           {{ typeLabel }}
         </span>
         <span v-if="running" class="text-[10px] text-kiwi-600">执行中…</span>
-        <span v-else-if="!isCode && showMarkdownPreview" class="text-[9.5px] text-slate-300">
+        <span v-else-if="!isCode && showMarkdownPreview" class="hidden whitespace-nowrap text-[9.5px] text-slate-300 sm:inline">
           双击正文编辑
         </span>
         <div class="flex-1" />
@@ -183,7 +183,7 @@ function onCellMouseDown(event: MouseEvent) {
           <button type="button" class="nb-action" title="切换为文本 / 代码" @click="toggleType">
             <KiwiIcon :name="isCode ? 'type' : 'code'" :size="12" />
           </button>
-          <button type="button" class="nb-action" title="在上方插入单元格" @click="emit('insert-above')">
+          <button type="button" class="nb-action max-sm:!hidden" title="在上方插入单元格" @click="emit('insert-above')">
             <KiwiIcon name="plus" :size="12" class="rotate-180" />
           </button>
           <button type="button" class="nb-action" title="在下方插入单元格" @click="emit('insert-below')">
@@ -191,7 +191,7 @@ function onCellMouseDown(event: MouseEvent) {
           </button>
           <button
             type="button"
-            class="nb-action"
+            class="nb-action max-sm:!hidden"
             title="上移"
             :disabled="index === 0"
             @click="emit('move-up')"
@@ -200,7 +200,7 @@ function onCellMouseDown(event: MouseEvent) {
           </button>
           <button
             type="button"
-            class="nb-action"
+            class="nb-action max-sm:!hidden"
             title="下移"
             :disabled="index === total - 1"
             @click="emit('move-down')"
@@ -210,7 +210,7 @@ function onCellMouseDown(event: MouseEvent) {
           <button
             v-if="isCode && outputs.length"
             type="button"
-            class="nb-action"
+            class="nb-action max-sm:!hidden"
             title="清除本格输出"
             @click="emit('clear-output')"
           >

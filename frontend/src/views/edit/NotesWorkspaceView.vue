@@ -135,7 +135,8 @@ function onVisibilityChange() {
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
-  compactQuery = window.matchMedia('(max-width: 767px)')
+  // 平板竖屏也只有 820px：三栏并排会把正文压到 400px 左右，改用抽屉式目录。
+  compactQuery = window.matchMedia('(max-width: 1023px)')
   compact.value = compactQuery.matches
   compactQuery.addEventListener('change', onCompactChange)
   treePollTimer = window.setInterval(refreshTreeQuietly, TREE_POLL_MS)

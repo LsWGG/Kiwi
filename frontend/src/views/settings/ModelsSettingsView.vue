@@ -70,7 +70,7 @@ function select(key: ModelTab) {
 </script>
 
 <template>
-  <div class="page-wrap-slim px-8 py-8">
+  <div class="page-wrap-slim px-3 py-4 sm:px-8 sm:py-8">
     <div class="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up">
       <div class="flex items-center gap-3">
         <span

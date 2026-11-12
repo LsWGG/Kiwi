@@ -593,7 +593,7 @@ const SHORTCUTS: { keys: string; label: string }[] = [
 
 <template>
   <div class="h-full flex flex-col">
-    <header class="shrink-0 h-11 flex items-center gap-2 px-4 border-b border-slate-200/50 bg-white/40">
+    <header class="shrink-0 h-11 flex items-center gap-2 px-4 border-b border-slate-200/50 bg-white/40 max-md:h-auto max-md:flex-wrap max-md:gap-1 max-md:px-2 max-md:py-1.5">
       <NoteTitleBreadcrumb
         v-model:title="title"
         :note-id="note.id"
@@ -602,6 +602,7 @@ const SHORTCUTS: { keys: string; label: string }[] = [
         :folder-id="note.folder_id"
         placeholder="无标题 Notebook"
         :readonly="readMode"
+        class="max-md:basis-full"
         @input="onTitleInput"
       />
       <span
@@ -609,8 +610,8 @@ const SHORTCUTS: { keys: string; label: string }[] = [
       >
         Notebook
       </span>
-      <div class="flex-1" />
-      <span class="text-[10px] text-slate-400 tabular-nums">
+      <div class="flex-1 max-md:hidden" />
+      <span class="text-[10px] text-slate-400 tabular-nums max-sm:hidden">
         <template v-if="autosave.saving.value">
           <KiwiIcon name="loader" :size="10" spin class="inline -mt-px mr-1" />保存中…
         </template>

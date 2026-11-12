@@ -47,8 +47,8 @@ onMounted(refresh)
 
 <template>
   <div class="mx-auto max-w-3xl space-y-4 animate-fade-up">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex min-w-0 items-center gap-2">
         <span
           class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 text-white shadow-sm"
         >

@@ -495,7 +495,7 @@ async function reindexWiki() {
 </script>
 
 <template>
-  <div class="page-wrap px-8 py-8">
+  <div class="page-wrap px-3 py-4 sm:px-8 sm:py-8">
     <!-- 页头 -->
     <div class="flex flex-wrap items-end justify-between gap-4 mb-8 animate-fade-up">
       <div class="flex items-center gap-3">
@@ -509,15 +509,15 @@ async function reindexWiki() {
           <p class="text-sm text-slate-500 mt-1">知识库编译产物、引用网络与学习状态</p>
         </div>
       </div>
-      <div class="flex items-center gap-2">
-        <button class="kiwi-btn-secondary" @click="openSchema">
+      <div class="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap">
+        <button class="kiwi-btn-secondary col-span-2 w-full justify-center sm:col-auto sm:w-auto" @click="openSchema">
           <KiwiIcon name="settings" :size="14" />
           编译 Schema
         </button>
         <button
           v-if="latestLint"
           type="button"
-          class="mr-1 flex items-center gap-1.5 text-[10.5px] text-slate-400 transition-colors hover:text-kiwi-700"
+          class="col-span-2 mr-1 flex items-center justify-center gap-1.5 text-[10.5px] text-slate-400 transition-colors hover:text-kiwi-700 sm:justify-start"
           :title="`查看最近一次${latestLint.trigger === 'full' ? '深度' : '快速'}健康检查`"
           @click="openSavedLint"
         >
@@ -536,7 +536,7 @@ async function reindexWiki() {
         </button>
         <button
           type="button"
-          class="kiwi-btn-secondary !text-rose-600 hover:!border-rose-200 hover:!bg-rose-50"
+          class="kiwi-btn-secondary w-full justify-center !text-rose-600 hover:!border-rose-200 hover:!bg-rose-50 sm:w-auto"
           :disabled="purging"
           title="删除全部 Wiki 页面、向量与编译任务，笔记正文保留"
           @click="purgeOpen = true"
@@ -546,7 +546,7 @@ async function reindexWiki() {
         </button>
         <button
           type="button"
-          class="kiwi-btn-secondary"
+          class="kiwi-btn-secondary w-full justify-center sm:w-auto"
           :disabled="rebuilding || purging || !ov?.page_count || !desktopCompileReady"
           :title="
             desktopCompileReady
@@ -558,11 +558,11 @@ async function reindexWiki() {
           <KiwiIcon :name="rebuilding ? 'loader' : 'refresh'" :size="14" :spin="rebuilding" />
           {{ rebuilding ? '重建中…' : '重建 Wiki' }}
         </button>
-        <button class="kiwi-btn-secondary" :disabled="linting" @click="runLint(false)">
+        <button class="kiwi-btn-secondary w-full justify-center sm:w-auto" :disabled="linting" @click="runLint(false)">
           <KiwiIcon name="check" :size="14" />
           健康检查
         </button>
-        <button class="kiwi-btn-secondary" @click="load">
+        <button class="kiwi-btn-secondary w-full justify-center sm:w-auto" @click="load">
           <KiwiIcon name="refresh" :size="14" :class="loading ? 'animate-spin' : ''" />
           刷新
         </button>

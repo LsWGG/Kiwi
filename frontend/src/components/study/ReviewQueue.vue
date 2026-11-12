@@ -112,8 +112,8 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4 animate-fade-up">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex min-w-0 items-center gap-2">
         <span
           class="w-9 h-9 rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 text-white grid place-items-center shadow-sm"
         >
