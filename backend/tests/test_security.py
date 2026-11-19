@@ -1,4 +1,4 @@
-"""可选访问令牌与限流中间件的 ASGI 级测试。"""
+"""可选访问令牌中间件的 ASGI 级测试。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 import json
 
 from app.config import settings
-from app.security import AccessControlMiddleware, RateLimitMiddleware
+from app.security import AccessControlMiddleware
 
 
 async def ok_app(scope, receive, send):
@@ -103,21 +103,3 @@ def test_options_is_never_blocked(monkeypatch):
     monkeypatch.setattr(settings, "access_token", "s3cret")
     status, _, _ = run(AccessControlMiddleware(ok_app), "/api/kbs", method="OPTIONS")
     assert status == 200
-
-
-def test_rate_limit_bucket_returns_429(monkeypatch):
-    monkeypatch.setattr(settings, "rate_limit_enabled", True)
-    monkeypatch.setattr(settings, "rate_limit_llm_per_minute", 2)
-    mw = RateLimitMiddleware(ok_app)
-    assert run(mw, "/api/chat/stream", method="POST")[0] == 200
-    assert run(mw, "/api/chat/stream", method="POST")[0] == 200
-    status, body, messages = run(mw, "/api/chat/stream", method="POST")
-    assert status == 429
-    headers = dict(
-        (key.decode(), value.decode())
-        for key, value in next(
-            m["headers"] for m in messages if m["type"] == "http.response.start"
-        )
-    )
-    assert "retry-after" in headers
-    assert json.loads(body)["code"] == "rate_limited"

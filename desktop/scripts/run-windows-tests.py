@@ -96,7 +96,6 @@ def main() -> int:
             "KIWI_QDRANT_URL": os.environ.get(
                 "KIWI_QDRANT_URL", "http://127.0.0.1:6333"
             ),
-            "KIWI_RATE_LIMIT_ENABLED": "false",
             "KIWI_ACCESS_TOKEN": "",
             "KIWI_BACKGROUND_JOBS": "false",
             "KIWI_KB_SCHEDULER_ENABLED": "false",

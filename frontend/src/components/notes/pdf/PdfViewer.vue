@@ -160,6 +160,16 @@ const pixelRatio = computed(() =>
 
 const pages = computed(() => Array.from({ length: pageCount.value }, (_, i) => i + 1))
 
+/**
+ * 内置阅读器（iframe）自己滚动：脱离外层滚动容器，直接铺满阅读区可视高度。
+ * 用 100dvh 猜工具栏高度在缩放 / 4K 下会算错，露出主题背景，所以改用
+ * 绝对定位锚到阅读区，顶部让出文件信息条（h-10）。
+ */
+const viewerClass = computed(() => {
+  if (!props.embedded) return 'relative h-full overflow-auto'
+  return native.value ? 'absolute inset-x-0 bottom-0 top-10' : 'relative'
+})
+
 async function load(noRange = noRangeMode.value) {
   const run = ++generation
   noRangeMode.value = noRange
@@ -286,11 +296,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    ref="viewerEl"
-    class="pdf-viewer relative w-full"
-    :class="embedded ? '' : 'h-full overflow-auto'"
-  >
+  <div ref="viewerEl" class="pdf-viewer w-full" :class="viewerClass">
     <div v-if="needPassword" class="grid min-h-[420px] place-items-center px-6 py-16">
       <form
         class="w-full max-w-sm rounded-2xl border border-slate-200/80 bg-white/90 p-6 text-center shadow-sm"
@@ -350,7 +356,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else-if="native" class="flex h-full min-h-[420px] flex-col">
+    <div v-else-if="native" class="flex h-full min-h-0 flex-col">
       <div
         v-if="nativeNote"
         class="flex shrink-0 items-center justify-between gap-2 border-b border-amber-100 bg-amber-50/80 px-3 py-1.5 text-[10.5px] text-amber-700"
@@ -363,8 +369,7 @@ onBeforeUnmount(() => {
       <iframe
         :src="url"
         title="PDF 预览"
-        class="w-full flex-1 border-0 bg-white"
-        :class="embedded ? 'h-[70vh] min-h-[480px]' : 'h-full'"
+        class="min-h-0 w-full flex-1 border-0 bg-white"
       />
     </div>
 

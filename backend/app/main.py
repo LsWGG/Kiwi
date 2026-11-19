@@ -43,7 +43,7 @@ from app.routers import (
     transcribe,
     wiki,
 )
-from app.security import AccessControlMiddleware, RateLimitMiddleware
+from app.security import AccessControlMiddleware
 from app.services import (
     backup_service,
     embedder,
@@ -168,7 +168,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AccessControlMiddleware)
 app.add_middleware(RequestContextMiddleware)
 

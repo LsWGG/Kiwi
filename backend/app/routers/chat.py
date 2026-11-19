@@ -534,6 +534,8 @@ async def _prepare_chat(
             "import": "导入文档",
             "doc": "文档",
         }.get(kind, "笔记")
+        # 只读导入文件没有正文分块，引用摘要回落到刚刚读出的文件正文。
+        snippet = text or attachment_text
         citations.append(
             Citation(
                 kb_id=kb_id,
@@ -541,12 +543,12 @@ async def _prepare_chat(
                 collection="note",
                 title=title,
                 slug=None,
-                chunk_text=(text or "")[:300],
+                chunk_text=snippet[:300],
                 target_id=str(nid),
                 kind=kind,
                 chunk_index=anchor[0] if anchor else 0,
-                heading=(anchor[2] if anchor else "") or _first_heading(text),
-                quote=_quote_from_chunk(anchor[1] if anchor else text, query),
+                heading=(anchor[2] if anchor else "") or _first_heading(snippet),
+                quote=_quote_from_chunk(anchor[1] if anchor else snippet, query),
             )
         )
         # 数据表的行内容可能分布在多个分块中，给笔记更宽的上下文预算。
@@ -613,19 +615,36 @@ async def _prepare_chat(
                 )
             )
 
+    # 用户显式 @ 的笔记必须进入上下文，即使向量检索没有命中：
+    # 只读导入文件（PDF / Word / 图片）没有正文向量，只能按 id 现读原文件。
+    mentioned_ids: list[uuid.UUID] = []
+    for raw in data.scope.note_ids:
+        try:
+            mentioned_ids.append(uuid.UUID(str(raw)))
+        except (ValueError, TypeError):
+            continue
+
     # 以数据库为准过滤已删除 / 回收站笔记，并取最新标题（向量 payload 可能滞后）。
     note_meta: dict[str, tuple[str, str, dict, str]] = {}
-    note_ids: list[uuid.UUID] = []
+    note_kb: dict[str, str] = {}
+    note_ids: list[uuid.UUID] = list(mentioned_ids)
     for note_id in note_groups:
         try:
-            note_ids.append(uuid.UUID(note_id))
+            pid = uuid.UUID(note_id)
         except ValueError:
             continue
+        if pid not in note_ids:
+            note_ids.append(pid)
     if note_ids:
         rows = (
             await session.execute(
                 select(
-                    Note.id, Note.title, Note.kind, Note.props_json, Note.body_md
+                    Note.id,
+                    Note.kb_id,
+                    Note.title,
+                    Note.kind,
+                    Note.props_json,
+                    Note.body_md,
                 ).where(
                     Note.id.in_(note_ids),
                     Note.kb_id.in_(kb_ids),
@@ -642,12 +661,31 @@ async def _prepare_chat(
             )
             for row in rows
         }
+        note_kb = {str(row.id): str(row.kb_id) for row in rows}
 
-    note_entries = [
-        (note_id, group)
-        for note_id, group in note_groups.items()
-        if note_id in note_meta and group["chunks"]
-    ]
+    # 显式 @ 的笔记优先；其余按检索命中顺序。
+    note_entries: list[tuple[str, dict]] = []
+    seen_entry_ids: set[str] = set()
+    for nid in mentioned_ids:
+        key = str(nid)
+        if key not in note_meta or key in seen_entry_ids:
+            continue
+        group = note_groups.get(key)
+        if group is None:
+            title, kind = note_meta[key][:2]
+            group = {
+                "kb_id": note_kb.get(key, ""),
+                "title": title or "",
+                "kind": kind or "doc",
+                "chunks": [],
+            }
+        note_entries.append((key, group))
+        seen_entry_ids.add(key)
+    for note_id, group in note_groups.items():
+        if note_id in seen_entry_ids or note_id not in note_meta or not group["chunks"]:
+            continue
+        note_entries.append((note_id, group))
+        seen_entry_ids.add(note_id)
 
     # 时间范围检索：日记按标题日期判断（updated_at 会被待办同步等元数据刷新），
     # 个人回顾时排除自动生成的待办汇总，避免把历史完成项当成这周的产出。
@@ -663,36 +701,61 @@ async def _prepare_chat(
         note_entries = kept_entries
 
     # 检索分块里只有 kiwi-embed 元数据；读回上传文件的正文，模型才能回答
-    # 「这个脚本怎么实现的」这类问题。按笔记顺序读取，受总字符预算约束。
+    # 「这个脚本怎么实现的」这类问题。只读导入文件没有正文分块，按原文件现读。
     attachment_texts: dict[str, str] = {}
     remaining_chars = attachment_content.MAX_TOTAL_CHARS
     files_read = 0
     files_skipped = 0
     for note_id, _group in note_entries:
-        if files_read >= attachment_content.MAX_FILES or remaining_chars <= 0:
+        if remaining_chars <= 0 or files_read >= attachment_content.MAX_FILES:
             break
-        body_md = note_meta[note_id][3]
+        title, kind, props, body_md = note_meta[note_id]
+        parts: list[str] = []
+        import_meta = props.get("import") if kind == "import" else None
+        readonly_import = isinstance(import_meta, dict) and bool(
+            props.get("readonly") or import_meta.get("readonly")
+        )
+        if readonly_import:
+            item = await asyncio.to_thread(
+                attachment_content.read_import_attachment,
+                import_meta,
+                max_chars=min(attachment_content.MAX_FILE_CHARS, remaining_chars),
+            )
+            if item is not None:
+                parts.append(
+                    attachment_content.format_attachments_for_context(
+                        [item],
+                        heading="导入文件正文（只读文件笔记，可能因长度截断）：",
+                    )
+                )
+                remaining_chars -= len(item.text)
+                files_read += 1
+            else:
+                files_skipped += 1
+                notices.append(
+                    f"导入文件《{title or '未命名'}》暂时无法读取正文，"
+                    "请确认文件仍在媒体目录中，或该格式需要配置 OCR。"
+                )
         blocks = attachment_content.embedded_file_blocks(body_md or "")
-        if not blocks:
-            continue
-        items = await asyncio.to_thread(
-            attachment_content.read_embedded_attachments,
-            body_md,
-            query=context_query,
-            max_files=attachment_content.MAX_FILES - files_read,
-            max_chars=min(attachment_content.MAX_FILE_CHARS, remaining_chars),
-            total_chars=remaining_chars,
-        )
-        if not items:
-            files_skipped += len(blocks)
-            continue
-        attachment_texts[note_id] = attachment_content.format_attachments_for_context(
-            items
-        )
-        remaining_chars -= sum(len(item.text) for item in items)
-        files_read += len(items)
+        if blocks and files_read < attachment_content.MAX_FILES:
+            items = await asyncio.to_thread(
+                attachment_content.read_embedded_attachments,
+                body_md,
+                query=context_query,
+                max_files=attachment_content.MAX_FILES - files_read,
+                max_chars=min(attachment_content.MAX_FILE_CHARS, remaining_chars),
+                total_chars=remaining_chars,
+            )
+            if items:
+                parts.append(attachment_content.format_attachments_for_context(items))
+                remaining_chars -= sum(len(item.text) for item in items)
+                files_read += len(items)
+            else:
+                files_skipped += len(blocks)
+        if parts:
+            attachment_texts[note_id] = "\n\n".join(parts)
     if files_read or files_skipped:
-        message = f"已读取 {files_read} 个内嵌附件" if files_read else ""
+        message = f"已读取 {files_read} 个附件文件" if files_read else ""
         if files_skipped:
             skipped = f"{files_skipped} 个附件不可读取（非文本文件或文件缺失）"
             message = f"{message}，{skipped}" if message else skipped
@@ -721,8 +784,9 @@ async def _prepare_chat(
                     text for _, text, _heading in sorted(group["chunks"])
                 ),
                 kb_id=group["kb_id"],
-                # 首个分块是分数最高的命中，引用跳转以它为锚点。
-                anchor=group["chunks"][0],
+                # 首个分块是分数最高的命中，引用跳转以它为锚点；
+                # 只读导入文件没有向量分块，引用落在文件正文的开头。
+                anchor=group["chunks"][0] if group["chunks"] else None,
                 attachment_text=attachment_texts.get(note_id, ""),
             )
 
@@ -775,8 +839,9 @@ async def _prepare_chat(
         "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
         "5. 标注「联网结果」的资料来自互联网，引用时同样使用 [n]；涉及网页时在"
         "对应结论后附上资料给出的原文链接，不要编造 URL。\n"
-        "6. 资料中的「笔记内嵌附件」是用户上传文件的正文（可能被截断）；回答文件"
-        "相关问题时，应依据其中的函数、参数与流程说明，而不是只复述文件名和大小。\n"
+        "6. 资料中的「笔记内嵌附件」与「导入文件正文」是用户上传文件的正文"
+        "（可能被截断，图片与扫描件经由 OCR）；回答文件相关问题时，应依据其中的"
+        "函数、参数与流程说明，而不是只复述文件名和大小。\n"
         + (
             f"对话上下文：用户当前消息「{query}」是对上一轮的追问，"
             f"已按补全后的问题「{context_query}」检索；回答时请延续上文主题，"

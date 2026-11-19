@@ -128,7 +128,7 @@ cd backend && uv run pytest -q
 cd frontend && npm run type-check && npm run test:e2e
 ```
 
-Playwright expects a backend at `http://127.0.0.1:8000` using an isolated test database with the background worker disabled (`KIWI_BACKGROUND_JOBS=false`, `KIWI_RATE_LIMIT_ENABLED=false`). Set `PW_TOKEN_BACKEND_URL` and `PW_ACCESS_TOKEN` to also run the access-control login flow. CI runs the full suite on every push and pull request.
+Playwright expects a backend at `http://127.0.0.1:8000` using an isolated test database with the background worker disabled (`KIWI_BACKGROUND_JOBS=false`). Set `PW_TOKEN_BACKEND_URL` and `PW_ACCESS_TOKEN` to also run the access-control login flow. CI runs the full suite on every push and pull request.
 
 ---
 
