@@ -154,10 +154,6 @@ class Settings(BaseSettings):
     # 留空时前端使用当前访问地址；通过 Cloudflare Tunnel 等公网入口
     # 分享时应设置为公开域名，避免在内网创建出 192.168.x.x 链接。
     public_base_url: str = ""
-    rate_limit_enabled: bool = True
-    rate_limit_llm_per_minute: int = 20
-    rate_limit_import_per_minute: int = 10
-    rate_limit_code_per_minute: int = 30
 
     # --- 备份 ---
     backup_enabled: bool = True

@@ -109,6 +109,14 @@ body.kiwi-tree-dragging * {
   max-height: calc((100dvh - 1.5rem) / var(--ui-scale, 1));
 }
 
+/* 下拉面板同理：筛选 / 排序条件较多时在面板内滚动，避免按钮被顶出视口。 */
+.kiwi-menu-panel {
+  max-height: calc(100dvh - 1rem);
+  max-height: calc((100dvh - 1rem) / var(--ui-scale, 1));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 ::selection {
   background: var(--selection-bg);
   color: var(--selection-ink);

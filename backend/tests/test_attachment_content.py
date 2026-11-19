@@ -8,6 +8,7 @@ from app.services.attachment_content import (
     embedded_file_blocks,
     format_attachments_for_context,
     read_embedded_attachments,
+    read_import_attachment,
 )
 
 
@@ -136,3 +137,47 @@ def test_formats_context_with_filename_metadata_and_fence(tmp_path):
     assert "text/x-python" in text
     assert "```python" in text
     assert "def run():" in text
+
+
+def test_reads_readonly_import_text_file(tmp_path):
+    media = tmp_path / "media" / "kb"
+    media.mkdir(parents=True)
+    (media / "guide.md").write_text("# 指南\n\nElasticsearch 入门。", encoding="utf-8")
+    item = read_import_attachment(
+        {
+            "media_url": "/media/kb/guide.md",
+            "filename": "guide.md",
+            "content_type": "text/markdown",
+            "size": 32,
+            "readonly": True,
+        },
+        media_root=tmp_path / "media",
+    )
+    assert item is not None
+    assert item.filename == "guide.md"
+    assert item.text.startswith("# 指南")
+    assert item.language == "markdown"
+    text = format_attachments_for_context([item], heading="导入文件正文：")
+    assert text.startswith("导入文件正文：")
+    assert "Elasticsearch 入门" in text
+
+
+def test_readonly_import_skips_missing_and_traversal_files(tmp_path):
+    media = tmp_path / "media"
+    (media / "kb").mkdir(parents=True)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("top secret", encoding="utf-8")
+    assert (
+        read_import_attachment(
+            {"media_url": "/media/kb/missing.pdf", "filename": "missing.pdf"},
+            media_root=media,
+        )
+        is None
+    )
+    assert (
+        read_import_attachment(
+            {"media_url": "/media/../secret.txt", "filename": "secret.txt"},
+            media_root=media,
+        )
+        is None
+    )

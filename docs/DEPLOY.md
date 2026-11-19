@@ -413,10 +413,6 @@ sudo systemctl status cloudflared
 | `KIWI_WHISPER_COMPUTE_TYPE` | `int8` | 计算精度；CPU 建议 `int8`，GPU 可用 `float16` |
 | `KIWI_WHISPER_LANGUAGE` | `auto` | 默认识别语言，`auto` 为自动检测 |
 | `KIWI_WHISPER_MODEL_DIR` | `data/models/whisper` | 模型下载目录，Docker 部署需持久化 |
-| `KIWI_RATE_LIMIT_ENABLED` | `true` | 是否启用 LLM / 导入 / 代码执行接口限流 |
-| `KIWI_RATE_LIMIT_LLM_PER_MINUTE` | `20` | 每 IP 每分钟 LLM 请求上限 |
-| `KIWI_RATE_LIMIT_IMPORT_PER_MINUTE` | `10` | 每 IP 每分钟导入请求上限 |
-| `KIWI_RATE_LIMIT_CODE_PER_MINUTE` | `30` | 每 IP 每分钟代码执行请求上限 |
 | `KIWI_BACKGROUND_JOBS` | `true` | 是否启动演示库种子、笔记索引巡检、定时编译与自动备份；本地实例直连共享库时建议设为 `false` |
 | `KIWI_JOB_WORKER_ENABLED` | `true` | 是否消费持久化任务队列（导入 / 编译）；独立于 `KIWI_BACKGROUND_JOBS`，设为 `false` 时任务只会排队 |
 | `KIWI_BACKUP_ENABLED` | `true` | 是否启用自动备份 |

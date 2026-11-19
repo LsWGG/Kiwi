@@ -116,9 +116,10 @@ function makeTextToken(state: any, content: string, source: any) {
 
 function makeCiteToken(state: any, n: number, source: any) {
   const token = new state.Token('html_inline', '', 0)
+  // 角标只显示序号：方括号在胶囊里会与数字粘成「11」，看起来像重复编号。
   token.content =
     `<a class="md-cite-ref" href="#kiwi-cite-${n}" data-cite="${n}"` +
-    ` title="查看引用 ${n}">[${n}]</a>`
+    ` title="查看引用 ${n}" aria-label="查看引用 ${n}">${n}</a>`
   token.level = source.level
   return token
 }
@@ -1488,7 +1489,7 @@ function onClick(event: MouseEvent) {
   contain-intrinsic-size: auto 48px;
 }
 
-/* 问答引用角标：与引用卡片一一对应，可点击定位 */
+/* 问答引用角标：与引用卡片一一对应，可点击定位；取主题强调色适配亮暗主题 */
 .markdown-view .md-cite-ref {
   display: inline-flex;
   align-items: center;
@@ -1497,8 +1498,10 @@ function onClick(event: MouseEvent) {
   margin: 0 0.08em;
   padding: 0 0.28em;
   border-radius: 0.4em;
-  background: rgb(236 238 247);
-  color: rgb(76 70 166);
+  background: rgb(var(--theme-accent) / 0.14);
+  /* 主题的「正文链接」规则常带 html[data-kiwi-theme] 前缀，特异性高于这里；
+     引用角标不是正文链接，必须保持强调色，否则会和胶囊底色撞色。 */
+  color: rgb(var(--theme-accent)) !important;
   font-size: 0.76em;
   font-weight: 600;
   line-height: 1.45;
@@ -1507,8 +1510,7 @@ function onClick(event: MouseEvent) {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .markdown-view .md-cite-ref:hover {
-  background: rgb(217 220 240);
-  color: rgb(62 59 133);
+  background: rgb(var(--theme-accent) / 0.26);
 }
 
 /* 阅读预览不展示组件外框，只呈现内容 */

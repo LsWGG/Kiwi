@@ -128,7 +128,7 @@ cd backend && uv run pytest -q
 cd frontend && npm run type-check && npm run test:e2e
 ```
 
-Playwright 默认连接 `http://127.0.0.1:8000`，建议使用隔离测试库并关闭后台 worker 与限流（`KIWI_BACKGROUND_JOBS=false`、`KIWI_RATE_LIMIT_ENABLED=false`）。额外设置 `PW_TOKEN_BACKEND_URL` 与 `PW_ACCESS_TOKEN` 可运行访问令牌登录用例。CI 会在每次推送与 PR 上执行完整测试。
+Playwright 默认连接 `http://127.0.0.1:8000`，建议使用隔离测试库并关闭后台 worker（`KIWI_BACKGROUND_JOBS=false`）。额外设置 `PW_TOKEN_BACKEND_URL` 与 `PW_ACCESS_TOKEN` 可运行访问令牌登录用例。CI 会在每次推送与 PR 上执行完整测试。
 
 ---
 

@@ -141,6 +141,7 @@ TEXT_FILENAMES = {
 }
 
 DOC_EXTENSIONS = {"pdf", "docx", "doc"}
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"}
 
 TEXT_CONTENT_TYPES = {
     "application/json",
@@ -465,17 +466,70 @@ def read_embedded_attachments(
     return results
 
 
+def read_import_attachment(
+    import_meta: dict,
+    *,
+    media_root: Path | None = None,
+    max_chars: int = MAX_FILE_CHARS,
+) -> EmbeddedAttachment | None:
+    """读取只读导入笔记的原始文件正文。
+
+    只读导入不做解析入库，问答需要现读现用：文本直接解码，PDF / Word
+    复用导入解析器，图片走 OCR（未配置 OCR 时自然返回空）。
+    """
+    url = str(import_meta.get("media_url") or "").strip()
+    if not url:
+        return None
+    root = media_root if media_root is not None else settings.upload_dir / "media"
+    path = _resolve_media_path(url, root)
+    if path is None:
+        return None
+    filename = str(import_meta.get("filename") or "").strip() or path.name
+    content_type = str(import_meta.get("content_type") or "").strip()
+    ext = _extension(filename)
+    if (
+        not _is_text_file(filename, content_type)
+        and ext not in DOC_EXTENSIONS
+        and ext not in IMAGE_EXTENSIONS
+    ):
+        return None
+    try:
+        if _is_text_file(filename, content_type):
+            text, truncated = _read_text_file(path, max_chars)
+        else:
+            text, truncated = _read_document_file(path, filename, max_chars)
+        size = _safe_int(import_meta.get("size")) or path.stat().st_size
+    except OSError as exc:
+        logger.info("读取导入文件失败（%s）：%s", filename, exc)
+        return None
+    if not text.strip():
+        return None
+    return EmbeddedAttachment(
+        filename=filename,
+        url=url,
+        content_type=content_type,
+        size=size,
+        text=text,
+        language=_language_for(filename),
+        truncated=truncated,
+    )
+
+
 def _fence_for(text: str) -> str:
     runs = re.findall(r"`+", text)
     longest = max((len(run) for run in runs), default=0)
     return "`" * max(3, longest + 1)
 
 
-def format_attachments_for_context(items: list[EmbeddedAttachment]) -> str:
+def format_attachments_for_context(
+    items: list[EmbeddedAttachment],
+    *,
+    heading: str = "笔记内嵌附件（用户上传文件的正文，可能因长度截断）：",
+) -> str:
     """把附件内容格式化为给 LLM 的资料片段（同一笔记内使用）。"""
     if not items:
         return ""
-    parts = ["笔记内嵌附件（用户上传文件的正文，可能因长度截断）："]
+    parts = [heading]
     for item in items:
         meta = "，".join(
             piece

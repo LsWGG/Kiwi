@@ -5,6 +5,13 @@
  * 且目录栏的层叠上下文会被正文工具栏盖住，统一用视口坐标 + 高层级解决。
  */
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  ownsOrNested as ownedBySelfOrNested,
+  registerDropdown,
+  registerPanel,
+  unregisterDropdown,
+  type DropdownHandle,
+} from './dropdownRegistry'
 
 const props = withDefaults(
   defineProps<{
@@ -22,11 +29,26 @@ const root = ref<HTMLElement | null>(null)
 const panel = ref<HTMLElement | null>(null)
 const pos = ref({ left: '0px', top: '0px' })
 
+const ancestorPanel = ref<HTMLElement | null>(null)
+const handle: DropdownHandle = {
+  isOpen: () => open.value,
+  owns(target) {
+    return Boolean(root.value?.contains(target) || panel.value?.contains(target))
+  },
+  panelEl: () => panel.value,
+  ancestorPanelEl: () => ancestorPanel.value,
+}
+
+function ownsOrNested(target: Node): boolean {
+  return ownedBySelfOrNested(handle, target)
+}
+
 function place() {
   const anchor = root.value
   if (!anchor) return
   const rect = anchor.getBoundingClientRect()
   void nextTick(() => {
+    if (panel.value) registerPanel(panel.value, handle)
     const box = panel.value?.getBoundingClientRect()
     const width = box?.width ?? 0
     const height = box?.height ?? 0
@@ -51,7 +73,7 @@ function close() {
 function onDocPointerDown(e: Event) {
   if (!open.value) return
   const target = e.target as Node
-  if (root.value?.contains(target) || panel.value?.contains(target)) return
+  if (ownsOrNested(target)) return
   close()
 }
 function onViewportChange() {
@@ -71,7 +93,7 @@ function onKeydown(e: KeyboardEvent) {
 function onAnyScroll(e: Event) {
   if (!open.value) return
   const target = e.target as Node | null
-  if (target && (panel.value?.contains(target) || root.value?.contains(target))) return
+  if (target && ownsOrNested(target)) return
   // 锚点所在的可滚动祖先（例如工具栏 overflow-x-auto）滚动时不应关闭面板：
   // 点击触发按钮会让浏览器把它滚入视野，若此时关闭，面板会瞬开瞬关。
   if (target && root.value && target.contains(root.value)) return
@@ -79,10 +101,17 @@ function onAnyScroll(e: Event) {
 }
 
 watch(open, (value) => {
-  if (value) place()
+  if (!value) {
+    ancestorPanel.value = null
+    return
+  }
+  // 打开时记下触发器所在的外层面板：这是 Teleport 之后唯一可靠的双向线索。
+  ancestorPanel.value = root.value?.closest('.kiwi-menu-panel') ?? null
+  place()
 })
 
 onMounted(() => {
+  registerDropdown(handle)
   // pointerdown 比 mousedown 更可靠：画布的 pointerdown 会 preventDefault，
   // 从而抑制兼容 mouse 事件，导致点击画布时下拉无法关闭。
   document.addEventListener('pointerdown', onDocPointerDown, true)
@@ -92,6 +121,7 @@ onMounted(() => {
   window.addEventListener('scroll', onAnyScroll, true)
 })
 onBeforeUnmount(() => {
+  unregisterDropdown(handle)
   document.removeEventListener('pointerdown', onDocPointerDown, true)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('keydown', onKeydown)
