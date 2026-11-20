@@ -589,30 +589,89 @@ html.kiwi-sticky-expanding .page-enter-from {
 /* 代码块：节点容器与悬停工具条（运行 / 预览 + 复制） */
 .kiwi-editor .ProseMirror .code-block-node { position: relative; }
 .kiwi-editor .ProseMirror .code-block-node > pre { margin: 0; }
-.kiwi-editor .ProseMirror .code-tools {
+/* 编辑态为语言 / 工具按钮预留一条顶栏，避免压在首行代码上。 */
+.kiwi-editor:not(.is-readonly) .ProseMirror .code-block-node > pre { padding-top: 32px; }
+
+/* 代码块：右上角顶栏（语言下拉常驻最右，工具按钮悬停时向左展开） */
+.kiwi-editor .ProseMirror .code-header {
   position: absolute;
   top: 8px;
   right: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kiwi-editor .ProseMirror .code-lang {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.8;
+  transition: opacity 0.15s ease;
+}
+.kiwi-editor .ProseMirror .code-block-node:hover .code-lang,
+.kiwi-editor .ProseMirror .code-block-node:focus-within .code-lang { opacity: 1; }
+.kiwi-editor.is-readonly .ProseMirror .code-lang { display: none; }
+.kiwi-editor .ProseMirror .code-lang-select {
+  appearance: none;
+  max-width: 9.5em;
+  padding: 2px 18px 2px 8px;
+  border-radius: 6px;
+  /* 全部取主题令牌，跟随主题与模式（亮 / 暗 / 自定义插件主题） */
+  border: 1px solid rgb(var(--theme-border-strong) / 0.55);
+  background-color: rgb(var(--theme-surface) / 0.62);
+  color: rgb(var(--theme-text-secondary));
+  font-size: 10.5px;
+  line-height: 1.6;
+  cursor: pointer;
+  outline: none;
+  backdrop-filter: blur(8px);
+}
+.kiwi-editor .ProseMirror .code-lang-select:hover,
+.kiwi-editor .ProseMirror .code-lang-select:focus {
+  background-color: rgb(var(--theme-surface) / 0.9);
+  border-color: rgb(var(--theme-accent) / 0.6);
+  color: rgb(var(--theme-text-primary));
+}
+.kiwi-editor .ProseMirror .code-lang-select option {
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-primary));
+}
+.kiwi-editor .ProseMirror .code-lang-caret {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -3.5px;
+  border-right: 1.5px solid rgb(var(--theme-text-muted));
+  border-bottom: 1.5px solid rgb(var(--theme-text-muted));
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.kiwi-editor .ProseMirror .code-lang-select:disabled { cursor: default; }
+.kiwi-editor .ProseMirror .code-tools {
   display: none;
   align-items: center;
   gap: 6px;
-  z-index: 2;
 }
 .kiwi-editor .ProseMirror .code-block-node:hover .code-tools { display: inline-flex; }
 .kiwi-editor .ProseMirror .code-tools button {
   padding: 2px 8px;
   border-radius: 6px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(148, 163, 184, 0.18);
-  color: #cbd5e1;
+  border: 1px solid rgb(var(--theme-border-strong) / 0.55);
+  background: rgb(var(--theme-surface) / 0.62);
+  color: rgb(var(--theme-text-secondary));
   font-size: 10.5px;
   line-height: 1.6;
   cursor: pointer;
   user-select: none;
+  backdrop-filter: blur(8px);
 }
 .kiwi-editor .ProseMirror .code-tools button:hover {
-  background: rgba(148, 163, 184, 0.34);
-  color: #f8fafc;
+  background: rgb(var(--theme-surface) / 0.9);
+  border-color: rgb(var(--theme-accent) / 0.6);
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor .ProseMirror .code-tools button:disabled {
   opacity: 0.55;
@@ -641,15 +700,6 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror .code-run-btn:hover {
   background: rgba(16, 185, 129, 0.34) !important;
   color: #ecfdf5 !important;
-}
-.kiwi-editor.code-theme-light .ProseMirror .code-tools button {
-  color: #475569;
-  background: rgba(148, 163, 184, 0.12);
-  border-color: #cbd5e1;
-}
-.kiwi-editor.code-theme-light .ProseMirror .code-tools button:hover {
-  background: rgba(148, 163, 184, 0.24);
-  color: #0f172a;
 }
 .kiwi-editor.code-theme-light .ProseMirror .code-run-btn {
   border-color: #6ee7b7 !important;
@@ -711,15 +761,7 @@ html.kiwi-sticky-expanding .page-enter-from {
   background: #fff;
 }
 
-/* 预览态：隐藏源码与预览外框，只呈现渲染结果 */
-.kiwi-editor .ProseMirror .code-block-node.is-previewing > pre { display: none; }
-.kiwi-editor .ProseMirror .code-block-node.is-previewing .code-preview-bar { display: none; }
-.kiwi-editor .ProseMirror .code-block-node.is-previewing .code-block-preview {
-  margin-top: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
+/* 预览态：源码保持可见，渲染结果展示在源码下方 */
 .kiwi-editor .ProseMirror .code-block-node.is-previewing .code-tools {
   display: inline-flex;
   opacity: 0.45;
@@ -727,9 +769,9 @@ html.kiwi-sticky-expanding .page-enter-from {
 }
 .kiwi-editor .ProseMirror .code-block-node.is-previewing:hover .code-tools { opacity: 1; }
 .kiwi-editor .ProseMirror .code-block-node.is-previewing .code-tools button {
-  background: rgba(255, 255, 255, 0.88);
-  color: #475569;
-  border-color: #e2e8f0;
+  background: rgb(var(--theme-surface) / 0.92);
+  color: rgb(var(--theme-text-secondary));
+  border-color: rgb(var(--theme-border) / 0.9);
   backdrop-filter: blur(6px);
 }
 .kiwi-editor .ProseMirror .code-block-node.is-previewing .code-tools .code-run-btn {

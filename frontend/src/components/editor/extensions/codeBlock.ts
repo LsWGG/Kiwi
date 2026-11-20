@@ -1,7 +1,8 @@
 /**
  * 代码块增强：
  * - 语法高亮（CodeBlockLowlight）
- * - 行号（由编辑器 CSS 根据本地偏好控制）
+ * - 语言下拉框：代码块左上角直接切换代码语言
+ * - 行号（由编辑器 CSS 根据本地偏好控制，关闭时不渲染任何行内组件）
  * - 悬停工具：复制 / 运行 Python / 在正文内渲染 HTML、JS 预览
  * 预览使用沙箱 iframe，直接在笔记正文中显示；preview 属性不会写入 Markdown。
  */
@@ -19,6 +20,7 @@ import type { createLowlight } from 'lowlight'
 import { runPython } from '@/api/run'
 import { IS_DESKTOP } from '@/desktop/env'
 import { useDesktopStore } from '@/stores/desktop'
+import { CODE_LANGUAGES, normalizeCodeLanguage } from '../modes'
 import { formatRunResult, upsertCodeOutput } from './codeOutput'
 import { buildPreviewDocument } from './preview'
 
@@ -32,9 +34,10 @@ const RUNNABLE: Record<string, 'python' | 'html' | 'js'> = {
   js: 'js',
 }
 
+
 const lineNumberKey = new PluginKey('kiwiCodeLineNumbers')
 
-/** 每行开头插入行号组件，显示与否由编辑器根节点的 code-linenos 类控制。 */
+/** 每行开头插入行号组件；只在用户开启行号时创建，关闭时正文里没有任何占位节点。 */
 function buildLineNumbers(doc: PMNode): DecorationSet {
   const decorations: Decoration[] = []
   doc.descendants((node, pos) => {
@@ -67,12 +70,20 @@ function buildLineNumbers(doc: PMNode): DecorationSet {
   return DecorationSet.create(doc, decorations)
 }
 
-function lineNumberPlugin(): Plugin {
+function lineNumberPlugin(enabled: () => boolean): Plugin {
   return new Plugin({
     key: lineNumberKey,
     state: {
-      init: (_config, state) => buildLineNumbers(state.doc),
-      apply: (tr, old) => (tr.docChanged ? buildLineNumbers(tr.doc) : old),
+      init: (_config, state) =>
+        enabled() ? buildLineNumbers(state.doc) : DecorationSet.empty,
+      apply: (tr, old) => {
+        // 行号开关变化时由 refreshCodeLineNumbers 派发 meta 重新计算。
+        if (tr.getMeta(lineNumberKey) !== undefined) {
+          return enabled() ? buildLineNumbers(tr.doc) : DecorationSet.empty
+        }
+        if (!tr.docChanged || !enabled()) return old
+        return buildLineNumbers(tr.doc)
+      },
     },
     props: {
       decorations(state) {
@@ -80,6 +91,12 @@ function lineNumberPlugin(): Plugin {
       },
     },
   })
+}
+
+/** 行号开关切换后刷新装饰层（未注册代码块时为空操作）。 */
+export function refreshCodeLineNumbers(editor: Editor) {
+  const view = editor.view
+  view.dispatch(view.state.tr.setMeta(lineNumberKey, true).setMeta('addToHistory', false))
 }
 
 function makeToolButton(className: string, label: string): HTMLButtonElement {
@@ -99,6 +116,8 @@ class CodeBlockView implements NodeView {
   private editor: Editor
   private getPos: () => number | undefined
   private desktop = useDesktopStore()
+  private langWrap: HTMLElement
+  private langSelect: HTMLSelectElement
   private previewWrap: HTMLElement
   private previewFrame: HTMLIFrameElement
   private previewLabel: HTMLElement
@@ -123,6 +142,33 @@ class CodeBlockView implements NodeView {
     this.contentDOM = document.createElement('code')
     pre.appendChild(this.contentDOM)
     this.dom.appendChild(pre)
+
+    // 顶栏统一放在右上角：语言下拉框常驻最右侧，运行 / 复制按钮悬停时在它左侧展开。
+    const header = document.createElement('span')
+    header.className = 'code-header'
+    header.contentEditable = 'false'
+
+    // 代码块自带语言下拉框：不必先点进正文、再到顶部工具栏找语言。
+    this.langWrap = document.createElement('span')
+    this.langWrap.className = 'code-lang'
+    this.langWrap.contentEditable = 'false'
+    this.langSelect = document.createElement('select')
+    this.langSelect.className = 'code-lang-select'
+    this.langSelect.title = '代码语言'
+    this.langSelect.setAttribute('aria-label', '代码语言')
+    for (const lang of CODE_LANGUAGES) {
+      const option = document.createElement('option')
+      option.value = lang.id
+      option.textContent = lang.label
+      this.langSelect.appendChild(option)
+    }
+    this.langSelect.addEventListener('change', () => {
+      this.setLanguage(this.langSelect.value)
+    })
+    const caret = document.createElement('span')
+    caret.className = 'code-lang-caret'
+    caret.setAttribute('aria-hidden', 'true')
+    this.langWrap.append(this.langSelect, caret)
 
     const tools = document.createElement('span')
     tools.className = 'code-tools'
@@ -158,7 +204,8 @@ class CodeBlockView implements NodeView {
       }
     })
     tools.append(this.runButton, this.copyButton)
-    this.dom.appendChild(tools)
+    header.append(tools, this.langWrap)
+    this.dom.appendChild(header)
 
     this.previewWrap = document.createElement('div')
     this.previewWrap.className = 'code-block-preview'
@@ -235,13 +282,44 @@ class CodeBlockView implements NodeView {
   }
 
   private get previewOn(): boolean {
-    return this.previewable && this.node.attrs.preview !== false
+    return this.previewable && this.node.attrs.preview === true
+  }
+
+  /** 语言下拉框值同步；别名映射到标准项，未知语言临时补一个选项。 */
+  private syncLanguage(lang: string) {
+    const value = lang || 'plaintext'
+    const known = (id: string) =>
+      Array.from(this.langSelect.options).some((option) => option.value === id)
+    const alias = normalizeCodeLanguage(value)
+    if (!known(value) && alias !== value && known(alias)) {
+      this.langSelect.value = alias
+      return
+    }
+    if (!known(value)) {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = value
+      this.langSelect.appendChild(option)
+    }
+    this.langSelect.value = value
+  }
+
+  private setLanguage(value: string) {
+    const pos = this.getPos()
+    if (typeof pos !== 'number') return
+    const view = this.editor.view
+    view.dispatch(
+      view.state.tr.setNodeMarkup(pos, undefined, { ...this.node.attrs, language: value }),
+    )
+    // 下拉框由 DOM 直接交互，切换后把编辑焦点还给正文。
+    view.focus()
   }
 
   private sync() {
     const lang = this.source
     this.contentDOM.className = lang ? `language-${lang}` : ''
     this.dom.dataset.kind = this.kind ?? ''
+    this.syncLanguage(lang)
 
     const kind = this.kind
     if (!kind) {
@@ -359,7 +437,7 @@ class CodeBlockView implements NodeView {
 
   stopEvent(event: Event): boolean {
     const target = event.target as HTMLElement | null
-    return !!target?.closest?.('.code-tools, .code-block-preview')
+    return !!target?.closest?.('.code-header, .code-tools, .code-lang, .code-block-preview')
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {
@@ -373,7 +451,11 @@ class CodeBlockView implements NodeView {
   }
 }
 
-export function createCodeBlock(lowlight: ReturnType<typeof createLowlight>) {
+export function createCodeBlock(
+  lowlight: ReturnType<typeof createLowlight>,
+  options: { lineNumbers?: () => boolean } = {},
+) {
+  const lineNumbersEnabled = options.lineNumbers ?? (() => false)
   return CodeBlockLowlight.extend({
     addKeyboardShortcuts() {
       // TipTap 默认用 Mod-Alt-c 切换代码块，与格式刷的「复制格式」
@@ -386,17 +468,21 @@ export function createCodeBlock(lowlight: ReturnType<typeof createLowlight>) {
       return shortcuts as Record<string, () => boolean>
     },
     addProseMirrorPlugins() {
-      return [...(this.parent?.() ?? []), lineNumberPlugin()]
+      return [...(this.parent?.() ?? []), lineNumberPlugin(lineNumbersEnabled)]
     },
     addAttributes() {
       return {
         ...(this.parent?.() ?? {}),
-        /** 是否在正文中渲染 HTML / JS 预览（仅内存状态，不写入 Markdown） */
+        /**
+         * 是否在正文中渲染 HTML / JS 预览（仅内存状态，不写入 Markdown）。
+         * 默认关闭：新建的代码块始终先显示源码，避免空白预览盖住正文、
+         * 让人以为第一行有个删不掉的占位。
+         */
         preview: {
-          default: true,
-          parseHTML: (element: HTMLElement) => element.getAttribute('data-preview') !== 'false',
+          default: false,
+          parseHTML: (element: HTMLElement) => element.getAttribute('data-preview') === 'true',
           renderHTML: (attributes: Record<string, unknown>) =>
-            attributes.preview === false ? { 'data-preview': 'false' } : {},
+            attributes.preview === true ? { 'data-preview': 'true' } : {},
         },
       }
     },

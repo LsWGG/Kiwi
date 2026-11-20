@@ -19,6 +19,7 @@ import {
   DEFAULT_DOCX_PREFS,
   DOCX_FONTS,
   DOCX_SIZES,
+  normalizeCodeLanguage,
   type CodePrefs,
   type CodeTheme,
   type DocxFont,
@@ -235,7 +236,9 @@ const docx = computed(() => props.mode === 'docx')
 const prefs = computed<DocxPrefs>(() => props.docxPrefs ?? DEFAULT_DOCX_PREFS)
 const code = computed<CodePrefs>(() => props.codePrefs ?? DEFAULT_CODE_PREFS)
 const codeLanguage = computed(
-  () => (props.editor?.getAttributes('codeBlock').language as string) || 'plaintext',
+  () =>
+    normalizeCodeLanguage(props.editor?.getAttributes('codeBlock').language as string) ||
+    'plaintext',
 )
 /** 当前代码块能否运行：python 走后端，html / js 在预览 iframe 中渲染。 */
 const codeRunKind = computed<'python' | 'html' | 'js' | null>(() => {

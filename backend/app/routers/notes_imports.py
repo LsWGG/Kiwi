@@ -53,7 +53,12 @@ from app.services.file_security import (
     FileRejected,
     inspect_upload,
 )
-from app.services.link_fetcher import LinkFetchError, fetch_and_extract, fetch_meta
+from app.services.link_fetcher import (
+    LinkFetchError,
+    fetch_and_extract,
+    fetch_meta,
+    normalize_url,
+)
 from app.services.note_database import (
     default_views_for,
     ensure_collection,
@@ -852,6 +857,9 @@ async def create_link(
 
     ``readonly=True`` 时只抓取标题 / 摘要，保留为只读书签，不生成正文，
     也不参与编译与可编辑文档。
+
+    ``embed=True`` 时不解析正文，只登记网页地址与元信息，由笔记页面
+    直接用 iframe 打开网页；元信息抓取失败也不影响创建。
     """
     require_online_feature("link_fetch")
     await _validate_folder(session, kb_id, data.folder_id)
@@ -859,6 +867,41 @@ async def create_link(
         session, kb_id, None, data.parent_note_id
     )
     folder_id = parent.folder_id if parent is not None else data.folder_id
+    if data.embed:
+        try:
+            target_url = normalize_url(data.url)
+        except LinkFetchError as e:
+            raise HTTPException(400, str(e)) from e
+        try:
+            meta = await fetch_meta(target_url)
+        except LinkFetchError:
+            # 内嵌模式不依赖服务端抓取，拿不到标题时用地址兜底。
+            meta = None
+        props = _link_props(meta, target_url)
+        props["embed"] = True
+        note = Note(
+            kb_id=kb_id,
+            title=(
+                data.title
+                or (meta.title if meta else "")
+                or (meta.site if meta else "")
+                or target_url
+            )[:300],
+            body_md="",
+            kind="link",
+            folder_id=folder_id,
+            parent_note_id=data.parent_note_id,
+            status="active",
+            view_mode="read",
+            sort_order=await _next_note_sort(
+                session, kb_id, folder_id, data.parent_note_id
+            ),
+            props_json={"link": props},
+        )
+        session.add(note)
+        await session.commit()
+        await session.refresh(note)
+        return NoteOut.model_validate(note, from_attributes=True)
     if data.readonly:
         try:
             meta = await fetch_meta(data.url)
@@ -923,6 +966,19 @@ async def refresh_link(
     url = link.get("url") or link.get("final_url")
     if not url:
         raise HTTPException(400, "链接缺少原始地址")
+    if link.get("embed"):
+        # 内嵌笔记只刷新标题 / 站点等元信息，不解析正文。
+        try:
+            meta = await fetch_meta(url)
+        except LinkFetchError as e:
+            raise HTTPException(400, str(e)) from e
+        note.props_json = {
+            **(note.props_json or {}),
+            "link": {**_link_props(meta, url, link), "embed": True},
+        }
+        await session.commit()
+        await session.refresh(note)
+        return NoteOut.model_validate(note, from_attributes=True)
     try:
         result = await fetch_and_extract(url)
     except LinkFetchError as e:

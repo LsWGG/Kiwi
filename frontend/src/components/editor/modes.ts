@@ -494,6 +494,32 @@ export const CODE_LANGUAGES: { id: string; label: string }[] = [
   { id: 'diff', label: 'Diff' },
 ]
 
+/** 常见语言别名 → CODE_LANGUAGES 标准 id（```js → javascript）。 */
+const CODE_LANGUAGE_ALIASES: Record<string, string> = {
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  ts: 'typescript',
+  py: 'python',
+  python3: 'python',
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  console: 'bash',
+  yml: 'yaml',
+  md: 'markdown',
+  cs: 'csharp',
+  'c++': 'cpp',
+  htm: 'html',
+  svg: 'xml',
+  psql: 'sql',
+}
+
+export function normalizeCodeLanguage(id: string | null | undefined): string {
+  const value = String(id ?? '').toLowerCase()
+  return CODE_LANGUAGE_ALIASES[value] ?? value
+}
+
 export function resolveCodePrefs(raw: unknown): CodePrefs {
   const value = (raw ?? {}) as Partial<CodePrefs>
   return {

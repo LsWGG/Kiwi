@@ -183,6 +183,12 @@ async function exportDocx() {
 const link = computed<Partial<LinkMeta>>(
   () => (props.note.props_json?.link as Partial<LinkMeta>) ?? {},
 )
+/** 内嵌模式：不显示编辑器，直接用 iframe 打开网页。 */
+const isEmbed = computed(() => link.value.embed === true)
+const embedFrameKey = ref(0)
+function reloadEmbed() {
+  embedFrameKey.value += 1
+}
 const failed = computed(() => link.value.fetch_status === 'failed')
 /* 图标磁贴优先用站点 logo；没有记录时尝试根目录 favicon，失败再回退默认图标。 */
 const faviconSrc = computed(() => {
@@ -430,7 +436,28 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
         <template v-else-if="autosave.savedAt.value">已保存 {{ autosave.savedAt.value }}</template>
       </span>
       <NoteTagButton :note="note" />
-      <template v-if="!readMode">
+      <template v-if="isEmbed && openUrl">
+        <button
+          type="button"
+          class="kiwi-btn-ghost !py-1 !px-2 !text-[11px]"
+          title="刷新内嵌网页"
+          @click="reloadEmbed"
+        >
+          <KiwiIcon name="refresh" :size="12" />
+          刷新
+        </button>
+        <a
+          class="kiwi-btn-ghost !py-1 !px-2 !text-[11px]"
+          :href="openUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="在新窗口打开网页"
+        >
+          <KiwiIcon name="external" :size="13" />
+          新窗口打开
+        </a>
+      </template>
+      <template v-if="!readMode && !isEmbed">
         <button
           v-if="!IS_DESKTOP"
           class="kiwi-btn-ghost !py-1 !px-2 !text-[11px]"
@@ -473,6 +500,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
         <EditorModeMenu :mode="editorMode" @change="setEditorMode" />
       </template>
       <button
+        v-if="!isEmbed"
         class="kiwi-btn-ghost !py-1 !px-2 !text-[11px]"
         :title="readMode ? '切换到编辑' : '切换到阅读'"
         @click="toggleMode"
@@ -483,7 +511,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
     </header>
 
     <!-- Word 分栏预览：工具栏横跨正文与预览两栏 -->
-    <div v-if="docxToolbarExternal" class="shrink-0">
+    <div v-if="!isEmbed && docxToolbarExternal" class="shrink-0">
       <div class="w-full px-6 pt-6">
         <div id="note-docx-toolbar-slot" />
       </div>
@@ -494,7 +522,32 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
       class="flex-1 min-h-0 relative flex"
       :class="{ 'reading-zen': readMode && readZen }"
     >
+      <!-- 内嵌网页：iframe 直接占满阅读区，不进入编辑器 -->
+      <div v-if="isEmbed" class="h-full min-w-0 flex-1 flex flex-col bg-white">
+        <iframe
+          v-if="openUrl"
+          :key="embedFrameKey"
+          :src="openUrl"
+          class="min-h-0 w-full flex-1 border-0 bg-white"
+          title="内嵌网页"
+          loading="eager"
+          referrerpolicy="no-referrer"
+          allow="clipboard-read; clipboard-write; fullscreen"
+        />
+        <div
+          v-else
+          class="grid flex-1 place-items-center text-[12px] text-slate-400"
+        >
+          链接缺少网页地址
+        </div>
+        <div
+          class="shrink-0 border-t border-slate-200/60 bg-slate-50/70 px-4 py-1.5 text-[10.5px] text-slate-400"
+        >
+          部分网站禁止被第三方页面内嵌（X-Frame-Options / CSP）；空白时请点右上角“新窗口打开”。
+        </div>
+      </div>
       <div
+        v-else
         ref="readingScrollRef"
         class="h-full min-w-0 flex-1 overflow-auto bg-slate-50/50"
         :class="readMode ? 'cursor-none' : ''"
@@ -622,7 +675,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
 
       <!-- DOCX 模式：右侧 Word 导出预览，与正文纸张顶部对齐 -->
       <div
-        v-if="wordPreview && !readMode && editorMode === 'docx'"
+        v-if="!isEmbed && wordPreview && !readMode && editorMode === 'docx'"
         class="flex min-h-0 w-[47%] min-w-[360px] shrink-0 pb-6 pr-6"
         :style="{ paddingTop: `${previewTop}px` }"
       >
@@ -642,7 +695,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
 
       <!-- 阅读模式：激光点 + 演示笔 + 缩放 / 全屏 -->
       <NoteReadingTools
-        v-if="readMode"
+        v-if="readMode && !isEmbed"
         :area-el="readingAreaRef"
         :scroller-el="readingScrollRef"
         :zoom="readZoom"
@@ -652,7 +705,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
       />
 
       <EditorPageSettings
-        v-if="showPageSettings && !readMode"
+        v-if="!isEmbed && showPageSettings && !readMode"
         docked
         :mode="editorMode"
         :docx-prefs="docxPrefs"
@@ -665,7 +718,7 @@ const openUrl = computed(() => link.value.final_url || link.value.url || '')
       />
 
       <div
-        v-if="agentMode"
+        v-if="agentMode && !isEmbed"
         class="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center bg-gradient-to-t from-slate-50/90 via-slate-50/55 to-transparent px-6 pb-4 pt-12"
       >
         <div class="pointer-events-auto w-full max-w-2xl">

@@ -26,7 +26,7 @@ const items = [
   { key: 'import', label: '导入文件', hint: '解析为可编辑文档', icon: 'fileImport', tone: 'text-emerald-500' },
   { key: 'audio', label: '语音转写', hint: '音频生成会议笔记', icon: 'mic', tone: 'text-rose-500' },
   { key: 'folder', label: '分组', hint: '整理工作区条目', icon: 'folder', tone: 'text-amber-400' },
-  { key: 'link', label: '链接', hint: '抓取网页正文', icon: 'link2', tone: 'text-sky-500' },
+  { key: 'link', label: '链接', hint: '解析正文 / 内嵌网页', icon: 'link2', tone: 'text-sky-500' },
 ] as const
 
 function choose(key: (typeof items)[number]['key'], close: () => void) {

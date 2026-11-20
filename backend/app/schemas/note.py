@@ -221,6 +221,8 @@ class LinkCreate(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     # 只读：只保留链接卡片，不抓取 / 不生成可编辑正文
     readonly: bool = False
+    # 内嵌：不在服务端解析正文，直接在笔记里用 iframe 打开网页
+    embed: bool = False
 
 
 class LinkMetaIn(BaseModel):
