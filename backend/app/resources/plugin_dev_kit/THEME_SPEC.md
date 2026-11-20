@@ -3,7 +3,8 @@
 主题插件（`kind: "theme"`）用声明式 JSON + CSS 定制整个 Kiwi 界面：颜色、
 背景、面板透明度、毛玻璃、字体与装饰样式。主题包不执行 JavaScript，安装
 后在「设置 → 主题」中启用，即时生效。完整示例见 `examples/themes/aurora/`
-（深色）与 `examples/themes/ink-dusk/`（浅色古风，含合规预览图）。
+（内置深色主题，含完整色板、背景与合规预览图）；第三方主题插件源码统一维护在
+[`kiwi-timer-plugins`](https://github.com/LsWGG/kiwi-timer-plugins) 仓库的 `themes/` 下。
 
 ## 1. 包结构
 

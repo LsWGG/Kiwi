@@ -10,8 +10,10 @@ description: 为 Kiwi 开发、检查、打包或修复主题插件，包括设�
 JavaScript，安装后在「设置 → 主题」启用，即时生效，可随时切换回内置主题。
 
 完整规范以仓库 `docs/THEME_SPEC.md` 为准；可运行样例在
-`docs/examples/themes/aurora/`（深色极光）与 `docs/examples/themes/ink-dusk/`
-（浅色古风，含符合规范的「欢迎使用 Kiwi」笔记预览图）。
+`docs/examples/themes/aurora/`（内置深色极光，含完整色板、背景与符合规范的
+「欢迎使用 Kiwi」笔记预览图）。第三方主题插件源码统一维护在
+[`kiwi-timer-plugins`](https://github.com/LsWGG/kiwi-timer-plugins) 仓库的
+`themes/` 下；Kiwi 仓库只保留内置主题「经典紫」与「极光」。
 
 ## 设计前调研
 
@@ -268,9 +270,9 @@ html[data-kiwi-theme="aurora"] ::-webkit-scrollbar-thumb {
 ## 参考
 
 - 完整规范：`docs/THEME_SPEC.md`
-- 示例主题：`docs/examples/themes/aurora/`（深色）、
-  `docs/examples/themes/ink-dusk/`（浅色古风，含符合规范的「欢迎使用 Kiwi」
-  笔记预览图）
+- 示例主题：`docs/examples/themes/aurora/`（内置深色主题，含符合规范的
+  「欢迎使用 Kiwi」笔记预览图）
+- 第三方主题插件源码：[`kiwi-timer-plugins/themes/`](https://github.com/LsWGG/kiwi-timer-plugins/tree/main/themes)
 - 内置主题导出：`GET /api/themes/builtin/kiwi-classic/export`
 - 主题开发套件：`GET /api/themes/dev-kit`（根目录 `THEME_SPEC.md`、
   `examples/themes/`、`skill/kiwi-theme/SKILL.md` 与 `AI_PROMPT.md`）

@@ -57,11 +57,6 @@ THEME_DEV_KIT_FILES = (
     "examples/themes/aurora/README.md",
     "examples/themes/aurora/assets/aurora.svg",
     "examples/themes/aurora/assets/preview.svg",
-    "examples/themes/ink-dusk/plugin.json",
-    "examples/themes/ink-dusk/theme.css",
-    "examples/themes/ink-dusk/README.md",
-    "examples/themes/ink-dusk/assets/background.webp",
-    "examples/themes/ink-dusk/assets/preview.webp",
     "skill/kiwi-theme/SKILL.md",
 )
 DEFAULT_BUILTIN_KEY = builtin_themes.BUILTIN_THEMES[0]["key"]
@@ -557,7 +552,7 @@ async def theme_spec():
             "使用 kiwi-theme skill 为 Kiwi 开发一个主题插件。设计前先联网检索 UI 设计"
             "规范（WCAG 2.2 对比度、色彩体系、排版层级）与优秀主题样例，把调研结论"
             "落成色板后再开始设计；同时阅读 docs/THEME_SPEC.md 与 "
-            "docs/examples/themes/aurora/、ink-dusk/ 示例，输出可直接压缩为 zip 的 plugin.json、"
+            "docs/examples/themes/aurora/ 示例，输出可直接压缩为 zip 的 plugin.json、"
             "可选 theme.css 与 assets/ 资源（背景图 / 字体 / 背景视频）。主题只允许"
             "声明式 JSON + CSS，不执行 JavaScript；颜色令牌必须使用规范中的 key，"
             "装饰样式限定在 html[data-kiwi-theme=\"<key>\"] 下。背景视频写入 "
