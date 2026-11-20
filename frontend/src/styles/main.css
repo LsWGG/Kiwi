@@ -496,9 +496,14 @@ html.kiwi-sticky-expanding .page-enter-from {
   line-height: 1.6;
 }
 .kiwi-editor .ProseMirror pre code {
-  background: transparent;
+  /* 主题插件常用高特异性规则给行内 code 加 padding / 边框：
+     行内元素的左内边距只作用在首行，会造成「代码块第一行前面有空格」的假象。
+     这里强制重置，任何主题都不能把行内代码样式泄漏进代码块。 */
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
   color: inherit;
-  padding: 0;
+  padding: 0 !important;
 }
 
 /* 代码块：浅色主题 */

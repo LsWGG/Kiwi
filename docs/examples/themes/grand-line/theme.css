@@ -653,7 +653,11 @@ html[data-kiwi-theme='grand-line'][data-kiwi-theme-custom='true'] .kiwi-editor.c
 html[data-kiwi-theme='grand-line'][data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror pre code {
   background: transparent !important;
   border: 0 !important;
+  border-radius: 0 !important;
   color: inherit !important;
+  /* 行内代码的 padding 不能继承到代码块：行内元素左内边距只作用于首行，
+     会让代码块第一行看起来多一个空格。 */
+  padding: 0 !important;
 }
 html[data-kiwi-theme='grand-line'] .kiwi-editor .ProseMirror pre .hljs-comment,
 html[data-kiwi-theme='grand-line'] .kiwi-editor .ProseMirror pre .hljs-quote {
