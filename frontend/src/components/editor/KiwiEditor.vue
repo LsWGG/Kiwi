@@ -64,7 +64,7 @@ import {
   KiwiTableHeader,
   KiwiTableRow,
 } from './extensions/table'
-import { createCodeBlock } from './extensions/codeBlock'
+import { createCodeBlock, refreshCodeLineNumbers } from './extensions/codeBlock'
 import { CodeOutput, formatRunResult, upsertCodeOutput } from './extensions/codeOutput'
 import { buildPreviewDocument } from './extensions/preview'
 import { TrailingParagraph } from './extensions/trailingParagraph'
@@ -2190,7 +2190,7 @@ const editor = useEditor({
     KiwiTaskList,
     TaskItem.configure({ nested: true }),
     KiwiTaskProgress,
-    createCodeBlock(lowlight),
+    createCodeBlock(lowlight, { lineNumbers: () => codePrefs.value.lineNumbers }),
     CodeOutput,
     EmbedBlock,
     PageBreak,
@@ -2464,6 +2464,15 @@ const editor = useEditor({
     cancelFormatPainter()
   },
 })
+
+// 行号开关只影响装饰层：切换时立即重建，关闭后正文里不留任何行号占位节点。
+watch(
+  () => codePrefs.value.lineNumbers,
+  () => {
+    const ed = editor.value
+    if (ed) refreshCodeLineNumbers(ed)
+  },
+)
 
 /** 外部内容替换后清空撤销栈，避免 Ctrl+Z 把正文退回旧版本。 */
 function resetHistory() {

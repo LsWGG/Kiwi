@@ -1,10 +1,33 @@
 <script setup lang="ts">
-/** 新建链接笔记：服务端抓取正文，失败降级为书签。 */
-import { ref, watch } from 'vue'
+/** 新建链接笔记：解析正文 / 只读书签 / iframe 内嵌网页三种打开方式。 */
+import { computed, ref, watch } from 'vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import { useNotesStore, type NoteOut } from '@/stores/notes'
 import { toast } from '@/components/ui/toast'
+
+type LinkMode = 'fetch' | 'readonly' | 'embed'
+
+const LINK_MODES: { id: LinkMode; label: string; icon: string; hint: string }[] = [
+  {
+    id: 'fetch',
+    label: '解析正文',
+    icon: 'file',
+    hint: '由服务器抓取网页正文并转为 Markdown；抓取失败时仍会保存书签卡片。',
+  },
+  {
+    id: 'readonly',
+    label: '只读书签',
+    icon: 'bookOpen',
+    hint: '不抓取网页正文，仅保存标题与摘要，作为纯阅读书签。',
+  },
+  {
+    id: 'embed',
+    label: '内嵌网页',
+    icon: 'globe',
+    hint: '不解析正文，直接在笔记里用 iframe 打开网页。部分网站禁止被内嵌，打不开时可在新窗口打开。',
+  },
+]
 
 const props = withDefaults(
   defineProps<{
@@ -23,8 +46,15 @@ const url = ref('')
 const title = ref('')
 const loading = ref(false)
 const error = ref('')
-/** 只读书签：不抓取正文，仅保留标题 / 摘要与跳转链接。 */
-const readonly = ref(false)
+/** 打开方式：解析正文（默认）/ 只读书签 / iframe 内嵌网页。 */
+const mode = ref<LinkMode>('fetch')
+const modeHint = computed(
+  () => LINK_MODES.find((item) => item.id === mode.value)?.hint ?? '',
+)
+const submitLabel = computed(() => {
+  if (loading.value) return mode.value === 'fetch' ? '抓取中…' : '创建中…'
+  return '创建链接'
+})
 
 watch(
   () => props.open,
@@ -34,7 +64,7 @@ watch(
     title.value = ''
     error.value = ''
     loading.value = false
-    readonly.value = false
+    mode.value = 'fetch'
   },
 )
 
@@ -63,15 +93,18 @@ async function submit() {
       title: title.value.trim() || undefined,
       folder_id: props.folderId,
       parent_note_id: props.parentNoteId,
-      readonly: readonly.value,
+      readonly: mode.value === 'readonly',
+      embed: mode.value === 'embed',
     })
     const ok = note.props_json?.link?.fetch_status === 'ok'
     toast[ok ? 'success' : 'info'](
-      readonly.value
-        ? '已创建只读链接'
-        : ok
-          ? '已抓取网页正文'
-          : '暂时无法抓取正文，已保存为书签',
+      mode.value === 'embed'
+        ? '已创建内嵌网页笔记'
+        : mode.value === 'readonly'
+          ? '已创建只读链接'
+          : ok
+            ? '已抓取网页正文'
+            : '暂时无法抓取正文，已保存为书签',
     )
     emit('created', note)
     emit('close')
@@ -105,26 +138,37 @@ async function submit() {
         <label class="block text-[11px] font-medium text-slate-500 mb-1.5">标题（可选）</label>
         <input v-model="title" class="kiwi-input" placeholder="留空则使用网页标题" @keyup.enter="submit" />
       </div>
-      <label class="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[11.5px] text-slate-600">
-        <input v-model="readonly" type="checkbox" class="mt-0.5 rounded border-slate-300" />
-        <span>
-          只读链接
-          <span class="block text-[10.5px] leading-relaxed text-slate-400">
-            不抓取网页正文，仅保存标题与摘要，作为纯阅读书签。
-          </span>
-        </span>
-      </label>
-      <p class="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-400">
-        <KiwiIcon name="sparkle" :size="12" class="mt-0.5 shrink-0" />
-        默认由服务器抓取网页正文并转为 Markdown；抓取失败时仍会保存书签卡片。
-      </p>
+      <div>
+        <label class="block text-[11px] font-medium text-slate-500 mb-1.5">打开方式</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            v-for="item in LINK_MODES"
+            :key="item.id"
+            type="button"
+            class="flex flex-col items-center gap-1 rounded-lg border px-2 py-2 transition-colors"
+            :class="
+              mode === item.id
+                ? 'border-kiwi-300 bg-kiwi-50 text-kiwi-700'
+                : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600'
+            "
+            @click="mode = item.id"
+          >
+            <KiwiIcon :name="item.icon" :size="15" />
+            <span class="text-[11px] font-medium">{{ item.label }}</span>
+          </button>
+        </div>
+        <p class="mt-2 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-400">
+          <KiwiIcon name="sparkle" :size="12" class="mt-0.5 shrink-0" />
+          {{ modeHint }}
+        </p>
+      </div>
       <p v-if="error" class="text-[11.5px] text-rose-500">{{ error }}</p>
     </div>
     <div class="flex justify-end gap-2 mt-5">
       <button class="kiwi-btn-secondary" @click="emit('close')">取消</button>
       <button class="kiwi-btn-primary" :disabled="loading" @click="submit">
         <KiwiIcon v-if="loading" name="loader" :size="14" spin />
-        {{ loading ? '抓取中…' : '创建链接' }}
+        {{ submitLabel }}
       </button>
     </div>
   </KiwiModal>

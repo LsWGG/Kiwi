@@ -330,6 +330,8 @@ export interface LinkMeta {
   fetch_status: 'ok' | 'failed'
   fetch_error: string | null
   fetched_at: string
+  /** 内嵌模式：直接在笔记里用 iframe 打开网页，不解析正文 */
+  embed?: boolean
 }
 
 export const useNotesStore = defineStore('notes', () => {
@@ -992,6 +994,8 @@ export const useNotesStore = defineStore('notes', () => {
     parent_note_id?: string | null
     /** 只读书签：只抓取标题与摘要，不生成可编辑正文 */
     readonly?: boolean
+    /** 内嵌网页：不解析正文，直接用 iframe 打开网页 */
+    embed?: boolean
   }) {
     const note = await request<NoteOut>('/notes/link', {
       method: 'POST',
