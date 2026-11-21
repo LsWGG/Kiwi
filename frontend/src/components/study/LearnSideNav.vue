@@ -9,6 +9,7 @@ import { useKbsStore } from '@/stores/kbs'
 import { useStudyStore } from '@/stores/study'
 import { IS_DESKTOP } from '@/desktop/env'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import { navCollapsed, toggleNavCollapsed } from '@/composables/useSideNav'
 
 type Pane =
   | 'review'
@@ -68,25 +69,6 @@ function lockedHint(key: NavKey): string | undefined {
   if (!navLocked(key)) return undefined
   if (!learnReady.value) return '请先在编辑模式导入素材并完成编译'
   return '请先完成学习冷启动对话'
-}
-
-const NAV_STORAGE_KEY = 'kiwi.sidenav.collapsed'
-const navCollapsed = ref((() => {
-  try {
-    return localStorage.getItem(NAV_STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-})())
-watch(navCollapsed, (value) => {
-  try {
-    localStorage.setItem(NAV_STORAGE_KEY, value ? '1' : '0')
-  } catch {
-    /* 隐私模式下忽略 */
-  }
-})
-function toggleNav() {
-  navCollapsed.value = !navCollapsed.value
 }
 
 /** 窄屏与编辑模式一致：强制收起为图标轨道，把横向空间留给学习正文。 */
@@ -203,7 +185,7 @@ function onNav(key: NavKey) {
         class="flex w-full items-center gap-2.5 rounded-xl py-2 text-[11px] text-slate-400 transition-colors hover:bg-white/50 hover:text-slate-600"
         :class="isCollapsed ? 'justify-center px-0' : 'px-3'"
         :title="isCollapsed ? '展开菜单' : '收起菜单'"
-        @click="toggleNav"
+        @click="toggleNavCollapsed"
       >
         <KiwiIcon :name="isCollapsed ? 'panelLeftOpen' : 'panelLeftClose'" :size="16" />
         <span v-if="!isCollapsed" class="whitespace-nowrap">收起菜单</span>

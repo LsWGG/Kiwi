@@ -1,5 +1,12 @@
 /** 主题插件类型：与后端 `app/schemas/theme.py` / `plugin.py` 的 Theme* schema 对齐。 */
 
+/** 语义状态色：成功 / 警告 / 危险 / 信息。界面里所有状态色都从这里取。 */
+export type ThemeStatusColorKey =
+  | 'status.success'
+  | 'status.warning'
+  | 'status.danger'
+  | 'status.info'
+
 export type ThemeColorKey =
   | 'app.background'
   | 'surface.background'
@@ -16,6 +23,14 @@ export type ThemeColorKey =
   | 'text.faint'
   | 'accent'
   | 'accent.foreground'
+  | ThemeStatusColorKey
+
+export const THEME_STATUS_COLOR_KEYS: ThemeStatusColorKey[] = [
+  'status.success',
+  'status.warning',
+  'status.danger',
+  'status.info',
+]
 
 export const THEME_COLOR_KEYS: ThemeColorKey[] = [
   'app.background',
@@ -33,6 +48,7 @@ export const THEME_COLOR_KEYS: ThemeColorKey[] = [
   'text.faint',
   'accent',
   'accent.foreground',
+  ...THEME_STATUS_COLOR_KEYS,
 ]
 
 /** 与当前界面完全一致的默认值：内置主题与兼容层都以此为基准。 */
@@ -53,6 +69,12 @@ export const DEFAULT_THEME_COLORS: Record<ThemeColorKey, string> = {
   // accent 留空表示由主题引擎回落到内置默认色（编辑紫 / 学习绿）；画廊预览用 DEFAULT_ACCENT。
   'accent': '',
   'accent.foreground': '#ffffff',
+  // 状态色留空表示使用界面默认的成功 / 警告 / 危险 / 信息语义色；
+  // 深色主题自动取在深色表面上可读的浅色阶，不跟随强调色。
+  'status.success': '',
+  'status.warning': '',
+  'status.danger': '',
+  'status.info': '',
 }
 
 export const DEFAULT_ACCENT = '#5a55c7'
@@ -75,6 +97,10 @@ export const THEME_COLOR_LABELS: Record<ThemeColorKey, string> = {
   'text.faint': '最弱文本',
   'accent': '强调色',
   'accent.foreground': '强调色文字',
+  'status.success': '成功色',
+  'status.warning': '警告色',
+  'status.danger': '危险色',
+  'status.info': '信息色',
 }
 
 export type ThemeMode = 'light' | 'dark'

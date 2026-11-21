@@ -12,7 +12,7 @@
 #   ENV_FILE             .env.prod 文件（默认 .env.prod）
 #   COMPOSE_FILE         compose 文件（默认 docker-compose.prod.yml）
 #   BACKUP_DIR           备份根目录（默认 <repo>/backups）
-#   BACKUP_RETENTION_DAYS 保留天数（默认 14；0 表示不清理）
+#   BACKUP_RETENTION_DAYS 保留天数（默认 3；0 表示不清理）
 #   PG_DUMP / PG_RESTORE 指定二进制路径（本地模式）
 #   KIWI_DATABASE_URL    本地模式的数据库连接（也可直接用 PGHOST/PGPORT/...）
 #   KIWI_UPLOAD_DIR      本地模式的上传目录（默认 backend/data/uploads）
@@ -31,7 +31,7 @@ MODE="docker"
 ENV_FILE="${ENV_FILE:-.env.prod}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-3}"
 PG_DUMP="${PG_DUMP:-pg_dump}"
 PG_RESTORE="${PG_RESTORE:-pg_restore}"
 

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.build_info import APP_VERSION
 from app.config import settings
 from app.db.session import async_session_factory
+from app.mcp import server as mcp_server
 from app.observability import RequestContextMiddleware, setup_logging
 from app.routers import (
     attachments,
@@ -201,6 +202,7 @@ app.include_router(jobs.router)
 app.include_router(audit.router)
 app.include_router(maintenance.router)
 app.include_router(maintenance.metrics_router)
+app.include_router(mcp_server.router)
 
 # 桌面模式专用接口：Docker 部署不注册。
 if settings.desktop_mode:

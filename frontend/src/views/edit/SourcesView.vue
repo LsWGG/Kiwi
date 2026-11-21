@@ -2416,12 +2416,12 @@ async function compileAllNotes() {
   width: 22px;
   height: 22px;
   border-radius: 0.375rem;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   transition: color 0.15s, background-color 0.15s;
 }
 .row-action:hover {
-  color: rgb(13 148 136);
-  background: rgb(240 253 250);
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.08);
 }
 .row-action:disabled {
   opacity: 0.35;

@@ -387,13 +387,13 @@ onBeforeUnmount(() => {
   padding: 6px 2px 2px;
   font-size: 11.5px;
   line-height: 1.55;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-gallery-readonly-empty {
   padding: 1.5rem 0;
   text-align: center;
   font-size: 11.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-gallery-block.is-selected,
 .kiwi-gallery-block.is-drag {
@@ -425,7 +425,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--theme-text-faint));
 }
 .kiwi-gallery-status.is-error {
-  color: rgb(220 38 38);
+  color: rgb(var(--theme-danger));
 }
 .kiwi-gallery-seg {
   display: inline-flex;
@@ -458,8 +458,8 @@ onBeforeUnmount(() => {
   background: rgb(var(--kiwi-50));
 }
 .kiwi-gallery-action.is-danger:hover {
-  color: rgb(220 38 38);
-  background: rgb(254 242 242);
+  color: rgb(var(--theme-danger));
+  background: rgb(var(--theme-danger) / 0.08);
 }
 .kiwi-gallery-empty {
   display: flex;
@@ -528,8 +528,8 @@ onBeforeUnmount(() => {
   min-width: 280px;
   min-height: 180px;
   border-radius: 12px;
-  border: 1px dashed rgb(203 213 225 / 0.45);
-  color: rgb(203 213 225);
+  border: 1px dashed rgb(var(--theme-border-strong) / 0.45);
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-gallery-item-bar {
   display: flex;
@@ -559,8 +559,8 @@ onBeforeUnmount(() => {
   background: rgb(var(--theme-surface-muted));
 }
 .kiwi-gallery-mini.is-danger:hover {
-  color: rgb(220 38 38);
-  background: rgb(254 242 242);
+  color: rgb(var(--theme-danger));
+  background: rgb(var(--theme-danger) / 0.08);
 }
 .kiwi-gallery-carousel {
   position: relative;
@@ -639,14 +639,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);
 }
 .kiwi-lightbox-figure figcaption {
-  color: rgb(226 232 240);
+  color: rgb(var(--theme-border));
   font-size: 12.5px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
 }
 .kiwi-lightbox-count {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 11px;
 }
 .kiwi-lightbox-close,
@@ -657,7 +657,7 @@ onBeforeUnmount(() => {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  color: rgb(226 232 240);
+  color: rgb(var(--theme-border));
   background: rgb(255 255 255 / 0.12);
   border: 1px solid rgb(255 255 255 / 0.16);
 }

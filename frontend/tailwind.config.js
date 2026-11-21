@@ -1,6 +1,34 @@
 /** @type {import('tailwindcss').Config} */
 import typography from '@tailwindcss/typography'
 
+/**
+ * 语义色板：把 Tailwind 的高饱和色系重写成主题令牌。
+ *
+ * 界面里历史遗留了大量 text-amber-600 / bg-rose-50 / border-emerald-200
+ * 这类直接色号，主题插件切换后它们不会跟随。这里按语义整族映射：
+ * - emerald / green / teal / lime → 成功色
+ * - amber / orange / yellow → 警告色
+ * - rose / red / pink / fuchsia → 危险色
+ * - sky / blue / cyan / indigo → 信息色
+ * - violet / purple → 强调色
+ *
+ * 浅色档位用低透明度叠出 tint（透明度修饰符会继续相乘），深色档位统一
+ * 取令牌本色——单套令牌要在亮 / 暗主题下都成立，不能再按经典色阶分深浅。
+ * 主题插件通过 theme.colors 的 status.* / accent 令牌覆盖这些颜色。
+ */
+const semanticPalette = (token) => ({
+  50: `rgb(var(${token}) / calc(0.08 * <alpha-value>))`,
+  100: `rgb(var(${token}) / calc(0.13 * <alpha-value>))`,
+  200: `rgb(var(${token}) / calc(0.22 * <alpha-value>))`,
+  300: `rgb(var(${token}) / calc(0.4 * <alpha-value>))`,
+  400: `rgb(var(${token}) / <alpha-value>)`,
+  500: `rgb(var(${token}) / <alpha-value>)`,
+  600: `rgb(var(${token}) / <alpha-value>)`,
+  700: `rgb(var(${token}) / <alpha-value>)`,
+  800: `rgb(var(${token}) / <alpha-value>)`,
+  900: `rgb(var(${token}) / <alpha-value>)`,
+})
+
 export default {
   content: ['./index.html', './src/**/*.{vue,ts}'],
   theme: {
@@ -19,6 +47,24 @@ export default {
           800: 'rgb(var(--kiwi-800) / <alpha-value>)',
           900: 'rgb(var(--kiwi-900) / <alpha-value>)',
         },
+        // 语义状态色板：界面组件直接使用这些色系即可自动跟随主题插件。
+        emerald: semanticPalette('--theme-success'),
+        green: semanticPalette('--theme-success'),
+        teal: semanticPalette('--theme-success'),
+        lime: semanticPalette('--theme-success'),
+        amber: semanticPalette('--theme-warning'),
+        orange: semanticPalette('--theme-warning'),
+        yellow: semanticPalette('--theme-warning'),
+        rose: semanticPalette('--theme-danger'),
+        red: semanticPalette('--theme-danger'),
+        pink: semanticPalette('--theme-danger'),
+        fuchsia: semanticPalette('--theme-danger'),
+        sky: semanticPalette('--theme-info'),
+        blue: semanticPalette('--theme-info'),
+        cyan: semanticPalette('--theme-info'),
+        indigo: semanticPalette('--theme-info'),
+        violet: semanticPalette('--theme-accent'),
+        purple: semanticPalette('--theme-accent'),
       },
       fontFamily: {
         sans: ['"Inter"', '"Noto Sans SC"', 'system-ui', 'sans-serif'],

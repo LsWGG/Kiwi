@@ -29,7 +29,7 @@ const barClass = computed(() =>
         <div
           v-if="status === 'running'"
           class="absolute inset-0 animate-shimmer"
-          style="background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent); background-size: 200% 100%;"
+          style="background: linear-gradient(90deg, transparent, rgb(var(--theme-accent-foreground) / 0.5), transparent); background-size: 200% 100%;"
         />
       </div>
     </div>

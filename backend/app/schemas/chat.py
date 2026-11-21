@@ -70,9 +70,13 @@ class ChatRequest(BaseModel):
     llm_config_id: uuid.UUID | None = None  # 页面级临时指定
     model_override: str | None = Field(default=None, max_length=200)  # 仅本次请求
     stream: bool = True
-    # Agent 能力：多角度检索（拆分问题里的并列子问题）与联网检索。
+    # Agent 能力：多角度检索（拆分问题里的并列子问题）、工具调用与联网检索。
     agent: bool = False
     web_search: bool = False
+    # 写操作确认：上一轮 SSE 以 awaiting_approval 结束时返回的 action_id。
+    # 服务端只保存 15 分钟，且一次确认只能执行一次。
+    resume_action_id: str | None = Field(default=None, max_length=64)
+    approve: bool | None = None
 
 
 class ChatEvent(BaseModel):

@@ -12,9 +12,11 @@ import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import {
   auditExportUrl,
+  backupDownloadUrl,
   cancelJob,
   getBackendBuildInfo,
   getFrontendBuildInfo,
+  importBackup,
   listAudit,
   listBackups,
   listJobs,
@@ -57,6 +59,9 @@ const auditPageCount = computed(() =>
 const backups = ref<BackupList | null>(null)
 const backupsLoading = ref(false)
 const triggeringBackup = ref(false)
+const importingBackup = ref(false)
+const importProgress = ref(0)
+const backupFileInput = ref<HTMLInputElement | null>(null)
 
 const backendBuild = ref<BuildInfo | null>(null)
 const frontendBuild = ref<BuildInfo | null>(null)
@@ -335,6 +340,37 @@ async function handleBackup() {
   }
 }
 
+function pickBackupFile() {
+  if (importingBackup.value) return
+  backupFileInput.value?.click()
+}
+
+async function onBackupFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // 允许连续导入同一个文件。
+  input.value = ''
+  if (!file) return
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    toast.error('请选择 .zip 备份包')
+    return
+  }
+  importingBackup.value = true
+  importProgress.value = 0
+  try {
+    const item = await importBackup(file, (loaded, total) => {
+      importProgress.value = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+    })
+    toast.success(`已导入备份「${item.name}」；导入只保存快照，不会覆盖当前数据`)
+    await loadBackups()
+  } catch (e: any) {
+    toast.error(e.message || '导入备份失败')
+  } finally {
+    importingBackup.value = false
+    importProgress.value = 0
+  }
+}
+
 function toggleAuditDetail(entry: AuditEntry) {
   expandedAudit.value = expandedAudit.value === entry.id ? null : entry.id
 }
@@ -486,7 +522,7 @@ function setAuditAction(value: string | number) {
               :model-value="statusFilter"
               :options="STATUS_OPTIONS"
               width="w-36"
-              trigger-class="!h-8 !w-full !justify-between !rounded-xl !border !border-slate-200/80 !bg-white/80 !px-2.5 !text-[12px] !text-slate-600"
+              trigger-class="kiwi-btn-secondary kiwi-btn-sm !w-full !justify-between"
               @update:model-value="setStatusFilter"
             />
             <button
@@ -586,7 +622,7 @@ function setAuditAction(value: string | number) {
           <div class="flex items-center gap-1">
             <button
               type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              class="kiwi-btn-secondary kiwi-btn-xs"
               :disabled="jobsPage <= 1 || jobsLoading"
               @click="goJobsPage(jobsPage - 1)"
             >
@@ -594,7 +630,7 @@ function setAuditAction(value: string | number) {
             </button>
             <button
               type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              class="kiwi-btn-secondary kiwi-btn-xs"
               :disabled="jobsPage >= jobsPageCount || jobsLoading"
               @click="goJobsPage(jobsPage + 1)"
             >
@@ -618,12 +654,12 @@ function setAuditAction(value: string | number) {
               :model-value="auditAction"
               :options="auditActionOptions"
               width="w-36"
-              trigger-class="!h-8 !w-full !justify-between !rounded-xl !border !border-slate-200/80 !bg-white/80 !px-2.5 !text-[12px] !text-slate-600"
+              trigger-class="kiwi-btn-secondary kiwi-btn-sm !w-full !justify-between"
               @update:model-value="setAuditAction"
             />
             <a
               :href="auditExportUrl(undefined, auditAction || undefined)"
-              class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white/70 px-2 py-1.5 text-[11px] text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600"
+              class="kiwi-btn-secondary kiwi-btn-sm no-underline"
               download
             >
               <KiwiIcon name="fileExport" :size="12" />
@@ -683,7 +719,7 @@ function setAuditAction(value: string | number) {
           <div class="flex items-center gap-1">
             <button
               type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              class="kiwi-btn-secondary kiwi-btn-xs"
               :disabled="auditPage <= 1 || auditLoading"
               @click="goAuditPage(auditPage - 1)"
             >
@@ -691,7 +727,7 @@ function setAuditAction(value: string | number) {
             </button>
             <button
               type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-500 transition-colors hover:border-kiwi-200 hover:text-kiwi-600 disabled:opacity-40"
+              class="kiwi-btn-secondary kiwi-btn-xs"
               :disabled="auditPage >= auditPageCount || auditLoading"
               @click="goAuditPage(auditPage + 1)"
             >
@@ -711,14 +747,32 @@ function setAuditAction(value: string | number) {
           <span class="text-[10px] text-slate-400">
             {{ backups?.enabled ? `每 ${backups.interval_hours} 小时自动执行，保留 ${backups.retention_days} 天` : '自动备份未启用，仍可手动触发' }}
           </span>
-          <button
-            class="kiwi-btn-secondary ml-auto !px-3 !py-1.5 !text-[11.5px]"
-            :disabled="triggeringBackup"
-            @click="handleBackup"
-          >
-            <KiwiIcon :name="triggeringBackup ? 'loader' : 'play'" :size="12" :spin="triggeringBackup" />
-            {{ triggeringBackup ? '创建中…' : '立即备份' }}
-          </button>
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            <input
+              ref="backupFileInput"
+              type="file"
+              accept=".zip,application/zip"
+              class="hidden"
+              @change="onBackupFileChange"
+            />
+            <button
+              class="kiwi-btn-secondary kiwi-btn-sm"
+              :disabled="importingBackup"
+              title="导入已有的 .zip 备份包，仅保存为快照，不覆盖当前数据"
+              @click="pickBackupFile"
+            >
+              <KiwiIcon :name="importingBackup ? 'loader' : 'fileImport'" :size="12" :spin="importingBackup" />
+              {{ importingBackup ? `导入中 ${importProgress}%` : '导入备份' }}
+            </button>
+            <button
+              class="kiwi-btn-secondary kiwi-btn-sm"
+              :disabled="triggeringBackup"
+              @click="handleBackup"
+            >
+              <KiwiIcon :name="triggeringBackup ? 'loader' : 'play'" :size="12" :spin="triggeringBackup" />
+              {{ triggeringBackup ? '创建中…' : '立即备份' }}
+            </button>
+          </div>
         </div>
 
         <div class="mb-3 grid gap-2 text-[10.5px] text-slate-400 sm:grid-cols-2">
@@ -726,7 +780,8 @@ function setAuditAction(value: string | number) {
             备份目录：<span class="font-mono text-slate-500">{{ backups.directory }}</span>
           </p>
           <p class="sm:text-right">
-            恢复请使用 <code class="rounded bg-slate-100 px-1 font-mono text-slate-500">scripts/restore_backup.sh</code>，应用内不提供一键覆盖。
+            每份备份可下载归档或导入迁移；恢复仍使用
+            <code class="rounded bg-slate-100 px-1 font-mono text-slate-500">scripts/restore_backup.sh</code>，应用内不提供一键覆盖。
           </p>
         </div>
 
@@ -746,18 +801,30 @@ function setAuditAction(value: string | number) {
               v-if="item.trigger"
               class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500"
             >
-              {{ item.trigger === 'manual' ? '手动' : item.trigger === 'job' ? '任务' : item.trigger }}
+              {{ item.trigger === 'manual' ? '手动' : item.trigger === 'job' ? '任务' : item.trigger === 'import' ? '导入' : item.trigger }}
             </span>
             <span class="text-[10.5px] text-slate-400">{{ formatSize(backupSize(item)) }}</span>
             <span class="text-[10.5px] text-slate-400">
               {{ item.uploads_included ? '含附件' : '仅数据库' }}
             </span>
-            <span class="ml-auto text-[10.5px] text-slate-400">{{ formatTime(item.created_at) }}</span>
+            <div class="ml-auto flex items-center gap-1.5">
+              <span class="text-[10.5px] text-slate-400">{{ formatTime(item.imported_at || item.created_at) }}</span>
+              <a
+                class="inline-grid h-6 w-6 place-items-center rounded-md text-slate-400 transition-colors hover:bg-white/70 hover:text-slate-600"
+                :href="backupDownloadUrl(item.name)"
+                :download="`${item.name}.zip`"
+                :aria-label="`下载备份包 ${item.name}`"
+                title="下载备份包（zip）"
+              >
+                <KiwiIcon name="download" :size="12" />
+              </a>
+            </div>
           </div>
         </div>
 
         <p class="mt-2 text-[10.5px] leading-relaxed text-slate-400">
           备份包含 PostgreSQL 自定义格式转储、uploads 归档与 manifest 校验文件；
+          下载得到可直接归档的 zip，导入会先校验大小与 sha256 再保存为快照。
           大库备份可能耗时较久，执行期间可继续使用系统。
         </p>
       </section>

@@ -174,7 +174,7 @@ function onCellMouseDown(event: MouseEvent) {
         </span>
         <div class="flex-1" />
         <div
-          class="flex items-center gap-0.5 transition-opacity"
+          class="touch-visible flex items-center gap-0.5 transition-opacity"
           :class="selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'"
         >
           <button type="button" class="nb-action" title="复制源码" @click="copySource">

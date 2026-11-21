@@ -16,16 +16,20 @@ import {
 import {
   DEFAULT_THEME_COLORS,
   EMPTY_THEME_OVERRIDES,
+  THEME_STATUS_COLOR_KEYS,
   normalizeThemeSpec,
   type ThemeActive,
   type ThemeColorKey,
   type ThemeOverrides,
+  type ThemeStatusColorKey,
 } from './types'
 
 export const THEME_CACHE_KEY = 'kiwi.theme.active.v1'
 
+type CoreColorKey = Exclude<ThemeColorKey, ThemeStatusColorKey>
+
 /** 主题令牌 → CSS 变量。 */
-const TOKEN_VARS: Record<ThemeColorKey, string> = {
+const TOKEN_VARS: Record<CoreColorKey, string> = {
   'app.background': '--theme-app',
   'surface.background': '--theme-surface',
   'surface.muted': '--theme-surface-muted',
@@ -41,6 +45,22 @@ const TOKEN_VARS: Record<ThemeColorKey, string> = {
   'text.faint': '--theme-text-faint',
   'accent': '--theme-accent',
   'accent.foreground': '--theme-accent-foreground',
+}
+
+/**
+ * 状态色令牌 → 声明变量。
+ *
+ * 不能直接写 `--theme-success`：theme.css 在 body 上把
+ * `--theme-success` 解析成 `var(--theme-status-success, <默认语义色>)`，
+ * 未声明时保持固定的成功 / 警告 / 危险 / 信息语义色，不会跟随红色系 / 洋红
+ * 强调色变红。这里只负责写入“主题包已声明”的状态值，未声明时移除，
+ * 让 CSS 回落生效。
+ */
+const STATUS_VARS: Record<ThemeStatusColorKey, string> = {
+  'status.success': '--theme-status-success',
+  'status.warning': '--theme-status-warning',
+  'status.danger': '--theme-status-danger',
+  'status.info': '--theme-status-info',
 }
 
 /**
@@ -67,6 +87,7 @@ const EXTRA_VARS = [
   '--theme-font-body',
   '--theme-font-heading',
   '--theme-font-mono',
+  ...Object.values(STATUS_VARS),
 ]
 
 const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
@@ -291,9 +312,17 @@ export function applyActiveTheme(active: ThemeActive | null): void {
   const overrides = normalizedOverrides(active)
 
   // 1. 颜色令牌
-  for (const key of Object.keys(TOKEN_VARS) as ThemeColorKey[]) {
+  for (const key of Object.keys(TOKEN_VARS) as CoreColorKey[]) {
     const triplet = colorToRgbTriplet(colors[key]) || colorToRgbTriplet(DEFAULT_THEME_COLORS[key])
     if (triplet) root.style.setProperty(TOKEN_VARS[key], triplet)
+  }
+
+  // 状态色：只有主题包显式声明时才覆盖；未声明由 theme.css 回落到
+  // 当前模式强调色 / 通用语义色。每次都要清理旧值，避免切换主题后残留。
+  for (const key of THEME_STATUS_COLOR_KEYS) {
+    const triplet = colorToRgbTriplet(colors[key])
+    if (triplet) root.style.setProperty(STATUS_VARS[key], triplet)
+    else root.style.removeProperty(STATUS_VARS[key])
   }
 
   // 2. 旧 slate 档位：内置主题移除，让 CSS fallback 保持当前色值。

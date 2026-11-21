@@ -116,24 +116,39 @@ function openPreview(file: DbAttachment) {
 
 <template>
   <div class="flex flex-wrap items-center gap-1 min-w-0 py-0.5">
-    <button
+    <span
       v-for="(file, index) in list"
       :key="file.id || `${file.url}-${index}`"
-      type="button"
       class="db-attach-chip group/chip"
-      :title="`${file.filename}（${sizeLabel(file.size)}）点击大屏预览`"
-      @click.stop="openPreview(file)"
     >
-      <KiwiIcon name="paperclip" :size="10" class="shrink-0 opacity-60" />
-      <span class="truncate max-w-[150px]">{{ file.filename }}</span>
-      <span
+      <button
+        type="button"
+        class="db-attach-main"
+        :title="`${file.filename}（${sizeLabel(file.size)}）点击大屏预览`"
+        @click.stop="openPreview(file)"
+      >
+        <KiwiIcon name="paperclip" :size="10" class="shrink-0 opacity-60" />
+        <span class="truncate max-w-[150px]">{{ file.filename }}</span>
+      </button>
+      <a
+        :href="file.url"
+        :download="file.filename"
+        class="db-attach-action"
+        :title="`下载 ${file.filename}`"
+        @mousedown.stop
+        @click.stop
+      >
+        <KiwiIcon name="download" :size="9" />
+      </a>
+      <button
+        type="button"
         class="db-attach-remove shrink-0 rounded-full p-px opacity-50 hover:bg-slate-200 hover:opacity-100"
         title="移除附件"
         @click.stop="removeAttachment(index)"
       >
         <KiwiIcon name="close" :size="9" />
-      </span>
-    </button>
+      </button>
+    </span>
 
     <span v-if="uploadingLabel" class="text-[10.5px] text-slate-400">{{ uploadingLabel }}</span>
 
@@ -161,9 +176,28 @@ function openPreview(file: DbAttachment) {
 
 <style scoped>
 .db-attach-chip {
-  @apply inline-flex items-center gap-1 max-w-full rounded-md border border-slate-200/80 bg-white/80 px-1.5 py-0.5 text-[10.5px] leading-4 text-slate-600 transition-colors hover:border-kiwi-300 hover:bg-kiwi-50/60 hover:text-kiwi-700;
+  @apply inline-flex max-w-full items-center gap-0.5 rounded-md border border-slate-200/80 bg-white/80 px-1.5 py-0.5 text-[10.5px] leading-4 text-slate-600 transition-colors;
+}
+.db-attach-chip:hover {
+  border-color: rgb(var(--theme-accent) / 0.45);
+  background: rgb(var(--theme-accent) / 0.07);
+  color: rgb(var(--theme-text-strong));
+}
+.db-attach-main {
+  @apply inline-flex min-w-0 items-center gap-1 text-left outline-none;
+}
+.db-attach-action {
+  @apply inline-grid h-4 w-4 shrink-0 place-items-center rounded text-slate-400 transition-colors;
+}
+.db-attach-action:hover {
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
 }
 .db-attach-add {
-  @apply inline-flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-1.5 py-0.5 text-[10.5px] leading-4 text-slate-400 transition-colors hover:border-kiwi-400 hover:text-kiwi-600;
+  @apply inline-flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-1.5 py-0.5 text-[10.5px] leading-4 text-slate-400 transition-colors;
+}
+.db-attach-add:hover {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  color: rgb(var(--theme-accent));
 }
 </style>

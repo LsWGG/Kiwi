@@ -464,15 +464,15 @@ watch(token, () => {
   gap: 0.35rem 1rem;
   font-size: 10.5px;
   line-height: 1.7;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
 }
 .share-pane-foot {
-  border-top: 1px solid rgba(226, 232, 240, 0.7);
+  border-top: 1px solid rgb(var(--theme-border) / 0.7);
   padding: 0.7rem 1rem;
 }
 .share-doc-foot {
   margin-top: 2.5rem;
-  border-top: 1px solid rgba(226, 232, 240, 0.7);
+  border-top: 1px solid rgb(var(--theme-border) / 0.7);
   padding-top: 1rem;
 }
 .share-doc-body {
@@ -483,7 +483,7 @@ watch(token, () => {
 .share-sheet :deep(.prose-wiki) {
   font-size: var(--share-doc-size, 15px);
   line-height: var(--share-doc-line, 1.8);
-  color: #1e293b;
+  color: rgb(var(--theme-text-primary));
 }
 .share-sheet :deep(.prose-wiki > *) {
   margin-top: 0;
@@ -512,7 +512,7 @@ watch(token, () => {
 .share-sheet :deep(.prose-wiki blockquote) {
   border-left: 3px solid rgb(var(--kiwi-300));
   padding-left: 1rem;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   font-style: normal;
 }
 .share-sheet :deep(.prose-wiki code) {
@@ -521,7 +521,7 @@ watch(token, () => {
   padding: 1px 5px;
   font-size: 0.88em;
   font-weight: 400;
-  color: #4c46a6;
+  color: rgb(var(--kiwi-700));
 }
 /* 代码块内的 code 不沿用行内代码底色，保持浅色代码块整体一致 */
 .share-sheet :deep(.prose-wiki pre code) {

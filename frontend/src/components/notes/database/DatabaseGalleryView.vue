@@ -119,7 +119,7 @@ function dateText(row: DbRow): string {
           />
           <button
             type="button"
-            class="grid h-6 w-6 place-items-center rounded-md bg-white/90 text-slate-400 opacity-0 shadow-sm transition-opacity hover:text-rose-500 group-hover:opacity-100"
+            class="touch-visible grid h-6 w-6 place-items-center rounded-md bg-white/90 text-slate-400 opacity-0 shadow-sm transition-opacity hover:text-rose-500 group-hover:opacity-100"
             title="删除记录"
             @click.stop="emit('delete-row', row)"
           >

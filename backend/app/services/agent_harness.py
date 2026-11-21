@@ -1,0 +1,693 @@
+"""问答 Agent Harness：计划 → 工具 → 观察 → 最终回答。
+
+协议（JSON，不使用各家不一致的原生 tool calling）::
+
+    {"thought": "...", "plan": ["..."],
+     "action": {"tool": "search_notes", "args": {...}, "summary": "..."} | null,
+     "answer": "action 为 null 时的最终回答"}
+
+读工具自动执行；写工具先登记到 ``agent_actions`` 并结束本轮 SSE，等用户
+确认后由前端携带 ``resume_action_id`` 继续同一个 Agent 循环。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from difflib import SequenceMatcher
+from pathlib import Path
+from string import Template
+from typing import Any, AsyncIterator
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.mcp import Toolbox
+from app.schemas.chat import Citation
+from app.services import agent_actions, agent_tools
+from app.services.agent_planner import app_timezone
+
+logger = logging.getLogger("kiwi.agent")
+
+MAX_TOOL_RESULT = 64_000
+MAX_UI_RESULT = 6_000
+_PROMPT_FILE = Path(__file__).resolve().parent.parent / "prompts" / "agent_system.md"
+
+Event = tuple[str, dict[str, Any]]
+
+
+@dataclass
+class AgentContext:
+    messages: list[dict]
+    citations: list[Citation]
+    intent: str
+    client: Any
+    model_name: str
+    temperature: float
+    kb_id: uuid.UUID | None
+    kb_ids: list[uuid.UUID]
+    llm_config_id: uuid.UUID | None
+    model_override: str | None
+    scope_mode: str
+    plan: list[dict] = field(default_factory=list)
+    # 本轮可见的工具集（内置 + 外部 MCP）；为空时由 run_agent 延迟加载。
+    toolbox: Toolbox | None = None
+
+
+class AgentFormatError(Exception):
+    pass
+
+
+@dataclass
+class AgentReply:
+    thought: str = ""
+    plan: list[str] = field(default_factory=list)
+    action: dict[str, Any] | None = None
+    answer: str = ""
+    raw: str = ""
+
+
+def _prompt_template() -> str:
+    """读取系统提示模板；自定义文件优先，缺省回落到内置模板。"""
+    candidates: list[Path] = []
+    if settings.agent_prompt_file:
+        candidates.append(Path(settings.agent_prompt_file))
+    candidates.append(_PROMPT_FILE)
+    for path in candidates:
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            logger.warning("Agent 提示模板不可读：%s", path)
+    return (
+        "## Agent 工具与行动协议\n$tool_prompt\n权限：$permission\n"
+        "当前日期：$current_date（星期$weekday，$timezone）\n"
+        "最多 $max_steps 次工具调用。"
+    )
+
+
+def agent_system_prompt(
+    *,
+    can_write: bool,
+    toolbox: Toolbox,
+    max_steps: int,
+) -> str:
+    permission = (
+        "当前问题限定在单个知识库内，写工具可用，但必须先请求用户确认。"
+        if can_write
+        else "当前为多库 / 全局范围：读工具可用，写工具不可用；若用户要求编辑，请提示其切换到单个知识库。"
+    )
+    now = datetime.now(app_timezone())
+    weekday = "一二三四五六日"[now.weekday()]
+    monday = now - timedelta(days=now.weekday())
+    sunday = monday + timedelta(days=6)
+    return Template(_prompt_template()).safe_substitute(
+        tool_prompt=toolbox.prompt(),
+        permission=permission,
+        current_date=now.strftime("%Y-%m-%d"),
+        weekday=weekday,
+        week_start=monday.strftime("%Y-%m-%d"),
+        week_end=sunday.strftime("%Y-%m-%d"),
+        timezone=settings.timezone or "本地时区",
+        max_steps=str(max_steps),
+    )
+
+
+def build_messages(
+    openai_msgs: list[dict],
+    *,
+    kb_id: uuid.UUID | None,
+    can_write: bool,
+    toolbox: Toolbox | None = None,
+    max_steps: int | None = None,
+) -> list[dict]:
+    """在原有 RAG 系统提示后追加工具协议与权限说明。"""
+    messages = [dict(item) for item in openai_msgs]
+    box = toolbox or Toolbox(agent_tools.builtin_tools())
+    limit = max(1, max_steps or settings.agent_max_steps)
+    extra = "\n\n" + agent_system_prompt(
+        can_write=can_write, toolbox=box, max_steps=limit
+    ).strip() + "\n"
+    if messages and messages[0].get("role") == "system":
+        messages[0] = {
+            **messages[0],
+            "content": str(messages[0].get("content") or "") + extra,
+        }
+    else:
+        messages.insert(0, {"role": "system", "content": extra.strip()})
+    return messages
+
+
+def _extract_json(text: str) -> dict | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    candidates = [raw]
+    fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE)
+    candidates.extend(block.strip() for block in fenced)
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate)
+            if isinstance(value, dict):
+                return value
+        except ValueError:
+            pass
+        for index, char in enumerate(candidate):
+            if char != "{":
+                continue
+            try:
+                value, _end = decoder.raw_decode(candidate[index:])
+            except ValueError:
+                continue
+            if isinstance(value, dict):
+                return value
+    return None
+
+
+def _normalize_plan(raw: Any) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    steps: list[dict] = []
+    for index, item in enumerate(raw[:12], start=1):
+        if isinstance(item, str):
+            title = item.strip()
+        elif isinstance(item, dict):
+            title = str(item.get("title") or item.get("step") or "").strip()
+        else:
+            title = str(item).strip()
+        if title:
+            steps.append({"id": f"plan-{index}", "title": title[:200], "status": "pending"})
+    return steps
+
+
+def parse_reply(text: str) -> AgentReply:
+    data = _extract_json(text)
+    if data is None:
+        # 模型没有按协议输出时，把全文当作最终回答，避免整轮失败。
+        return AgentReply(answer=(text or "").strip(), raw=text or "")
+    if not data.keys() & {"thought", "plan", "action", "answer"}:
+        # 用户让模型直接输出一段 JSON（如配置示例）时，不要把业务 JSON
+        # 误判成 Agent 协议；整段文本就是最终回答。
+        return AgentReply(answer=(text or "").strip(), raw=text or "")
+    reply = AgentReply(raw=text or "")
+    reply.thought = str(data.get("thought") or "").strip()[:1000]
+    reply.plan = [step["title"] for step in _normalize_plan(data.get("plan"))]
+    answer = data.get("answer")
+    if isinstance(answer, str):
+        reply.answer = answer.strip()
+    action = data.get("action")
+    if isinstance(action, dict) and action.get("tool"):
+        args = action.get("args")
+        reply.action = {
+            "tool": str(action.get("tool") or "").strip(),
+            "args": args if isinstance(args, dict) else {},
+            "summary": str(action.get("summary") or "").strip(),
+            "step": action.get("step"),
+        }
+    return reply
+
+
+def answer_echoes_prompt(answer: str, prompt: str) -> bool:
+    """回答是否在复述 Agent 系统提示。
+
+    模型偶尔会把自己的工具清单、权限或日期说明当成资料抄进回答，用户完全
+    看不懂。这里按「成句复述」判断：回答里有两行以上较长的原文出现在提示中，
+    才认定跑偏；只提到一两个工具名不会误判。
+    """
+    if not answer or not prompt:
+        return False
+    hits = 0
+    for line in answer.splitlines():
+        text = line.strip().lstrip("-*#> ").strip()
+        if len(text) < 12:
+            continue
+        if text in prompt:
+            hits += 1
+            if hits >= 2:
+                return True
+    return False
+
+
+def _tool_result_text(result: dict) -> str:
+    text = json.dumps(result, ensure_ascii=False, default=str)
+    if len(text) > MAX_TOOL_RESULT:
+        text = text[:MAX_TOOL_RESULT] + "…（结果过长已截断）"
+    return text
+
+
+def _tool_result_ui(result: dict) -> dict:
+    text = json.dumps(result, ensure_ascii=False, default=str)
+    if len(text) > MAX_UI_RESULT:
+        return {"truncated": True, "preview": text[:MAX_UI_RESULT] + "…"}
+    return result
+
+
+# 回答里的站内链接：[标题](kiwi://note/<id>) / [@标题](kiwi://wiki/<id>?x=y)。
+_LINK_TARGET_RE = re.compile(r"\[([^\]]*)\]\(kiwi://(note|wiki)/([^)\s]+)\)")
+
+
+def _canonical_uuid(value: str) -> str | None:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _title_key(title: str) -> str:
+    return " ".join(title.lstrip("@").split()).strip().lower()
+
+
+def _collect_link_targets(result: Any, out: dict[str, str]) -> None:
+    """收集工具结果里可引用的笔记 / Wiki（id + 标题）。
+
+    模型在最终回答里要把受影响的笔记写成站内链接，但偶发会把 UUID 抄错一两个
+    字符；把本轮真实出现的 id 与标题记下来，才能在输出前修正链接。
+    """
+    if isinstance(result, dict):
+        title = result.get("title")
+        if isinstance(title, str) and title.strip():
+            for key in ("id", "note_id", "wiki_id"):
+                raw = result.get(key)
+                if isinstance(raw, str):
+                    canonical = _canonical_uuid(raw)
+                    if canonical:
+                        out.setdefault(canonical, title.strip())
+        for value in result.values():
+            _collect_link_targets(value, out)
+    elif isinstance(result, list):
+        for item in result:
+            _collect_link_targets(item, out)
+
+
+def _repair_note_links(answer: str, known: dict[str, str]) -> str:
+    """修正模型回答里指向本轮笔记的站内链接。
+
+    UUID 抄错后点击会请求一个非法 id，笔记面板直接报 422。这里先按链接文字
+    匹配标题，再按 id 相似度匹配；对不上的降级为纯文本，避免死链。
+    """
+    if not answer or "kiwi://" not in answer:
+        return answer
+
+    by_title: dict[str, list[str]] = {}
+    for known_id, title in known.items():
+        by_title.setdefault(_title_key(title), []).append(known_id)
+
+    def replace(match: re.Match[str]) -> str:
+        label, kind, raw = match.group(1), match.group(2), match.group(3)
+        target = raw.split("?", 1)[0]
+        rest = raw[len(target) :]
+        if _canonical_uuid(target) is not None:
+            # 合法 UUID：可能是本轮结果，也可能来自更早的上下文，保持原样。
+            return match.group(0)
+
+        # 1) 链接文字通常就是笔记标题，最可靠。
+        candidates = by_title.get(_title_key(label), [])
+        if len(candidates) == 1:
+            logger.info("修正回答中的笔记链接：%s -> %s", target, candidates[0])
+            return f"[{label}](kiwi://{kind}/{candidates[0]}{rest})"
+
+        # 2) 标题对不上时按 id 相似度兜底（少抄 / 多抄一两个字符）。
+        target_hex = target.replace("-", "").lower()
+        scored: list[tuple[float, str]] = []
+        for known_id in known:
+            known_hex = known_id.replace("-", "")
+            if abs(len(target_hex) - len(known_hex)) > 4:
+                continue
+            scored.append(
+                (SequenceMatcher(None, target_hex, known_hex).ratio(), known_id)
+            )
+        scored.sort(reverse=True)
+        if scored and scored[0][0] >= 0.9 and (
+            len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.04
+        ):
+            logger.info("修正回答中的笔记链接：%s -> %s", target, scored[0][1])
+            return f"[{label}](kiwi://{kind}/{scored[0][1]}{rest})"
+
+        # 3) 对不上：宁可少一个可点链接，也不要让用户点进 422。
+        logger.warning("回答中的笔记链接无法修正，已降级为纯文本：%s", target)
+        return label
+
+    return _LINK_TARGET_RE.sub(replace, answer)
+
+
+def _mark_plan(plan: list[dict], index: Any, status: str) -> None:
+    try:
+        position = int(index) - 1
+    except (TypeError, ValueError):
+        return
+    if 0 <= position < len(plan):
+        plan[position]["status"] = status
+
+
+def _finalize_plan(plan: list[dict]) -> None:
+    for step in plan:
+        if step.get("status") in ("pending", "active"):
+            step["status"] = "done"
+
+
+def _history(messages: list[dict]) -> list[dict]:
+    """只保留 system / user / assistant 文本，避免把内部字段带给上游。"""
+    result: list[dict] = []
+    for item in messages:
+        role = item.get("role")
+        content = item.get("content")
+        if role in ("system", "user", "assistant") and isinstance(content, str):
+            result.append({"role": role, "content": content})
+    return result
+
+
+async def _complete(ctx: AgentContext) -> str:
+    response = await ctx.client.chat.completions.create(
+        model=ctx.model_name,
+        messages=_history(ctx.messages),
+        stream=False,
+        temperature=ctx.temperature,
+    )
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        raise AgentFormatError("模型没有返回内容")
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None) if message is not None else None
+    return str(content or "")
+
+
+def _context_from_pending(
+    pending: agent_actions.PendingAction,
+    *,
+    client: Any,
+    model_name: str,
+    temperature: float,
+    scope_mode: str | None = None,
+) -> AgentContext:
+    kb_id = uuid.UUID(pending.kb_id) if pending.kb_id else None
+    kb_ids = [uuid.UUID(item) for item in pending.kb_ids]
+    return AgentContext(
+        messages=[dict(item) for item in pending.messages],
+        citations=[Citation.model_validate(item) for item in pending.citations],
+        intent=pending.intent,
+        client=client,
+        model_name=model_name,
+        temperature=temperature,
+        kb_id=kb_id,
+        kb_ids=kb_ids,
+        llm_config_id=uuid.UUID(pending.llm_config_id) if pending.llm_config_id else None,
+        model_override=pending.model_override,
+        scope_mode=scope_mode or pending.scope_mode,
+        plan=[dict(step) for step in pending.plan],
+    )
+
+
+async def run_agent(
+    ctx: AgentContext,
+    session: AsyncSession,
+    *,
+    resume: agent_actions.PendingAction | None = None,
+    approved: bool = True,
+) -> AsyncIterator[Event]:
+    """执行一轮 Agent 循环，按 SSE 事件产出。"""
+    can_write = ctx.scope_mode == "kb" and len(ctx.kb_ids) == 1 and ctx.kb_id is not None
+    toolbox = ctx.toolbox
+    if toolbox is None:
+        toolbox = await agent_tools.load_toolbox()
+        ctx.toolbox = toolbox
+    max_steps = max(1, settings.agent_max_steps)
+    # 用于校验回答是否把系统提示当成资料复述；与 build_messages 注入的协议一致。
+    protocol_prompt = agent_system_prompt(
+        can_write=can_write, toolbox=toolbox, max_steps=max_steps
+    )
+    plan = [dict(step) for step in ctx.plan]
+    # 本轮工具真正返回过的笔记 / Wiki，用于修正模型回答里抄错的链接 id。
+    known_links: dict[str, str] = {}
+    if resume is not None:
+        if not approved:
+            yield "stage", {
+                "stage": "approve",
+                "status": "done",
+                "message": f"已取消：{resume.label}",
+            }
+            yield "chunk", {"text": f"已取消「{resume.label}」，没有对知识库做任何修改。"}
+            yield "done", {"ok": True, "cancelled": True}
+            return
+        plan = [dict(step) for step in resume.plan]
+        yield "stage", {
+            "stage": "approve",
+            "status": "done",
+            "message": f"已确认：{resume.label}",
+        }
+        yield "stage", {
+            "stage": "execute",
+            "status": "start",
+            "message": f"正在执行：{resume.label}",
+        }
+        try:
+            result = await toolbox.execute(
+                session, ctx.kb_id, resume.tool, resume.args
+            )
+            ok = True
+            summary = resume.summary or "操作已完成"
+        except agent_tools.ToolError as e:
+            result = {"ok": False, "error": str(e)}
+            ok = False
+            summary = str(e)
+        _collect_link_targets(result, known_links)
+        yield "tool_result", {
+            "tool": resume.tool,
+            "label": resume.label,
+            "ok": ok,
+            "summary": summary,
+            "data": _tool_result_ui(result),
+        }
+        yield "stage", {
+            "stage": "execute",
+            "status": "done" if ok else "error",
+            "message": f"{resume.label}{'完成' if ok else '失败'}",
+            "detail": "" if ok else summary,
+        }
+        ctx.messages.append({"role": "assistant", "content": resume.assistant_content})
+        ctx.messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"用户已批准并执行工具 {resume.tool}。执行结果：\n"
+                    f"{_tool_result_text(result)}\n\n"
+                    "请根据结果继续。不要重复执行同一操作；若任务已完成，"
+                    '返回 {"action": null, "answer": "..."}。'
+                ),
+            }
+        )
+
+    yield "stage", {"stage": "agent", "status": "start", "message": "正在分析并规划操作"}
+    tool_steps = 0
+    attempts = 0
+    leak_retries = 0
+    try:
+        while tool_steps < max_steps and attempts < max_steps * 2:
+            attempts += 1
+            raw = await _complete(ctx)
+            reply = parse_reply(raw)
+            if reply.plan and not plan:
+                plan = _normalize_plan(reply.plan)
+                yield "plan", {"steps": plan, "thought": reply.thought}
+            action = reply.action
+            if action is None:
+                if not reply.answer:
+                    raise AgentFormatError("模型既没有给出工具调用，也没有给出回答")
+                if answer_echoes_prompt(reply.answer, protocol_prompt):
+                    if leak_retries < 1:
+                        leak_retries += 1
+                        ctx.messages.append({"role": "assistant", "content": raw})
+                        ctx.messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "上一条回答混入了系统提示里的工具清单 / 权限 / 日期等内部文字，"
+                                    "用户看不懂。请删除这些内容，只依据工具读取到的笔记原文或资料"
+                                    "重新回答；材料不足就直接说明。不要复述任何系统提示。"
+                                ),
+                            }
+                        )
+                        yield "notice", {"message": "回答混入了系统内部说明，正在重新整理"}
+                        continue
+                    # 重试后仍然混入系统内容：宁可不展示，也不把不可读的回答交给用户。
+                    yield "chunk", {
+                        "text": "这次回答混入了系统内部说明，已中止。请重新提问，或明确指定要整理的笔记。"
+                    }
+                    yield "done", {"ok": False, "plan": plan}
+                    return
+                if plan:
+                    _finalize_plan(plan)
+                    yield "plan", {"steps": plan, "thought": reply.thought}
+                yield "stage", {"stage": "agent", "status": "done", "message": "已完成思考"}
+                yield "stage", {"stage": "generate", "status": "start", "message": "正在整理回答"}
+                yield "chunk", {"text": _repair_note_links(reply.answer, known_links)}
+                yield "stage", {"stage": "generate", "status": "done", "message": "回答生成完成"}
+                yield "done", {"ok": True, "plan": plan}
+                return
+
+            tool = action["tool"]
+            summary = action.get("summary") or ""
+            try:
+                args, label, summary, arg_labels = toolbox.prepare_call(
+                    tool, action.get("args") or {}, summary, can_write=can_write
+                )
+            except agent_tools.ToolError as e:
+                # 参数错误 / 越权：把错误反馈给模型，让它修正，不计入工具步数。
+                ctx.messages.append({"role": "assistant", "content": raw})
+                ctx.messages.append(
+                    {"role": "user", "content": f"工具调用未能执行：{e}\n请修正后重试。"}
+                )
+                yield "notice", {"message": f"已拦截一次无效工具调用：{e}"}
+                continue
+
+            tool_steps += 1
+            read_only = toolbox.get(tool).read_only
+            if plan and action.get("step") is not None:
+                _mark_plan(plan, action.get("step"), "active")
+                yield "plan", {"steps": plan, "thought": reply.thought}
+            yield "tool_call", {
+                "tool": tool,
+                "label": label,
+                "args": args,
+                "read_only": read_only,
+                "summary": summary,
+            }
+            yield "stage", {
+                "stage": f"tool-{tool_steps}",
+                "status": "start",
+                "message": f"正在调用：{label}",
+                "detail": summary,
+            }
+
+            if not read_only:
+                pending = agent_actions.PendingAction(
+                    tool=tool,
+                    args=args,
+                    summary=summary,
+                    label=label,
+                    messages=[dict(item) for item in ctx.messages],
+                    assistant_content=raw,
+                    plan=[dict(step) for step in plan],
+                    kb_id=str(ctx.kb_id) if ctx.kb_id else None,
+                    kb_ids=[str(item) for item in ctx.kb_ids],
+                    scope_mode=ctx.scope_mode,
+                    llm_config_id=str(ctx.llm_config_id) if ctx.llm_config_id else None,
+                    model_override=ctx.model_override,
+                    intent=ctx.intent,
+                    citations=[citation.model_dump(mode="json") for citation in ctx.citations],
+                    arg_labels=arg_labels,
+                )
+                agent_actions.store(pending)
+                if plan and action.get("step") is not None:
+                    _mark_plan(plan, action.get("step"), "pending")
+                    yield "plan", {"steps": plan, "thought": reply.thought}
+                yield "stage", {
+                    "stage": f"tool-{tool_steps}",
+                    "status": "done",
+                    "message": f"等待确认：{label}",
+                    "detail": summary,
+                }
+                yield "approval", pending.payload()
+                yield "done", {
+                    "ok": True,
+                    "awaiting_approval": True,
+                    "action_id": pending.id,
+                }
+                return
+
+            try:
+                result = await toolbox.execute(session, ctx.kb_id, tool, args)
+                ok = True
+                error = ""
+            except agent_tools.ToolError as e:
+                result = {"ok": False, "error": str(e)}
+                ok = False
+                error = str(e)
+            _collect_link_targets(result, known_links)
+            if plan and action.get("step") is not None:
+                _mark_plan(plan, action.get("step"), "done" if ok else "pending")
+                yield "plan", {"steps": plan, "thought": reply.thought}
+            yield "tool_result", {
+                "tool": tool,
+                "label": label,
+                "ok": ok,
+                "summary": summary if ok else error,
+                "data": _tool_result_ui(result),
+            }
+            yield "stage", {
+                "stage": f"tool-{tool_steps}",
+                "status": "done" if ok else "error",
+                "message": f"{label}{'完成' if ok else '失败'}",
+                "detail": "" if ok else error,
+            }
+            ctx.messages.append({"role": "assistant", "content": raw})
+            ctx.messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"工具 {tool} 的执行结果：\n{_tool_result_text(result)}\n\n"
+                        "请根据结果继续。若已获得足够信息，"
+                        '返回 {"action": null, "answer": "..."}。'
+                    ),
+                }
+            )
+            # 第二轮模型调用可能很慢（例如要把整页正文整理成新建笔记的参数）。
+            # 更新阶段文案，避免界面一直停在「正在分析并规划操作」，让用户知道
+            # 读取已完成、当前在等模型生成后续操作。
+            if ok:
+                yield "stage", {
+                    "stage": "agent",
+                    "status": "start",
+                    "message": (
+                        "已读取网页，正在整理内容并生成操作"
+                        if tool == "fetch_url"
+                        else f"已获取「{label}」结果，正在继续分析"
+                    ),
+                }
+            else:
+                yield "stage", {
+                    "stage": "agent",
+                    "status": "start",
+                    "message": "工具执行失败，正在让模型调整方案",
+                }
+
+        # 达到工具调用上限：再给模型一次只回答、不调工具的机会。
+        ctx.messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "已达到工具调用上限。请不要再调用工具，直接返回 "
+                    '{"action": null, "answer": "..."}，总结已完成与未完成的部分。'
+                ),
+            }
+        )
+        raw = await _complete(ctx)
+        reply = parse_reply(raw)
+        answer = _repair_note_links(reply.answer or "", known_links) or (
+            "已达到最大工具调用步数，请补充更具体的要求后重试。"
+        )
+        if plan:
+            _finalize_plan(plan)
+            yield "plan", {"steps": plan, "thought": reply.thought}
+        yield "stage", {"stage": "agent", "status": "done", "message": "已达到工具调用上限"}
+        yield "chunk", {"text": answer}
+        yield "done", {"ok": True, "plan": plan, "step_limit": True}
+    except (agent_tools.ToolError,) as e:
+        yield "error", {"message": str(e)}
+    except AgentFormatError as e:
+        yield "error", {"message": f"Agent 响应格式不正确：{e}"}
+    except Exception as e:  # noqa: BLE001 —— SSE 已开始，只能通知前端
+        logger.exception("Agent 循环失败")
+        yield "error", {"message": f"Agent 执行失败：{e}"}
+
+
+__all__ = [
+    "AgentContext",
+    "AgentReply",
+    "build_messages",
+    "parse_reply",
+    "run_agent",
+]

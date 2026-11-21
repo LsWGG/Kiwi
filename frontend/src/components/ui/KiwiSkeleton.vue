@@ -29,7 +29,7 @@ const props = withDefaults(
 
 <style scoped>
 .shimmer {
-  background: linear-gradient(90deg, rgba(226, 232, 240, 0.5) 25%, rgba(226, 232, 240, 0.9) 50%, rgba(226, 232, 240, 0.5) 75%);
+  background: linear-gradient(90deg, rgb(var(--theme-border) / 0.5) 25%, rgb(var(--theme-border) / 0.9) 50%, rgb(var(--theme-border) / 0.5) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
 }

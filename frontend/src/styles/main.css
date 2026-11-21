@@ -102,6 +102,14 @@ body.kiwi-tree-dragging * {
   user-select: none !important;
 }
 
+/* 触摸端没有 hover：桌面端“悬停才显示”的行内操作在平板 / 手机上常驻。
+   只改透明度，不影响布局与键盘焦点。 */
+@media (hover: none), (pointer: coarse) {
+  .touch-visible {
+    opacity: 1 !important;
+  }
+}
+
 /* 弹窗最大高度：body 的 zoom 会放大内容，但 100dvh 不随 zoom 缩放。
    在 2K/4K 自动放大后必须按 --ui-scale 折算回布局像素，否则弹窗会超出屏幕。 */
 .kiwi-modal-panel {
@@ -125,8 +133,8 @@ body.kiwi-tree-dragging * {
 /* 紫色/深色气泡内：沿用气泡文字颜色 + 半透明白底，避免深紫字压浅紫底。 */
 .chat-user-bubble::selection,
 .chat-user-bubble *::selection {
-  background: rgba(255, 255, 255, 0.38);
-  color: #fff;
+  background: rgb(var(--theme-accent-foreground) / 0.35);
+  color: rgb(var(--theme-accent-foreground));
 }
 
 /* 聊天等待态：文字流光 + 不确定进度条，让长等待看起来仍在推进。 */
@@ -222,6 +230,16 @@ body.kiwi-tree-dragging * {
   @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium text-white
     bg-gradient-to-br from-rose-500 to-rose-600 shadow-sm
     transition-all duration-200 hover:shadow-glow hover:brightness-105 active:scale-[0.98];
+}
+
+/* 尺寸档位：工具栏 / 列表行内按钮统一使用，避免各页自行用 !h- !py- !text- 拼样式。
+   与基础按钮同源，主题对 .kiwi-btn-* 的装饰样式同样生效。 */
+.kiwi-btn-sm {
+  @apply h-8 rounded-lg px-3 text-[12px];
+}
+
+.kiwi-btn-xs {
+  @apply h-7 rounded-lg px-2 text-[11px];
 }
 
 /* 空状态操作区：窄屏改成整列按钮，避免多个按钮把空态卡撑出屏幕。 */
@@ -373,14 +391,14 @@ html.kiwi-sticky-expanding .page-enter-from {
 .prose-wiki h5 {
   font-size: 0.95em;
   font-weight: 600;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   margin-top: 1.2em;
   margin-bottom: 0.4em;
 }
 .prose-wiki h6 {
   font-size: 0.9em;
   font-weight: 600;
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
   margin-top: 1.2em;
   margin-bottom: 0.4em;
 }
@@ -388,9 +406,9 @@ html.kiwi-sticky-expanding .page-enter-from {
 /* 阅读态（MarkdownView / Wiki / 分享页 / 问答结果）的代码块统一为浅色，
    与编辑器默认代码主题保持一致；Tailwind Typography 默认是深色底。 */
 .prose-wiki pre {
-  background: #f8fafc;
-  color: #334155;
-  border: 1px solid #e2e8f0;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-strong));
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 12px;
   font-size: 13px;
   line-height: 1.65;
@@ -435,7 +453,7 @@ html.kiwi-sticky-expanding .page-enter-from {
   outline: none;
   font-size: var(--doc-size, 15px);
   line-height: var(--doc-line, 1.8);
-  color: #1e293b;
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor .ProseMirror > * + * {
   margin-top: 0.7em;
@@ -445,7 +463,7 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1em; }
 .kiwi-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: #cbd5e1;
+  color: rgb(var(--theme-border-strong));
   pointer-events: none;
   float: left;
   height: 0;
@@ -469,18 +487,18 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror ol ol { counter-reset: kiwi-ol var(--kiwi-ol-base, 0); }
 .kiwi-editor .ProseMirror ol > li::marker {
   content: counters(kiwi-ol, ".") ". ";
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 .kiwi-editor .ProseMirror blockquote {
   border-left: 3px solid rgb(var(--kiwi-300));
   padding-left: 1rem;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-editor .ProseMirror code {
   background: rgb(var(--kiwi-50));
-  color: #4c46a6;
+  color: rgb(var(--kiwi-700));
   border-radius: 5px;
   padding: 1px 5px;
   font-size: 0.88em;
@@ -488,7 +506,7 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror pre {
   position: relative;
   background: #0f172a;
-  color: #e2e8f0;
+  color: rgb(var(--theme-border));
   border-radius: 12px;
   padding: 14px 16px;
   overflow-x: auto;
@@ -508,9 +526,9 @@ html.kiwi-sticky-expanding .page-enter-from {
 
 /* 代码块：浅色主题 */
 .kiwi-editor.code-theme-light .ProseMirror pre {
-  background: #f8fafc;
-  color: #334155;
-  border: 1px solid #e2e8f0;
+  background: rgb(var(--theme-app));
+  color: rgb(var(--theme-text-strong));
+  border: 1px solid rgb(var(--theme-border));
 }
 
 /* 代码块：hljs token 配色（深色 / 浅色） */
@@ -585,11 +603,11 @@ html.kiwi-sticky-expanding .page-enter-from {
   width: 1.7em;
   margin-right: 0.9em;
   text-align: right;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   user-select: none;
   pointer-events: none;
 }
-.kiwi-editor.code-theme-light.code-linenos .ProseMirror pre .code-line-number { color: #94a3b8; }
+.kiwi-editor.code-theme-light.code-linenos .ProseMirror pre .code-line-number { color: rgb(var(--theme-text-subtle)); }
 
 /* 代码块：节点容器与悬停工具条（运行 / 预览 + 复制） */
 .kiwi-editor .ProseMirror .code-block-node { position: relative; }
@@ -617,10 +635,14 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror .code-block-node:hover .code-lang,
 .kiwi-editor .ProseMirror .code-block-node:focus-within .code-lang { opacity: 1; }
 .kiwi-editor.is-readonly .ProseMirror .code-lang { display: none; }
-.kiwi-editor .ProseMirror .code-lang-select {
-  appearance: none;
+.kiwi-editor .ProseMirror .code-lang-host {
+  display: inline-flex;
+  min-width: 0;
+}
+.kiwi-editor .ProseMirror .code-lang-trigger {
   max-width: 9.5em;
-  padding: 2px 18px 2px 8px;
+  height: 22px;
+  padding: 1px 5px 1px 7px;
   border-radius: 6px;
   /* 全部取主题令牌，跟随主题与模式（亮 / 暗 / 自定义插件主题） */
   border: 1px solid rgb(var(--theme-border-strong) / 0.55);
@@ -632,29 +654,13 @@ html.kiwi-sticky-expanding .page-enter-from {
   outline: none;
   backdrop-filter: blur(8px);
 }
-.kiwi-editor .ProseMirror .code-lang-select:hover,
-.kiwi-editor .ProseMirror .code-lang-select:focus {
+.kiwi-editor .ProseMirror .code-lang-trigger:hover,
+.kiwi-editor .ProseMirror .code-lang-trigger[aria-expanded='true'] {
   background-color: rgb(var(--theme-surface) / 0.9);
   border-color: rgb(var(--theme-accent) / 0.6);
   color: rgb(var(--theme-text-primary));
 }
-.kiwi-editor .ProseMirror .code-lang-select option {
-  background: rgb(var(--theme-surface));
-  color: rgb(var(--theme-text-primary));
-}
-.kiwi-editor .ProseMirror .code-lang-caret {
-  position: absolute;
-  right: 7px;
-  top: 50%;
-  width: 5px;
-  height: 5px;
-  margin-top: -3.5px;
-  border-right: 1.5px solid rgb(var(--theme-text-muted));
-  border-bottom: 1.5px solid rgb(var(--theme-text-muted));
-  transform: rotate(45deg);
-  pointer-events: none;
-}
-.kiwi-editor .ProseMirror .code-lang-select:disabled { cursor: default; }
+.kiwi-editor .ProseMirror .code-lang-trigger:disabled { cursor: default; }
 .kiwi-editor .ProseMirror .code-tools {
   display: none;
   align-items: center;
@@ -683,46 +689,46 @@ html.kiwi-sticky-expanding .page-enter-from {
   cursor: default;
 }
 .kiwi-editor .ProseMirror .code-run-btn {
-  border-color: rgba(52, 211, 153, 0.45) !important;
-  background: rgba(16, 185, 129, 0.2) !important;
-  color: #a7f3d0 !important;
+  border-color: rgb(var(--theme-success) / 0.45) !important;
+  background: rgb(var(--theme-success) / 0.2) !important;
+  color: rgb(var(--theme-success)) !important;
 }
 /* 桌面版本机执行徽标：提醒代码没有文件系统隔离。 */
 .kiwi-editor .ProseMirror .code-run-badge {
   padding: 2px 6px;
   border-radius: 6px;
-  background: rgba(251, 191, 36, 0.18);
-  color: #fcd34d;
+  background: rgb(var(--theme-warning) / 0.18);
+  color: rgb(var(--theme-warning));
   font-size: 9.5px;
   line-height: 1.6;
   white-space: nowrap;
   user-select: none;
 }
 .kiwi-editor.code-theme-light .ProseMirror .code-run-badge {
-  background: #fef3c7;
-  color: #b45309;
+  background: rgb(var(--theme-warning) / 0.14);
+  color: rgb(var(--theme-warning));
 }
 .kiwi-editor .ProseMirror .code-run-btn:hover {
-  background: rgba(16, 185, 129, 0.34) !important;
-  color: #ecfdf5 !important;
+  background: rgb(var(--theme-success) / 0.34) !important;
+  color: rgb(var(--theme-accent-foreground)) !important;
 }
 .kiwi-editor.code-theme-light .ProseMirror .code-run-btn {
-  border-color: #6ee7b7 !important;
-  background: #ecfdf5 !important;
-  color: #047857 !important;
+  border-color: rgb(var(--theme-success) / 0.5) !important;
+  background: rgb(var(--theme-success) / 0.1) !important;
+  color: rgb(var(--theme-success)) !important;
 }
 .kiwi-editor.code-theme-light .ProseMirror .code-run-btn:hover {
-  background: #d1fae5 !important;
-  color: #065f46 !important;
+  background: rgb(var(--theme-success) / 0.18) !important;
+  color: rgb(var(--theme-success)) !important;
 }
 
 /* 代码块：正文内嵌预览 */
 .kiwi-editor .ProseMirror .code-block-preview {
   margin-top: 8px;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 12px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 .kiwi-editor .ProseMirror .code-block-preview[hidden] { display: none; }
 .kiwi-editor .ProseMirror .code-preview-bar {
@@ -730,10 +736,10 @@ html.kiwi-sticky-expanding .page-enter-from {
   align-items: center;
   gap: 8px;
   padding: 4px 8px 4px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-app));
   font-size: 10.5px;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   user-select: none;
 }
 .kiwi-editor .ProseMirror .code-preview-label { font-weight: 500; }
@@ -746,9 +752,9 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror .code-preview-action {
   padding: 1px 7px;
   border-radius: 5px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #64748b;
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-text-muted));
   font-size: 10px;
   line-height: 1.6;
   cursor: pointer;
@@ -763,7 +769,7 @@ html.kiwi-sticky-expanding .page-enter-from {
   width: 100%;
   height: 240px;
   border: 0;
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 
 /* 预览态：源码保持可见，渲染结果展示在源码下方 */
@@ -780,21 +786,21 @@ html.kiwi-sticky-expanding .page-enter-from {
   backdrop-filter: blur(6px);
 }
 .kiwi-editor .ProseMirror .code-block-node.is-previewing .code-tools .code-run-btn {
-  color: #047857 !important;
-  background: rgba(236, 253, 245, 0.92) !important;
-  border-color: #6ee7b7 !important;
+  color: rgb(var(--theme-success)) !important;
+  background: rgb(var(--theme-success) / 0.1) !important;
+  border-color: rgb(var(--theme-success) / 0.5) !important;
 }
 
 /* 代码块运行结果：持久展示在对应代码块下方 */
 .kiwi-editor .ProseMirror .code-output-node {
   margin: 6px 0 14px;
   overflow: hidden;
-  border: 1px solid #bbf7d0;
+  border: 1px solid rgb(var(--theme-success) / 0.3);
   border-radius: 10px;
-  background: #f0fdf4;
+  background: rgb(var(--theme-success) / 0.06);
 }
 .kiwi-editor .ProseMirror .code-output-node.ProseMirror-selectednode {
-  outline: 2px solid #6ee7b7;
+  outline: 2px solid rgb(var(--theme-success) / 0.5);
   outline-offset: 2px;
 }
 .kiwi-editor .ProseMirror .code-output-bar {
@@ -802,9 +808,9 @@ html.kiwi-sticky-expanding .page-enter-from {
   align-items: center;
   gap: 8px;
   padding: 3px 8px 3px 12px;
-  border-bottom: 1px solid #dcfce7;
-  background: #ecfdf5;
-  color: #047857;
+  border-bottom: 1px solid rgb(var(--theme-success) / 0.2);
+  background: rgb(var(--theme-success) / 0.08);
+  color: rgb(var(--theme-success));
   font-size: 10.5px;
   user-select: none;
 }
@@ -818,21 +824,21 @@ html.kiwi-sticky-expanding .page-enter-from {
 .kiwi-editor .ProseMirror .code-output-action {
   padding: 1px 7px;
   border-radius: 5px;
-  border: 1px solid #bbf7d0;
-  background: #fff;
-  color: #047857;
+  border: 1px solid rgb(var(--theme-success) / 0.3);
+  background: rgb(var(--theme-surface));
+  color: rgb(var(--theme-success));
   font-size: 10px;
   line-height: 1.6;
   cursor: pointer;
 }
 .kiwi-editor .ProseMirror .code-output-action:hover {
-  background: #d1fae5;
-  border-color: #6ee7b7;
+  background: rgb(var(--theme-success) / 0.16);
+  border-color: rgb(var(--theme-success) / 0.5);
 }
 .kiwi-editor .ProseMirror .code-output-action.is-danger:hover {
-  color: #be123c;
-  border-color: #fecdd3;
-  background: #fff1f2;
+  color: rgb(var(--theme-danger));
+  border-color: rgb(var(--theme-danger) / 0.28);
+  background: rgb(var(--theme-danger) / 0.08);
 }
 .kiwi-editor .ProseMirror .code-output-node > pre {
   margin: 0;
@@ -842,7 +848,7 @@ html.kiwi-sticky-expanding .page-enter-from {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   font-size: 12.5px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -860,7 +866,7 @@ html.kiwi-sticky-expanding .page-enter-from {
 }
 .kiwi-editor.code-wrap .ProseMirror pre code { white-space: inherit; }
 .kiwi-editor .ProseMirror mark {
-  background: #fef3c7;
+  background: rgb(var(--theme-warning) / 0.35);
   border-radius: 3px;
   padding: 0 2px;
 }
@@ -871,13 +877,13 @@ html.kiwi-sticky-expanding .page-enter-from {
 }
 .kiwi-editor .ProseMirror hr {
   border: none;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid rgb(var(--theme-border));
   margin: 1.5rem 0;
 }
 .kiwi-editor .ProseMirror img {
   max-width: 100%;
   border-radius: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border: 1px solid rgb(var(--theme-border) / 0.8);
   margin: 0.5rem 0;
 }
 .kiwi-editor .ProseMirror img.ProseMirror-selectednode {
@@ -893,7 +899,7 @@ html.kiwi-sticky-expanding .page-enter-from {
 }
 .kiwi-editor .ProseMirror th,
 .kiwi-editor .ProseMirror td {
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgb(var(--theme-border));
   padding: 6px 10px;
   vertical-align: top;
   position: relative;
@@ -970,7 +976,7 @@ body.kiwi-row-resizing * {
   user-select: none !important;
 }
 .kiwi-editor .ProseMirror th {
-  background: #f8fafc;
+  background: rgb(var(--theme-app));
   font-weight: 600;
   text-align: left;
 }
@@ -978,7 +984,7 @@ body.kiwi-row-resizing * {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(139, 140, 232, 0.16);
+  background: rgb(var(--theme-accent) / 0.16);
   pointer-events: none;
 }
 .kiwi-editor .ProseMirror ul[data-type='taskList'] {
@@ -1018,7 +1024,7 @@ body.kiwi-row-resizing * {
  * 文档 / 笔记模式下生效，Word 模式仍按用户设置的字体、字号与行距呈现。
  */
 .kiwi-editor .ProseMirror {
-  color: #263143;
+  color: rgb(var(--theme-text-primary));
   caret-color: rgb(var(--kiwi-600));
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -1030,7 +1036,7 @@ body.kiwi-row-resizing * {
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror {
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
   letter-spacing: 0.004em;
-  color: #263143;
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror p {
   text-wrap: pretty;
@@ -1044,7 +1050,7 @@ body.kiwi-row-resizing * {
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h2,
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h3,
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h4 {
-  color: #101a2e;
+  color: rgb(var(--theme-text-primary));
   letter-spacing: -0.018em;
   text-wrap: balance;
 }
@@ -1122,7 +1128,7 @@ body.kiwi-row-resizing * {
   font-size: 0.95rem;
   line-height: 1.55;
   font-weight: 600;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   padding-left: 0.56rem;
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror > h5::before {
@@ -1133,14 +1139,14 @@ body.kiwi-row-resizing * {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #94a3b8;
+  background: rgb(var(--theme-text-subtle));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror h6 {
   position: relative;
   font-size: 0.9rem;
   line-height: 1.55;
   font-weight: 600;
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
   letter-spacing: 0;
   padding-left: 0.52rem;
 }
@@ -1152,7 +1158,7 @@ body.kiwi-row-resizing * {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #cbd5e1;
+  background: rgb(var(--theme-border-strong));
 }
 /* 标题作为有序列表项时不要继承章节级上间距 */
 .kiwi-editor .ProseMirror li > h1,
@@ -1225,7 +1231,7 @@ body.kiwi-row-resizing * {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #94a3b8;
+  background: rgb(var(--theme-text-subtle));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > h6:first-child::after {
   content: '';
@@ -1235,7 +1241,7 @@ body.kiwi-row-resizing * {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #cbd5e1;
+  background: rgb(var(--theme-border-strong));
 }
 /* 标题进入有序列表后，编号直接写在标题文字前：第一位数字距离左侧装饰条
  * 固定 0.6rem，编号与标题之间只保留一个空格；1 / 11 / 111 位数变化时只向右
@@ -1280,62 +1286,62 @@ body.kiwi-row-resizing * {
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h1:first-child)::marker {
   font-size: 1.72rem;
   font-weight: 700;
-  color: #101a2e;
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h2:first-child)::marker {
   font-size: 1.32rem;
   font-weight: 650;
-  color: #101a2e;
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h3:first-child)::marker {
   font-size: 1.12rem;
   font-weight: 600;
-  color: #101a2e;
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h4:first-child)::marker {
   font-size: 1rem;
   font-weight: 600;
-  color: #101a2e;
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h5:first-child)::marker {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li:has(> h6:first-child)::marker {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
 }
 .prose-wiki ol > li:has(> h1:first-child)::marker {
   font-size: 2.25em;
   font-weight: 600;
-  color: #0f172a;
+  color: rgb(var(--theme-text-primary));
 }
 .prose-wiki ol > li:has(> h2:first-child)::marker {
   font-size: 1.5em;
   font-weight: 600;
-  color: #0f172a;
+  color: rgb(var(--theme-text-primary));
 }
 .prose-wiki ol > li:has(> h3:first-child)::marker {
   font-size: 1.25em;
   font-weight: 600;
-  color: #0f172a;
+  color: rgb(var(--theme-text-primary));
 }
 .prose-wiki ol > li:has(> h4:first-child)::marker {
   font-size: 1em;
   font-weight: 600;
-  color: #0f172a;
+  color: rgb(var(--theme-text-primary));
 }
 .prose-wiki ol > li:has(> h5:first-child)::marker {
   font-size: 0.95em;
   font-weight: 600;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
 }
 .prose-wiki ol > li:has(> h6:first-child)::marker {
   font-size: 0.9em;
   font-weight: 600;
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
 }
 
 /* 引用：淡紫渐变底色 + 圆角，与提示块视觉语言一致 */
@@ -1345,7 +1351,7 @@ body.kiwi-row-resizing * {
   border-radius: 0 10px 10px 0;
   padding: 0.62rem 1rem 0.62rem 1.05rem;
   background: linear-gradient(90deg, rgb(var(--kiwi-500) / 0.08), rgb(var(--kiwi-500) / 0.022) 58%, transparent);
-  color: #4b5a72;
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror blockquote::before {
   content: '';
@@ -1366,7 +1372,7 @@ body.kiwi-row-resizing * {
   color: rgb(var(--kiwi-500));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror ol > li::marker {
-  color: #7c89a0;
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror li > p {
   text-wrap: pretty;
@@ -1407,32 +1413,32 @@ body.kiwi-row-resizing * {
   margin: 2.1rem auto;
   max-width: 78%;
   border: 0;
-  background: linear-gradient(90deg, transparent, #d5dbe6 18%, rgb(var(--kiwi-300)) 50%, #d5dbe6 82%, transparent);
+  background: linear-gradient(90deg, transparent, rgb(var(--theme-border-strong)) 18%, rgb(var(--kiwi-300)) 50%, rgb(var(--theme-border-strong)) 82%, transparent);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror img {
   border-radius: 14px;
-  border-color: rgba(226, 232, 240, 0.9);
+  border-color: rgb(var(--theme-border) / 0.9);
   box-shadow: 0 14px 34px -26px rgba(15, 23, 42, 0.45);
 }
 
 /* 表格：柔和表头、悬停高亮，增强数据可读性 */
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror th {
-  background: linear-gradient(180deg, #f9faff, #f2f4fb);
-  color: #334155;
+  background: linear-gradient(180deg, rgb(var(--theme-surface)), rgb(var(--theme-app)));
+  color: rgb(var(--theme-text-strong));
   font-weight: 600;
   letter-spacing: 0.006em;
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror td {
-  border-color: #e8ecf3;
+  border-color: rgb(var(--theme-border));
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr:nth-child(even) td {
-  background: rgba(248, 250, 252, 0.6);
+  background: rgb(var(--theme-app) / 0.6);
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr {
   transition: background 0.12s ease;
 }
 .kiwi-editor:not(.kiwi-editor-docx) .ProseMirror tbody tr:hover td {
-  background: rgba(111, 114, 220, 0.045);
+  background: rgb(var(--kiwi-500) / 0.045);
 }
 
 /* 任务清单：勾选后弱化并划线 */
@@ -1442,9 +1448,9 @@ body.kiwi-row-resizing * {
   cursor: pointer;
 }
 .kiwi-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div > p {
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   text-decoration: line-through;
-  text-decoration-color: rgba(148, 163, 184, 0.55);
+  text-decoration-color: rgb(var(--theme-text-subtle) / 0.55);
   transition: color 0.15s ease;
 }
 
@@ -1461,7 +1467,7 @@ body.kiwi-row-resizing * {
   padding: 9px 12px 10px;
   border: 1px solid var(--tp-border);
   border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.72));
+  background: linear-gradient(180deg, rgb(var(--theme-surface) / 0.98), rgb(var(--theme-app) / 0.72));
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 .kiwi-task-progress-card.is-selected {
@@ -1516,7 +1522,7 @@ body.kiwi-row-resizing * {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #cbd5e1;
+  color: rgb(var(--theme-border-strong));
   cursor: pointer;
   transition: color 0.14s ease, background-color 0.14s ease;
 }
@@ -1526,15 +1532,15 @@ body.kiwi-row-resizing * {
   color: var(--tp-ink);
 }
 .kiwi-task-progress-icon.is-danger:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: rgb(var(--theme-danger) / 0.1);
+  color: rgb(var(--theme-danger));
 }
 .kiwi-task-progress-track {
   height: 6px;
   margin-top: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: #eef2f7;
+  background: rgb(var(--theme-surface-muted));
 }
 .kiwi-task-progress-fill {
   display: block;
@@ -1546,7 +1552,7 @@ body.kiwi-row-resizing * {
 .kiwi-task-progress-empty {
   margin: 7px 0 0;
   font-size: 10.5px;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-task-progress-inline-action {
   margin-left: 4px;
@@ -1564,7 +1570,7 @@ body.kiwi-row-resizing * {
   gap: 7px;
   margin-top: 9px;
   padding-top: 9px;
-  border-top: 1px dashed #e2e8f0;
+  border-top: 1px dashed rgb(var(--theme-border));
 }
 .kiwi-task-progress-field {
   display: flex;
@@ -1574,7 +1580,7 @@ body.kiwi-row-resizing * {
 .kiwi-task-progress-field-label {
   flex: 0 0 52px;
   font-size: 10.5px;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-task-progress-input,
 .kiwi-task-progress-select {
@@ -1582,11 +1588,11 @@ body.kiwi-row-resizing * {
   max-width: 230px;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 7px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
   font-size: 11px;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   outline: none;
 }
 .kiwi-task-progress-input:focus,
@@ -1604,7 +1610,7 @@ body.kiwi-row-resizing * {
   align-items: center;
   gap: 5px;
   font-size: 10.5px;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   cursor: pointer;
 }
 .kiwi-task-progress-check input {
@@ -1614,18 +1620,19 @@ body.kiwi-row-resizing * {
   display: none;
 }
 
-/* @ 提及在只读 Markdown 中的样式 */
+/* @ 提及在只读 Markdown 中的样式：取主题强调色，亮暗主题与第三方主题通用 */
 .markdown-view a.md-mention {
   display: inline;
   padding: 0 4px;
   border-radius: 5px;
-  background: #f7fee7;
-  color: #4d7c0f;
+  background: rgb(var(--theme-accent) / 0.12);
+  /* 主题的正文链接规则特异性更高，用 !important 保持提及胶囊的强调色。 */
+  color: rgb(var(--theme-accent)) !important;
   font-weight: 500;
-  text-decoration: none;
+  text-decoration: none !important;
 }
 .markdown-view a.md-mention:hover {
-  background: #ecfccb;
+  background: rgb(var(--theme-accent) / 0.22);
 }
 
 /* 反向链接跳转后的引用位置闪烁 */
@@ -1635,7 +1642,7 @@ body.kiwi-row-resizing * {
 }
 @keyframes kiwi-cite-flash {
   0%, 100% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
-  12%, 62% { background-color: #fef08a; box-shadow: 0 0 0 3px #fef08a; }
+  12%, 62% { background-color: rgb(var(--theme-warning) / 0.45); box-shadow: 0 0 0 3px rgb(var(--theme-warning) / 0.45); }
 }
 
 /* 搜索结果跳转：正文关键词高亮。
@@ -1710,7 +1717,7 @@ body.kiwi-row-resizing * {
   margin: 0.9rem 0;
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid rgb(var(--theme-border) / 0.9);
   background: #0f172a;
 }
 .kiwi-editor .ProseMirror .video-block .kiwi-video {
@@ -1731,9 +1738,9 @@ body.kiwi-row-resizing * {
   position: relative;
   margin: 0.9rem 0;
   padding: 0.7rem 0.95rem 0.7rem 2.35rem;
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  border: 1px solid rgb(var(--theme-border) / 0.95);
   border-radius: 12px;
-  background: linear-gradient(180deg, #fbfcff 0%, #f8faff 100%);
+  background: linear-gradient(180deg, rgb(var(--theme-surface)) 0%, rgb(var(--theme-surface)) 100%);
 }
 .kiwi-editor .ProseMirror div[data-type='details'] > button {
   position: absolute;
@@ -1751,7 +1758,7 @@ body.kiwi-row-resizing * {
   transition: transform 0.15s ease, background-color 0.15s ease;
 }
 .kiwi-editor .ProseMirror div[data-type='details'] > button:hover {
-  background-color: #eef0ff;
+  background-color: rgb(var(--kiwi-50));
 }
 .kiwi-editor .ProseMirror div[data-type='details'].is-open > button {
   transform: rotate(90deg);
@@ -1760,7 +1767,7 @@ body.kiwi-row-resizing * {
   min-height: 1.45em;
   list-style: none;
   font-weight: 600;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   cursor: text;
 }
 .kiwi-editor .ProseMirror div[data-type='details'] summary::-webkit-details-marker {
@@ -1768,12 +1775,12 @@ body.kiwi-row-resizing * {
 }
 .kiwi-editor .ProseMirror div[data-type='details'] summary:empty::before {
   content: '折叠块标题';
-  color: #cbd5e1;
+  color: rgb(var(--theme-border-strong));
   font-weight: 400;
 }
 .kiwi-editor .ProseMirror div[data-type='details'] div[data-type='detailsContent'] {
   margin-top: 0.4rem;
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-editor .ProseMirror div[data-type='details'] div[data-type='detailsContent'][hidden] {
   display: none;
@@ -1789,21 +1796,21 @@ body.kiwi-row-resizing * {
   max-width: 100%;
   aspect-ratio: 16 / 9;
   height: auto;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  border: 1px solid rgb(var(--theme-border) / 0.9);
   border-radius: 12px;
   background: #0f172a;
 }
 .kiwi-editor .ProseMirror .kiwi-mention {
   padding: 0 4px;
   border-radius: 5px;
-  color: #4c46a6;
-  background: #eef0ff;
+  color: rgb(var(--kiwi-700));
+  background: rgb(var(--kiwi-50));
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 .kiwi-editor .ProseMirror .kiwi-mention:hover {
-  background: #dfe3ff;
+  background: rgb(var(--kiwi-100));
 }
 /* 提及节点视图：提及保持行内，卡片 / 嵌入独占一行 */
 .kiwi-editor .ProseMirror .kiwi-mention-node {
@@ -1825,8 +1832,8 @@ body.kiwi-row-resizing * {
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-title.ProseMirror-selectednode .kiwi-note-title-link,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-card.ProseMirror-selectednode .kiwi-note-card,
 .kiwi-editor .ProseMirror .kiwi-mention-node.is-embed.ProseMirror-selectednode .kiwi-note-embed {
-  border-color: #b9bdf0;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  border-color: rgb(var(--kiwi-300));
+  box-shadow: 0 0 0 3px rgb(var(--theme-accent) / 0.12);
 }
 
 /* 内容卡片：标题 + 前 N 个字摘要，独占一行 */
@@ -1836,9 +1843,9 @@ body.kiwi-row-resizing * {
   gap: 12px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid rgba(203, 213, 225, 0.9);
+  border: 1px solid rgb(var(--theme-border-strong) / 0.9);
   border-radius: 14px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  background: linear-gradient(180deg, rgb(var(--theme-surface)) 0%, rgb(var(--theme-surface)) 100%);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   cursor: pointer;
   transition:
@@ -1847,8 +1854,8 @@ body.kiwi-row-resizing * {
     transform 0.15s ease;
 }
 .kiwi-note-card:hover {
-  border-color: #c7cdf2;
-  box-shadow: 0 8px 22px -14px rgba(76, 70, 166, 0.45);
+  border-color: rgb(var(--kiwi-200));
+  box-shadow: 0 8px 22px -14px rgb(var(--kiwi-700) / 0.45);
 }
 .kiwi-note-card-icon {
   display: grid;
@@ -1856,10 +1863,10 @@ body.kiwi-row-resizing * {
   height: 38px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid #e0e4fa;
+  border: 1px solid rgb(var(--kiwi-100));
   border-radius: 10px;
-  color: #4c46a6;
-  background: #eef0ff;
+  color: rgb(var(--kiwi-700));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-note-card-main {
   display: flex;
@@ -1873,7 +1880,7 @@ body.kiwi-row-resizing * {
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  color: #26304a;
+  color: rgb(var(--theme-text-primary));
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.4;
@@ -1883,9 +1890,9 @@ body.kiwi-row-resizing * {
 .kiwi-note-kind {
   flex: 0 0 auto;
   padding: 0 5px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 5px;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   font-size: 9.5px;
   font-weight: 500;
   line-height: 1.6;
@@ -1893,7 +1900,7 @@ body.kiwi-row-resizing * {
 .kiwi-note-card-excerpt {
   display: -webkit-box;
   overflow: hidden;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   font-size: 12px;
   line-height: 1.55;
   -webkit-box-orient: vertical;
@@ -1911,7 +1918,7 @@ body.kiwi-row-resizing * {
   overflow: hidden;
   margin-top: 5px;
   padding-top: 5px;
-  border-top: 1px dashed #eef2f7;
+  border-top: 1px dashed rgb(var(--theme-surface-muted));
 }
 .kiwi-note-card-db .kiwi-mention-db-scroll {
   overflow: hidden;
@@ -1966,7 +1973,7 @@ body.kiwi-row-resizing * {
 .kiwi-mention-preview-title {
   overflow: hidden;
   flex: 1;
-  color: #26304a;
+  color: rgb(var(--theme-text-primary));
   font-size: 12.5px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -1975,20 +1982,20 @@ body.kiwi-row-resizing * {
 .kiwi-mention-preview-text {
   display: -webkit-box;
   overflow: hidden;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   line-clamp: 4;
 }
 .kiwi-mention-preview-state {
   padding: 6px 0;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   text-align: center;
 }
 .kiwi-mention-preview-db {
   display: block;
   overflow: hidden;
-  border: 1px solid #eef2f7;
+  border: 1px solid rgb(var(--theme-surface-muted));
   border-radius: 8px;
 }
 .kiwi-mention-preview-db .kiwi-mention-db-scroll {
@@ -2004,12 +2011,12 @@ body.kiwi-row-resizing * {
 .kiwi-mention-preview-more {
   display: block;
   padding: 4px 6px;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   font-size: 10px;
-  background: #f8fafc;
+  background: rgb(var(--theme-app));
 }
 .kiwi-mention-preview-foot {
-  color: #b1bac9;
+  color: rgb(var(--theme-text-subtle));
   font-size: 10px;
 }
 
@@ -2020,9 +2027,9 @@ body.kiwi-row-resizing * {
   flex-direction: column;
   overflow: hidden;
   width: 100%;
-  border: 1px solid rgba(203, 213, 225, 0.9);
+  border: 1px solid rgb(var(--theme-border-strong) / 0.9);
   border-radius: 14px;
-  background: #fff;
+  background: rgb(var(--theme-surface));
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .kiwi-note-embed.is-resized .kiwi-note-embed-body {
@@ -2058,16 +2065,16 @@ body.kiwi-row-resizing * {
   width: 38px;
   height: 4px;
   border-radius: 999px;
-  background: #cbd5e1;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
+  background: rgb(var(--theme-border-strong));
+  box-shadow: 0 0 0 1px rgb(var(--theme-surface) / 0.8);
 }
 .kiwi-note-embed-head {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border-bottom: 1px solid #eef2f7;
-  background: linear-gradient(180deg, #fbfcff 0%, #f7f9fe 100%);
+  border-bottom: 1px solid rgb(var(--theme-surface-muted));
+  background: linear-gradient(180deg, rgb(var(--theme-surface)) 0%, rgb(var(--theme-surface)) 100%);
 }
 .kiwi-note-embed-icon {
   display: grid;
@@ -2076,12 +2083,12 @@ body.kiwi-row-resizing * {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 7px;
-  color: #4c46a6;
-  background: #eef0ff;
+  color: rgb(var(--kiwi-700));
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-note-embed-title {
   overflow: hidden;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   font-size: 12.5px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -2090,9 +2097,9 @@ body.kiwi-row-resizing * {
 .kiwi-note-embed-badge {
   flex: 0 0 auto;
   padding: 1px 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgb(var(--theme-border));
   border-radius: 999px;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   font-size: 9.5px;
   letter-spacing: 0.04em;
 }
@@ -2109,20 +2116,20 @@ body.kiwi-row-resizing * {
   transition: background 0.15s ease;
 }
 .kiwi-note-embed-open:hover {
-  background: #eef0ff;
+  background: rgb(var(--kiwi-50));
 }
 .kiwi-note-embed-body {
   min-height: 0;
   max-height: 420px;
   overflow: auto;
   padding: 12px 16px 14px;
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
   font-size: 12.5px;
   line-height: 1.7;
 }
 .kiwi-note-embed-state {
   padding: 12px 0;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   font-size: 12px;
   text-align: center;
 }
@@ -2132,7 +2139,7 @@ body.kiwi-row-resizing * {
   width: 100%;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: rgb(var(--theme-border-strong)) transparent;
 }
 .kiwi-mention-db table {
   width: 100%;
@@ -2142,23 +2149,23 @@ body.kiwi-row-resizing * {
 .kiwi-mention-db th,
 .kiwi-mention-db td {
   padding: 5px 8px;
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid rgb(var(--theme-surface-muted));
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
   vertical-align: top;
 }
 .kiwi-mention-db th {
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   font-weight: 600;
-  background: #f8fafc;
+  background: rgb(var(--theme-app));
 }
 .kiwi-mention-db td {
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
 }
 /* 最后一行保留底边线，避免表格看起来像被截断 */
 .kiwi-mention-db tr:last-child td {
-  border-bottom: 1px solid #eef2f7;
+  border-bottom: 1px solid rgb(var(--theme-surface-muted));
 }
 /* 嵌入的链接：正文缺失时展示书签信息 */
 .kiwi-mention-link {
@@ -2171,7 +2178,7 @@ body.kiwi-row-resizing * {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   font-size: 11px;
   font-weight: 500;
 }
@@ -2183,7 +2190,7 @@ body.kiwi-row-resizing * {
   white-space: nowrap;
 }
 .kiwi-mention-link-excerpt {
-  color: #475569;
+  color: rgb(var(--theme-text-secondary));
   font-size: 12px;
   line-height: 1.65;
 }
@@ -2246,21 +2253,21 @@ body.kiwi-row-resizing * {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-suggest-tip {
   font-size: 9.5px;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
-  color: #cbd5e1;
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-suggest-group {
   padding: 6px 9px 3px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: #b1bac8;
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-suggest-item {
   display: flex;
@@ -2271,20 +2278,20 @@ body.kiwi-row-resizing * {
   border: none;
   border-radius: 9px;
   background: transparent;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   text-align: left;
   font-size: 12px;
   cursor: pointer;
 }
 .kiwi-suggest-item:hover,
 .kiwi-suggest-item.is-active {
-  background: #eef0ff;
-  color: #4c46a6;
+  background: rgb(var(--kiwi-50));
+  color: rgb(var(--kiwi-700));
 }
 .kiwi-suggest-icon {
   display: inline-flex;
   flex-shrink: 0;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-suggest-icon[data-kind='wiki'] {
   color: rgb(var(--kiwi-500));
@@ -2293,7 +2300,7 @@ body.kiwi-row-resizing * {
   margin-left: auto;
   flex-shrink: 0;
   font-size: 10px;
-  color: #b1bac8;
+  color: rgb(var(--theme-text-subtle));
 }
 .emoji-suggest-box {
   width: 288px;
@@ -2317,7 +2324,7 @@ body.kiwi-row-resizing * {
 }
 .emoji-suggest-item:hover,
 .emoji-suggest-item.is-active {
-  background: #eef0ff;
+  background: rgb(var(--kiwi-50));
 }
 
 /*
@@ -2333,8 +2340,8 @@ body.kiwi-row-resizing * {
   height: calc(26px * var(--ui-scale));
   margin-left: calc(-24px * (var(--ui-scale) - 1));
   border-radius: calc(6px * var(--ui-scale));
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  background-color: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgb(var(--theme-border) / 0.95);
+  background-color: rgb(var(--theme-surface) / 0.94);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='%2394a3b8'%3E%3Ccircle cx='5' cy='4' r='1.25'/%3E%3Ccircle cx='11' cy='4' r='1.25'/%3E%3Ccircle cx='5' cy='8' r='1.25'/%3E%3Ccircle cx='11' cy='8' r='1.25'/%3E%3Ccircle cx='5' cy='12' r='1.25'/%3E%3Ccircle cx='11' cy='12' r='1.25'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
@@ -2363,7 +2370,7 @@ body.kiwi-row-resizing * {
 .prose-wiki ol ol { counter-reset: kiwi-ol var(--kiwi-ol-base, 0); }
 .prose-wiki ol > li::marker {
   content: counters(kiwi-ol, ".") ". ";
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -2489,15 +2496,14 @@ body.kiwi-row-resizing * {
 .prose-wiki li.task-list-item {
   display: block;
 }
+/* 不能给 label 设 flex：任务项里的加粗、彩色 span 会各自成为 flex item，
+ * 长句会被拆成并排的窄柱（看起来像分栏）。保持行内流，勾选框用外边距定位。 */
 .prose-wiki li.task-list-item > label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 1.8em;
+  display: inline;
 }
 .prose-wiki .task-list-item-checkbox {
-  flex: 0 0 auto;
-  margin: 0;
+  margin: 0 0.5rem 0 0;
+  vertical-align: middle;
   accent-color: rgb(var(--kiwi-500));
 }
 /* 设置页内置组件预览：待办可勾选，进度卡实时联动。 */
@@ -2549,14 +2555,14 @@ body.kiwi-row-resizing * {
   border: none;
   border-radius: 9px;
   background: transparent;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
   text-align: left;
   cursor: pointer;
 }
 .slash-item:hover,
 .slash-item.is-active {
-  background: #eef0ff;
-  color: #4c46a6;
+  background: rgb(var(--kiwi-50));
+  color: rgb(var(--kiwi-700));
 }
 .slash-item svg {
   flex-shrink: 0;
@@ -2573,36 +2579,36 @@ body.kiwi-row-resizing * {
 }
 .slash-hint {
   font-size: 11px;
-  color: #94a3b8;
+  color: rgb(var(--theme-text-subtle));
   line-height: 1.3;
 }
 .slash-item.is-active .slash-hint {
-  color: #7c7bc9;
+  color: rgb(var(--kiwi-400));
 }
 .slash-group + .slash-group {
   margin-top: 2px;
   padding-top: 3px;
-  border-top: 1px solid rgba(226, 232, 240, 0.7);
+  border-top: 1px solid rgb(var(--theme-border) / 0.7);
 }
 .slash-group-title {
   padding: 5px 9px 3px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: #a0aec0;
+  color: rgb(var(--theme-text-subtle));
 }
 
 /* ---------- 编辑器工具栏：始终单行，空间不足时横向滚动而不是换行挤压 ---------- */
 .kiwi-toolbar {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: rgb(var(--theme-border-strong)) transparent;
 }
 .kiwi-toolbar::-webkit-scrollbar {
   height: 4px;
 }
 .kiwi-toolbar::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: #cbd5e1;
+  background: rgb(var(--theme-border-strong));
 }
 .kiwi-toolbar::-webkit-scrollbar-track {
   background: transparent;
@@ -2616,7 +2622,7 @@ body.kiwi-row-resizing * {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: #64748b;
+  color: rgb(var(--theme-text-muted));
   white-space: nowrap;
 }
 
@@ -2630,7 +2636,7 @@ body.kiwi-row-resizing * {
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgb(var(--kiwi-50) / 0.7), rgb(var(--kiwi-50) / 0.3)),
-    #fff;
+    rgb(var(--theme-surface));
 }
 .kiwi-editor .kiwi-columns::before,
 .markdown-view .md-columns::before {
@@ -2641,7 +2647,7 @@ body.kiwi-row-resizing * {
   padding: 1px 8px;
   border-radius: 999px;
   background: rgb(var(--kiwi-500));
-  color: #fff;
+  color: rgb(var(--theme-accent-foreground));
   font-size: 10px;
   line-height: 16px;
   letter-spacing: 0.06em;
@@ -2672,7 +2678,7 @@ body.kiwi-row-resizing * {
 }
 .kiwi-editor .kiwi-columns > .kiwi-column:focus-within {
   border-color: rgb(var(--kiwi-300));
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 .kiwi-editor .kiwi-columns.ProseMirror-selectednode {
   outline: 2px solid rgb(var(--kiwi-400));
@@ -2733,11 +2739,48 @@ body.kiwi-row-resizing * {
 .markdown-view .md-plugin-placeholder-title {
   font-size: 12px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .markdown-view .md-plugin-placeholder code {
   padding: 0;
   background: transparent;
   font-size: 10px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
+
+/* ---------- 内容色板：标签 / 表格选项 ----------
+ * 这些颜色用于区分用户标签与选项，属于笔记内容而不是系统状态色：
+ * 主题切换时不改变色相，只按亮 / 暗主题调整明度，深色背景下仍可读。
+ * 与 Tailwind 的语义状态色板（emerald / amber / sky …）分开，
+ * 避免主题令牌把内容色压成同一两个颜色。 */
+.content-tone {
+  border-color: rgb(var(--tone) / 0.35);
+  background-color: rgb(var(--tone) / 0.12);
+  color: rgb(var(--tone));
+}
+.content-tone--dot {
+  background-color: rgb(var(--tone));
+}
+.content-tone--ring {
+  border-color: rgb(var(--tone));
+}
+.tone-slate { --tone: 71 85 105; }
+.tone-blue { --tone: 3 105 161; }
+.tone-green { --tone: 4 120 87; }
+.tone-amber { --tone: 180 83 9; }
+.tone-rose { --tone: 190 18 60; }
+.tone-violet { --tone: 109 40 217; }
+.tone-cyan { --tone: 14 116 144; }
+.tone-orange { --tone: 194 65 12; }
+.tone-indigo { --tone: 67 56 202; }
+.tone-teal { --tone: 15 118 110; }
+html[data-kiwi-theme-mode='dark'] .tone-slate { --tone: 203 213 225; }
+html[data-kiwi-theme-mode='dark'] .tone-blue { --tone: 125 211 252; }
+html[data-kiwi-theme-mode='dark'] .tone-green { --tone: 110 231 183; }
+html[data-kiwi-theme-mode='dark'] .tone-amber { --tone: 252 211 77; }
+html[data-kiwi-theme-mode='dark'] .tone-rose { --tone: 253 164 175; }
+html[data-kiwi-theme-mode='dark'] .tone-violet { --tone: 196 181 253; }
+html[data-kiwi-theme-mode='dark'] .tone-cyan { --tone: 103 232 249; }
+html[data-kiwi-theme-mode='dark'] .tone-orange { --tone: 253 186 116; }
+html[data-kiwi-theme-mode='dark'] .tone-indigo { --tone: 165 180 252; }
+html[data-kiwi-theme-mode='dark'] .tone-teal { --tone: 94 234 212; }

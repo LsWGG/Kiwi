@@ -11,8 +11,9 @@ import { useRouter } from 'vue-router'
 import { useKbsStore } from '@/stores/kbs'
 import { useLlmStore } from '@/stores/llm'
 import { useDesktopStore } from '@/stores/desktop'
-import { openSSE } from '@/api/sse'
+import { openSSE, type SSEMessage } from '@/api/sse'
 import { request } from '@/api/client'
+import { autoCollapseNav, restoreNav } from '@/composables/useSideNav'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
@@ -88,6 +89,60 @@ interface ChatStep {
   status: 'active' | 'done' | 'error'
 }
 
+/** Agent 行动计划：模型先列出步骤，再逐项执行。 */
+interface AgentPlanStep {
+  id: string
+  title: string
+  status: 'pending' | 'active' | 'done'
+}
+
+/** 写操作待确认信息，由后端 `approval` 事件下发。 */
+interface PendingAction {
+  action_id: string
+  tool: string
+  label: string
+  summary: string
+  args: Record<string, unknown>
+  /** 后端工具注册表提供的参数中文标签。 */
+  arg_labels?: Record<string, string>
+  expires_at?: number
+}
+
+/** 右侧引用预览：笔记 / Wiki 正文从详情接口读取。 */
+interface CitationPaneState {
+  citation: Citation
+  collection: 'note' | 'wiki'
+  msgIndex: number
+  citeIndex: number
+  loading: boolean
+  error: string
+  title: string
+  body: string
+  kind: string
+  kbName: string
+  updatedAt: string
+  locked: boolean
+  lockHint: string
+}
+
+interface NotePreviewResponse {
+  id: string
+  title: string
+  body_md: string
+  kind: string
+  updated_at?: string
+  is_locked?: boolean
+  lock_hint?: string | null
+}
+
+interface WikiPreviewResponse {
+  id: string
+  title: string
+  body_md: string
+  page_type?: string
+  updated_at?: string
+}
+
 interface Msg {
   role: 'user' | 'assistant'
   content: string
@@ -100,6 +155,11 @@ interface Msg {
   /** 完成后是否展开步骤明细；默认收起，点击摘要展开。 */
   stepsOpen?: boolean
   created_at?: string
+  /** Agent 行动计划。 */
+  plan?: AgentPlanStep[]
+  /** 等待用户确认的写操作；确认或取消后保留到本轮结束。 */
+  pendingAction?: PendingAction | null
+  actionState?: 'idle' | 'approving' | 'approved' | 'failed' | 'rejected' | 'expired'
 }
 
 interface SessionSummary {
@@ -145,6 +205,8 @@ const router = useRouter()
 
 const messages = ref<Msg[]>([])
 const input = ref('')
+/** 去掉 @ token 后的正文：只有引用、没有问题时不允许发送。 */
+const inputBody = ref('')
 const streaming = ref(false)
 /** 流式等待计时器：让「已等待 N 秒」实时跳动，避免看起来卡死。 */
 const nowTick = ref(Date.now())
@@ -175,8 +237,6 @@ const mentionNotes = ref<MentionNote[]>([])
 const mentionFolders = ref<MentionFolder[]>([])
 const mentionExpanded = ref<string[]>([])
 const mentionActiveIndex = ref(0)
-/** 输入框中触发 @ 的那段文本范围，选择后从正文里移除。 */
-const mentionToken = ref<{ start: number; end: number } | null>(null)
 const NOTE_KIND_OPTIONS = [
   { id: 'doc', label: '文档' },
   { id: 'import', label: '导入' },
@@ -192,6 +252,17 @@ const currentSessionId = ref('')
 const sessionsLoading = ref(false)
 const sessionLoading = ref(false)
 const sidebarOpen = ref(false)
+/** 桌面端会话栏折叠状态：默认展开，只由用户手动切换，不随引用预览变化。 */
+const sidebarCollapsed = ref(false)
+/** 引用预览与聊天区的宽度比例（0.35–0.72），拖动分隔条调整。 */
+const splitRatio = ref(0.5)
+const splitEl = ref<HTMLElement>()
+const isWide = ref(false)
+let wideQuery: MediaQueryList | null = null
+let splitDrag: { startX: number; startRatio: number; width: number } | null = null
+// v1 曾在打开引用预览时自动写入折叠状态，换新键让旧值失效，会话栏默认展开。
+const SIDEBAR_COLLAPSED_KEY = 'kiwi.chat.sessionListCollapsed.v1'
+const SPLIT_RATIO_KEY = 'kiwi.chat.splitRatio.v1'
 const renamingId = ref('')
 const renameTitle = ref('')
 const deleteTarget = ref<SessionSummary | null>(null)
@@ -199,10 +270,15 @@ const clearOpen = ref(false)
 const saving = ref(false)
 const pendingSave = ref(false)
 const activeCite = ref<{ msg: number; cite: number } | null>(null)
+const citationPane = ref<CitationPaneState | null>(null)
+let citationPaneSeq = 0
 const sessionQuery = ref('')
 const expandedCites = ref<Record<number, boolean>>({})
 const showJump = ref(false)
-const composerEl = ref<HTMLTextAreaElement>()
+/** 输入区改为 contenteditable：@ 引用作为行内高亮 token 与正文一起显示。 */
+const composerEl = ref<HTMLElement>()
+const composerEmpty = ref(true)
+const composerComposing = ref(false)
 
 const filteredSessions = computed(() => {
   const query = sessionQuery.value.trim().toLowerCase()
@@ -213,6 +289,27 @@ const filteredSessions = computed(() => {
 const currentSession = computed(
   () => sessions.value.find((item) => item.id === currentSessionId.value) || null,
 )
+
+const chatColumnStyle = computed(() => {
+  if (!citationPane.value || !isWide.value) return undefined
+  const basis = `${((1 - splitRatio.value) * 100).toFixed(2)}%`
+  return { flex: `0 0 ${basis}`, maxWidth: basis }
+})
+
+const citationPaneStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {
+    // 阅读面板使用主题表面色但不叠透明度：强背景图透过来会干扰正文，
+    // 这里优先保证长文可读性，主题风格由表面色、强调色与边框承载。
+    background: 'rgb(var(--theme-surface))',
+    borderColor: 'rgb(var(--theme-border) / 0.75)',
+  }
+  if (citationPane.value && isWide.value) {
+    const basis = `${(splitRatio.value * 100).toFixed(2)}%`
+    style.flex = `0 0 ${basis}`
+    style.maxWidth = basis
+  }
+  return style
+})
 
 const currentTitle = computed(() => {
   const title = currentSession.value?.title
@@ -310,6 +407,11 @@ onMounted(async () => {
     if (streaming.value) nowTick.value = Date.now()
   }, 500)
   document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onDocumentKeydown)
+  wideQuery = window.matchMedia('(min-width: 1024px)')
+  isWide.value = wideQuery.matches
+  wideQuery.addEventListener('change', onWideChange)
+  loadChatLayout()
   loadSettings()
   await Promise.all([
     kbs.kbs.length ? Promise.resolve() : kbs.fetchKbs().catch(() => undefined),
@@ -327,18 +429,25 @@ watch(
   async (id, previous) => {
     if (!bootstrappedSessions || sessionLoading.value || !id || id === previous) return
     if (streaming.value) return
-    mentions.value = []
+    // @ token 属于旧知识库，跟着输入区一起清空。
+    resetComposer()
     currentSessionId.value = ''
     messages.value = []
-    activeCite.value = null
+    closeCitationPane()
     expandedCites.value = {}
     await fetchSessions()
     if (sessions.value.length) await loadSession(sessions.value[0].id)
   },
 )
 onUnmounted(() => {
+  stopRevealingApproval()
   window.clearInterval(streamTickTimer)
   document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onDocumentKeydown)
+  wideQuery?.removeEventListener('change', onWideChange)
+  stopSplitDrag()
+  // 离开聊天页时恢复被预览临时收起的主导航。
+  restoreNav()
   saveSettings()
   window.clearTimeout(saveTimer)
   void saveSessionNow()
@@ -394,12 +503,16 @@ function applySession(detail: SessionDetail) {
     if (message.role === 'assistant') normalizeCitations(message, message.citations)
   }
   messages.value = loaded
+  closeCitationPane()
   scopeFromSession(detail)
+  const restoredMentions = mentions.value.slice()
   saveSettings()
   sidebarOpen.value = false
   scrollToBottom(true)
   void nextTick(() => {
     hydratingSession = false
+    // 会话里保存的 @ 引用还原成输入区里的高亮 token，而不是隐藏状态。
+    if (restoredMentions.length) restoreComposerMentions(restoredMentions)
     if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
   })
 }
@@ -693,25 +806,107 @@ async function loadMentionCandidates() {
   }
 }
 
-/** 读取光标前最后一个 `@关键词`，没有则返回 null。 */
-function findMentionToken(): { query: string; start: number; end: number } | null {
+/** 输入区里的 @ 引用是原子 token：contenteditable="false"，随正文一起显示与删除。 */
+function buildMentionToken(
+  type: MentionRef['type'],
+  id: string,
+  title: string,
+): HTMLElement {
+  const token = document.createElement('span')
+  token.className = 'chat-mention'
+  token.contentEditable = 'false'
+  token.dataset.mentionType = type
+  token.dataset.mentionId = id
+  token.dataset.mentionTitle = title
+  token.textContent = `@${title}`
+  return token
+}
+
+/**
+ * 序列化输入区：token 记为 `@标题`，<br> 记为换行。
+ * includeMentions=false 时跳过 token，用来判断用户是否真的写了问题正文。
+ */
+function serializeComposer(node: Node, includeMentions = true): string {
+  let out = ''
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += (child.textContent || '').replace(/ /g, ' ')
+      return
+    }
+    if (!(child instanceof HTMLElement)) return
+    if (child.dataset.mentionId) {
+      if (includeMentions) {
+        out += `@${child.dataset.mentionTitle || (child.textContent || '').replace(/^@/, '')}`
+      }
+      return
+    }
+    if (child.tagName === 'BR') {
+      out += '\n'
+      return
+    }
+    out += serializeComposer(child)
+  })
+  return out
+}
+
+/** 输入区唯一数据源：正文、空状态与 @ 引用都从 DOM 同步回来。 */
+function syncComposer() {
   const el = composerEl.value
-  const caret = el?.selectionStart ?? input.value.length
-  const before = input.value.slice(0, caret)
+  if (!el) return
+  const text = serializeComposer(el).replace(/\n+$/, '')
+  input.value = text
+  inputBody.value = serializeComposer(el, false).replace(/\n+$/, '')
+  composerEmpty.value = !text.trim()
+  const next: MentionRef[] = []
+  el.querySelectorAll<HTMLElement>('[data-mention-id]').forEach((node) => {
+    const id = node.dataset.mentionId || ''
+    if (!id) return
+    const type: MentionRef['type'] = node.dataset.mentionType === 'folder' ? 'folder' : 'note'
+    if (next.some((item) => item.type === type && item.id === id)) return
+    next.push({
+      type,
+      id,
+      title: node.dataset.mentionTitle || (node.textContent || '').replace(/^@/, ''),
+    })
+  })
+  mentions.value = next
+  resizeComposer()
+}
+
+/** 清空输入区（含 @ token）。 */
+function resetComposer() {
+  const el = composerEl.value
+  if (el) el.textContent = ''
+  input.value = ''
+  inputBody.value = ''
+  composerEmpty.value = true
+  mentions.value = []
+  resizeComposer()
+}
+
+/** 光标所在文本节点里 `@关键词` 的关键词；光标在 token 上时不触发。 */
+function mentionQueryAtCaret(): string | null {
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount || !sel.isCollapsed) return null
+  const range = sel.getRangeAt(0)
+  if (range.startContainer.nodeType !== Node.TEXT_NODE) return null
+  const before = (range.startContainer.textContent || '')
+    .slice(0, range.startOffset)
+    .replace(/ /g, ' ')
   const match = before.match(/(?:^|[\s(（])@([^\s@]*)$/)
-  if (!match) return null
-  return { query: match[1], start: caret - match[1].length - 1, end: caret }
+  return match ? match[1] : null
 }
 
 function onComposerInput() {
-  resizeComposer()
-  const token = findMentionToken()
-  if (!token) {
+  syncComposer()
+  // 中文输入法拼写期间不驱动 @ 选择器，等 compositionend 再统一处理。
+  if (composerComposing.value) return
+  const query = mentionQueryAtCaret()
+  if (query === null) {
     if (mentionOpen.value) closeMention()
     return
   }
-  mentionToken.value = { start: token.start, end: token.end }
-  mentionQuery.value = token.query
+  mentionQuery.value = query
   if (!mentionOpen.value) {
     mentionOpen.value = true
     mentionActiveIndex.value = 0
@@ -719,10 +914,18 @@ function onComposerInput() {
   }
 }
 
+function onComposerCompositionStart() {
+  composerComposing.value = true
+}
+
+function onComposerCompositionEnd() {
+  composerComposing.value = false
+  onComposerInput()
+}
+
 function closeMention() {
   mentionOpen.value = false
   mentionQuery.value = ''
-  mentionToken.value = null
   mentionActiveIndex.value = 0
 }
 
@@ -730,30 +933,99 @@ function isMentioned(type: MentionRef['type'], id: string): boolean {
   return mentions.value.some((item) => item.type === type && item.id === id)
 }
 
-function toggleMention(type: MentionRef['type'], id: string, title: string) {
-  const index = mentions.value.findIndex((item) => item.type === type && item.id === id)
-  if (index >= 0) mentions.value.splice(index, 1)
-  else mentions.value.push({ type, id, title })
+/** 在光标处插入纯文本（粘贴 / Shift+Enter 换行共用），只保留换行不保留富文本。 */
+function insertComposerText(text: string) {
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount) return
+  const range = sel.getRangeAt(0)
+  range.deleteContents()
+  const frag = document.createDocumentFragment()
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (index) frag.appendChild(document.createElement('br'))
+    if (line) frag.appendChild(document.createTextNode(line))
+  })
+  const last = frag.lastChild
+  range.insertNode(frag)
+  if (last) {
+    const after = document.createRange()
+    after.setStartAfter(last)
+    after.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(after)
+  }
+  syncComposer()
 }
 
-/** 选中节点：把输入框里的 `@关键词` 替换为已选 chip。 */
+function onComposerPaste(event: ClipboardEvent) {
+  // 粘贴只取纯文本，避免把外部 HTML / 内联样式带进输入区。
+  event.preventDefault()
+  const text = event.clipboardData?.getData('text/plain') || ''
+  if (text) insertComposerText(text)
+}
+
+/** 选中节点：把输入区里的 `@关键词` 原地替换为高亮 token，并补一个空格。 */
 function chooseMention(node: MentionTreeNode) {
-  const token = mentionToken.value ?? findMentionToken()
-  if (token) {
-    input.value = input.value.slice(0, token.start) + input.value.slice(token.end)
-  }
+  const el = composerEl.value
   const title =
     node.type === 'folder'
       ? mentionFolderPaths.value.get(node.id) || node.title
       : node.title
-  toggleMention(node.type, node.id, title)
-  const caret = token?.start ?? input.value.length
+  const token = buildMentionToken(node.type, node.id, title)
+  const tail = document.createTextNode(' ')
+  const sel = window.getSelection()
+  let range: Range | null = null
+  if (el && sel && sel.rangeCount) {
+    const current = sel.getRangeAt(0)
+    if (el.contains(current.startContainer)) range = current
+  }
+  if (el && range) {
+    // 只在文本节点内删除 `@关键词`；光标落在已有 token 上时不改动正文。
+    if (range.startContainer.nodeType === Node.TEXT_NODE) {
+      const before = (range.startContainer.textContent || '').slice(0, range.startOffset)
+      const match = before.match(/(?:^|[\s(（])@([^\s@]*)$/)
+      if (match) {
+        range.setStart(range.startContainer, range.startOffset - match[1].length - 1)
+      }
+    }
+    // insertNode 只负责插入，不会删除范围内容；先把 `@关键词` 真实删掉。
+    range.deleteContents()
+    const frag = document.createDocumentFragment()
+    frag.appendChild(token)
+    frag.appendChild(tail)
+    range.insertNode(frag)
+    const after = document.createRange()
+    after.setStartAfter(tail)
+    after.collapse(true)
+    sel?.removeAllRanges()
+    sel?.addRange(after)
+  } else if (el) {
+    el.appendChild(document.createTextNode(' '))
+    el.appendChild(token)
+    el.appendChild(tail)
+  }
   closeMention()
-  void nextTick(() => {
-    resizeComposer()
-    composerEl.value?.focus()
-    composerEl.value?.setSelectionRange(caret, caret)
+  syncComposer()
+  void nextTick(() => composerEl.value?.focus())
+}
+
+/** 会话载入时把保存的 @ 引用还原成输入区里的 token。 */
+function restoreComposerMentions(items: MentionRef[]) {
+  const el = composerEl.value
+  if (!el || !items.length) return
+  const existing = new Set(
+    Array.from(el.querySelectorAll<HTMLElement>('[data-mention-id]')).map(
+      (node) => `${node.dataset.mentionType}:${node.dataset.mentionId}`,
+    ),
+  )
+  const missing = items.filter((item) => !existing.has(`${item.type}:${item.id}`))
+  if (!missing.length) return
+  const hasContent = (el.textContent || '').trim().length > 0
+  missing.forEach((item, index) => {
+    if (hasContent || index > 0) el.appendChild(document.createTextNode(' '))
+    el.appendChild(buildMentionToken(item.type, item.id, item.title))
   })
+  el.appendChild(document.createTextNode(' '))
+  syncComposer()
 }
 
 function mentionMove(delta: number) {
@@ -802,14 +1074,16 @@ function onComposerKeydown(event: KeyboardEvent) {
       return
     }
   }
+  if (event.key === 'Enter' && event.shiftKey) {
+    // contenteditable 默认会插入 <div> 块，统一成 <br>，序列化时才可控。
+    event.preventDefault()
+    insertComposerText('\n')
+    return
+  }
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void ask()
   }
-}
-
-function removeMention(index: number) {
-  mentions.value.splice(index, 1)
 }
 
 async function createSession(): Promise<SessionDetail | null> {
@@ -840,7 +1114,8 @@ function sessionPayload() {
   return {
     title: undefined as string | undefined,
     messages: messages.value
-      .filter((m) => !m.streaming)
+      // 等待写操作确认时回答为空，不写入会话，避免刷新后出现空白气泡。
+      .filter((m) => !m.streaming && (m.role === 'user' || m.content.trim()))
       .map((m) => ({
         role: m.role,
         content: m.content,
@@ -897,7 +1172,7 @@ function newConversation() {
   }
   currentSessionId.value = ''
   messages.value = []
-  activeCite.value = null
+  closeCitationPane()
   expandedCites.value = {}
   showJump.value = false
   sidebarOpen.value = false
@@ -982,7 +1257,10 @@ function pushAssistant() {
     created_at: new Date().toISOString(),
   }
   messages.value.push(msg)
-  return msg
+  // 必须返回数组里的响应式代理：直接改原始对象不会触发 Vue 更新，
+  // 审批卡片 / 步骤 / 流式正文就只能等定时器或其它交互顺带重渲染，
+  // 表现为「确认框不及时弹出，点一下页面才出现」。
+  return messages.value[messages.value.length - 1] as Msg
 }
 
 function scrollToBottom(force = false) {
@@ -991,6 +1269,69 @@ function scrollToBottom(force = false) {
   void nextTick(() => {
     if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
   })
+}
+
+let approvalRevealTimer: number | undefined
+let approvalRevealSeq = 0
+
+/**
+ * 把待确认卡片滚进视口。
+ *
+ * 审批卡片出现时，前面的步骤明细会从展开收成一行，正文里的图片 / Mermaid
+ * 也可能在之后才完成布局；只在 nextTick 滚一次会被后续高度变化顶出视口，
+ * 表现为「卡片不会自动出现，点一下才看到」。这里在随后的布局稳定期内
+ * 反复检查，直到卡片完整可见或超时。
+ */
+function revealApproval(actionId: string) {
+  if (!actionId) return
+  const seq = ++approvalRevealSeq
+  window.clearTimeout(approvalRevealTimer)
+  const tick = (remaining: number) => {
+    if (seq !== approvalRevealSeq) return
+    const container = scrollEl.value
+    const card = container?.querySelector<HTMLElement>(
+      `[data-approval-action="${CSS.escape(actionId)}"]`,
+    )
+    if (container && card) {
+      const cardRect = card.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      const viewportH = window.visualViewport?.height ?? window.innerHeight
+      const fullyVisible =
+        cardRect.top >= containerRect.top - 1 &&
+        cardRect.bottom <= containerRect.bottom - 1 &&
+        cardRect.top >= -1 &&
+        cardRect.bottom <= viewportH + 1
+      if (fullyVisible) return
+      // 极少数布局下 .chat-scroll 不是真正的滚动容器（外层页面在滚），
+      // 先用 scrollIntoView 让浏览器自己找到滚动祖先，再按容器校正。
+      if (cardRect.top < -1 || cardRect.bottom > viewportH + 1) {
+        card.scrollIntoView({ block: 'nearest', behavior: 'auto' })
+      }
+      const nextCardRect = card.getBoundingClientRect()
+      const nextContainerRect = container.getBoundingClientRect()
+      const tall = nextCardRect.height > nextContainerRect.height - 24
+      // 卡片能完整放下时把它顶到聊天区上方，比贴着底部更醒目；
+      // 卡片高于可视区时对齐底部，保证「允许执行 / 取消」始终看得见。
+      const target = tall
+        ? container.scrollTop + (nextCardRect.bottom - nextContainerRect.bottom)
+        : container.scrollTop + (nextCardRect.top - nextContainerRect.top) - 16
+      container.scrollTo({
+        top: Math.max(0, target),
+        // 必须立即到位：平滑滚动 + 逐次重试会让卡片在流结束后还要过一秒才
+        // 露出来，看起来就像「根本没自动出现」。
+        behavior: 'auto',
+      })
+    }
+    if (remaining > 0) {
+      approvalRevealTimer = window.setTimeout(() => tick(remaining - 1), 150)
+    }
+  }
+  void nextTick(() => requestAnimationFrame(() => tick(20)))
+}
+
+function stopRevealingApproval() {
+  approvalRevealSeq += 1
+  window.clearTimeout(approvalRevealTimer)
 }
 
 function onScroll() {
@@ -1121,6 +1462,10 @@ function onDocumentClick(event: MouseEvent) {
   if (mentionOpen.value) closeMention()
 }
 
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && citationPane.value) closeCitationPane()
+}
+
 function historyMessages() {
   return messages.value
     .filter((m) => !m.streaming && m.content.trim())
@@ -1154,6 +1499,195 @@ function finishSteps(msg: Msg, status: 'done' | 'error') {
   msg.finishedAt = Date.now()
   // 完成后收起明细，只保留一行「已完成 N 个步骤」；出错时展开便于排查。
   msg.stepsOpen = status === 'error'
+}
+
+// ---------- Agent 计划与写操作确认 ----------
+function applyPlan(msg: Msg, data: any) {
+  const steps = Array.isArray(data?.steps) ? data.steps : []
+  msg.plan = steps
+    .map((step: any, index: number) => ({
+      id: String(step?.id || `plan-${index + 1}`),
+      title: String(step?.title || '').trim(),
+      status:
+        step?.status === 'done'
+          ? ('done' as const)
+          : step?.status === 'active'
+            ? ('active' as const)
+            : ('pending' as const),
+    }))
+    .filter((step: AgentPlanStep) => step.title)
+}
+
+function planProgress(msg: Msg): string {
+  const steps = msg.plan || []
+  if (!steps.length) return ''
+  return `${steps.filter((step) => step.status === 'done').length}/${steps.length}`
+}
+
+const ACTION_ARG_LABELS: Record<string, string> = {
+  note_id: '笔记',
+  folder_id: '目录',
+  database_id: '数据表',
+  row_id: '行',
+  parent_id: '上级',
+  title: '标题',
+  name: '名称',
+  body_md: '正文',
+  query: '关键词',
+  fields: '字段',
+  values: '内容',
+  limit: '数量',
+}
+
+function displayArg(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function actionArgRows(action: PendingAction | null | undefined) {
+  if (!action) return []
+  return Object.entries(action.args || {})
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
+    .slice(0, 5)
+    .map(([key, value]) => {
+      const text = displayArg(value)
+      return {
+        key,
+        label: action.arg_labels?.[key] || ACTION_ARG_LABELS[key] || key,
+        value: text.length > 120 ? `${text.slice(0, 120)}…` : text,
+      }
+    })
+}
+
+function normalizePendingAction(data: any): PendingAction {
+  const expires = Number(data?.expires_at || 0)
+  return {
+    action_id: String(data?.action_id || ''),
+    tool: String(data?.tool || ''),
+    label: String(data?.label || '待确认操作').trim(),
+    summary: String(data?.summary || '').trim(),
+    args: data?.args && typeof data.args === 'object' ? data.args : {},
+    arg_labels:
+      data?.arg_labels && typeof data.arg_labels === 'object'
+        ? (data.arg_labels as Record<string, string>)
+        : undefined,
+    expires_at: expires > 0 ? expires : undefined,
+  }
+}
+
+function isActionExpired(action: PendingAction | null | undefined): boolean {
+  return Boolean(action?.expires_at && Date.now() / 1000 >= action.expires_at)
+}
+
+/** 首轮流式检索先暂存引用；恢复写操作不会重发 citation，需保留原有引用。 */
+interface StreamCitations {
+  value: Citation[]
+  received: boolean
+}
+
+/** 应用一条 Agent SSE 事件；首轮提问与确认后恢复共用同一套处理。 */
+function handleStreamEvent(assistant: Msg, event: SSEMessage, pendingCitations: StreamCitations) {
+  const data: any = event.data
+  if (event.event === 'stage') {
+    applyStage(assistant, data)
+    scrollToBottom()
+  } else if (event.event === 'plan') {
+    applyPlan(assistant, data)
+    scrollToBottom()
+  } else if (event.event === 'chunk') {
+    assistant.content += data?.text ?? ''
+    scrollToBottom()
+  } else if (event.event === 'citation') {
+    pendingCitations.value.splice(0, pendingCitations.value.length, ...(data?.citations ?? []))
+    pendingCitations.received = true
+  } else if (event.event === 'notice') {
+    const notice = String(data?.message || '').trim()
+    if (notice) toast.info(notice)
+  } else if (event.event === 'tool_result') {
+    if (assistant.actionState === 'approving') {
+      assistant.actionState = data?.ok ? 'approved' : 'failed'
+    }
+  } else if (event.event === 'approval') {
+    assistant.pendingAction = normalizePendingAction(data)
+    assistant.actionState = 'idle'
+    scrollToBottom()
+    revealApproval(assistant.pendingAction.action_id)
+  } else if (event.event === 'done') {
+    finishSteps(assistant, 'done')
+    assistant.streaming = false
+    streaming.value = false
+    if (pendingCitations.received) normalizeCitations(assistant, pendingCitations.value)
+    assistant.created_at = new Date().toISOString()
+    if (data?.awaiting_approval) {
+      // 等待用户确认：保留审批卡片，不把空回答写入会话。
+      if (!assistant.pendingAction) assistant.actionState = 'expired'
+      scrollToBottom(true)
+      if (assistant.pendingAction) revealApproval(assistant.pendingAction.action_id)
+      return
+    }
+    if (data?.cancelled) assistant.actionState = 'rejected'
+    else if (assistant.actionState === 'approving') assistant.actionState = 'approved'
+    assistant.pendingAction = null
+    scrollToBottom(true)
+    void saveSessionNow()
+  } else if (event.event === 'error') {
+    finishSteps(assistant, 'error')
+    if (assistant.actionState === 'approving') assistant.actionState = 'failed'
+    assistant.content += `\n\n⚠️ ${data?.message ?? '出错了'}`
+    assistant.streaming = false
+    streaming.value = false
+    void saveSessionNow()
+  }
+}
+
+function handleStreamError(assistant: Msg, error: Error) {
+  finishSteps(assistant, 'error')
+  if (assistant.actionState === 'approving') assistant.actionState = 'failed'
+  assistant.content += `\n\n⚠️ 连接失败：${error.message}`
+  assistant.streaming = false
+  streaming.value = false
+  void saveSessionNow()
+}
+
+/** 确认或取消待执行的写操作，恢复同一个 Agent 循环。 */
+function resolveAction(msg: Msg, approve: boolean) {
+  const action = msg.pendingAction
+  if (!action || streaming.value || msg.actionState === 'approving') return
+  stopRevealingApproval()
+  if (isActionExpired(action)) {
+    msg.actionState = 'expired'
+    toast.error('这条操作确认已过期，请重新提问')
+    return
+  }
+  msg.actionState = 'approving'
+  msg.streaming = true
+  // 用户思考确认的时间不计入本轮执行时长。
+  msg.startedAt = Date.now()
+  msg.finishedAt = undefined
+  streaming.value = true
+  autoScroll.value = true
+  scrollToBottom(true)
+  const pendingCitations: StreamCitations = { value: [], received: false }
+  openSSE(
+    '/chat/stream',
+    {
+      messages: [{ role: 'user', content: approve ? '确认执行' : '取消执行' }],
+      resume_action_id: action.action_id,
+      approve,
+      agent: true,
+      web_search: true,
+    },
+    {
+      onMessage: (event) => handleStreamEvent(msg, event, pendingCitations),
+      onError: (error) => handleStreamError(msg, error),
+    },
+  )
 }
 
 function formatDuration(ms: number): string {
@@ -1195,16 +1729,17 @@ function isSlowStream(msg: Msg): boolean {
 // ---------- 提问 ----------
 async function ask() {
   const text = input.value.trim()
-  if (!text || streaming.value) return
+  if (!text || !inputBody.value.trim() || streaming.value) return
+  stopRevealingApproval()
   closeMention()
+  closeCitationPane()
   if (llmMissing.value) {
     toast.error('尚未配置大模型，请先在「设置 → 模型」中完成配置')
     return
   }
   if (!validateScope()) return
   if (!(await ensureSession())) return
-  input.value = ''
-  void nextTick(() => resizeComposer())
+  resetComposer()
   pushUser(text)
   const payloadMessages = historyMessages()
   const assistant = pushAssistant()
@@ -1215,7 +1750,7 @@ async function ask() {
   scheduleSave(0)
 
   // 引用先暂存，等回答完成后再按正文实际引用过滤，避免先闪出 10 条。
-  let pendingCitations: Citation[] = []
+  const pendingCitations: StreamCitations = { value: [], received: false }
 
   openSSE(
     '/chat/stream',
@@ -1229,41 +1764,8 @@ async function ask() {
       web_search: true,
     },
     {
-      onMessage: (msg) => {
-        if (msg.event === 'stage') {
-          applyStage(assistant, msg.data)
-          scrollToBottom()
-        } else if (msg.event === 'chunk') {
-          assistant.content += msg.data?.text ?? ''
-          scrollToBottom()
-        } else if (msg.event === 'citation') {
-          pendingCitations = msg.data?.citations ?? []
-        } else if (msg.event === 'notice') {
-          const notice = String(msg.data?.message || '').trim()
-          if (notice) toast.info(notice)
-        } else if (msg.event === 'done') {
-          finishSteps(assistant, 'done')
-          assistant.streaming = false
-          streaming.value = false
-          normalizeCitations(assistant, pendingCitations)
-          assistant.created_at = new Date().toISOString()
-          scrollToBottom(true)
-          void saveSessionNow()
-        } else if (msg.event === 'error') {
-          finishSteps(assistant, 'error')
-          assistant.content += `\n\n⚠️ ${msg.data?.message ?? '出错了'}`
-          assistant.streaming = false
-          streaming.value = false
-          void saveSessionNow()
-        }
-      },
-      onError: (e) => {
-        finishSteps(assistant, 'error')
-        assistant.content += `\n\n⚠️ 连接失败：${e.message}`
-        assistant.streaming = false
-        streaming.value = false
-        void saveSessionNow()
-      },
+      onMessage: (msg) => handleStreamEvent(assistant, msg, pendingCitations),
+      onError: (e) => handleStreamError(assistant, e),
     },
   )
 }
@@ -1275,12 +1777,18 @@ const suggestions = [
 ]
 
 function suggest(q: { text: string }) {
-  input.value = q.text
+  const el = composerEl.value
+  if (el) {
+    el.textContent = q.text
+    syncComposer()
+  } else {
+    input.value = q.text
+  }
   void ask()
 }
 
 const canSend = computed(
-  () => input.value.trim().length > 0 && !streaming.value && !llmMissing.value,
+  () => inputBody.value.trim().length > 0 && !streaming.value && !llmMissing.value,
 )
 
 // ---------- 引用跳转与定位 ----------
@@ -1370,6 +1878,211 @@ function normalizeCitations(msg: Msg, all: Citation[]) {
     return mapped.length ? mapped.map((n) => `[${n}]`).join('') : whole
   })
   msg.citations = order.map((n) => all[n - 1])
+}
+
+function formatPreviewTime(value?: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function persistChatLayout() {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed.value ? '1' : '0')
+    localStorage.setItem(SPLIT_RATIO_KEY, String(splitRatio.value))
+  } catch {
+    /* 隐私模式下 localStorage 可能不可用 */
+  }
+}
+
+function loadChatLayout() {
+  try {
+    sidebarCollapsed.value = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+    const ratio = Number(localStorage.getItem(SPLIT_RATIO_KEY))
+    if (Number.isFinite(ratio) && ratio >= 0.35 && ratio <= 0.72) {
+      splitRatio.value = ratio
+    }
+  } catch {
+    /* 忽略不可用的本地存储 */
+  }
+}
+
+function setSidebarCollapsed(value: boolean) {
+  sidebarCollapsed.value = value
+  persistChatLayout()
+}
+
+function toggleSidebarCollapsed() {
+  setSidebarCollapsed(!sidebarCollapsed.value)
+}
+
+/** 引用预览展开时收起左侧主导航，把宽度让给双栏阅读。 */
+function maybeCollapseNavForPreview() {
+  if (!isWide.value) return
+  autoCollapseNav()
+}
+
+function onWideChange(event: MediaQueryListEvent) {
+  isWide.value = event.matches
+  if (!event.matches) {
+    stopSplitDrag()
+    // 预览变成窄屏抽屉后不再占用双栏宽度，导航恢复原状。
+    restoreNav()
+  } else if (citationPane.value) {
+    // 窄屏抽屉在拉宽后变回并排双栏，同样给阅读区让位。
+    maybeCollapseNavForPreview()
+  }
+}
+
+function onSplitDrag(event: PointerEvent) {
+  if (!splitDrag) return
+  const delta = (splitDrag.startX - event.clientX) / splitDrag.width
+  splitRatio.value = Math.min(0.72, Math.max(0.35, splitDrag.startRatio + delta))
+}
+
+function stopSplitDrag() {
+  if (!splitDrag) return
+  splitDrag = null
+  window.removeEventListener('pointermove', onSplitDrag)
+  window.removeEventListener('pointerup', stopSplitDrag)
+  window.removeEventListener('pointercancel', stopSplitDrag)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  persistChatLayout()
+}
+
+function startSplitDrag(event: PointerEvent) {
+  if (!isWide.value || !citationPane.value) return
+  const el = splitEl.value
+  if (!el) return
+  splitDrag = {
+    startX: event.clientX,
+    startRatio: splitRatio.value,
+    width: Math.max(el.getBoundingClientRect().width, 1),
+  }
+  window.addEventListener('pointermove', onSplitDrag)
+  window.addEventListener('pointerup', stopSplitDrag)
+  window.addEventListener('pointercancel', stopSplitDrag)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function closeCitationPane() {
+  citationPaneSeq += 1
+  citationPane.value = null
+  activeCite.value = null
+  restoreNav()
+}
+
+/** 点击引用来源：笔记 / Wiki 默认在右侧预览，网页仍在新标签打开。 */
+async function previewCitation(citation: Citation, msgIndex: number, citeIndex: number) {
+  if (citation.collection === 'web') {
+    openCitation(citation)
+    return
+  }
+  if (
+    (citation.collection !== 'note' && citation.collection !== 'wiki') ||
+    !citation.target_id
+  ) {
+    openCitation(citation)
+    return
+  }
+  const collection: 'note' | 'wiki' = citation.collection === 'wiki' ? 'wiki' : 'note'
+  const wasOpen = citationPane.value !== null
+  const seq = ++citationPaneSeq
+  activeCite.value = { msg: msgIndex, cite: citeIndex }
+  citationPane.value = {
+    citation,
+    collection,
+    msgIndex,
+    citeIndex,
+    loading: true,
+    error: '',
+    title: citation.title || (collection === 'note' ? '笔记' : 'Wiki'),
+    body: '',
+    kind: citation.kind || '',
+    kbName: citation.kb_name || '',
+    updatedAt: '',
+    locked: false,
+    lockHint: '',
+  }
+  if (!wasOpen) maybeCollapseNavForPreview()
+  const kbId = citation.kb_id || kbs.currentKbId || undefined
+  try {
+    if (collection === 'note') {
+      const note = await request<NotePreviewResponse>(
+        `/notes/${encodeURIComponent(citation.target_id)}`,
+        { kbId },
+      )
+      if (seq !== citationPaneSeq || !citationPane.value) return
+      citationPane.value.title = note.title || citationPane.value.title
+      citationPane.value.body = note.body_md || ''
+      citationPane.value.kind = note.kind || citationPane.value.kind
+      citationPane.value.updatedAt = note.updated_at || ''
+      citationPane.value.locked = Boolean(note.is_locked)
+      citationPane.value.lockHint = note.lock_hint || ''
+    } else {
+      const page = await request<WikiPreviewResponse>(
+        `/wiki/${encodeURIComponent(citation.target_id)}`,
+        { kbId },
+      )
+      if (seq !== citationPaneSeq || !citationPane.value) return
+      citationPane.value.title = page.title || citationPane.value.title
+      citationPane.value.body = page.body_md || ''
+      citationPane.value.kind = page.page_type || ''
+      citationPane.value.updatedAt = page.updated_at || ''
+    }
+  } catch (e: any) {
+    if (seq !== citationPaneSeq || !citationPane.value) return
+    citationPane.value.error = e?.message || '内容加载失败'
+  } finally {
+    if (seq === citationPaneSeq && citationPane.value) {
+      citationPane.value.loading = false
+    }
+  }
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** 点击回答里的笔记链接：在右侧预览，不离开当前问答。 */
+function previewNoteLink(payload: { collection: 'note' | 'wiki'; id: string }) {
+  // 模型偶尔会把工具返回的 UUID 抄错，直接请求只会得到 422；给出可读提示。
+  if (!UUID_RE.test(payload.id)) {
+    toast.error('这条笔记链接已损坏，请重新提问生成')
+    return
+  }
+  const citation: Citation = {
+    kb_id: kbs.currentKbId,
+    kb_name: '',
+    collection: payload.collection,
+    title: '',
+    chunk_text: '',
+    target_id: payload.id,
+  }
+  void previewCitation(citation, -1, -1)
+}
+
+/** 右侧预览里的「打开完整笔记 / Wiki」沿用原有深链跳转。 */
+function openPreviewTarget() {
+  const pane = citationPane.value
+  if (!pane) return
+  const citation = pane.citation
+  closeCitationPane()
+  openCitation(citation)
+}
+
+function retryCitationPane() {
+  const pane = citationPane.value
+  if (!pane) return
+  void previewCitation(pane.citation, pane.msgIndex, pane.citeIndex)
 }
 
 function openCitation(citation: Citation) {
@@ -1560,7 +2273,13 @@ watch(
     <!-- 会话侧栏 -->
     <aside
       class="chat-sidebar z-30 flex h-full w-64 shrink-0 flex-col border-r border-slate-200/70 bg-white/70 backdrop-blur-xl"
-      :class="sidebarOpen ? 'absolute inset-y-0 left-0 flex shadow-xl lg:static lg:shadow-none' : 'hidden lg:flex'"
+      :class="
+        sidebarOpen
+          ? 'absolute inset-y-0 left-0 flex shadow-xl lg:static lg:shadow-none'
+          : sidebarCollapsed
+            ? 'hidden'
+            : 'hidden lg:flex'
+      "
     >
       <div class="flex items-center gap-2 px-3 pb-2 pt-3">
         <button
@@ -1570,6 +2289,15 @@ watch(
         >
           <KiwiIcon name="plus" :size="13" />
           新对话
+        </button>
+        <button
+          type="button"
+          class="hidden h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 lg:grid"
+          title="收起会话列表"
+          aria-label="收起会话列表"
+          @click="toggleSidebarCollapsed"
+        >
+          <KiwiIcon name="panelLeftClose" :size="15" />
         </button>
         <button
           type="button"
@@ -1699,6 +2427,16 @@ watch(
       <header class="chat-header relative z-20 shrink-0 border-b border-slate-200/60 bg-white/55 px-4 py-2 backdrop-blur-xl max-md:px-2">
         <div class="mx-auto flex w-full max-w-[1120px] flex-wrap items-center gap-2">
           <button
+            v-if="sidebarCollapsed"
+            type="button"
+            class="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 transition hover:border-kiwi-300 hover:text-kiwi-700 lg:inline-flex"
+            title="展开会话列表"
+            aria-label="展开会话列表"
+            @click="setSidebarCollapsed(false)"
+          >
+            <KiwiIcon name="panelLeftOpen" :size="13" />
+          </button>
+          <button
             type="button"
             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 hover:border-kiwi-300 hover:text-kiwi-700 lg:hidden"
             title="会话历史"
@@ -1714,7 +2452,12 @@ watch(
               <span class="inline-flex items-center gap-1">
                 <span
                   class="inline-block h-1 w-1 rounded-full"
-                  :class="saving ? 'animate-pulse bg-amber-400' : 'bg-emerald-400'"
+                  :class="saving ? 'animate-pulse' : ''"
+                  :style="{
+                    background: saving
+                      ? 'rgb(var(--theme-text-subtle))'
+                      : 'rgb(var(--theme-accent))',
+                  }"
                 />
                 {{ saving ? '保存中…' : '已自动保存' }}
               </span>
@@ -1978,6 +2721,9 @@ watch(
         </div>
       </header>
 
+      <!-- 聊天主列 + 引用预览：桌面双栏（默认 50/50，可拖动分隔条），移动端预览为右侧抽屉 -->
+      <div ref="splitEl" class="relative flex min-h-0 flex-1">
+        <div class="flex min-w-0 flex-1 flex-col" :style="chatColumnStyle">
       <!-- 消息区 -->
       <div ref="scrollEl" class="chat-scroll flex-1 overflow-y-auto px-4 py-6 sm:px-6" @scroll="onScroll">
         <div class="chat-thread mx-auto w-full space-y-6" style="max-width: min(1120px, 100%)">
@@ -2063,6 +2809,52 @@ watch(
                   <span v-else-if="m.citations?.length">{{ m.citations.length }} 个引用来源</span>
                 </div>
 
+                <!-- Agent 行动计划：先列步骤，再逐项执行，完成后保留回看 -->
+                <div
+                  v-if="m.plan?.length"
+                  class="mb-2 rounded-xl border border-slate-200/70 bg-white/55 px-3 py-2 backdrop-blur-sm"
+                >
+                  <div class="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-medium text-slate-500">
+                    <KiwiIcon name="sparkle" :size="10" />
+                    <span>行动计划</span>
+                    <span class="ml-auto rounded px-1 text-[9.5px] tabular-nums text-slate-400">
+                      {{ planProgress(m) }}
+                    </span>
+                  </div>
+                  <ol class="space-y-1">
+                    <li
+                      v-for="(step, si) in m.plan"
+                      :key="step.id"
+                      class="flex items-start gap-1.5 text-[11px] leading-relaxed"
+                    >
+                      <span
+                        class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[8px] font-medium"
+                        :class="step.status === 'pending' ? 'border-slate-200 text-slate-300' : 'border-transparent'"
+                        :style="step.status === 'pending'
+                          ? undefined
+                          : { background: 'rgb(var(--theme-accent) / 0.12)', color: 'rgb(var(--theme-accent))' }"
+                      >
+                        <KiwiIcon v-if="step.status === 'done'" name="check" :size="8" />
+                        <span
+                          v-else-if="step.status === 'active'"
+                          class="h-1 w-1 animate-pulse rounded-full bg-current"
+                        />
+                        <span v-else>{{ si + 1 }}</span>
+                      </span>
+                      <span
+                        class="min-w-0"
+                        :class="step.status === 'active'
+                          ? 'font-medium text-slate-600'
+                          : step.status === 'done'
+                            ? 'text-slate-500'
+                            : 'text-slate-400'"
+                      >
+                        {{ step.title }}
+                      </span>
+                    </li>
+                  </ol>
+                </div>
+
                 <!-- 思考过程：检索 / 联网 / 生成阶段实时打勾；完成后保留摘要可展开回看 -->
                 <div
                   v-if="m.steps?.length"
@@ -2077,7 +2869,10 @@ watch(
                     <KiwiIcon
                       :name="m.steps.some((step) => step.status === 'error') ? 'alert' : 'check'"
                       :size="9"
-                      :class="m.steps.some((step) => step.status === 'error') ? 'text-amber-500' : 'text-emerald-500'"
+                      :class="m.steps.some((step) => step.status === 'error') ? 'text-amber-500' : ''"
+                      :style="m.steps.some((step) => step.status === 'error')
+                        ? undefined
+                        : { color: 'rgb(var(--theme-accent))' }"
                     />
                     <span class="flex-1 text-left">{{ stepSummary(m) }}</span>
                     <KiwiIcon
@@ -2101,11 +2896,13 @@ watch(
                       >
                         <span
                           class="mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full"
-                          :class="step.status === 'done'
-                            ? 'bg-emerald-100 text-emerald-600'
-                            : step.status === 'error'
-                              ? 'bg-amber-100 text-amber-600'
-                              : 'bg-kiwi-100 text-kiwi-600'"
+                          :class="step.status === 'error' ? 'bg-amber-100 text-amber-600' : ''"
+                          :style="step.status === 'error'
+                            ? undefined
+                            : {
+                                background: 'rgb(var(--theme-accent) / 0.14)',
+                                color: 'rgb(var(--theme-accent))',
+                              }"
                         >
                           <KiwiIcon v-if="step.status === 'done'" name="check" :size="8" />
                           <span v-else-if="step.status === 'error'" class="text-[8px] font-bold leading-none">!</span>
@@ -2130,12 +2927,102 @@ watch(
                   <MarkdownView
                     :content="m.content"
                     :citation-count="m.citations?.length || 0"
+                    :note-ref-sources="m.citations"
+                    note-link-mode="preview"
                     @citation-click="(n: number) => focusCitation(m, n)"
+                    @note-click="previewNoteLink"
                   />
                   <span
                     v-if="m.streaming && m.content"
                     class="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse rounded-full bg-kiwi-400 align-baseline"
                   />
+                </div>
+
+                <!-- 写操作确认：危险操作先询问，用户确认前不落库 -->
+                <div
+                  v-if="m.pendingAction
+                    && (m.actionState === 'idle'
+                      || m.actionState === 'approving'
+                      || m.actionState === 'failed'
+                      || m.actionState === 'expired')"
+                  :data-approval-action="m.pendingAction.action_id"
+                  class="mt-2.5 overflow-hidden rounded-xl border bg-white/70 backdrop-blur-sm"
+                  :style="{ borderColor: 'rgb(var(--theme-accent) / 0.28)' }"
+                >
+                  <div class="flex items-start gap-2 px-3 pt-2.5">
+                    <span
+                      class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg"
+                      :style="{
+                        background: 'rgb(var(--theme-accent) / 0.12)',
+                        color: 'rgb(var(--theme-accent))',
+                      }"
+                    >
+                      <KiwiIcon name="alert" :size="11" />
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <p class="text-[11px] font-medium text-slate-600">需要你确认后才会执行</p>
+                      <p class="mt-0.5 break-words text-[12px] leading-relaxed text-slate-700">
+                        {{ m.pendingAction.label }}
+                      </p>
+                      <p
+                        v-if="m.pendingAction.summary && m.pendingAction.summary !== m.pendingAction.label"
+                        class="mt-0.5 break-words text-[10.5px] leading-relaxed text-slate-400"
+                      >
+                        {{ m.pendingAction.summary }}
+                      </p>
+                      <dl
+                        v-if="actionArgRows(m.pendingAction).length"
+                        class="mt-1.5 space-y-0.5 rounded-lg px-2 py-1.5"
+                        style="background: rgb(var(--theme-surface-muted))"
+                      >
+                        <div
+                          v-for="row in actionArgRows(m.pendingAction)"
+                          :key="row.key"
+                          class="flex gap-1.5 text-[10.5px] leading-relaxed"
+                        >
+                          <dt class="w-12 shrink-0 text-slate-400">{{ row.label }}</dt>
+                          <dd class="min-w-0 whitespace-pre-wrap break-words text-slate-600">
+                            {{ row.value }}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                  <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-100 px-3 py-2">
+                    <template v-if="m.actionState === 'idle'">
+                      <button
+                        type="button"
+                        class="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+                        @click="resolveAction(m, false)"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-lg px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:opacity-90"
+                        :style="{
+                          background: 'rgb(var(--theme-accent))',
+                          color: 'rgb(var(--theme-accent-foreground))',
+                        }"
+                        @click="resolveAction(m, true)"
+                      >
+                        允许执行
+                      </button>
+                    </template>
+                    <span
+                      v-else-if="m.actionState === 'approving'"
+                      class="inline-flex items-center gap-1 text-[10.5px] text-slate-400"
+                    >
+                      <KiwiIcon name="loader" :size="10" :spin="true" />
+                      正在执行…
+                    </span>
+                    <span v-else-if="m.actionState === 'failed'" class="text-[10.5px] text-amber-600">
+                      执行失败，请重新提问
+                    </span>
+                    <span v-else-if="m.actionState === 'expired'" class="text-[10.5px] text-slate-400">
+                      确认已过期，请重新提问
+                    </span>
+                  </div>
                 </div>
 
                 <!-- 引用来源：紧凑单行，悬浮查看摘要，点击打开原文 -->
@@ -2147,7 +3034,7 @@ watch(
                     <KiwiIcon name="link2" :size="10" />
                     <span class="font-medium">引用来源</span>
                     <span>{{ m.citations.length }} 条</span>
-                    <span class="ml-auto hidden sm:inline">点击打开 · 悬浮查看摘要</span>
+                    <span class="ml-auto hidden sm:inline">点击预览 · 悬浮查看摘要</span>
                   </div>
                   <div class="flex flex-wrap gap-1">
                     <button
@@ -2167,7 +3054,7 @@ watch(
                           : '',
                       ]"
                       :title="citationPreview(c.chunk_text)"
-                      @click="openCitation(c)"
+                      @click="previewCitation(c, i, ci)"
                     >
                       <span
                         class="grid h-4 w-4 shrink-0 place-items-center rounded text-[9px] font-semibold"
@@ -2252,51 +3139,29 @@ watch(
       <!-- 输入区：透明背景，与聊天区的环境渐变保持连续 -->
       <div class="chat-composer px-4 pb-4 pt-2 sm:px-6">
         <div class="mx-auto w-full" style="max-width: min(1120px, 100%)">
-          <!-- 已选 @ 范围：只作用于本轮检索，不改变知识库选择 -->
-          <div v-if="mentions.length" class="mb-1.5 flex flex-wrap items-center gap-1.5">
-            <span
-              v-for="(mention, mi) in mentions"
-              :key="`${mention.type}:${mention.id}`"
-              class="inline-flex max-w-[16rem] items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px]"
-              :class="mention.type === 'folder'
-                ? 'border-amber-200 bg-amber-50 text-amber-700'
-                : 'border-sky-200 bg-sky-50 text-sky-700'"
-              :title="mention.type === 'folder' ? `目录：${mention.title}` : `笔记：${mention.title}`"
-            >
-              <KiwiIcon :name="mention.type === 'folder' ? 'folder' : 'note'" :size="10" />
-              <span class="truncate">{{ mention.title }}</span>
-              <button
-                type="button"
-                class="grid h-3.5 w-3.5 place-items-center rounded-full opacity-70 transition hover:bg-white/70 hover:opacity-100"
-                title="移除"
-                @click="removeMention(mi)"
-              >
-                <KiwiIcon name="close" :size="8" />
-              </button>
-            </span>
-            <button
-              type="button"
-              class="rounded px-1 text-[10px] text-slate-400 transition hover:text-kiwi-600"
-              @click="mentions = []"
-            >
-              清空
-            </button>
-          </div>
-
           <!-- data-chat-menu：点击输入区时不应关闭 @ 选择器 -->
           <div
             data-chat-menu
             class="chat-composer-inner relative rounded-2xl border border-slate-300/70 bg-transparent p-1.5 transition-all duration-200 focus-within:border-kiwi-400/70 focus-within:ring-2 focus-within:ring-kiwi-300/30"
           >
             <div class="flex items-end gap-2">
-              <textarea
+              <!-- contenteditable：@ 引用作为行内高亮 token 与正文一起显示、一起删除 -->
+              <div
                 ref="composerEl"
-                v-model="input"
-                rows="1"
-                placeholder="输入问题，@ 引用笔记或目录…"
-                class="max-h-36 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                contenteditable="true"
+                role="textbox"
+                aria-multiline="true"
+                aria-label="输入问题"
+                spellcheck="false"
+                data-placeholder="输入问题，@ 引用笔记或目录…"
+                :data-empty="composerEmpty ? 'true' : 'false'"
+                class="composer-editor max-h-36 min-h-9 flex-1 overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 py-2 text-sm text-slate-700 outline-none"
                 @input="onComposerInput"
                 @keydown="onComposerKeydown"
+                @paste="onComposerPaste"
+                @blur="syncComposer"
+                @compositionstart="onComposerCompositionStart"
+                @compositionend="onComposerCompositionEnd"
               />
               <button
                 class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white transition-all duration-200 disabled:pointer-events-none disabled:opacity-35 active:scale-95"
@@ -2410,6 +3275,173 @@ watch(
           </p>
         </div>
       </div>
+        </div>
+
+        <!-- 移动端遮罩：点击聊天区关闭预览 -->
+        <div
+          v-if="citationPane"
+          class="absolute inset-0 z-20 bg-slate-900/15 lg:hidden"
+          @click="closeCitationPane"
+        />
+
+        <!-- 右侧引用预览：桌面与聊天区并排，移动端从右侧滑出 -->
+        <Transition name="citation-pane">
+          <aside
+            v-if="citationPane"
+            class="citation-pane absolute inset-y-0 right-0 z-30 flex w-full max-w-[32rem] flex-col border-l shadow-xl lg:relative lg:z-auto lg:w-1/2 lg:max-w-none lg:shadow-none"
+            :style="citationPaneStyle"
+            aria-label="引用预览"
+          >
+            <!-- 桌面端拖动分隔条：在 35%–72% 之间调整预览宽度 -->
+            <div
+              v-if="isWide"
+              class="citation-resize-handle hidden lg:block"
+              title="拖动调整宽度"
+              aria-label="拖动调整预览宽度"
+              @pointerdown.prevent="startSplitDrag"
+            />
+
+            <div
+              class="h-0.5 shrink-0"
+              :style="{
+                background:
+                  'linear-gradient(90deg, rgb(var(--theme-accent) / 0.55), rgb(var(--theme-accent) / 0.06) 58%, transparent)',
+              }"
+            />
+
+            <header class="shrink-0 border-b" :style="{ borderColor: 'rgb(var(--theme-border) / 0.7)' }">
+              <div class="flex items-center gap-2 px-4 pt-3 text-[10px] text-slate-400">
+                <span
+                  class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium"
+                  :style="{
+                    background: 'rgb(var(--theme-accent) / 0.1)',
+                    color: 'rgb(var(--theme-accent))',
+                  }"
+                >
+                  <KiwiIcon :name="citationPane.collection === 'wiki' ? 'wiki' : 'note'" :size="11" />
+                  {{ citationPane.collection === 'wiki' ? 'Wiki' : (NOTE_KIND_LABEL[citationPane.kind] || '笔记') }}
+                </span>
+                <span v-if="citationPane.kbName" class="min-w-0 truncate">{{ citationPane.kbName }}</span>
+                <span v-if="formatPreviewTime(citationPane.updatedAt)" class="ml-auto shrink-0 tabular-nums">
+                  {{ formatPreviewTime(citationPane.updatedAt) }}
+                </span>
+              </div>
+              <div class="flex items-start gap-3 px-4 pb-3 pt-1.5">
+                <h3 class="line-clamp-2 min-w-0 flex-1 text-[15px] font-semibold leading-snug text-slate-800">
+                  {{ citationPane.title }}
+                </h3>
+                <div class="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    class="inline-flex h-7 items-center gap-1 rounded-lg border px-2 text-[11px] font-medium transition hover:opacity-90"
+                    :style="{
+                      borderColor: 'rgb(var(--theme-accent) / 0.32)',
+                      background: 'rgb(var(--theme-accent) / 0.08)',
+                      color: 'rgb(var(--theme-accent))',
+                    }"
+                    :title="citationPane.collection === 'wiki' ? '在 Wiki 中打开完整页面' : '在笔记中打开完整内容'"
+                    @click="openPreviewTarget"
+                  >
+                    <KiwiIcon name="external" :size="12" />
+                    <span class="whitespace-nowrap">打开{{ citationPane.collection === 'wiki' ? ' Wiki' : '笔记' }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                    title="关闭预览（Esc）"
+                    aria-label="关闭预览"
+                    @click="closeCitationPane"
+                  >
+                    <KiwiIcon name="close" :size="14" />
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <div class="mx-auto w-full max-w-[46rem] px-5 py-5 lg:px-7 lg:py-6">
+                <div v-if="citationPane.loading" class="space-y-3 py-1">
+                  <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+                    <KiwiIcon name="loader" :size="11" :spin="true" />
+                    正在读取内容…
+                  </div>
+                  <div class="h-3 w-2/5 animate-pulse rounded-full bg-slate-100" />
+                  <div class="h-3 w-full animate-pulse rounded-full bg-slate-100" />
+                  <div class="h-3 w-11/12 animate-pulse rounded-full bg-slate-100" />
+                  <div class="h-3 w-4/5 animate-pulse rounded-full bg-slate-100" />
+                  <div class="h-3 w-3/5 animate-pulse rounded-full bg-slate-100" />
+                </div>
+
+                <div
+                  v-else-if="citationPane.error"
+                  class="rounded-xl border px-4 py-3"
+                  :style="{
+                    borderColor: 'rgb(var(--theme-border) / 0.9)',
+                    background: 'rgb(var(--theme-surface-muted) / 0.65)',
+                  }"
+                >
+                  <p class="flex items-center gap-1.5 text-[12px] font-medium text-slate-600">
+                    <KiwiIcon name="alert" :size="13" />
+                    {{ citationPane.error }}
+                  </p>
+                  <button
+                    type="button"
+                    class="mt-2.5 inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition hover:opacity-85"
+                    :style="{
+                      borderColor: 'rgb(var(--theme-accent) / 0.32)',
+                      color: 'rgb(var(--theme-accent))',
+                    }"
+                    @click="retryCitationPane"
+                  >
+                    <KiwiIcon name="refresh" :size="11" />
+                    重试
+                  </button>
+                </div>
+
+                <div
+                  v-else-if="citationPane.locked"
+                  class="rounded-xl border px-4 py-3"
+                  :style="{
+                    borderColor: 'rgb(var(--theme-border) / 0.9)',
+                    background: 'rgb(var(--theme-surface-muted) / 0.65)',
+                  }"
+                >
+                  <p class="flex items-center gap-1.5 text-[12px] font-medium text-slate-600">
+                    <KiwiIcon name="lock" :size="13" />
+                    该笔记已上锁
+                  </p>
+                  <p class="mt-1 text-[11px] leading-relaxed text-slate-400">
+                    预览不展示上锁正文{{ citationPane.lockHint ? `（提示：${citationPane.lockHint}）` : '' }}，请打开笔记后输入密码查看。
+                  </p>
+                </div>
+
+                <template v-else>
+                  <div
+                    v-if="citationPane.body.trim()"
+                    class="citation-pane-markdown text-[13.5px] leading-7 text-slate-700"
+                  >
+                    <MarkdownView :content="citationPane.body" />
+                  </div>
+                  <div v-else class="space-y-3">
+                    <p class="text-[11px] leading-relaxed text-slate-400">
+                      这篇{{ citationPane.collection === 'wiki' ? ' Wiki 页面' : '笔记' }}没有可预览的 Markdown 正文，下面是命中的来源片段。
+                    </p>
+                    <p
+                      class="whitespace-pre-wrap break-words rounded-xl border px-4 py-3 text-[12.5px] leading-relaxed text-slate-600"
+                      :style="{
+                        borderColor: 'rgb(var(--theme-border) / 0.85)',
+                        background: 'rgb(var(--theme-surface-muted) / 0.55)',
+                      }"
+                    >
+                      {{ citationPreview(citationPane.citation.chunk_text) || citationPreview(citationPane.citation.quote || '') || '（无片段）' }}
+                    </p>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </aside>
+        </Transition>
+      </div>
     </div>
 
     <!-- 删除会话确认 -->
@@ -2492,5 +3524,88 @@ watch(
 }
 .animate-message-in {
   animation: message-in 0.3s cubic-bezier(0.21, 0.75, 0.28, 1) both;
+}
+/* 拖动分隔条：细线只在 hover / 拖动时显形，避免打断阅读。 */
+.citation-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  z-index: 10;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.citation-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.citation-resize-handle:hover::after,
+.citation-resize-handle:active::after {
+  background: rgb(var(--theme-accent) / 0.55);
+}
+.citation-pane-enter-active,
+.citation-pane-leave-active {
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.citation-pane-enter-from,
+.citation-pane-leave-to {
+  opacity: 0;
+  transform: translateX(16px);
+}
+@media (max-width: 1023px) {
+  .citation-pane-enter-from,
+  .citation-pane-leave-to {
+    transform: translateX(100%);
+  }
+}
+.citation-pane-markdown :deep(img),
+.citation-pane-markdown :deep(video) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.citation-pane-markdown :deep(pre) {
+  overflow-x: auto;
+}
+.citation-pane-markdown :deep(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* contenteditable 没有原生 placeholder：空状态用伪元素，颜色走主题令牌。 */
+.composer-editor {
+  position: relative;
+}
+.composer-editor[data-empty='true']::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  left: 0.75rem;
+  top: 0.5rem;
+  pointer-events: none;
+  color: rgb(var(--theme-text-subtle));
+}
+/* @ 引用 token：正文里高亮显示，原子删除，配色跟随当前主题强调色。 */
+.composer-editor :deep(.chat-mention) {
+  display: inline;
+  margin: 0 0.05em;
+  padding: 0.05em 0.35em;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: rgb(var(--theme-accent));
+  background: rgb(var(--theme-accent) / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(var(--theme-accent) / 0.22);
+}
+.composer-editor :deep(.chat-mention[data-mention-type='folder']) {
+  box-shadow: inset 0 0 0 1px rgb(var(--theme-accent) / 0.32);
+  font-style: italic;
 }
 </style>

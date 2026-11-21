@@ -209,7 +209,7 @@ watch(
 
 <style scoped>
 :deep(.kiwi-draw-view) {
-  background: #fff;
+  background: rgb(var(--theme-surface));
 }
 
 .canvas-preview :deep(svg) {

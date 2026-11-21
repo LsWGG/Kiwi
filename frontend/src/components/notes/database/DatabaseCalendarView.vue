@@ -445,7 +445,7 @@ function createOn(key: string) {
               <button
                 v-if="editable"
                 type="button"
-                class="hidden h-3.5 w-3.5 shrink-0 place-items-center rounded text-current opacity-50 hover:opacity-100 group-hover:grid"
+                class="hidden h-3.5 w-3.5 shrink-0 place-items-center rounded text-current opacity-50 hover:opacity-100 group-hover:grid [@media(hover:none)]:grid [@media(pointer:coarse)]:grid"
                 title="删除记录"
                 @click.stop="emit('delete-row', seg.row)"
               >
@@ -510,7 +510,7 @@ function createOn(key: string) {
                   <button
                     v-if="editable"
                     type="button"
-                    class="hidden h-3 w-3 shrink-0 place-items-center rounded text-current opacity-50 hover:opacity-100 group-hover:grid"
+                    class="hidden h-3 w-3 shrink-0 place-items-center rounded text-current opacity-50 hover:opacity-100 group-hover:grid [@media(hover:none)]:grid [@media(pointer:coarse)]:grid"
                     title="删除记录"
                     @click.stop="emit('delete-row', row)"
                   >
@@ -546,7 +546,7 @@ function createOn(key: string) {
   transform: translateY(-1px);
   filter: saturate(1.5);
   box-shadow:
-    0 0 0 2px #fff,
+    0 0 0 2px rgb(var(--theme-surface)),
     0 5px 14px rgb(15 23 42 / 0.2);
 }
 .cal-range:hover,

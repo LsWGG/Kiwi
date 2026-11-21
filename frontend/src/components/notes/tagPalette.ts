@@ -1,13 +1,18 @@
-/** 标签配色：同一笔记内按顺序取色，保证相邻标签颜色不同。 */
+/**
+ * 标签配色：同一笔记内按顺序取色，保证相邻标签颜色不同。
+ *
+ * 这里是**内容色**（用户标签），不随主题强调色变化；色调由 main.css 的
+ * `.content-tone` / `.tone-*` 定义，亮暗主题各自取可读的明度。
+ */
 export const TAG_PALETTE = [
-  'border-sky-200/70 bg-sky-50 text-sky-700',
-  'border-emerald-200/70 bg-emerald-50 text-emerald-700',
-  'border-amber-200/70 bg-amber-50 text-amber-700',
-  'border-violet-200/70 bg-violet-50 text-violet-700',
-  'border-rose-200/70 bg-rose-50 text-rose-700',
-  'border-cyan-200/70 bg-cyan-50 text-cyan-700',
-  'border-indigo-200/70 bg-indigo-50 text-indigo-700',
-  'border-teal-200/70 bg-teal-50 text-teal-700',
+  'content-tone tone-blue',
+  'content-tone tone-green',
+  'content-tone tone-amber',
+  'content-tone tone-violet',
+  'content-tone tone-rose',
+  'content-tone tone-cyan',
+  'content-tone tone-indigo',
+  'content-tone tone-teal',
 ]
 
 export const TAG_CHIP_BASE =

@@ -2670,8 +2670,8 @@ watch(
   outline: none;
 }
 .name-box:focus {
-  border-color: rgb(56 189 248);
-  box-shadow: 0 0 0 2px rgb(186 230 253 / 0.6);
+  border-color: rgb(var(--theme-accent));
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent) / 0.25);
 }
 .fx-label {
   font-size: 12px;
@@ -2688,12 +2688,12 @@ watch(
   padding: 0 10px;
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: rgb(var(--theme-text-900, 15 23 42));
+  color: rgb(var(--theme-text-primary));
   outline: none;
 }
 .formula-input:focus {
-  border-color: rgb(56 189 248);
-  box-shadow: 0 0 0 2px rgb(186 230 253 / 0.6);
+  border-color: rgb(var(--theme-accent));
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent) / 0.25);
 }
 .selection-chip {
   flex-shrink: 0;
@@ -2751,8 +2751,8 @@ watch(
   user-select: none;
 }
 .col-head.is-active {
-  background: #e0f2fe;
-  color: #0369a1;
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
 }
 .col-head-label {
   display: inline-flex;
@@ -2761,7 +2761,7 @@ watch(
   vertical-align: middle;
 }
 .col-sort {
-  color: #0284c7;
+  color: rgb(var(--theme-accent));
 }
 .col-filter {
   position: absolute;
@@ -2785,13 +2785,13 @@ watch(
   opacity: 1;
 }
 .col-filter:hover {
-  background: rgb(224 242 254);
-  color: #0369a1;
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
 }
 .col-filter.is-on,
 .col-filter.is-open {
-  background: rgb(224 242 254);
-  color: #0284c7;
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
 }
 .row-head {
   position: sticky;
@@ -2809,8 +2809,8 @@ watch(
   font-variant-numeric: tabular-nums;
 }
 .row-head.is-active {
-  background: #e0f2fe;
-  color: #0369a1;
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
 }
 /* 冻结的行号 / 列标需要压在普通表头之上（滚动时不能被后渲染的表头盖住）。 */
 .row-head.is-frozen-row {
@@ -2832,7 +2832,7 @@ watch(
   position: sticky;
 }
 .col-head .col-resize:hover {
-  background: rgb(56 189 248 / 0.4);
+  background: rgb(var(--theme-accent) / 0.35);
 }
 .row-resize {
   position: absolute;
@@ -2844,7 +2844,7 @@ watch(
   z-index: 4;
 }
 .row-resize:hover {
-  background: rgb(56 189 248 / 0.4);
+  background: rgb(var(--theme-accent) / 0.35);
 }
 .row-head {
   position: sticky;
@@ -2853,28 +2853,28 @@ watch(
   position: relative;
   padding: 0 6px;
   background: rgb(var(--theme-surface));
-  color: rgb(var(--theme-text-900, 15 23 42));
+  color: rgb(var(--theme-text-primary));
   white-space: nowrap;
   cursor: cell;
   user-select: none;
   overflow: hidden;
 }
 .sheet-cell.is-selected {
-  background-image: linear-gradient(rgb(224 242 254 / 0.55), rgb(224 242 254 / 0.55));
+  background-image: linear-gradient(rgb(var(--theme-accent) / 0.12), rgb(var(--theme-accent) / 0.12));
 }
 .sheet-cell.is-active {
-  outline: 2px solid #0ea5e9;
+  outline: 2px solid rgb(var(--theme-accent));
   outline-offset: -2px;
   z-index: 2;
 }
 .sheet-cell.is-error {
-  color: #dc2626;
+  color: rgb(var(--theme-danger));
 }
 /* 搜索命中：在内联单元格格式之上再铺一层暖色，并加描边保证可见。 */
 .sheet-cell.is-search-hit {
-  background-image: linear-gradient(rgb(253 230 138 / 0.85), rgb(253 230 138 / 0.85));
-  box-shadow: inset 0 0 0 2px rgb(245 158 11);
-  color: #78350f;
+  background-image: linear-gradient(rgb(var(--theme-warning) / 0.2), rgb(var(--theme-warning) / 0.2));
+  box-shadow: inset 0 0 0 2px rgb(var(--theme-warning));
+  color: rgb(var(--theme-warning));
   z-index: 2;
 }
 /* 冻结数据单元格：单轴 sticky 用 3，行列交叉处用 4，均在表头之下、活动单元格之上。 */
@@ -2899,11 +2899,11 @@ watch(
   inset: 0;
   width: 100%;
   height: 100%;
-  border: 2px solid #0ea5e9;
+  border: 2px solid rgb(var(--theme-accent));
   padding: 0 4px;
   font: inherit;
   font-size: 12px;
-  color: rgb(var(--theme-text-900, 15 23 42));
+  color: rgb(var(--theme-text-primary));
   background: rgb(var(--theme-surface));
   outline: none;
   z-index: 2;
@@ -2919,7 +2919,7 @@ watch(
   background: rgb(var(--theme-app));
 }
 .link-btn {
-  color: #0284c7;
+  color: rgb(var(--theme-accent));
   text-decoration: underline;
   margin-left: 4px;
 }
@@ -2947,12 +2947,12 @@ watch(
   height: 18px;
   padding: 0 7px;
   border-radius: 999px;
-  background: rgb(224 242 254);
-  color: #0369a1;
+  background: rgb(var(--theme-accent) / 0.12);
+  color: rgb(var(--theme-accent));
   font-size: 10px;
 }
 .status-filter:hover {
-  background: rgb(186 230 253);
+  background: rgb(var(--theme-accent) / 0.18);
 }
 .status-hint {
   font-size: 10px;
@@ -2983,7 +2983,7 @@ watch(
 .tab-add:hover,
 .tab-action:hover {
   background: rgb(var(--theme-surface-strong));
-  color: rgb(var(--theme-text-900, 15 23 42));
+  color: rgb(var(--theme-text-primary));
 }
 .tabs-scroll {
   display: flex;
@@ -3011,15 +3011,15 @@ watch(
 }
 .sheet-tab.is-active {
   background: rgb(var(--theme-surface));
-  border-color: rgb(186 230 253);
-  color: #0369a1;
+  border-color: rgb(var(--theme-accent) / 0.35);
+  color: rgb(var(--theme-accent));
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
 }
 /* 搜索命中的工作表页签短暂标黄，提示命中位于其他工作表。 */
 .sheet-tab.is-search-hit {
-  background: rgb(253 230 138 / 0.55);
-  border-color: rgb(245 158 11 / 0.55);
-  color: #92400e;
+  background: rgb(var(--theme-warning) / 0.18);
+  border-color: rgb(var(--theme-warning) / 0.5);
+  color: rgb(var(--theme-warning));
 }
 .tab-rename {
   width: 92px;
@@ -3053,7 +3053,7 @@ watch(
   color: rgb(var(--theme-text-strong));
 }
 .ctx-row:hover:not(:disabled) {
-  background: rgb(240 249 255);
+  background: rgb(var(--theme-accent) / 0.08);
 }
 .ctx-row:disabled {
   opacity: 0.4;
@@ -3076,8 +3076,8 @@ watch(
   transition: background-color 120ms, color 120ms;
 }
 .filter-action:hover {
-  background: rgb(240 249 255);
-  color: #0369a1;
+  background: rgb(var(--theme-accent) / 0.08);
+  color: rgb(var(--theme-accent));
 }
 .filter-check {
   display: flex;
@@ -3092,20 +3092,20 @@ watch(
   cursor: pointer;
 }
 .filter-check:hover {
-  background: rgb(240 249 255);
+  background: rgb(var(--theme-accent) / 0.08);
 }
 .filter-check input[type='checkbox'] {
   width: 12px;
   height: 12px;
   flex-shrink: 0;
-  accent-color: #0ea5e9;
+  accent-color: rgb(var(--theme-accent));
   cursor: pointer;
 }
 .filter-link {
   padding: 0 4px;
   border-radius: 4px;
   font-size: 10.5px;
-  color: #0284c7;
+  color: rgb(var(--theme-accent));
 }
 .filter-link:hover:not(:disabled) {
   text-decoration: underline;
@@ -3128,10 +3128,10 @@ watch(
   background: rgb(var(--theme-surface-muted));
 }
 .filter-apply {
-  background: #0ea5e9;
-  color: #fff;
+  background: rgb(var(--theme-accent));
+  color: rgb(var(--theme-accent-foreground));
 }
 .filter-apply:hover {
-  background: #0284c7;
+  filter: brightness(0.94);
 }
 </style>

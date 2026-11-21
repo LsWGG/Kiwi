@@ -169,7 +169,7 @@ const panelHeight = 'min(840px, calc((100dvh - 2rem) / var(--ui-scale, 1)))'
           class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] leading-none transition-all duration-150"
           :class="
             activeGroup === tab.id
-              ? 'border-kiwi-200 bg-kiwi-50 font-medium text-kiwi-700 shadow-[0_1px_2px_rgba(90,85,199,0.08)]'
+              ? 'border-kiwi-200 bg-kiwi-50 font-medium text-kiwi-700 shadow-[0_1px_2px_rgb(var(--theme-accent)/0.12)]'
               : 'border-slate-200/80 bg-white/60 text-slate-500 hover:border-kiwi-200 hover:bg-white hover:text-kiwi-600'
           "
           :aria-pressed="activeGroup === tab.id"

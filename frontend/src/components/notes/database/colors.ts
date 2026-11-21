@@ -1,35 +1,42 @@
-/** 选项配色（与后端存储的 color 字符串对应）。 */
+/**
+ * 选项配色（与后端存储的 color 字符串对应）。
+ *
+ * 选项颜色是**内容色**：用户给字段选项挑的颜色，跨主题保持同一色相，
+ * 由 main.css 的 `.content-tone` / `.tone-*` 在亮暗主题下取可读明度。
+ * 灰色选项使用中性的主题表面色，跟随主题中性色板。
+ */
+const TONE: Record<string, string> = {
+  blue: 'tone-blue',
+  green: 'tone-green',
+  amber: 'tone-amber',
+  rose: 'tone-rose',
+  violet: 'tone-violet',
+  cyan: 'tone-cyan',
+  orange: 'tone-orange',
+}
+
 const CHIP: Record<string, string> = {
   slate: 'bg-slate-100 text-slate-600 border-slate-200/70',
-  blue: 'bg-sky-50 text-sky-600 border-sky-200/70',
-  green: 'bg-emerald-50 text-emerald-600 border-emerald-200/70',
-  amber: 'bg-amber-50 text-amber-600 border-amber-200/70',
-  rose: 'bg-rose-50 text-rose-600 border-rose-200/70',
-  violet: 'bg-violet-50 text-violet-600 border-violet-200/70',
-  cyan: 'bg-cyan-50 text-cyan-600 border-cyan-200/70',
-  orange: 'bg-orange-50 text-orange-600 border-orange-200/70',
+}
+
+for (const color of Object.keys(TONE)) {
+  CHIP[color] = `content-tone ${TONE[color]}`
 }
 
 const DOT: Record<string, string> = {
   slate: 'bg-slate-400',
-  blue: 'bg-sky-400',
-  green: 'bg-emerald-400',
-  amber: 'bg-amber-400',
-  rose: 'bg-rose-400',
-  violet: 'bg-violet-400',
-  cyan: 'bg-cyan-400',
-  orange: 'bg-orange-400',
+}
+
+for (const color of Object.keys(TONE)) {
+  DOT[color] = `content-tone--dot ${TONE[color]}`
 }
 
 const RING: Record<string, string> = {
   slate: 'border-slate-300',
-  blue: 'border-sky-300',
-  green: 'border-emerald-300',
-  amber: 'border-amber-300',
-  rose: 'border-rose-300',
-  violet: 'border-violet-300',
-  cyan: 'border-cyan-300',
-  orange: 'border-orange-300',
+}
+
+for (const color of Object.keys(TONE)) {
+  RING[color] = `content-tone--ring ${TONE[color]}`
 }
 
 export const OPTION_COLORS = [

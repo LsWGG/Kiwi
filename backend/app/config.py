@@ -63,7 +63,22 @@ class Settings(BaseSettings):
     # 否则「今天 / 这周」会被解析成错误日期。
     timezone: str = "Asia/Shanghai"
     # 规划只做工具选择与查询生成，超时后回退到规则解析，不阻塞问答。
-    agent_planner_timeout: float = 20.0
+    # 线上模型排队 / 冷启动时 20s 容易误超时，默认放宽到 60s。
+    agent_planner_timeout: float = 60.0
+    # Agent 单轮最多执行多少次工具调用；可通过环境变量调整。
+    agent_max_steps: int = 6
+    # 可选：自定义 Agent 系统提示模板（Markdown，$tool_prompt 等占位符）。
+    agent_prompt_file: Path | None = None
+
+    # --- MCP（Model Context Protocol） ---
+    # 外部 MCP 服务配置：JSON 字符串或 JSON 文件。文件不存在时视为未配置。
+    # 形如 {"servers":[{"name":"my-server","url":"https://host/mcp","headers":{...}}]}
+    mcp_servers_json: str = ""
+    mcp_servers_file: Path = PROJECT_ROOT / "data" / "mcp_servers.json"
+    mcp_timeout: float = 30.0
+    mcp_cache_ttl: float = 300.0
+    # 防止某个外部服务返回海量工具拖垮提示词。
+    mcp_max_tools: int = 80
 
     # --- 上传 ---
     # 绝对路径：相对路径会随进程 CWD 漂移，导致同一数据库记录在开发实例与
@@ -100,7 +115,13 @@ class Settings(BaseSettings):
     def _resolve_data_dir(cls, value: Path) -> Path:
         return value if value.is_absolute() else (PROJECT_ROOT / value).resolve()
 
-    @field_validator("frontend_dist", "desktop_settings_path", "log_file", mode="before")
+    @field_validator(
+        "frontend_dist",
+        "desktop_settings_path",
+        "log_file",
+        "agent_prompt_file",
+        mode="before",
+    )
     @classmethod
     def _blank_optional_path(cls, value):
         # 环境变量为空字符串时按未设置处理，避免变成 Path(".")。
@@ -108,7 +129,9 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("frontend_dist", "desktop_settings_path", "log_file")
+    @field_validator(
+        "frontend_dist", "desktop_settings_path", "log_file", "agent_prompt_file"
+    )
     @classmethod
     def _resolve_optional_path(cls, value: Path | None) -> Path | None:
         if value is None:
@@ -158,7 +181,7 @@ class Settings(BaseSettings):
     # --- 备份 ---
     backup_enabled: bool = True
     backup_interval_hours: float = 24.0
-    backup_retention_days: int = 14
+    backup_retention_days: int = 3
     backup_dir: Path = Path("data/backups")
 
     # --- 运维数据保留 ---

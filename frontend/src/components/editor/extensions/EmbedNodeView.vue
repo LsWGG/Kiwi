@@ -777,8 +777,8 @@ function openExternal(event: MouseEvent) {
   width: 38px;
   height: 4px;
   border-radius: 999px;
-  background: #cbd5e1;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+  background: rgb(var(--theme-border-strong));
+  box-shadow: 0 0 0 1px rgb(var(--theme-surface) / 0.85);
 }
 .embed-resize-badge {
   position: absolute;

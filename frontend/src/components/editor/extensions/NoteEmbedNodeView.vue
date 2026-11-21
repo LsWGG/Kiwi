@@ -164,7 +164,7 @@ onMounted(load)
   padding: 9px 11px 9px 13px;
   border-radius: 11px;
   border: 1px solid rgb(var(--theme-border));
-  background: linear-gradient(180deg, #fff, rgb(var(--kiwi-50) / 0.45));
+  background: linear-gradient(180deg, rgb(var(--theme-surface)), rgb(var(--kiwi-50) / 0.45));
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
@@ -208,7 +208,7 @@ onMounted(load)
   align-items: center;
   gap: 1px;
   flex: 0 0 auto;
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-note-embed-open,
 .kiwi-note-embed-remove {
@@ -221,7 +221,7 @@ onMounted(load)
   background: rgb(var(--kiwi-50));
 }
 .kiwi-note-embed-remove:hover {
-  color: rgb(220 38 38);
-  background: rgb(254 242 242);
+  color: rgb(var(--theme-danger));
+  background: rgb(var(--theme-danger) / 0.08);
 }
 </style>

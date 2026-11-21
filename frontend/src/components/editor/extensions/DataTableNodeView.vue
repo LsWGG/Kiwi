@@ -80,8 +80,8 @@ function setTitle(event: Event) {
 .kiwi-datatable-block {
   margin: 0.75rem 0;
   border-radius: 12px;
-  border: 1px solid rgb(226 232 240);
-  background: rgb(255 255 255 / 0.86);
+  border: 1px solid rgb(var(--theme-border));
+  background: rgb(var(--theme-surface) / 0.86);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .kiwi-datatable-block.is-selected {
@@ -99,7 +99,7 @@ function setTitle(event: Event) {
   margin: 0 0 6px;
   font-size: 12.5px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-datatable-toolbar {
   display: flex;
@@ -114,7 +114,7 @@ function setTitle(event: Event) {
   flex-shrink: 0;
   font-size: 11px;
   font-weight: 500;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .kiwi-datatable-title {
   min-width: 0;
@@ -122,16 +122,16 @@ function setTitle(event: Event) {
   border: 0;
   background: transparent;
   font-size: 12px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   outline: none;
 }
 .kiwi-datatable-title::placeholder {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-datatable-size {
   flex-shrink: 0;
   font-size: 9.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-variant-numeric: tabular-nums;
 }
 </style>

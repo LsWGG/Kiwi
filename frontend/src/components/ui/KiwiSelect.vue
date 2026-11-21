@@ -60,12 +60,12 @@ function choose(value: string | number, close: () => void) {
     <template #trigger="{ open }">
       <button
         type="button"
-        class="inline-flex items-center gap-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+        class="kiwi-select-trigger inline-flex items-center gap-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
         :class="[
           isToolbar
-            ? 'h-7 max-w-full rounded-lg px-1.5 text-[11px] text-slate-600 hover:bg-kiwi-50 hover:text-kiwi-700'
-            : 'kiwi-input h-9 w-full justify-between !py-0',
-          open ? (isToolbar ? 'bg-kiwi-50 text-kiwi-700' : 'border-kiwi-300 ring-2 ring-kiwi-100') : '',
+            ? 'is-toolbar h-7 max-w-full rounded-lg px-1.5 text-[11px] text-slate-600'
+            : 'is-input kiwi-input h-9 w-full justify-between !py-0',
+          open ? 'is-open' : '',
           triggerClass,
         ]"
         :disabled="disabled"
@@ -92,18 +92,17 @@ function choose(value: string | number, close: () => void) {
           type="button"
           role="option"
           :aria-selected="String(option.value) === String(modelValue)"
-          class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-kiwi-50"
-          :class="String(option.value) === String(modelValue) ? 'bg-kiwi-50' : ''"
+          class="kiwi-select-option flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors"
+          :class="String(option.value) === String(modelValue) ? 'is-selected' : ''"
           @click="choose(option.value, close)"
         >
-          <span class="grid w-3.5 shrink-0 place-items-center text-kiwi-600">
+          <span class="kiwi-select-check grid w-3.5 shrink-0 place-items-center">
             <KiwiIcon v-if="String(option.value) === String(modelValue)" name="check" :size="12" />
           </span>
           <KiwiIcon v-if="option.icon" :name="option.icon" :size="13" class="shrink-0 text-slate-400" />
           <span class="min-w-0 flex-1">
             <span
-              class="block truncate text-[12px] font-medium"
-              :class="String(option.value) === String(modelValue) ? 'text-kiwi-700' : 'text-slate-700'"
+              class="kiwi-select-label block truncate text-[12px] font-medium text-slate-700"
             >{{ option.label }}</span>
             <span v-if="option.hint" class="block truncate text-[10px] text-slate-400">
               {{ option.hint }}
@@ -115,3 +114,26 @@ function choose(value: string | number, close: () => void) {
     </template>
   </KiwiDropdown>
 </template>
+
+<style scoped>
+/* 选择器全部使用主题令牌：主题插件与「自定义外观」强调色都能生效。 */
+.kiwi-select-trigger.is-toolbar:hover,
+.kiwi-select-trigger.is-toolbar.is-open {
+  background: rgb(var(--theme-accent) / 0.1);
+  color: rgb(var(--theme-text-strong));
+}
+.kiwi-select-trigger.is-input.is-open {
+  border-color: rgb(var(--theme-accent) / 0.5);
+  box-shadow: 0 0 0 2px rgb(var(--theme-accent) / 0.16);
+}
+.kiwi-select-option:hover {
+  background: rgb(var(--theme-accent) / 0.08);
+}
+.kiwi-select-option.is-selected {
+  background: rgb(var(--theme-accent) / 0.1);
+}
+.kiwi-select-option.is-selected .kiwi-select-label,
+.kiwi-select-check {
+  color: rgb(var(--theme-accent));
+}
+</style>

@@ -216,7 +216,7 @@ function colKey(colId: string | null) {
               />
               <button
                 type="button"
-                class="grid h-5 w-5 place-items-center rounded text-slate-300 opacity-0 transition-opacity hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
+                class="touch-visible grid h-5 w-5 place-items-center rounded text-slate-300 opacity-0 transition-opacity hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
                 title="删除记录"
                 @click.stop="emit('delete-row', row)"
               >

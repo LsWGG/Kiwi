@@ -125,7 +125,7 @@ function cellStyle(cell?: SheetCell): Record<string, string | undefined> {
     fontWeight: style.bold ? '600' : '400',
     fontStyle: style.italic ? 'italic' : undefined,
     textDecoration: style.underline ? 'underline' : undefined,
-    color: safeColor(style.color) || '#334155',
+    color: safeColor(style.color) || 'rgb(var(--theme-text-strong))',
     backgroundColor: safeColor(style.bg) || undefined,
     textAlign: style.align || 'left',
   }

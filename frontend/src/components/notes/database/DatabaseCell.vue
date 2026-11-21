@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 数据表单元格：按字段类型渲染内联编辑控件。 */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { DbField, SelectOption } from '@/stores/noteDatabase'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
@@ -74,6 +74,44 @@ function commitText() {
 
 function onEnter(e: KeyboardEvent) {
   ;(e.target as HTMLInputElement).blur()
+}
+
+// ---------- 链接：展示为可点击超链接，点铅笔或双击进入编辑 ----------
+const urlEditing = ref(false)
+const urlInput = ref<HTMLInputElement | null>(null)
+const urlText = computed(() => asText(props.value).trim())
+
+/** 只放行常见安全协议；无协议的域名补 https://，其余保留原文不生成链接。 */
+function urlHref(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (/^(https?|mailto|tel|ftp):/i.test(trimmed)) return trimmed
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return ''
+  if (trimmed.startsWith('//')) return `https:${trimmed}`
+  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed
+  return `https://${trimmed}`
+}
+
+const urlLinkable = computed(() => !!urlHref(urlText.value))
+
+function startUrlEdit() {
+  text.value = asText(props.value)
+  urlEditing.value = true
+  void nextTick(() => {
+    urlInput.value?.focus()
+    urlInput.value?.select()
+  })
+}
+
+function finishUrlEdit() {
+  if (!urlEditing.value) return
+  commitText()
+  urlEditing.value = false
+}
+
+function cancelUrlEdit() {
+  text.value = asText(props.value)
+  urlEditing.value = false
 }
 
 // ---------- 单选 ----------
@@ -239,29 +277,47 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
       </template>
       <template v-else-if="field.type === 'attachment'">
         <template v-if="attachments.length">
-          <a
+          <span
             v-for="item in attachments"
             :key="item.url"
-            :href="item.url"
-            target="_blank"
-            rel="noopener"
-            class="inline-flex max-w-full items-center gap-1 truncate text-sky-600 hover:underline"
-            @mousedown.stop
+            class="inline-flex max-w-full items-center gap-0.5"
           >
-            <KiwiIcon name="paperclip" :size="10" class="shrink-0" />
-            <span class="truncate">{{ item.filename }}</span>
-          </a>
+            <a
+              :href="item.url"
+              target="_blank"
+              rel="noopener"
+              class="db-link inline-flex min-w-0 items-center gap-1 truncate hover:underline"
+              :title="item.filename"
+              @mousedown.stop
+            >
+              <KiwiIcon name="paperclip" :size="10" class="shrink-0" />
+              <span class="truncate">{{ item.filename }}</span>
+            </a>
+            <a
+              :href="item.url"
+              :download="item.filename"
+              class="db-static-download"
+              title="下载附件"
+              @mousedown.stop
+              @click.stop
+            >
+              <KiwiIcon name="download" :size="11" />
+            </a>
+          </span>
         </template>
         <span v-else class="db-static-empty">—</span>
       </template>
       <template v-else-if="field.type === 'url' && staticText">
         <a
-          :href="staticText"
+          v-if="urlLinkable"
+          :href="urlHref(staticText)"
           target="_blank"
-          rel="noopener"
-          class="truncate text-sky-600 hover:underline"
+          rel="noopener noreferrer"
+          class="db-link truncate hover:underline"
+          :title="staticText"
           @mousedown.stop
         >{{ staticText }}</a>
+        <span v-else class="db-static-text">{{ staticText }}</span>
       </template>
       <template v-else>
         <span v-if="staticText" class="db-static-text">{{ staticText }}</span>
@@ -427,14 +483,66 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
       @keydown.enter="onEnter"
     />
 
-    <!-- text / url -->
+    <!-- url：默认展示为可点击超链接，点铅笔 / 双击后编辑 -->
+    <div v-else-if="field.type === 'url'" class="db-url-view group/url">
+      <input
+        v-if="urlEditing"
+        ref="urlInput"
+        v-model="text"
+        type="url"
+        class="db-input"
+        placeholder="https://"
+        @blur="finishUrlEdit"
+        @keydown.enter.prevent="finishUrlEdit"
+        @keydown.esc.prevent="cancelUrlEdit"
+      />
+      <template v-else>
+        <a
+          v-if="urlText && urlLinkable"
+          :href="urlHref(urlText)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="db-url-link"
+          :title="`${urlText}（双击编辑）`"
+          @mousedown.stop
+          @click.stop
+          @dblclick.stop.prevent="startUrlEdit"
+        >
+          <KiwiIcon name="external" :size="11" class="db-url-icon" />
+          <span class="truncate">{{ urlText }}</span>
+        </a>
+        <button
+          v-else
+          type="button"
+          class="db-url-link is-plain"
+          :class="{ 'is-empty': !urlText }"
+          :title="urlText ? `${urlText}（双击编辑）` : '添加链接'"
+          @mousedown.stop
+          @click.stop="startUrlEdit"
+          @dblclick.stop.prevent="startUrlEdit"
+        >
+          <KiwiIcon name="link2" :size="11" class="db-url-icon" />
+          <span class="truncate">{{ urlText || '—' }}</span>
+        </button>
+        <button
+          type="button"
+          class="db-url-edit"
+          title="编辑链接"
+          @mousedown.stop
+          @click.stop="startUrlEdit"
+        >
+          <KiwiIcon name="edit" :size="11" />
+        </button>
+      </template>
+    </div>
+
+    <!-- text -->
     <input
       v-else
       ref="input"
       v-model="text"
-      :type="field.type === 'url' ? 'url' : 'text'"
+      type="text"
       class="db-input"
-      :class="field.type === 'url' ? 'text-sky-600' : ''"
       @blur="commitText"
       @keydown.enter="onEnter"
     />
@@ -452,6 +560,48 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
 }
 .db-static-empty {
   @apply text-[11px] text-slate-300;
+}
+/* 链接色跟随主题强调色，避免在主题 / 学习模式下仍固定为某一色相。 */
+.db-link {
+  color: rgb(var(--theme-accent));
+  transition: color 0.15s ease;
+}
+.db-link:hover {
+  color: rgb(var(--theme-accent) / 0.78);
+}
+.db-static-download {
+  @apply inline-grid h-4 w-4 shrink-0 place-items-center rounded text-slate-300 transition-colors;
+}
+.db-static-download:hover {
+  background: rgb(var(--theme-accent) / 0.1);
+  color: rgb(var(--theme-accent));
+}
+/* 链接字段：平时是超链接，悬停显示编辑入口，双击也可进入编辑。 */
+.db-url-view {
+  @apply flex h-8 min-w-0 items-center gap-0.5 rounded-md px-1.5;
+}
+.db-url-link {
+  @apply inline-flex min-w-0 flex-1 items-center gap-1 truncate text-[12px] outline-none hover:underline;
+  color: rgb(var(--theme-accent));
+}
+.db-url-link.is-plain {
+  color: rgb(var(--theme-text-strong));
+}
+.db-url-link.is-empty {
+  color: rgb(var(--theme-text-faint));
+}
+.db-url-icon {
+  @apply shrink-0 opacity-60;
+}
+.db-url-edit {
+  @apply grid h-5 w-5 shrink-0 place-items-center rounded text-slate-300 opacity-40 transition-all group-hover/url:opacity-100 focus:opacity-100;
+}
+.db-url-edit:hover {
+  background: rgb(var(--theme-accent) / 0.1);
+  color: rgb(var(--theme-accent));
+}
+.db-boxed .db-url-view {
+  @apply border border-slate-200 bg-white;
 }
 .db-input {
   @apply w-full h-8 px-2 rounded-md bg-transparent text-[12px] text-slate-700 outline-none border border-transparent transition-colors hover:bg-white/70 focus:bg-white focus:border-kiwi-300 focus:ring-2 focus:ring-kiwi-200/60;
@@ -477,11 +627,11 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
 
 /* ---------- 进度字段 ---------- */
 .db-progress {
-  --db-progress-color: #6f72dc;
+  --db-progress-color: rgb(var(--theme-accent));
   @apply flex h-8 min-w-0 items-center gap-2 px-1.5;
 }
 .db-progress.is-complete {
-  --db-progress-color: #16a34a;
+  --db-progress-color: rgb(var(--theme-success));
 }
 .db-progress-input {
   @apply h-4 min-w-[64px] flex-1 cursor-pointer appearance-none bg-transparent;
@@ -492,7 +642,7 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
   background: linear-gradient(
     90deg,
     var(--db-progress-color) var(--db-progress, 0%),
-    rgb(226 232 240) var(--db-progress, 0%)
+    rgb(var(--theme-border)) var(--db-progress, 0%)
   );
 }
 .db-progress-input::-webkit-slider-thumb {
@@ -532,11 +682,11 @@ const attachments = computed<{ filename: string; url: string }[]>(() => {
   @apply w-8 shrink-0 text-right text-[10.5px] tabular-nums text-slate-500;
 }
 .db-progress-static {
-  --db-progress-color: #6f72dc;
+  --db-progress-color: rgb(var(--theme-accent));
   @apply flex w-full min-w-0 items-center gap-1.5;
 }
 .db-progress-static.is-complete {
-  --db-progress-color: #16a34a;
+  --db-progress-color: rgb(var(--theme-success));
 }
 .db-progress-static-track {
   @apply relative h-1.5 min-w-[32px] flex-1 overflow-hidden rounded-full bg-slate-200/80;

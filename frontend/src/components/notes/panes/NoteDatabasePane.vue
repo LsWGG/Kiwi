@@ -27,9 +27,17 @@ import DatabaseFieldManager from '@/components/notes/database/DatabaseFieldManag
 import DatabaseViewSettings from '@/components/notes/database/DatabaseViewSettings.vue'
 import DatabaseRowModal from '@/components/notes/database/DatabaseRowModal.vue'
 import { useAutosave } from '@/composables/useAutosave'
+import { useSaveShortcut } from '@/composables/useSaveShortcut'
 import { toast } from '@/components/ui/toast'
 
-const props = defineProps<{ note: NoteOut }>()
+const props = withDefaults(
+  defineProps<{
+    note: NoteOut
+    /** 分栏时只有活动窗口响应 Ctrl/⌘+S。 */
+    active?: boolean
+  }>(),
+  { active: true },
+)
 const emit = defineEmits<{ (e: 'open-note', noteId: string): void }>()
 const notes = useNotesStore()
 const db = useNoteDatabaseStore()
@@ -58,6 +66,18 @@ const viewDeleteOpen = computed({
 const autosave = useAutosave(async () => {
   await notes.updateNote(props.note.id, { title: title.value.trim() || '无标题数据表' })
 })
+
+/** 单元格保存立即发出；Ctrl/⌘+S 需要等待所有在途写入与防抖中的视图配置。 */
+const pendingCellSaves = new Set<Promise<void>>()
+
+useSaveShortcut(
+  async () => {
+    const jobs: Promise<unknown>[] = [autosave.flushNow(), ...pendingCellSaves]
+    if (tableViewTimer !== undefined) jobs.push(persistTableView())
+    await Promise.all(jobs)
+  },
+  () => props.active,
+)
 
 watch(
   () => props.note.title,
@@ -517,16 +537,20 @@ async function saveRowAsTemplate() {
   }
 }
 
-async function updateCell(rowId: string, fieldId: string, value: any) {
-  try {
-    await db.updateRow(rowId, { [fieldId]: value })
-    const field = db.fields.find((f) => f.id === fieldId)
-    if (field && ['text', 'long_text', 'url'].includes(field.type)) {
-      void notes.fetchTree().catch(() => {})
+function updateCell(rowId: string, fieldId: string, value: any) {
+  const task = (async () => {
+    try {
+      await db.updateRow(rowId, { [fieldId]: value })
+      const field = db.fields.find((f) => f.id === fieldId)
+      if (field && ['text', 'long_text', 'url'].includes(field.type)) {
+        void notes.fetchTree().catch(() => {})
+      }
+    } catch (e: any) {
+      toast.error(e.message || '保存失败')
     }
-  } catch (e: any) {
-    toast.error(e.message || '保存失败')
-  }
+  })()
+  pendingCellSaves.add(task)
+  void task.finally(() => pendingCellSaves.delete(task))
 }
 </script>
 
@@ -599,7 +623,7 @@ async function updateCell(rowId: string, fieldId: string, value: any) {
         <button
           v-if="db.views.length > 1"
           type="button"
-          class="w-4 h-4 mr-1 grid place-items-center rounded text-slate-300 opacity-0 group-hover:opacity-100 hover:text-rose-500 hover:bg-white"
+          class="touch-visible w-4 h-4 mr-1 grid place-items-center rounded text-slate-300 opacity-0 group-hover:opacity-100 hover:text-rose-500 hover:bg-white"
           title="删除视图"
           @click.stop="deletingView = view"
         >

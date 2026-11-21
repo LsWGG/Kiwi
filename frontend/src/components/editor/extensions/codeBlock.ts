@@ -17,7 +17,9 @@ import {
   type ViewMutationRecord,
 } from '@tiptap/pm/view'
 import type { createLowlight } from 'lowlight'
+import { h, render } from 'vue'
 import { runPython } from '@/api/run'
+import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { IS_DESKTOP } from '@/desktop/env'
 import { useDesktopStore } from '@/stores/desktop'
 import { CODE_LANGUAGES, normalizeCodeLanguage } from '../modes'
@@ -117,7 +119,7 @@ class CodeBlockView implements NodeView {
   private getPos: () => number | undefined
   private desktop = useDesktopStore()
   private langWrap: HTMLElement
-  private langSelect: HTMLSelectElement
+  private langHost: HTMLElement
   private previewWrap: HTMLElement
   private previewFrame: HTMLIFrameElement
   private previewLabel: HTMLElement
@@ -149,26 +151,14 @@ class CodeBlockView implements NodeView {
     header.contentEditable = 'false'
 
     // 代码块自带语言下拉框：不必先点进正文、再到顶部工具栏找语言。
+    // 用系统统一的 KiwiSelect（玻璃面板 + 主题令牌），不使用浏览器原生 <select>。
     this.langWrap = document.createElement('span')
     this.langWrap.className = 'code-lang'
     this.langWrap.contentEditable = 'false'
-    this.langSelect = document.createElement('select')
-    this.langSelect.className = 'code-lang-select'
-    this.langSelect.title = '代码语言'
-    this.langSelect.setAttribute('aria-label', '代码语言')
-    for (const lang of CODE_LANGUAGES) {
-      const option = document.createElement('option')
-      option.value = lang.id
-      option.textContent = lang.label
-      this.langSelect.appendChild(option)
-    }
-    this.langSelect.addEventListener('change', () => {
-      this.setLanguage(this.langSelect.value)
-    })
-    const caret = document.createElement('span')
-    caret.className = 'code-lang-caret'
-    caret.setAttribute('aria-hidden', 'true')
-    this.langWrap.append(this.langSelect, caret)
+    this.langHost = document.createElement('span')
+    this.langHost.className = 'code-lang-host'
+    this.langWrap.appendChild(this.langHost)
+    this.renderLanguageSelect()
 
     const tools = document.createElement('span')
     tools.className = 'code-tools'
@@ -285,23 +275,27 @@ class CodeBlockView implements NodeView {
     return this.previewable && this.node.attrs.preview === true
   }
 
-  /** 语言下拉框值同步；别名映射到标准项，未知语言临时补一个选项。 */
-  private syncLanguage(lang: string) {
-    const value = lang || 'plaintext'
-    const known = (id: string) =>
-      Array.from(this.langSelect.options).some((option) => option.value === id)
-    const alias = normalizeCodeLanguage(value)
-    if (!known(value) && alias !== value && known(alias)) {
-      this.langSelect.value = alias
-      return
-    }
-    if (!known(value)) {
-      const option = document.createElement('option')
-      option.value = value
-      option.textContent = value
-      this.langSelect.appendChild(option)
-    }
-    this.langSelect.value = value
+  /** 语言下拉框值与选项；别名映射到标准项，未知语言临时补一个选项。 */
+  private renderLanguageSelect() {
+    const raw = this.source || 'plaintext'
+    const alias = normalizeCodeLanguage(raw)
+    const known = (id: string) => CODE_LANGUAGES.some((lang) => lang.id === id)
+    const value = known(raw) ? raw : known(alias) ? alias : raw
+    const options = CODE_LANGUAGES.map((lang) => ({ value: lang.id, label: lang.label }))
+    if (value && !known(value)) options.push({ value, label: value })
+    render(
+      h(KiwiSelect, {
+        modelValue: value,
+        options,
+        variant: 'toolbar',
+        width: 'w-56',
+        ariaLabel: '代码语言',
+        title: '代码语言',
+        triggerClass: 'code-lang-trigger',
+        'onUpdate:modelValue': (next: string | number) => this.setLanguage(String(next)),
+      }),
+      this.langHost,
+    )
   }
 
   private setLanguage(value: string) {
@@ -319,7 +313,7 @@ class CodeBlockView implements NodeView {
     const lang = this.source
     this.contentDOM.className = lang ? `language-${lang}` : ''
     this.dom.dataset.kind = this.kind ?? ''
-    this.syncLanguage(lang)
+    this.renderLanguageSelect()
 
     const kind = this.kind
     if (!kind) {
@@ -448,6 +442,7 @@ class CodeBlockView implements NodeView {
   destroy() {
     window.clearTimeout(this.renderTimer)
     window.removeEventListener('message', this.onPreviewMessage)
+    render(null, this.langHost)
   }
 }
 

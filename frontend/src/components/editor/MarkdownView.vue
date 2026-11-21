@@ -37,6 +37,7 @@ import { foldImageCaptionTokens } from './imageCaptions'
 import PluginReadonlyBlock from './PluginReadonlyBlock.vue'
 import { usePluginsStore } from '@/stores/plugins'
 import { usePaneOpen } from '@/components/notes/workspace/usePaneOpen'
+import { installNoteRefLinks, type NoteRefTarget } from '@/lib/noteRefLinks'
 import { IS_DESKTOP, isBlockedExternalAsset } from '@/desktop/env'
 
 const props = withDefaults(
@@ -51,6 +52,10 @@ const props = withDefaults(
     interactive?: boolean
     /** 工作区阅读态：内嵌网页 / 文件显示「在分栏中打开」入口；分享页保持关闭。 */
     paneActions?: boolean
+    /** 传入消息的引用来源后，回答里的笔记 ID 会渲染成可点击链接。 */
+    noteRefSources?: { collection: string; target_id: string; title: string }[] | null
+    /** 笔记 / Wiki 链接的点击行为：默认站内跳转；问答页改为右侧预览。 */
+    noteLinkMode?: 'route' | 'preview'
   }>(),
   {
     citationCount: undefined,
@@ -58,9 +63,14 @@ const props = withDefaults(
     plugins: false,
     interactive: false,
     paneActions: false,
+    noteRefSources: null,
+    noteLinkMode: 'route',
   },
 )
-const emit = defineEmits<{ (e: 'citation-click', n: number): void }>()
+const emit = defineEmits<{
+  (e: 'citation-click', n: number): void
+  (e: 'note-click', payload: { collection: 'note' | 'wiki'; id: string }): void
+}>()
 const router = useRouter()
 const paneOpen = usePaneOpen()
 const pluginsStore = usePluginsStore()
@@ -149,6 +159,23 @@ function splitCitations(state: any, token: any, total: number): any[] {
   return out
 }
 
+/**
+ * 粘贴自网页 / PDF 的正文常含 U+00A0 等不换行空格，Markdown 渲染后会原样
+ * 保留，窄栏（如问答引用预览）里会被撑出大片空白并打乱换行。
+ * 只在文本 token 内折叠为普通空格，代码块与行内代码保持原样。
+ */
+const UNICODE_SPACES = /[\u00a0\u2007\u202f]/g
+md.core.ruler.after('inline', 'kiwi_normalize_spaces', (state: any) => {
+  for (const block of state.tokens) {
+    if (block.type !== 'inline' || !Array.isArray(block.children)) continue
+    for (const child of block.children) {
+      if (child.type === 'text' && child.content) {
+        child.content = child.content.replace(UNICODE_SPACES, ' ')
+      }
+    }
+  }
+})
+
 md.core.ruler.after('inline', 'kiwi_citations', (state: any) => {
   const total = Number(props.citationCount || 0)
   if (total <= 0) return
@@ -168,6 +195,26 @@ md.core.ruler.after('inline', 'kiwi_citations', (state: any) => {
     block.children = out
   }
 })
+
+// 问答回答：把消息引用里出现过的笔记 ID 渲染成站内链接（裸 ID 也能点）。
+// 只认 citations 里真实存在的来源，避免把行动 ID、会话 ID 误链成笔记。
+const noteRefTargets = computed<Record<string, NoteRefTarget> | null>(() => {
+  const sources = props.noteRefSources
+  if (!sources) return null
+  const map: Record<string, NoteRefTarget> = {}
+  for (const source of sources) {
+    if (source.collection !== 'note' && source.collection !== 'wiki') continue
+    if (!source.target_id) continue
+    const id = String(source.target_id).toLowerCase()
+    if (!map[id]) {
+      map[id] = { title: source.title || '', collection: source.collection }
+    }
+  }
+  return map
+})
+installNoteRefLinks(md, 'kiwi_citations', () =>
+  props.noteLinkMode === 'preview' ? noteRefTargets.value ?? {} : null,
+)
 
 function escapeHtml(value: string): string {
   return value
@@ -1045,6 +1092,8 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 const html = computed(() => {
   // 引用数量变化时也要重渲染（引用事件可能先于最后一个文本 chunk 到达）。
   void props.citationCount
+  // 引用来源晚于正文到达时，笔记 ID 需要重新链接化。
+  void props.noteRefSources
   return DOMPurify.sanitize(md.render(props.content || ''), {
     // 内嵌网页块与链接需要保留 iframe / target。
     ADD_TAGS: ['iframe'],
@@ -1452,6 +1501,19 @@ function onClick(event: MouseEvent) {
     emit('citation-click', Number(cite))
     return
   }
+  // 问答回答里的笔记 / Wiki 链接改为右侧预览，不打断当前会话。
+  if (
+    props.noteLinkMode === 'preview' &&
+    (href.startsWith('/notes/') || href.startsWith('/wiki/'))
+  ) {
+    event.preventDefault()
+    const collection: 'note' | 'wiki' = href.startsWith('/wiki/') ? 'wiki' : 'note'
+    const id = decodeURIComponent(
+      href.replace(/^\/(?:notes|wiki)\//, '').split(/[?#]/)[0],
+    )
+    if (id) emit('note-click', { collection, id })
+    return
+  }
   if (
     href.startsWith('/sources/') ||
     href.startsWith('/wiki/') ||
@@ -1521,13 +1583,13 @@ function onClick(event: MouseEvent) {
   border-radius: 0;
   background: transparent;
   overflow-x: auto;
-  color: rgb(30 41 59);
+  color: rgb(var(--theme-text-primary));
 }
 .markdown-view .md-formula .katex-display {
   margin: 0.2em 0;
 }
 .markdown-view .md-formula.is-error {
-  color: rgb(220 38 38);
+  color: rgb(var(--theme-danger));
   font-family: ui-monospace, monospace;
   font-size: 12px;
   white-space: pre-wrap;
@@ -1553,15 +1615,15 @@ function onClick(event: MouseEvent) {
   border: 0;
   padding: 0;
   font-size: 12px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   white-space: pre-wrap;
 }
 .markdown-view .md-mermaid.is-rendered .md-mermaid-source {
   display: none;
 }
 .markdown-view .md-mermaid.is-error {
-  border-color: rgb(254 202 202);
-  background: rgb(254 242 242 / 0.6);
+  border-color: rgb(var(--theme-danger) / 0.35);
+  background: rgb(var(--theme-danger) / 0.08);
 }
 .markdown-view .md-draw {
   margin: 0.9rem 0;
@@ -1576,10 +1638,10 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-draw.is-empty {
   padding: 18px;
-  border: 1px dashed rgb(226 232 240);
+  border: 1px dashed rgb(var(--theme-border));
   border-radius: 10px;
   text-align: center;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 12px;
 }
 /* 正文图片：可点击放大，图注居中弱化 */
@@ -1598,7 +1660,7 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-image figcaption {
   margin-top: 0.4rem;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 0.78em;
   line-height: 1.55;
 }
@@ -1681,7 +1743,7 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-gallery-item figcaption {
   padding: 5px 8px;
   font-size: 11px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .markdown-view .md-note-card {
   display: flex;
@@ -1690,8 +1752,8 @@ function onClick(event: MouseEvent) {
   margin: 0.7rem 0;
   padding: 10px 12px;
   border-radius: 11px;
-  border: 1px solid rgb(226 232 240);
-  background: linear-gradient(180deg, #fff, rgb(248 250 252));
+  border: 1px solid rgb(var(--theme-border));
+  background: linear-gradient(180deg, rgb(var(--theme-surface)), rgb(var(--theme-app)));
   text-decoration: none !important;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -1716,7 +1778,7 @@ function onClick(event: MouseEvent) {
   flex-direction: column;
 }
 .markdown-view .md-note-card-title {
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
@@ -1724,11 +1786,11 @@ function onClick(event: MouseEvent) {
   text-overflow: ellipsis;
 }
 .markdown-view .md-note-card-kind {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 10.5px;
 }
 .markdown-view .md-note-card-arrow {
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
   font-size: 14px;
 }
 /* 日历 / 数据表共用色调 */
@@ -1756,11 +1818,11 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-calendar-title {
   font-size: 12.5px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .markdown-view .md-calendar-month {
   font-size: 11px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   font-variant-numeric: tabular-nums;
 }
 .markdown-view .md-calendar-grid {
@@ -1772,7 +1834,7 @@ function onClick(event: MouseEvent) {
   padding: 2px 0;
   text-align: center;
   font-size: 9.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .markdown-view .md-calendar-weeks {
   display: flex;
@@ -1826,7 +1888,7 @@ function onClick(event: MouseEvent) {
   padding: 3px 4px;
   border-radius: 6px;
   overflow: hidden;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   font-variant-numeric: tabular-nums;
 }
 .markdown-view .md-calendar-day.is-outside {
@@ -1842,7 +1904,7 @@ function onClick(event: MouseEvent) {
   font-weight: 500;
 }
 .markdown-view .md-calendar-day.is-today .md-calendar-daynum {
-  color: rgb(63 98 18);
+  color: rgb(var(--theme-accent));
   font-weight: 700;
 }
 .markdown-view .md-calendar-daychips {
@@ -1865,12 +1927,12 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-calendar-more {
   padding-left: 3px;
   font-size: 8px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .markdown-view .md-calendar-events {
   margin-top: 9px;
   padding-top: 8px;
-  border-top: 1px dashed rgb(226 232 240);
+  border-top: 1px dashed rgb(var(--theme-border));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1880,7 +1942,7 @@ function onClick(event: MouseEvent) {
   align-items: baseline;
   gap: 8px;
   font-size: 11.5px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .markdown-view .md-calendar-event b {
   flex-shrink: 0;
@@ -1980,16 +2042,16 @@ function onClick(event: MouseEvent) {
   background: linear-gradient(90deg, rgb(var(--kiwi-500)), rgb(var(--kiwi-400)));
 }
 .markdown-view .md-db-progress.is-complete .md-db-progress-track i {
-  background: linear-gradient(90deg, #34a06b, #4cbf83);
+  background: linear-gradient(90deg, rgb(var(--theme-success)), rgb(var(--theme-success) / 0.72));
 }
 .markdown-view .md-db-progress-label {
   font-size: 9.5px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .markdown-view .md-db-progress.is-complete .md-db-progress-label {
-  color: rgb(21 128 61);
+  color: rgb(var(--theme-success));
 }
 .markdown-view .md-db-kanban {
   display: grid;
@@ -2011,7 +2073,7 @@ function onClick(event: MouseEvent) {
   gap: 5px;
   margin-bottom: 5px;
   font-size: 10.5px;
-  color: rgb(71 85 105);
+  color: rgb(var(--theme-text-secondary));
 }
 .markdown-view .md-db-kanban-head i {
   width: 6px;
@@ -2058,7 +2120,7 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-db-gallery-cover {
   height: 64px;
-  background: linear-gradient(135deg, rgb(var(--kiwi-100)), rgb(224 242 254));
+  background: linear-gradient(135deg, rgb(var(--kiwi-100)), rgb(var(--theme-accent) / 0.12));
 }
 .markdown-view .md-db-gallery-card img {
   display: block;
@@ -2104,7 +2166,7 @@ function onClick(event: MouseEvent) {
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 .markdown-view .md-embed-card:hover {
-  border-color: rgb(186 230 253);
+  border-color: rgb(var(--theme-accent) / 0.35);
   box-shadow: 0 8px 22px rgb(15 23 42 / 0.07);
   transform: translateY(-1px);
 }
@@ -2117,8 +2179,8 @@ function onClick(event: MouseEvent) {
   height: 24px;
   flex: 0 0 auto;
   border-radius: 7px;
-  background: rgb(240 249 255);
-  color: rgb(2 132 199);
+  background: rgb(var(--theme-accent) / 0.08);
+  color: rgb(var(--theme-accent));
   font-size: 13px;
   overflow: hidden;
 }
@@ -2129,7 +2191,7 @@ function onClick(event: MouseEvent) {
   height: 16px;
   margin: auto;
   /* 图片完整覆盖默认图标；加载失败时移除，露出底层 glyph。 */
-  background: rgb(240 249 255);
+  background: rgb(var(--theme-accent) / 0.08);
   object-fit: contain;
 }
 .markdown-view .md-embed-favicon img.is-broken {
@@ -2148,7 +2210,7 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-embed-title {
   font-size: 13px;
   font-weight: 600;
-  color: rgb(30 41 59);
+  color: rgb(var(--theme-text-primary));
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2156,19 +2218,19 @@ function onClick(event: MouseEvent) {
 }
 .markdown-view .md-embed-site {
   font-size: 11px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .markdown-view .md-embed-excerpt {
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.6;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .markdown-view .md-embed-arrow {
   flex: 0 0 auto;
   margin-top: 2px;
   font-size: 12px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .markdown-view .md-embed-title-line {
   display: flex;
@@ -2193,9 +2255,9 @@ function onClick(event: MouseEvent) {
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 .markdown-view .md-embed-pane:hover {
-  border-color: rgb(186 230 253);
-  background: rgb(240 249 255);
-  color: rgb(2 132 199);
+  border-color: rgb(var(--theme-accent) / 0.35);
+  background: rgb(var(--theme-accent) / 0.08);
+  color: rgb(var(--theme-accent));
 }
 .markdown-view .md-embed-card-wrap {
   position: relative;
@@ -2215,11 +2277,11 @@ function onClick(event: MouseEvent) {
 .markdown-view .md-embed-download {
   flex: 0 0 auto;
   font-size: 13px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   text-decoration: none;
 }
 .markdown-view .md-embed-download:hover {
-  color: rgb(2 132 199);
+  color: rgb(var(--theme-accent));
 }
 .markdown-view .md-embed-title-line > a {
   display: inline-flex;
@@ -2235,8 +2297,8 @@ function onClick(event: MouseEvent) {
   text-decoration: none;
 }
 .markdown-view .md-embed-title-line > a:hover {
-  border-color: rgb(186 230 253);
-  color: rgb(2 132 199);
+  border-color: rgb(var(--theme-accent) / 0.35);
+  color: rgb(var(--theme-accent));
 }
 .markdown-view .md-embed-web {
   margin: 0.9rem 0;
@@ -2275,7 +2337,7 @@ function onClick(event: MouseEvent) {
   text-decoration: none;
 }
 .markdown-view .md-embed-open:hover {
-  color: rgb(2 132 199);
+  color: rgb(var(--theme-accent));
 }
 .markdown-view .md-embed-web iframe {
   display: block;
@@ -2308,7 +2370,7 @@ function onClick(event: MouseEvent) {
   border-radius: 999px;
   border: 1px solid rgb(var(--kiwi-300) / 0.65);
   background: rgb(var(--kiwi-50));
-  color: rgb(63 98 18);
+  color: rgb(var(--theme-accent));
   font-size: 0.86em;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;

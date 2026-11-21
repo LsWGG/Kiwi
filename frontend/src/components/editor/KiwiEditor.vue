@@ -3434,7 +3434,7 @@ defineExpose({
 .editor-sheet {
   @apply relative flex min-w-0 flex-col rounded-[10px] border border-white/70 px-8 py-8;
   box-shadow:
-    0 0 0 1px rgba(226, 232, 240, 0.55),
+    0 0 0 1px rgb(var(--theme-border) / 0.55),
     0 1px 2px rgba(15, 23, 42, 0.04),
     0 12px 28px -20px rgba(15, 23, 42, 0.26),
     0 46px 90px -56px rgba(15, 23, 42, 0.4);
@@ -3527,11 +3527,11 @@ defineExpose({
 /* 页眉 / 页脚点击即编辑 */
 .docx-page-head.is-editable:hover,
 .docx-page-footer.is-editable:hover {
-  border-color: rgba(139, 140, 232, 0.55);
+  border-color: rgb(var(--theme-accent) / 0.55);
 }
 .docx-page-head.is-editing,
 .docx-page-footer.is-editing {
-  border-color: rgba(139, 140, 232, 0.7);
+  border-color: rgb(var(--theme-accent) / 0.7);
 }
 .docx-page-edit-text {
   @apply min-w-0 flex-1 truncate text-left text-[11px] text-slate-400;
@@ -3561,7 +3561,7 @@ defineExpose({
 }
 .docx-page-edit:empty::before {
   content: attr(data-placeholder);
-  color: #cbd5e1;
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-editor-docx .editor-sheet :deep(.ProseMirror h1) {
   font-size: 1.6em;
@@ -3591,7 +3591,7 @@ defineExpose({
   pointer-events: none;
 }
 .kiwi-editor :deep(.kiwi-page-gap-paper) {
-  background: var(--doc-bg, #fff);
+  background: var(--doc-bg, rgb(var(--theme-surface)));
 }
 .kiwi-editor :deep(.kiwi-page-gap-band) {
   position: relative;
@@ -3623,7 +3623,7 @@ defineExpose({
   left: 0;
   right: 0;
   top: 50%;
-  border-top: 1px dashed #cbd5e1;
+  border-top: 1px dashed rgb(var(--theme-border-strong));
 }
 .kiwi-editor :deep(.kiwi-page-break::after) {
   content: '分页符';
@@ -3632,7 +3632,7 @@ defineExpose({
   top: 50%;
   transform: translate(-50%, -50%);
   padding: 0 8px;
-  background: var(--doc-bg, #fff);
+  background: var(--doc-bg, rgb(var(--theme-surface)));
   color: rgb(var(--theme-text-faint));
   font-size: 10px;
   letter-spacing: 0.08em;

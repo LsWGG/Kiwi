@@ -28,7 +28,11 @@
       "text.subtle": "#6f7fa8",
       "text.faint": "#56668c",
       "accent": "#5eead4",
-      "accent.foreground": "#062a25"
+      "accent.foreground": "#062a25",
+      "status.success": "#5eead4",
+      "status.warning": "#fbbf24",
+      "status.danger": "#fb7185",
+      "status.info": "#7dd3fc"
     },
     "background": {
       "image": "assets/aurora.svg",

@@ -80,7 +80,7 @@ const labels = computed(() =>
         :key="ratio"
         :points="polygon(ratio)"
         fill="none"
-        stroke="#e2e8f0"
+        stroke="rgb(var(--theme-border))"
         :stroke-width="ratio === 1 ? 1.2 : 0.8"
       />
       <line
@@ -90,7 +90,7 @@ const labels = computed(() =>
         :y1="CY"
         :x2="pointAt(i, 1).x"
         :y2="pointAt(i, 1).y"
-        stroke="#e2e8f0"
+        stroke="rgb(var(--theme-border))"
         stroke-width="0.8"
       />
 
@@ -116,7 +116,7 @@ const labels = computed(() =>
           :cy="pointAt(i, Math.max(0, Math.min(1, p.accuracy))).y"
           r="3"
           fill="#10b981"
-          stroke="#fff"
+          stroke="rgb(var(--theme-surface))"
           stroke-width="1.2"
         />
         <circle
@@ -124,7 +124,7 @@ const labels = computed(() =>
           :cy="pointAt(i, Math.max(0, Math.min(1, p.mastery))).y"
           r="2.4"
           fill="#7c3aed"
-          stroke="#fff"
+          stroke="rgb(var(--theme-surface))"
           stroke-width="1"
         />
       </template>
@@ -137,7 +137,7 @@ const labels = computed(() =>
         :text-anchor="l.anchor"
         dominant-baseline="middle"
         font-size="9.5"
-        fill="#64748b"
+        fill="rgb(var(--theme-text-muted))"
       >
         {{ l.text }}
       </text>

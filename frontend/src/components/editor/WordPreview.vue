@@ -201,9 +201,9 @@ function decoratePages(el: HTMLElement) {
         justifyContent: 'space-between',
         gap: '16px',
         paddingBottom: '12px',
-        borderBottom: '1px dashed rgba(203, 213, 225, 0.7)',
+        borderBottom: '1px dashed rgb(var(--theme-border-strong) / 0.7)',
         fontSize: '11px',
-        color: '#94a3b8',
+        color: 'rgb(var(--theme-text-subtle))',
         pointerEvents: 'none',
         zIndex: '1',
       })
@@ -220,7 +220,7 @@ function decoratePages(el: HTMLElement) {
         fontWeight: '500',
         letterSpacing: '0.18em',
         textTransform: 'uppercase',
-        color: '#cbd5e1',
+        color: 'rgb(var(--theme-border-strong))',
       })
       bar.append(left, brand)
       section.append(bar)
@@ -235,7 +235,7 @@ function decoratePages(el: HTMLElement) {
         left: `${prefs.margins.left}cm`,
         right: `${prefs.margins.right}cm`,
         fontSize: '11px',
-        color: '#94a3b8',
+        color: 'rgb(var(--theme-text-subtle))',
         pointerEvents: 'none',
         zIndex: '1',
       })
@@ -383,7 +383,7 @@ onBeforeUnmount(() => {
 /* 与左侧正文画布一致的灰底点阵，避免分栏像独立应用 */
 .word-preview-pane {
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.16) 1px, transparent 0);
+    radial-gradient(circle at 1px 1px, rgb(var(--theme-text-subtle) / 0.16) 1px, transparent 0);
   background-size: 18px 18px;
 }
 .word-preview-host {
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
 }
 .word-preview-host :deep(.kiwi-docx-wrapper) {
   padding: 14px;
-  background: #eef2f7;
+  background: rgb(var(--theme-surface-muted));
   min-width: min-content;
   min-height: 100%;
   box-sizing: border-box;

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import { navCollapsed, toggleNavCollapsed } from '@/composables/useSideNav'
 
 const route = useRoute()
 const items = [
@@ -21,27 +22,11 @@ const active = computed(() => {
 })
 
 // ---------- 独立收起 / 展开 ----------
-const STORAGE_KEY = 'kiwi.sidenav.collapsed'
-const collapsed = ref((() => {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-})())
-
-watch(collapsed, (value) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
-  } catch {
-    /* 隐私模式下忽略 */
-  }
-})
-
+// 与学习模式导航共用状态；聊天页打开引用预览时会调用 autoCollapseNav。
 /** 窄屏强制收起为图标轨道，把横向空间留给笔记正文。 */
 const narrow = ref(false)
 let narrowQuery: MediaQueryList | null = null
-const isCollapsed = computed(() => collapsed.value || narrow.value)
+const isCollapsed = computed(() => navCollapsed.value || narrow.value)
 
 function onNarrowChange(event: MediaQueryListEvent) {
   narrow.value = event.matches
@@ -55,7 +40,7 @@ onMounted(() => {
 onBeforeUnmount(() => narrowQuery?.removeEventListener('change', onNarrowChange))
 
 function toggle() {
-  collapsed.value = !collapsed.value
+  toggleNavCollapsed()
 }
 </script>
 

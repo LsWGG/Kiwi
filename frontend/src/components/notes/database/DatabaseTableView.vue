@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
                 <button
                   v-if="allowRowNotes"
                   type="button"
-                  class="w-6 h-6 grid place-items-center rounded-md text-slate-300 opacity-0 transition-all group-hover:opacity-100 hover:text-kiwi-600 hover:bg-kiwi-50"
+                  class="touch-visible w-6 h-6 grid place-items-center rounded-md text-slate-300 opacity-0 transition-all group-hover:opacity-100 hover:text-kiwi-600 hover:bg-kiwi-50"
                   :class="row.note_id ? 'text-kiwi-500' : ''"
                   :title="row.note_id ? '打开记录笔记' : '为这条记录生成可编辑笔记'"
                   @click.stop="emit('open-row-note', row)"
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
                 </button>
                 <button
                   type="button"
-                  class="w-6 h-6 grid place-items-center rounded-md text-slate-300 opacity-0 transition-all group-hover:opacity-100 hover:text-kiwi-600 hover:bg-kiwi-50"
+                  class="touch-visible w-6 h-6 grid place-items-center rounded-md text-slate-300 opacity-0 transition-all group-hover:opacity-100 hover:text-kiwi-600 hover:bg-kiwi-50"
                   title="展开记录"
                   @click="emit('open-row', row)"
                 >
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
                 </button>
                 <button
                   type="button"
-                  class="w-6 h-6 grid place-items-center rounded-md text-slate-300 opacity-0 transition-all group-hover:opacity-100 hover:text-rose-500 hover:bg-rose-50"
+                  class="touch-visible w-6 h-6 grid place-items-center rounded-md text-slate-300 opacity-0 transition-all group-hover:opacity-100 hover:text-rose-500 hover:bg-rose-50"
                   title="删除记录"
                   @click.stop="emit('delete-row', row)"
                 >

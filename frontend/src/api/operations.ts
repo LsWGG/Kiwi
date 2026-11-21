@@ -1,5 +1,5 @@
 /** 运维接口：持久化任务、审计、备份与构建信息。 */
-import { request } from './client'
+import { request, uploadWithProgress, type UploadProgressHandler } from './client'
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -61,8 +61,10 @@ export interface BackupFile {
 export interface BackupEntry {
   name: string
   format?: string
-  version?: string
+  version?: number
   created_at?: string
+  imported_at?: string
+  original_name?: string | null
   trigger?: string
   app_version?: string
   git_commit?: string
@@ -134,6 +136,18 @@ export function listBackups() {
 
 export function triggerBackup() {
   return request<{ job_id: string; status: string }>('/maintenance/backups', { method: 'POST' })
+}
+
+/** 浏览器直接下载 zip；使用 <a download>，不经过 fetch 以免大文件进内存。 */
+export function backupDownloadUrl(name: string) {
+  return `/api/maintenance/backups/${encodeURIComponent(name)}/download`
+}
+
+/** 导入 zip 备份：只保存为一份快照，不覆盖当前数据库。 */
+export function importBackup(file: File, onProgress?: UploadProgressHandler) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return uploadWithProgress<BackupEntry>('/maintenance/backups/import', formData, null, onProgress)
 }
 
 export function getBackendBuildInfo() {

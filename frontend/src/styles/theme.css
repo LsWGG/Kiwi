@@ -27,6 +27,13 @@
   --theme-text-faint: 203 213 225;
   --theme-accent: 90 85 199;
   --theme-accent-foreground: 255 255 255;
+  /* 语义状态色：使用固定的成功 / 警告 / 危险 / 信息语义色，不跟随强调色，
+     否则红 / 洋红强调色主题会把「成功」显示成失败态。主题插件可用
+     status.success / status.warning / status.danger / status.info 覆盖。 */
+  --theme-success: 4 120 87;
+  --theme-warning: 180 83 9;
+  --theme-danger: 225 29 72;
+  --theme-info: 3 105 161;
   --theme-surface-opacity: 1;
   --theme-surface-blur: 0px;
   --theme-background-dim: 0;
@@ -41,10 +48,24 @@ html[data-kiwi-theme-mode='dark'] {
   color-scheme: dark;
 }
 
+/* 深色主题的状态色默认值取浅色阶，保证在深色表面上的可读性。 */
+html[data-kiwi-theme-mode='dark'] body {
+  --theme-success: var(--theme-status-success, 52 211 153);
+  --theme-warning: var(--theme-status-warning, 251 191 36);
+  --theme-danger: var(--theme-status-danger, 251 113 133);
+  --theme-info: var(--theme-status-info, 56 189 248);
+}
+
 /* ---------- 应用底色与正文 ---------- */
 body {
   background-color: rgb(var(--theme-app));
   color: rgb(var(--theme-text-primary));
+  /* 状态色解析层：主题引擎把插件声明的值写到 --theme-status-*（html 内联），
+     未声明时回落到固定的语义色；深色主题在上面按模式覆盖这组默认值。 */
+  --theme-success: var(--theme-status-success, 4 120 87);
+  --theme-warning: var(--theme-status-warning, 180 83 9);
+  --theme-danger: var(--theme-status-danger, 225 29 72);
+  --theme-info: var(--theme-status-info, 3 105 161);
 }
 
 /* 主题背景图：两层伪元素，图片在下、暗化遮罩在上，内容始终位于其上。 */
@@ -920,9 +941,9 @@ html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-actio
   color: rgb(var(--theme-text-primary));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-action.is-danger:hover {
-  border-color: rgb(244 63 94 / 0.5);
-  background: rgb(244 63 94 / 0.16);
-  color: #fda4af;
+  border-color: rgb(var(--theme-danger) / 0.5);
+  background: rgb(var(--theme-danger) / 0.16);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-output-node > pre {
   color: rgb(var(--theme-text-primary));
@@ -968,8 +989,8 @@ html[data-kiwi-theme-custom='true'] .kiwi-editor.code-theme-light .ProseMirror .
   color: rgb(var(--theme-accent)) !important;
 }
 html[data-kiwi-theme-custom='true'] .kiwi-editor .ProseMirror .code-run-badge {
-  background: rgb(245 158 11 / 0.16);
-  color: #fcd34d;
+  background: rgb(var(--theme-warning) / 0.16);
+  color: rgb(var(--theme-warning));
 }
 
 /* ---------- 提示块 / 折叠块 / 行内提及 ---------- */
@@ -1347,12 +1368,12 @@ html[data-kiwi-theme-custom='true'] body .sheet-cell.is-frozen-col {
   background-color: rgb(var(--theme-surface));
 }
 html[data-kiwi-theme-custom='true'] body .sheet-cell.is-error {
-  color: rgb(248 113 113);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] body .sheet-cell.is-search-hit {
-  background-image: linear-gradient(rgb(245 158 11 / 0.28), rgb(245 158 11 / 0.28));
-  box-shadow: inset 0 0 0 2px rgb(245 158 11 / 0.8);
-  color: rgb(253 230 138);
+  background-image: linear-gradient(rgb(var(--theme-warning) / 0.28), rgb(var(--theme-warning) / 0.28));
+  box-shadow: inset 0 0 0 2px rgb(var(--theme-warning) / 0.8);
+  color: rgb(var(--theme-warning));
 }
 html[data-kiwi-theme-custom='true'] body .cell-editor {
   border-color: rgb(var(--theme-accent));
@@ -1412,9 +1433,9 @@ html[data-kiwi-theme-custom='true'] body .sheet-tab.is-active {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
 }
 html[data-kiwi-theme-custom='true'] body .sheet-tab.is-search-hit {
-  border-color: rgb(245 158 11 / 0.55);
-  background: rgb(245 158 11 / 0.22);
-  color: rgb(253 230 138);
+  border-color: rgb(var(--theme-warning) / 0.55);
+  background: rgb(var(--theme-warning) / 0.22);
+  color: rgb(var(--theme-warning));
 }
 html[data-kiwi-theme-custom='true'] body .sheet-context {
   border-color: rgb(var(--theme-border) / 0.9);
@@ -1517,14 +1538,14 @@ html[data-kiwi-theme-custom='true'] body .nb-output.is-rich {
   background: rgb(var(--theme-surface) / calc(0.85 * var(--theme-surface-opacity)));
 }
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .nb-output.is-error {
-  border-color: rgb(244 63 94 / 0.35);
-  background: rgb(244 63 94 / 0.12);
-  color: rgb(253 164 175);
+  border-color: rgb(var(--theme-danger) / 0.35);
+  background: rgb(var(--theme-danger) / 0.12);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .nb-output.is-stderr {
-  border-color: rgb(245 158 11 / 0.35);
-  background: rgb(245 158 11 / 0.12);
-  color: rgb(253 230 138);
+  border-color: rgb(var(--theme-warning) / 0.35);
+  background: rgb(var(--theme-warning) / 0.12);
+  color: rgb(var(--theme-warning));
 }
 html[data-kiwi-theme-custom='true'] body .nb-html th {
   border-color: rgb(var(--theme-border) / 0.8);
@@ -1762,8 +1783,8 @@ html[data-kiwi-theme-custom='true'] .kiwi-task-progress-icon.is-active {
   color: var(--tp-ink);
 }
 html[data-kiwi-theme-custom='true'] .kiwi-task-progress-icon.is-danger:hover {
-  background: rgb(248 113 113 / 0.14);
-  color: #fca5a5;
+  background: rgb(var(--theme-danger) / 0.14);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-task-progress-track {
   background: rgb(var(--theme-surface-strong) / 0.8);
@@ -1794,7 +1815,7 @@ html[data-kiwi-theme-custom='true'] .kiwi-gallery-status {
   color: rgb(var(--theme-text-subtle));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-gallery-status.is-error {
-  color: #fca5a5;
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-gallery-seg {
   background: rgb(var(--theme-surface-muted));
@@ -1815,8 +1836,8 @@ html[data-kiwi-theme-custom='true'] .kiwi-gallery-action:hover {
   background: rgb(var(--theme-accent) / 0.14);
 }
 html[data-kiwi-theme-custom='true'] .kiwi-gallery-action.is-danger:hover {
-  color: #fca5a5;
-  background: rgb(248 113 113 / 0.14);
+  color: rgb(var(--theme-danger));
+  background: rgb(var(--theme-danger) / 0.14);
 }
 html[data-kiwi-theme-custom='true'] .kiwi-gallery-empty:hover {
   background: rgb(var(--theme-accent) / 0.08);
@@ -1859,8 +1880,8 @@ html[data-kiwi-theme-custom='true'] .kiwi-gallery-mini:hover {
   background: rgb(var(--theme-surface-muted));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-gallery-mini.is-danger:hover {
-  color: #fca5a5;
-  background: rgb(248 113 113 / 0.14);
+  color: rgb(var(--theme-danger));
+  background: rgb(var(--theme-danger) / 0.14);
 }
 html[data-kiwi-theme-custom='true'] .kiwi-gallery-arrow {
   border-color: rgb(var(--theme-border));
@@ -1956,8 +1977,8 @@ html[data-kiwi-theme-custom='true'] .kiwi-calendar-clear {
   color: rgb(var(--theme-text-subtle));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-calendar-clear:hover {
-  background: rgb(248 113 113 / 0.14);
-  color: #fca5a5;
+  background: rgb(var(--theme-danger) / 0.14);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-calendar-day-event {
   color: rgb(var(--theme-text-secondary));
@@ -2066,7 +2087,7 @@ html[data-kiwi-theme-custom='true'] .kiwi-formula-preview {
   color: rgb(var(--theme-text-primary));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-formula-error {
-  color: #fca5a5;
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-formula-btn {
   border-color: rgb(var(--theme-border));
@@ -2096,7 +2117,7 @@ html[data-kiwi-theme-custom='true'] .kiwi-mermaid-status {
   color: rgb(var(--theme-text-subtle));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-mermaid-status.is-error {
-  color: #fca5a5;
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] .kiwi-mermaid-action {
   color: rgb(var(--theme-text-subtle));
@@ -2154,8 +2175,8 @@ html[data-kiwi-theme-custom='true'] .kiwi-draw-action.is-active {
   background: rgb(var(--theme-accent) / 0.14);
 }
 html[data-kiwi-theme-custom='true'] .kiwi-draw-action.is-danger:hover {
-  color: #fca5a5;
-  background: rgb(248 113 113 / 0.14);
+  color: rgb(var(--theme-danger));
+  background: rgb(var(--theme-danger) / 0.14);
 }
 html[data-kiwi-theme-custom='true'] .kiwi-draw-zoom {
   color: rgb(var(--theme-text-muted));
@@ -2356,13 +2377,13 @@ html[data-kiwi-theme-custom='true'] body .kiwi-draw-status {
   color: rgb(var(--theme-text-muted));
 }
 html[data-kiwi-theme-custom='true'] body .kiwi-draw-status.is-error {
-  background: rgb(127 29 29 / 0.25);
-  color: rgb(252 165 165);
+  background: rgb(var(--theme-danger) / 0.25);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'] body .kiwi-draw-retry {
-  border-color: rgb(248 113 113 / 0.4);
+  border-color: rgb(var(--theme-danger) / 0.4);
   background: rgb(var(--theme-surface));
-  color: rgb(252 165 165);
+  color: rgb(var(--theme-danger));
 }
 
 /* 画布模板库 / 信息图对话框（Element Plus 渲染到 body）
@@ -2465,9 +2486,9 @@ html[data-kiwi-theme-custom='true'] body .infographic-dialog .parse-info .info-v
   color: rgb(var(--theme-accent));
 }
 html[data-kiwi-theme-custom='true'] body .infographic-dialog .parse-error {
-  border-color: rgb(248 113 113 / 0.35);
-  background: rgb(127 29 29 / 0.22);
-  color: rgb(252 165 165);
+  border-color: rgb(var(--theme-danger) / 0.35);
+  background: rgb(var(--theme-danger) / 0.22);
+  color: rgb(var(--theme-danger));
 }
 
 /* ---------- 画布浮动 UI（深色主题） ----------
@@ -2553,10 +2574,10 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .
   background: rgb(var(--theme-border));
 }
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .delete {
-  color: rgb(252 165 165);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .context-menu .delete:hover {
-  background: rgb(127 29 29 / 0.28);
+  background: rgb(var(--theme-danger) / 0.28);
 }
 
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] .properties-panel {
@@ -2797,11 +2818,12 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] body .el-messag
   color: rgb(var(--theme-app));
 }
 
-/* ---------- 深色主题：彩色提示块 ----------
- * Tailwind 的 *-50 / *-100 浅色底、彩色文字与渐变停靠点是为浅色界面挑的。
- * 深色主题下保留色相，把底色降为低透明度、文字提亮到 300 / 400 档，
- * 否则选中项、状态标签、提示卡会变成成片亮块，或出现浅底浅字。
- * 内置浅色主题不受影响；组件无需逐处判断明暗。
+/* ---------- 深色主题：强调色档位 ----------
+ * Tailwind 的 kiwi-50 / 100 浅色底与 kiwi-500…800 深色文字是为浅色界面
+ * 挑的；深色主题下把底色降为低透明度、文字提到强调色本身。
+ * 其余彩色色板（emerald / amber / rose / sky / violet …）已在
+ * tailwind.config.js 统一映射到 --theme-success / warning / danger / info
+ * / accent 令牌，亮暗主题与第三方主题共用一套令牌，不再逐档覆盖。
  */
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
   [class~='bg-kiwi-50'], [class~='bg-kiwi-50/30'], [class~='bg-kiwi-50/40'],
@@ -2817,80 +2839,6 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
   background-color: rgb(var(--theme-accent) / 0.15);
 }
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-amber-50'], [class~='bg-amber-50/50'], [class~='bg-amber-50/60'],
-  [class~='bg-amber-50/70'], [class~='bg-amber-50/80']
-) {
-  background-color: rgb(245 158 11 / 0.12);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-amber-100'], [class~='bg-amber-100/70'], [class~='bg-amber-100/80'],
-  [class~='bg-amber-100/90']
-) {
-  background-color: rgb(245 158 11 / 0.16);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-rose-50'], [class~='bg-rose-50/60'], [class~='bg-rose-50/70'],
-  [class~='bg-rose-50/80']
-) {
-  background-color: rgb(244 63 94 / 0.12);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-rose-100'], [class~='bg-rose-100/80']
-) {
-  background-color: rgb(244 63 94 / 0.16);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-emerald-50'], [class~='bg-emerald-50/60'], [class~='bg-emerald-50/70'],
-  [class~='bg-emerald-50/80']
-) {
-  background-color: rgb(16 185 129 / 0.12);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-emerald-100'], [class~='bg-emerald-100/80']
-) {
-  background-color: rgb(16 185 129 / 0.16);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-violet-50'], [class~='bg-violet-50/40'], [class~='bg-violet-50/50']
-) {
-  background-color: rgb(139 92 246 / 0.14);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-violet-100'] {
-  background-color: rgb(139 92 246 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-sky-50'], [class~='bg-sky-50/70']
-) {
-  background-color: rgb(14 165 233 / 0.14);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-sky-100'] {
-  background-color: rgb(14 165 233 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-indigo-50'], [class~='bg-indigo-50/50'], [class~='bg-indigo-50/80']
-) {
-  background-color: rgb(99 102 241 / 0.14);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='bg-orange-50'], [class~='bg-orange-50/80']
-) {
-  background-color: rgb(249 115 22 / 0.14);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-orange-100/70'] {
-  background-color: rgb(249 115 22 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-cyan-50'] {
-  background-color: rgb(6 182 212 / 0.14);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-teal-50'] {
-  background-color: rgb(20 184 166 / 0.14);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='bg-red-50'] {
-  background-color: rgb(239 68 68 / 0.14);
-}
-
-/* hover 变体：悬停时略增强，避免浅色 hover 闪白。 */
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
   [class~='hover:bg-kiwi-50'], [class~='hover:bg-kiwi-50/30'],
   [class~='hover:bg-kiwi-50/40'], [class~='hover:bg-kiwi-50/50'],
   [class~='hover:bg-kiwi-50/60'], [class~='hover:bg-kiwi-50/70'],
@@ -2899,31 +2847,8 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
 ):hover {
   background-color: rgb(var(--theme-accent) / 0.16);
 }
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='hover:bg-amber-50'], [class~='hover:bg-amber-100']
-):hover {
-  background-color: rgb(245 158 11 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='hover:bg-rose-50'], [class~='hover:bg-rose-50/70'],
-  [class~='hover:bg-rose-100']
-):hover {
-  background-color: rgb(244 63 94 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-emerald-50']:hover {
-  background-color: rgb(16 185 129 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-sky-50']:hover {
-  background-color: rgb(14 165 233 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-red-50']:hover {
-  background-color: rgb(239 68 68 / 0.18);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='hover:bg-orange-100/70']:hover {
-  background-color: rgb(249 115 22 / 0.2);
-}
 
-/* 彩色边框与文字：深色底上提亮，避免细线过曝与低对比文字。 */
+/* 强调色边框：深色底上统一收敛到强调色，避免整圈发白。 */
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
   [class~='border-kiwi-50'], [class~='border-kiwi-100'],
   [class~='border-kiwi-100/70'], [class~='border-kiwi-100/80']
@@ -2945,126 +2870,7 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='ring-k
   --tw-ring-color: rgb(var(--theme-accent) / 0.45);
   --tw-ring-opacity: 1;
 }
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='border-amber-100'], [class~='border-amber-200'],
-  [class~='border-amber-200/70'], [class~='border-amber-200/80'],
-  [class~='border-amber-200/90']
-) {
-  border-color: rgb(245 158 11 / 0.4);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='border-rose-100'], [class~='border-rose-200'],
-  [class~='border-rose-200/60'], [class~='border-rose-200/70']
-) {
-  border-color: rgb(244 63 94 / 0.4);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='border-emerald-100'], [class~='border-emerald-200'],
-  [class~='border-emerald-200/70']
-) {
-  border-color: rgb(16 185 129 / 0.4);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='border-violet-100'], [class~='border-violet-200'],
-  [class~='border-violet-200/70']
-) {
-  border-color: rgb(139 92 246 / 0.4);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='border-sky-200'], [class~='border-sky-200/70'],
-  [class~='border-cyan-200/70'], [class~='border-teal-200/70'],
-  [class~='border-orange-100'], [class~='border-orange-200/70']
-) {
-  border-color: rgb(14 165 233 / 0.4);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='border-indigo-100'], [class~='border-indigo-200/70']
-) {
-  border-color: rgb(99 102 241 / 0.4);
-}
 
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-amber-500']
-) {
-  color: #fbbf24;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-amber-600'], [class~='text-amber-700']
-) {
-  color: #fcd34d;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-amber-800'] {
-  color: #fde68a;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-rose-500'], [class~='text-rose-600'], [class~='text-rose-700']
-) {
-  color: #fda4af;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-rose-800'] {
-  color: #fecdd3;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-emerald-500'], [class~='text-emerald-600'], [class~='text-emerald-700']
-) {
-  color: #6ee7b7;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-emerald-800'] {
-  color: #a7f3d0;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-sky-500'], [class~='text-sky-600']
-) {
-  color: #7dd3fc;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-sky-700'] {
-  color: #bae6fd;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-violet-500'], [class~='text-violet-600']
-) {
-  color: #c4b5fd;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-violet-700'] {
-  color: #ddd6fe;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-indigo-500'], [class~='text-indigo-600']
-) {
-  color: #a5b4fc;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-indigo-700'] {
-  color: #c7d2fe;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-orange-500'], [class~='text-orange-600']
-) {
-  color: #fdba74;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-orange-700'], [class~='text-orange-800']
-) {
-  color: #fed7aa;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-red-500'], [class~='text-red-600']
-) {
-  color: #fca5a5;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='text-cyan-600'], [class~='text-cyan-700']
-) {
-  color: #67e8f9;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-teal-700'] {
-  color: #5eead4;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-fuchsia-700'] {
-  color: #f0abfc;
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='text-blue-500'] {
-  color: #93c5fd;
-}
 /* 强调色文字：深色底上沿用主题强调色，避免 kiwi-700 等深色档位不可读。
  * 选择器不限定 body，Teleport 到 <html> 的下拉面板同样生效。 */
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
@@ -3080,7 +2886,7 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
   color: rgb(var(--theme-accent));
 }
 
-/* 渐变停靠点：保留色相，换成低透明度暗色版本。 */
+/* 强调色渐变停靠点。 */
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
   [class~='from-kiwi-50'], [class~='from-kiwi-50/60'],
   [class~='from-kiwi-50/70'], [class~='from-kiwi-50/90']
@@ -3104,70 +2910,6 @@ html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-kiw
 }
 html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-kiwi-100/60'] {
   --tw-gradient-via: rgb(var(--theme-accent) / 0.14) var(--tw-gradient-via-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='from-amber-50'], [class~='from-amber-50/70']
-) {
-  --tw-gradient-from: rgb(245 158 11 / 0.16) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(245 158 11 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-amber-100'] {
-  --tw-gradient-from: rgb(245 158 11 / 0.2) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(245 158 11 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='to-amber-100/40']
-) {
-  --tw-gradient-to: rgb(245 158 11 / 0.12) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-amber-100/50'] {
-  --tw-gradient-via: rgb(245 158 11 / 0.14) var(--tw-gradient-via-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-rose-50'] {
-  --tw-gradient-from: rgb(244 63 94 / 0.16) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(244 63 94 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-rose-50'] {
-  --tw-gradient-to: rgb(244 63 94 / 0.1) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-rose-100/50'] {
-  --tw-gradient-via: rgb(244 63 94 / 0.14) var(--tw-gradient-via-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-emerald-50'] {
-  --tw-gradient-from: rgb(16 185 129 / 0.16) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(16 185 129 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] :is(
-  [class~='to-emerald-50'], [class~='to-emerald-50/60']
-) {
-  --tw-gradient-to: rgb(16 185 129 / 0.1) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-emerald-100/40'] {
-  --tw-gradient-to: rgb(16 185 129 / 0.12) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-emerald-100/50'] {
-  --tw-gradient-via: rgb(16 185 129 / 0.14) var(--tw-gradient-via-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-sky-100'] {
-  --tw-gradient-from: rgb(14 165 233 / 0.2) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(14 165 233 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-sky-50/40'] {
-  --tw-gradient-to: rgb(14 165 233 / 0.12) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='via-sky-100/50'] {
-  --tw-gradient-via: rgb(14 165 233 / 0.14) var(--tw-gradient-via-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-violet-50/80'] {
-  --tw-gradient-from: rgb(139 92 246 / 0.16) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(139 92 246 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='from-violet-100/70'] {
-  --tw-gradient-from: rgb(139 92 246 / 0.2) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(139 92 246 / 0) var(--tw-gradient-to-position);
-}
-html[data-kiwi-theme-custom='true'][data-kiwi-theme-mode='dark'] [class~='to-fuchsia-50'] {
-  --tw-gradient-to: rgb(217 70 239 / 0.12) var(--tw-gradient-to-position);
 }
 
 /* ---------- 深色主题：组件内 @apply 写死的浅色交互态 ----------

@@ -391,7 +391,7 @@ async function copyResult() {
   margin: 0.35em 0;
 }
 .agent-input:focus {
-  border-color: rgba(199, 210, 254, 0.9);
-  background: rgba(248, 250, 252, 0.7);
+  border-color: rgb(var(--theme-accent) / 0.5);
+  background: rgb(var(--theme-surface) / 0.7);
 }
 </style>

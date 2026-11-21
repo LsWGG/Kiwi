@@ -54,6 +54,7 @@ const emit = defineEmits<{
     v-else-if="note.kind === 'database'"
     :key="note.id"
     :note="note"
+    :active="active"
     @open-note="(noteId) => emit('open-note', noteId)"
   />
   <NoteCanvasPane

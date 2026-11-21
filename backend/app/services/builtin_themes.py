@@ -92,6 +92,11 @@ BUILTIN_THEMES: tuple[dict[str, Any], ...] = (
                 "text.faint": "#56668c",
                 "accent": "#5eead4",
                 "accent.foreground": "#062a25",
+                # 深色界面上的状态色：取浅色阶，保证与深色表面有足够对比。
+                "status.success": "#5eead4",
+                "status.warning": "#fbbf24",
+                "status.danger": "#fb7185",
+                "status.info": "#7dd3fc",
             },
             "background": {
                 "image": "assets/aurora.svg",

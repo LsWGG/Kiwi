@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
-from app.services import attachment_content
+from app.services import agent_actions, agent_harness, agent_tools, attachment_content
 from app.services.agent_planner import (
     AgentPlan,
     apply_time_window,
@@ -41,6 +41,15 @@ from app.services.web_research import search_web
 logger = logging.getLogger("kiwi.chat")
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Agent 处理「这周 / 最近做了什么」类问题时，检索分块可能只覆盖笔记的一部分
+# （例如时间线笔记的 20261102 段落），按 chunk_index 拼接后再截断会丢掉本周段落。
+# 模型上下文充足（可达 1M），时间范围问题直接给短笔记完整正文；单篇与总量
+# 仍设上限，避免极端长文把上下文挤满。
+AGENT_FULL_NOTE_CHARS = 20_000
+AGENT_FULL_NOTE_BUDGET = 120_000
+# 非时间范围问题也放宽单篇上下文，避免关键结论落在第 2000 字之后。
+AGENT_NOTE_CONTEXT_CHARS = 8_000
 
 
 def _plain_excerpt(text: str) -> str:
@@ -329,6 +338,8 @@ class _PreparedChat:
     client: Any
     model_name: str
     notices: list[str]
+    kb_ids: list[uuid.UUID] = field(default_factory=list)
+    kb_id: uuid.UUID | None = None
 
 
 async def _prepare_chat(
@@ -516,6 +527,7 @@ async def _prepare_chat(
         kb_id: str,
         anchor: tuple[int, str, str] | None = None,
         attachment_text: str = "",
+        updated_at: str = "",
     ) -> None:
         try:
             nid = uuid.UUID(str(note_id))
@@ -552,10 +564,18 @@ async def _prepare_chat(
             )
         )
         # 数据表的行内容可能分布在多个分块中，给笔记更宽的上下文预算。
-        body = (text or "")[:2000]
+        note_limit = AGENT_NOTE_CONTEXT_CHARS if data.agent else 2_000
+        body = (text or "")[:note_limit]
         if attachment_text:
             body = f"{body}\n\n{attachment_text}" if body else attachment_text
-        context_parts.append(f"[{len(citations)}] ({prefix}·{kind_label}) {title}\n{body}")
+        # 更新时间让模型能判断这篇笔记是否属于「这周 / 最近」。
+        updated_line = f"\n更新时间：{updated_at}" if updated_at else ""
+        # Agent 可以直接拿 ID 调用 get_note 补读全文。
+        id_line = f"\n笔记ID：{note_id}" if data.agent else ""
+        context_parts.append(
+            f"[{len(citations)}] ({prefix}·{kind_label}) {title}"
+            f"{updated_line}{id_line}\n{body}"
+        )
 
     def add_web(
         *, title: str, url: str, snippet: str, content: str = ""
@@ -625,7 +645,7 @@ async def _prepare_chat(
             continue
 
     # 以数据库为准过滤已删除 / 回收站笔记，并取最新标题（向量 payload 可能滞后）。
-    note_meta: dict[str, tuple[str, str, dict, str]] = {}
+    note_meta: dict[str, tuple[str, str, dict, str, str]] = {}
     note_kb: dict[str, str] = {}
     note_ids: list[uuid.UUID] = list(mentioned_ids)
     for note_id in note_groups:
@@ -645,6 +665,7 @@ async def _prepare_chat(
                     Note.kind,
                     Note.props_json,
                     Note.body_md,
+                    Note.updated_at,
                 ).where(
                     Note.id.in_(note_ids),
                     Note.kb_id.in_(kb_ids),
@@ -658,6 +679,7 @@ async def _prepare_chat(
                 row.kind,
                 dict(row.props_json or {}),
                 row.body_md or "",
+                row.updated_at.isoformat() if row.updated_at else "",
             )
             for row in rows
         }
@@ -692,7 +714,7 @@ async def _prepare_chat(
     if plan.time_window:
         kept_entries: list[tuple[str, dict]] = []
         for note_id, group in note_entries:
-            title, _kind, props, _body = note_meta[note_id]
+            title, _kind, props, _body, _updated_at = note_meta[note_id]
             if plan.personal and props.get("todo_hub"):
                 continue
             if not in_time_window(title or group["title"], plan.time_window):
@@ -709,7 +731,7 @@ async def _prepare_chat(
     for note_id, _group in note_entries:
         if remaining_chars <= 0 or files_read >= attachment_content.MAX_FILES:
             break
-        title, kind, props, body_md = note_meta[note_id]
+        title, kind, props, body_md, _updated_at = note_meta[note_id]
         parts: list[str] = []
         import_meta = props.get("import") if kind == "import" else None
         readonly_import = isinstance(import_meta, dict) and bool(
@@ -772,22 +794,38 @@ async def _prepare_chat(
                 kb_id=str(hit.get("kb_id") or ""),
             )
 
+    full_body_budget = AGENT_FULL_NOTE_BUDGET
+
     def feed_notes() -> None:
+        nonlocal full_body_budget
         for note_id, group in note_entries:
-            title, kind, _props, _body = note_meta[note_id]
+            title, kind, _props, body_md, updated_at = note_meta[note_id]
+            # 按原始分块顺序拼接，避免打乱表格行的语义。
+            chunks_text = "\n\n".join(text for _, text, _heading in sorted(group["chunks"]))
+            text = chunks_text
+            # 时间范围问题：短笔记直接给全文，避免检索只命中「上周」段落，
+            # 再按 chunk_index 拼接后被 2000 字截断，丢掉本周时间线。
+            if (
+                data.agent
+                and plan.time_window
+                and kind in ("doc", "import")
+                and body_md
+                and full_body_budget > 0
+            ):
+                allowed = min(AGENT_FULL_NOTE_CHARS, full_body_budget)
+                text = body_md[:allowed]
+                full_body_budget -= len(text)
             add_note(
                 note_id=note_id,
                 title=title or group["title"] or "未命名笔记",
                 kind=kind or group["kind"],
-                # 按原始分块顺序拼接，避免打乱表格行的语义。
-                text="\n\n".join(
-                    text for _, text, _heading in sorted(group["chunks"])
-                ),
+                text=text,
                 kb_id=group["kb_id"],
                 # 首个分块是分数最高的命中，引用跳转以它为锚点；
                 # 只读导入文件没有向量分块，引用落在文件正文的开头。
                 anchor=group["chunks"][0] if group["chunks"] else None,
                 attachment_text=attachment_texts.get(note_id, ""),
+                updated_at=updated_at,
             )
 
     if intent == "note":
@@ -826,7 +864,9 @@ async def _prepare_chat(
     citations = citations[: len(context_parts)]
 
     # LLM 生成（页面级模型覆盖仅对本次请求生效；模型已在规划前解析）
-    stage("generate", "start", "正在生成回答")
+    # Agent 模式由工具循环负责生成阶段，这里不提前打点。
+    if not data.agent:
+        stage("generate", "start", "正在生成回答")
 
     system_prompt = (
         "你是 Kiwi 个人知识库助手。基于提供的 Wiki 页面与工作区笔记回答用户问题。\n"
@@ -867,21 +907,93 @@ async def _prepare_chat(
         client=client,
         model_name=model_name,
         notices=notices,
+        kb_ids=kb_ids,
+        kb_id=bound_kb_id,
     )
+
+
+async def _resume_agent_events(data: ChatRequest, session: AsyncSession):
+    """继续上一轮等待确认的 Agent 写操作。
+
+    ``claim`` 是一次性消费：批准 / 取消后 action_id 立即失效，重复请求不会再
+    执行一次。取消不触碰数据库。
+    """
+    pending = agent_actions.claim(str(data.resume_action_id or ""))
+    if pending is None:
+        yield "error", {"message": "操作已过期或已被处理，请重新提问。"}
+        return
+    approved = bool(data.approve)
+    client = None
+    model_name = ""
+    temperature = 0.3
+    if approved:
+        try:
+            kb_uuid = uuid.UUID(pending.kb_id) if pending.kb_id else None
+            cfg_uuid = uuid.UUID(pending.llm_config_id) if pending.llm_config_id else None
+            cfg, api_key = await resolve_llm(session, kb_uuid, cfg_uuid)
+            model_name = (pending.model_override or "").strip() or cfg.model_name
+            client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
+            temperature = cfg.extra_params.get("temperature", 0.3)
+        except HTTPException as e:
+            yield "error", {"message": str(e.detail)}
+            return
+        except Exception:  # noqa: BLE001
+            logger.exception("恢复 Agent 操作时解析模型失败")
+            yield "error", {"message": "恢复操作时无法连接模型，请重试。"}
+            return
+    citations: list[Citation] = []
+    for item in pending.citations:
+        try:
+            citations.append(Citation.model_validate(item))
+        except Exception:  # noqa: BLE001 —— 旧 action 的引用损坏不影响执行
+            continue
+    try:
+        kb_uuid = uuid.UUID(pending.kb_id) if pending.kb_id else None
+        kb_ids = [uuid.UUID(item) for item in pending.kb_ids]
+        cfg_uuid = uuid.UUID(pending.llm_config_id) if pending.llm_config_id else None
+    except ValueError:
+        yield "error", {"message": "操作上下文已损坏，请重新提问。"}
+        return
+    ctx = agent_harness.AgentContext(
+        messages=[dict(item) for item in pending.messages],
+        citations=citations,
+        intent=pending.intent,
+        client=client,
+        model_name=model_name,
+        temperature=temperature,
+        kb_id=kb_uuid,
+        kb_ids=kb_ids,
+        llm_config_id=cfg_uuid,
+        model_override=pending.model_override,
+        scope_mode=pending.scope_mode,
+        plan=[dict(step) for step in pending.plan],
+    )
+    async for event, payload in agent_harness.run_agent(
+        ctx, session, resume=pending, approved=approved
+    ):
+        yield event, payload
 
 
 @router.post("/stream")
 async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_session)):
     """流式问答。返回 SSE 事件流。"""
+    resuming = bool(data.resume_action_id)
     query = str(data.messages[-1].get("content", "")) if data.messages else ""
-    if not query.strip():
-        raise HTTPException(400, "问题不能为空")
-    if is_disabled():
-        raise HTTPException(
-            409, "向量模型已关闭，问答检索不可用；请先在设置中启用向量模型。"
-        )
+    if not resuming:
+        if not query.strip():
+            raise HTTPException(400, "问题不能为空")
+        if is_disabled():
+            raise HTTPException(
+                409, "向量模型已关闭，问答检索不可用；请先在设置中启用向量模型。"
+            )
 
-    intent = route_intent(query) if data.intent in (None, "auto") else data.intent
+    # 恢复写操作不重新检索，意图只用于上下文兼容；无需再路由。
+    if resuming:
+        intent = data.intent if data.intent in ("wiki", "note") else "note"
+    elif data.intent in (None, "auto"):
+        intent = route_intent(query)
+    else:
+        intent = data.intent
     # 兼容旧客户端：raw 意图改由笔记承载（笔记是素材整理后的最终形态）。
     if intent == "raw":
         intent = "note"
@@ -893,6 +1005,12 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
 
         def sse(evt_type: str, payload: dict) -> str:
             return f"event: {evt_type}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+        # 写操作确认：直接恢复之前保存的 Agent 上下文，不重新检索。
+        if data.resume_action_id:
+            async for event, payload in _resume_agent_events(data, session):
+                yield sse(event, payload)
+            return
 
         queue: asyncio.Queue[tuple[str, dict]] = asyncio.Queue()
 
@@ -945,6 +1063,39 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 "intent": prepared.intent,
             },
         )
+
+        # Agent 模式：RAG 上下文作为第一轮资料，随后进入工具循环。
+        # 读工具自动执行；写工具暂停等待用户确认（不回退到普通单次生成）。
+        if data.agent:
+            can_write = (
+                data.scope.scope == "kb"
+                and len(prepared.kb_ids) == 1
+                and prepared.kb_id is not None
+            )
+            toolbox = await agent_tools.load_toolbox()
+            ctx = agent_harness.AgentContext(
+                messages=agent_harness.build_messages(
+                    prepared.openai_msgs,
+                    kb_id=prepared.kb_id,
+                    can_write=can_write,
+                    toolbox=toolbox,
+                ),
+                citations=prepared.citations,
+                intent=prepared.intent,
+                client=prepared.client,
+                model_name=prepared.model_name,
+                temperature=prepared.cfg.extra_params.get("temperature", 0.3),
+                kb_id=prepared.kb_id,
+                kb_ids=prepared.kb_ids,
+                llm_config_id=data.llm_config_id,
+                model_override=data.model_override,
+                scope_mode=data.scope.scope,
+                toolbox=toolbox,
+            )
+            async for event, payload in agent_harness.run_agent(ctx, session):
+                yield sse(event, payload)
+            return
+
         try:
             # 上游 503（Service is too busy）、429 与连接中断常是瞬时故障：
             # 在流开始前做两次短重试，并把重试状态反馈到「生成回答」步骤。

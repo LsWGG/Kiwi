@@ -100,6 +100,15 @@ services:
       KIWI_UPLOAD_DIR: /app/data/uploads
       KIWI_CORS_ORIGINS: '["${KIWI_PUBLIC_ORIGIN:-http://localhost:18473}"]'
       KIWI_LLM_TIMEOUT: ${KIWI_LLM_TIMEOUT:-600}
+      # 问答 Agent：规划超时、单轮工具步数上限、可选自定义提示模板。
+      KIWI_AGENT_PLANNER_TIMEOUT: ${KIWI_AGENT_PLANNER_TIMEOUT:-60}
+      KIWI_AGENT_MAX_STEPS: ${KIWI_AGENT_MAX_STEPS:-6}
+      KIWI_AGENT_PROMPT_FILE: ${KIWI_AGENT_PROMPT_FILE:-}
+      # 外部 MCP 服务（JSON 字符串；也可挂载 data/mcp_servers.json）。
+      KIWI_MCP_SERVERS_JSON: ${KIWI_MCP_SERVERS_JSON:-}
+      KIWI_MCP_TIMEOUT: ${KIWI_MCP_TIMEOUT:-30}
+      KIWI_MCP_CACHE_TTL: ${KIWI_MCP_CACHE_TTL:-300}
+      KIWI_MCP_MAX_TOOLS: ${KIWI_MCP_MAX_TOOLS:-80}
       # 可选访问控制：留空不启用；设置后浏览器会先进入令牌登录页。
       KIWI_ACCESS_TOKEN: ${KIWI_ACCESS_TOKEN:-}
       KIWI_ACCESS_COOKIE_NAME: ${KIWI_ACCESS_COOKIE_NAME:-kiwi_access}
@@ -108,7 +117,7 @@ services:
       # 自动备份：pg_dump + uploads + manifest，目录位于持久化数据卷。
       KIWI_BACKUP_ENABLED: ${KIWI_BACKUP_ENABLED:-true}
       KIWI_BACKUP_INTERVAL_HOURS: ${KIWI_BACKUP_INTERVAL_HOURS:-24}
-      KIWI_BACKUP_RETENTION_DAYS: ${KIWI_BACKUP_RETENTION_DAYS:-14}
+      KIWI_BACKUP_RETENTION_DAYS: ${KIWI_BACKUP_RETENTION_DAYS:-3}
       KIWI_BACKUP_DIR: /app/data/backups
       # 后台任务与审计日志保留天数；0 表示不自动清理。
       KIWI_OPS_RETENTION_DAYS: ${KIWI_OPS_RETENTION_DAYS:-14}

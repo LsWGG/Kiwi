@@ -64,13 +64,13 @@ function pct(v: number) {
       <div class="flex items-center gap-3 mb-4">
         <div class="relative w-14 h-14 shrink-0">
           <svg viewBox="0 0 48 48" class="w-full h-full -rotate-90">
-            <circle cx="24" cy="24" r="20" fill="none" stroke="#eceef7" stroke-width="5" />
+            <circle cx="24" cy="24" r="20" fill="none" stroke="rgb(var(--theme-border-subtle))" stroke-width="5" />
             <circle
               cx="24"
               cy="24"
               r="20"
               fill="none"
-              stroke="#6f72dc"
+              stroke="rgb(var(--theme-accent))"
               stroke-width="5"
               stroke-linecap="round"
               :stroke-dasharray="`${(avg * 125.6)} 125.6`"

@@ -665,7 +665,7 @@ defineExpose({ reset })
   width: 10px;
   height: 10px;
   border-radius: 9999px;
-  background: radial-gradient(circle at 35% 30%, #ffffff, #fca5a5 28%, #ef4444 72%);
+  background: radial-gradient(circle at 35% 30%, rgb(var(--theme-danger) / 0.35), rgb(var(--theme-danger)) 72%);
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.8),
     0 0 16px 4px rgba(239, 68, 68, 0.55);

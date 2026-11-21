@@ -176,8 +176,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   gap: 8px;
   min-height: 30px;
   padding: 4px 10px;
-  border-bottom: 1px solid rgb(226 232 240 / 0.8);
-  color: rgb(100 116 139);
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
   font-size: 11px;
 }
 .kiwi-formula-tag {
@@ -188,13 +188,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   color: rgb(var(--theme-text-secondary));
 }
 .kiwi-formula-hint {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-formula-action {
   margin-left: auto;
   padding: 3px;
   border-radius: 6px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-formula-action:hover {
   color: rgb(var(--kiwi-600));
@@ -204,17 +204,17 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   padding: 14px 16px;
   overflow-x: auto;
   cursor: text;
-  color: rgb(30 41 59);
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-formula-render :deep(.katex-display) {
   margin: 0.25em 0;
 }
 .kiwi-formula-empty {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 13px;
 }
 .kiwi-formula-error {
-  color: rgb(220 38 38);
+  color: rgb(var(--theme-danger));
   font-size: 12px;
   white-space: pre-wrap;
 }
@@ -226,7 +226,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   background: rgb(var(--theme-surface));
 }
 .kiwi-formula-btn.is-primary {
-  color: #fff;
+  color: rgb(var(--theme-accent-foreground));
   border-color: rgb(var(--kiwi-600));
   background: rgb(var(--kiwi-600));
 }
@@ -244,13 +244,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocPointer))
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.6;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   outline: none;
 }
 .kiwi-formula-preview {
   padding: 12px 16px;
   overflow-x: auto;
-  color: rgb(30 41 59);
+  color: rgb(var(--theme-text-primary));
 }
 .kiwi-formula-preview :deep(.katex-display) {
   margin: 0.2em 0;

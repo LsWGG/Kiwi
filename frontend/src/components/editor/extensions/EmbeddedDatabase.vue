@@ -709,7 +709,7 @@ function onPasteCapture(event: ClipboardEvent) {
 }
 .kiwi-embedded-db-count {
   font-size: 10px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-variant-numeric: tabular-nums;
 }
 .kiwi-embedded-db-action {
@@ -720,7 +720,7 @@ function onPasteCapture(event: ClipboardEvent) {
   padding: 0 6px;
   border-radius: 6px;
   font-size: 10.5px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   transition: background 0.15s ease, color 0.15s ease;
 }
 .kiwi-embedded-db-action:hover {
@@ -744,7 +744,7 @@ function onPasteCapture(event: ClipboardEvent) {
   align-items: center;
   gap: 2px;
   padding: 2px 8px 4px;
-  border-bottom: 1px solid rgb(241 245 249);
+  border-bottom: 1px solid rgb(var(--theme-border-subtle));
 }
 .kiwi-embedded-db-selection {
   display: flex;
@@ -752,17 +752,17 @@ function onPasteCapture(event: ClipboardEvent) {
   gap: 12px;
   padding: 3px 8px;
   font-size: 10.5px;
-  color: rgb(100 116 139);
-  border-bottom: 1px solid rgb(241 245 249);
+  color: rgb(var(--theme-text-muted));
+  border-bottom: 1px solid rgb(var(--theme-border-subtle));
 }
 .kiwi-embedded-db-selection button:hover {
   color: rgb(var(--kiwi-700));
 }
 .kiwi-embedded-db-selection button.is-danger {
-  color: rgb(244 63 94);
+  color: rgb(var(--theme-danger));
 }
 .kiwi-embedded-db-selection button:disabled {
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-embedded-db-body {
   display: flex;

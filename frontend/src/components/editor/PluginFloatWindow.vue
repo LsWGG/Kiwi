@@ -344,11 +344,11 @@ onBeforeUnmount(() => {
   color: rgb(var(--theme-accent));
 }
 .plugin-float-icon-button.is-close:hover {
-  background: rgb(244 63 94 / 0.16);
-  color: rgb(225 29 72);
+  background: rgb(var(--theme-danger) / 0.16);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-mode='dark'] .plugin-float-icon-button.is-close:hover {
-  color: rgb(251 113 133);
+  color: rgb(var(--theme-danger));
 }
 .plugin-float-fallback {
   display: flex;
@@ -373,9 +373,9 @@ html[data-kiwi-theme-mode='dark'] .plugin-float-icon-button.is-close:hover {
   line-height: 1.5;
 }
 .plugin-float-fallback-message.is-error {
-  color: rgb(225 29 72);
+  color: rgb(var(--theme-danger));
 }
 html[data-kiwi-theme-mode='dark'] .plugin-float-fallback-message.is-error {
-  color: rgb(251 113 133);
+  color: rgb(var(--theme-danger));
 }
 </style>

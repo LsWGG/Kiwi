@@ -103,7 +103,7 @@ function codeCellsBefore(cell: NotebookCell): number {
   max-width: none;
   font-size: 13.5px;
   line-height: 1.75;
-  color: #334155;
+  color: rgb(var(--theme-text-strong));
 }
 .shared-notebook :deep(.markdown-view > :first-child) {
   margin-top: 0 !important;

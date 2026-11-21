@@ -90,21 +90,21 @@ onMounted(() => {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-plugin-embed-title code {
   margin-left: 6px;
   font-size: 10px;
   font-weight: 400;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-plugin-embed-message {
   margin: 2px 0 0;
   font-size: 10.5px;
   line-height: 1.5;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-plugin-embed-message.is-error {
-  color: rgb(225 29 72);
+  color: rgb(var(--theme-danger));
 }
 </style>

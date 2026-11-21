@@ -80,14 +80,14 @@ onMounted(load)
   justify-content: center;
   gap: 8px;
   min-height: 120px;
-  border: 1px dashed rgb(203 213 225);
+  border: 1px dashed rgb(var(--theme-border-strong));
   border-radius: 12px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   font-size: 12px;
 }
 .plugin-preview-state.is-error {
-  border-color: rgb(254 202 202);
-  background: rgb(254 242 242 / 0.65);
-  color: rgb(225 29 72);
+  border-color: rgb(var(--theme-danger) / 0.35);
+  background: rgb(var(--theme-danger) / 0.08);
+  color: rgb(var(--theme-danger));
 }
 </style>

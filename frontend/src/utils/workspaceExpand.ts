@@ -88,7 +88,7 @@ export function playWorkspaceExpand({
   style.zIndex = String(zIndex)
   style.pointerEvents = 'none'
   style.overflow = 'hidden'
-  style.background = '#fff'
+  style.background = 'rgb(var(--theme-surface))'
   // 圆角直接用终值：第一帧圆角由覆盖在上面的克隆提供，之后随 scale 自然放大。
   style.borderRadius = `${endRadius}px`
   style.boxShadow = '0 16px 44px -20px rgb(15 23 42 / 0.24)'

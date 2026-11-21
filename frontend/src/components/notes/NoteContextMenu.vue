@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 目录树右键菜单。 */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import type { ExportAction } from './noteExport'
 import type { TreeRow } from './types'
@@ -59,18 +59,64 @@ const CREATE_ITEMS = [
   { key: 'folder', label: '子分组', icon: 'folder', tone: 'text-amber-400' },
 ] as const
 
+/**
+ * 菜单条目会随导出能力等异步数据增减；打开后再用 ResizeObserver 重新测量，
+ * 避免按初始高度定位后底部超出视口（手机端尤其明显）。
+ */
+let panelObserver: ResizeObserver | null = null
+let createObserver: ResizeObserver | null = null
+
 watch(
   () => props.open,
-  (open) => {
+  async (open) => {
+    panelObserver?.disconnect()
+    panelObserver = null
     if (!open) {
       showCreate.value = false
       cancelHideCreate()
+      return
     }
+    await nextTick()
+    if (!panelEl.value) return
+    panelObserver = new ResizeObserver(() => place())
+    panelObserver.observe(panelEl.value)
+    place()
   },
 )
-watch(showCreate, (visible) => {
-  if (visible) placeCreate()
+watch(showCreate, async (visible) => {
+  createObserver?.disconnect()
+  createObserver = null
+  if (!visible) return
+  await nextTick()
+  if (!createPanelEl.value) return
+  createObserver = new ResizeObserver(() => placeCreate())
+  createObserver.observe(createPanelEl.value)
+  placeCreate()
 })
+
+onBeforeUnmount(() => {
+  panelObserver?.disconnect()
+  createObserver?.disconnect()
+})
+
+/**
+ * 面板带 scale-in 入场动画，getBoundingClientRect 在动画期间会按 0.96 缩小，
+ * 直接用会把菜单定位得偏下 / 偏右。除以当前变换缩放即可得到最终尺寸。
+ * （--ui-scale 的 zoom 不在 computed transform 里，除法不会误伤 4K 缩放。）
+ */
+function finalSize(el: HTMLElement | null) {
+  if (!el) return null
+  const rect = el.getBoundingClientRect()
+  const transform = getComputedStyle(el).transform
+  let scaleX = 1
+  let scaleY = 1
+  if (transform && transform !== 'none') {
+    const matrix = new DOMMatrixReadOnly(transform)
+    scaleX = Math.hypot(matrix.a, matrix.b) || 1
+    scaleY = Math.hypot(matrix.c, matrix.d) || 1
+  }
+  return { width: rect.width / scaleX, height: rect.height / scaleY }
+}
 
 /**
  * 菜单挂到 <html> 下，外层用视口坐标定位、内层应用 --ui-scale。
@@ -79,9 +125,9 @@ watch(showCreate, (visible) => {
 function place() {
   if (!props.open) return
   void nextTick(() => {
-    const rect = panelEl.value?.getBoundingClientRect()
-    const width = rect?.width ?? 176
-    const height = rect?.height ?? 160
+    const size = finalSize(panelEl.value)
+    const width = size?.width ?? 176
+    const height = size?.height ?? 160
     pos.value = {
       left: `${Math.max(8, Math.min(props.x, window.innerWidth - width - 8))}px`,
       top: `${Math.max(8, Math.min(props.y, window.innerHeight - height - 8))}px`,
@@ -99,16 +145,25 @@ function placeCreate() {
   if (!props.open || !showCreate.value) return
   void nextTick(() => {
     const trigger = createTriggerEl.value?.getBoundingClientRect()
-    const panel = createPanelEl.value?.getBoundingClientRect()
+    const panel = finalSize(createPanelEl.value)
     if (!trigger) return
     const width = panel?.width ?? 160
     const height = panel?.height ?? 260
     const gap = 4
     let left = trigger.right + gap
+    let top = trigger.top - 4
     if (left + width > window.innerWidth - 8) {
-      left = Math.max(8, trigger.left - width - gap)
+      const flipped = trigger.left - width - gap
+      if (flipped >= 8) {
+        left = flipped
+      } else {
+        // 窄屏（手机 / 平板竖屏）左右都放不下：改到触发项下方，
+        // 让「新建子笔记」本身仍可见，而不是被二级面板整个盖住。
+        left = Math.max(8, Math.min(trigger.left, window.innerWidth - width - 8))
+        top = trigger.bottom + gap
+      }
     }
-    const top = Math.max(8, Math.min(trigger.top - 4, window.innerHeight - height - 8))
+    top = Math.max(8, Math.min(top, window.innerHeight - height - 8))
     createPos.value = { left: `${left}px`, top: `${top}px` }
   })
 }
@@ -170,7 +225,7 @@ const createTitle = computed(() =>
       <div class="absolute" :style="pos">
         <div
           ref="panelEl"
-          class="w-52 rounded-xl border border-slate-200/70 bg-white/95 backdrop-blur-xl shadow-lifted p-1 animate-scale-in"
+          class="note-context-panel w-52 rounded-xl border border-slate-200/70 bg-white/95 backdrop-blur-xl shadow-lifted p-1 animate-scale-in"
           :style="{ zoom: 'var(--ui-scale)' }"
           @mousedown.stop
         >
@@ -363,7 +418,7 @@ const createTitle = computed(() =>
       >
         <div
           ref="createPanelEl"
-          class="w-44 rounded-xl border border-slate-200/70 bg-white/95 p-1 shadow-lifted backdrop-blur-xl animate-scale-in"
+          class="note-context-panel w-44 rounded-xl border border-slate-200/70 bg-white/95 p-1 shadow-lifted backdrop-blur-xl animate-scale-in"
           :style="{ zoom: 'var(--ui-scale)' }"
         >
           <div class="truncate px-2.5 pb-1 pt-1.5 text-[10px] font-medium tracking-wide text-slate-400">
@@ -388,5 +443,12 @@ const createTitle = computed(() =>
 <style scoped>
 .menu-row {
   @apply w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] text-slate-600 transition-colors hover:bg-kiwi-50;
+}
+/* 触摸端屏幕矮：菜单在视口内滚动，避免底部操作被裁掉。
+   面板内部按 --ui-scale 缩放，最大高度要折算回布局像素。 */
+.note-context-panel {
+  max-height: calc((100dvh - 16px) / var(--ui-scale, 1));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 </style>

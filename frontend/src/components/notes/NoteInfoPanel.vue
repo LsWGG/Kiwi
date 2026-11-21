@@ -661,7 +661,7 @@ onBeforeUnmount(stopCompilePolling)
             <KiwiIcon name="target" :size="11" class="mt-0.5 text-amber-500 shrink-0" />
             <p class="flex-1 text-[10.5px] text-amber-800 leading-relaxed">{{ point.text }}</p>
             <button
-              class="text-amber-300 opacity-0 group-hover:opacity-100 hover:text-rose-500"
+              class="touch-visible text-amber-300 opacity-0 group-hover:opacity-100 hover:text-rose-500"
               @click="removePoint(point.id)"
             >
               <KiwiIcon name="close" :size="9" />
@@ -803,7 +803,7 @@ onBeforeUnmount(stopCompilePolling)
             <button
               v-if="!item.linked"
               type="button"
-              class="absolute right-1.5 top-1.5 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-white hover:text-kiwi-600 group-hover:opacity-100"
+              class="touch-visible absolute right-1.5 top-1.5 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-white hover:text-kiwi-600 group-hover:opacity-100"
               :title="`复制 [[${item.note.title}]]，粘贴到正文建立双链`"
               @click="copyMention(item)"
             >

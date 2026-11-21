@@ -44,6 +44,12 @@ THEME_COLOR_KEYS = {
     "text.faint",
     "accent",
     "accent.foreground",
+    # 语义状态色：成功 / 警告 / 危险 / 信息。组件里的状态色都从这些令牌取，
+    # 主题插件可分别覆盖；省略时由前端回落到强调色 / 通用语义色。
+    "status.success",
+    "status.warning",
+    "status.danger",
+    "status.info",
 }
 MAX_THEME_TOKEN_CHARS = 120
 MAX_THEME_FONT_CHARS = 160

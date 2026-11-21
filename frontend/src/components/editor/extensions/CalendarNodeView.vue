@@ -438,7 +438,7 @@ function setTitle(event: Event) {
 .kiwi-calendar-readonly-title {
   font-size: 12.5px;
   font-weight: 600;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-calendar-toolbar {
   display: flex;
@@ -461,17 +461,17 @@ function setTitle(event: Event) {
   border: 0;
   background: transparent;
   font-size: 12px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   outline: none;
 }
 .kiwi-calendar-title::placeholder {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-calendar-nav {
   display: flex;
   align-items: center;
   gap: 2px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-calendar-nav button {
   display: grid;
@@ -498,7 +498,7 @@ function setTitle(event: Event) {
   padding: 2px 0;
   text-align: center;
   font-size: 9.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-calendar-weeks {
   display: flex;
@@ -556,7 +556,7 @@ function setTitle(event: Event) {
   background: rgb(var(--theme-surface-muted));
 }
 .kiwi-calendar-day.is-outside .kiwi-calendar-daynum {
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
 }
 .kiwi-calendar-day.is-today .kiwi-calendar-daynum {
   display: inline-grid;
@@ -605,13 +605,13 @@ function setTitle(event: Event) {
 }
 .kiwi-calendar-more {
   font-size: 8.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   padding-left: 2px;
 }
 .kiwi-calendar-editor {
   margin-top: 8px;
   padding-top: 7px;
-  border-top: 1px dashed rgb(226 232 240);
+  border-top: 1px dashed rgb(var(--theme-border));
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -637,7 +637,7 @@ function setTitle(event: Event) {
 .kiwi-calendar-editing-tag {
   flex-shrink: 0;
   font-size: 9.5px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-calendar-event-input {
   min-width: 0;
@@ -645,18 +645,18 @@ function setTitle(event: Event) {
   border: 0;
   background: transparent;
   font-size: 11.5px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   outline: none;
 }
 .kiwi-calendar-event-input::placeholder {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-calendar-date-field {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 9.5px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
 }
 .kiwi-calendar-date-field input {
   border: 1px solid rgb(var(--theme-border));
@@ -664,7 +664,7 @@ function setTitle(event: Event) {
   background: rgb(var(--theme-surface));
   padding: 1px 3px;
   font-size: 10px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   outline: none;
   color-scheme: light;
 }
@@ -673,7 +673,7 @@ function setTitle(event: Event) {
   box-shadow: 0 0 0 2px rgb(var(--kiwi-100) / 0.7);
 }
 .kiwi-calendar-arrow {
-  color: rgb(203 213 225);
+  color: rgb(var(--theme-border-strong));
   font-size: 10px;
 }
 .kiwi-calendar-colors {
@@ -708,7 +708,7 @@ function setTitle(event: Event) {
 .kiwi-calendar-cancel {
   border-radius: 5px;
   font-size: 10px;
-  color: rgb(100 116 139);
+  color: rgb(var(--theme-text-muted));
   padding: 2px 6px;
 }
 .kiwi-calendar-cancel:hover {
@@ -718,11 +718,11 @@ function setTitle(event: Event) {
   flex-shrink: 0;
   border-radius: 5px;
   padding: 3px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-calendar-clear:hover {
-  background: rgb(254 242 242);
-  color: rgb(220 38 38);
+  background: rgb(var(--theme-danger) / 0.08);
+  color: rgb(var(--theme-danger));
 }
 .kiwi-calendar-day-events {
   display: flex;
@@ -743,7 +743,7 @@ function setTitle(event: Event) {
 }
 .kiwi-calendar-day-event:hover {
   background: rgb(var(--kiwi-50));
-  color: rgb(63 98 18);
+  color: rgb(var(--theme-accent));
 }
 .kiwi-calendar-day-event.is-current {
   background: rgb(var(--kiwi-100) / 0.7);
@@ -751,20 +751,20 @@ function setTitle(event: Event) {
 .kiwi-calendar-event-range {
   flex-shrink: 0;
   font-size: 9px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-variant-numeric: tabular-nums;
 }
 .kiwi-calendar-hint {
   margin-top: 7px;
   padding-top: 6px;
-  border-top: 1px dashed rgb(241 245 249);
+  border-top: 1px dashed rgb(var(--theme-border-subtle));
   font-size: 10px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-calendar-readonly-events {
   margin-top: 9px;
   padding-top: 8px;
-  border-top: 1px dashed rgb(226 232 240);
+  border-top: 1px dashed rgb(var(--theme-border));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -774,7 +774,7 @@ function setTitle(event: Event) {
   align-items: baseline;
   gap: 8px;
   font-size: 11.5px;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
 }
 .kiwi-calendar-readonly-date {
   flex-shrink: 0;

@@ -1283,7 +1283,7 @@ const menu = ref<{ open: boolean; x: number; y: number; row: TreeRow | null }>({
 })
 const renamingId = ref<string | null>(null)
 
-function openMenu(event: MouseEvent, row: TreeRow) {
+function openMenu(event: { clientX: number; clientY: number }, row: TreeRow) {
   if (row.type === 'note') {
     // 右击已选中的条目保留整组选择；否则把选择收缩到当前条目
     if (!selectedIds.value.has(row.id)) {
@@ -2380,7 +2380,7 @@ const createFolderMenu = () => openFolderDialog(null)
             <span class="text-[9.5px] text-slate-300">{{ formatDate(note.updated_at) }}</span>
           </button>
           <button
-            class="shrink-0 rounded px-1.5 py-0.5 text-[9.5px] text-kiwi-600 opacity-0 group-hover:opacity-100 hover:bg-kiwi-50"
+            class="touch-visible shrink-0 rounded px-1.5 py-0.5 text-[9.5px] text-kiwi-600 opacity-0 group-hover:opacity-100 hover:bg-kiwi-50"
             @click.stop="restoreArchived(note.id)"
           >
             恢复
@@ -2424,7 +2424,7 @@ const createFolderMenu = () => openFolderDialog(null)
               剩 {{ trashDaysLeft(note.updated_at) }} 天
             </span>
           </div>
-          <div class="mt-1 flex items-center gap-1 pl-6 opacity-0 transition-opacity group-hover:opacity-100">
+          <div class="touch-visible mt-1 flex items-center gap-1 pl-6 opacity-0 transition-opacity group-hover:opacity-100">
             <button
               class="rounded px-1.5 py-0.5 text-[9.5px] text-kiwi-600 hover:bg-kiwi-50"
               @click="restoreFromTrash(note.id)"

@@ -21,12 +21,80 @@ const emit = defineEmits<{
   (e: 'select', row: TreeRow, event: MouseEvent): void
   (e: 'sticky', row: TreeRow): void
   (e: 'toggle', row: TreeRow): void
-  (e: 'menu', event: MouseEvent, row: TreeRow): void
+  (e: 'menu', point: { clientX: number; clientY: number }, row: TreeRow): void
   (e: 'pointerdown', event: PointerEvent, row: TreeRow): void
   (e: 'rename', row: TreeRow, name: string): void
   (e: 'rename-cancel'): void
   (e: 'unpin'): void
 }>()
+
+// ---------- 触摸端长按 = 右键菜单 ----------
+const LONG_PRESS_MS = 450
+const LONG_PRESS_SLOP = 8
+const pressing = ref(false)
+let pressTimer: number | null = null
+let pressStart: { x: number; y: number } | null = null
+/** 长按后浏览器可能补发 click / contextmenu，短暂吞掉以免误打开笔记。 */
+let suppressUntil = 0
+
+function clearLongPress() {
+  if (pressTimer !== null) {
+    window.clearTimeout(pressTimer)
+    pressTimer = null
+  }
+  pressStart = null
+  pressing.value = false
+}
+
+function onPointerDown(event: PointerEvent) {
+  emit('pointerdown', event, props.row)
+  if (event.pointerType !== 'touch' || event.button !== 0) return
+  if (props.renaming) return
+  const target = event.target as Element | null
+  if (target?.closest('button, input, a, [contenteditable="true"]')) return
+  clearLongPress()
+  pressStart = { x: event.clientX, y: event.clientY }
+  pressing.value = true
+  pressTimer = window.setTimeout(() => {
+    pressTimer = null
+    if (!pressStart) return
+    pressing.value = false
+    suppressUntil = Date.now() + 800
+    const point = { clientX: pressStart.x, clientY: pressStart.y }
+    pressStart = null
+    // 菜单已由长按打开；拦截浏览器随后补发的原生 contextmenu，
+    // 避免它命中刚出现的遮罩层又把菜单关掉。
+    const swallow = (e: Event) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('contextmenu', swallow, { capture: true, once: true })
+    window.setTimeout(() => {
+      window.removeEventListener('contextmenu', swallow, true)
+    }, 1000)
+    navigator.vibrate?.(10)
+    emit('menu', point, props.row)
+  }, LONG_PRESS_MS)
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (!pressStart) return
+  if (Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > LONG_PRESS_SLOP) {
+    clearLongPress()
+  }
+}
+
+function onPointerEnd() {
+  clearLongPress()
+}
+
+function onContextMenu(event: MouseEvent) {
+  // 长按已打开菜单时，忽略浏览器随后补发的 contextmenu。
+  if (Date.now() < suppressUntil) return
+  event.preventDefault()
+  event.stopPropagation()
+  emit('menu', event, props.row)
+}
 
 const input = ref<HTMLInputElement | null>(null)
 const draft = ref('')
@@ -132,13 +200,14 @@ function onInputKey(e: KeyboardEvent) {
 
 function onClick(event: MouseEvent) {
   if (props.renaming) return
+  if (Date.now() < suppressUntil) return
   if (isFolder.value) emit('toggle', props.row)
   else emit('select', props.row, event)
 }
 
 /** 双击笔记（非分组）= 贴一贴：以独立浮窗置顶展示。 */
 function onDblClick(event: MouseEvent) {
-  if (props.renaming || isFolder.value) return
+  if (props.renaming || isFolder.value || Date.now() < suppressUntil) return
   event.preventDefault()
   emit('sticky', props.row)
 }
@@ -146,7 +215,7 @@ function onDblClick(event: MouseEvent) {
 
 <template>
   <div
-    class="group relative flex items-center gap-1.5 h-8 pr-1.5 rounded-lg cursor-pointer select-none transition-colors"
+    class="tree-row group relative flex items-center gap-1.5 h-8 pr-1.5 rounded-lg cursor-pointer select-none transition-colors touch-manipulation"
     :class="[
       isInbox
         ? 'bg-orange-50/80 text-orange-800 hover:bg-orange-100/70'
@@ -155,6 +224,7 @@ function onDblClick(event: MouseEvent) {
           : selected
             ? 'bg-kiwi-50/90 text-kiwi-800 ring-1 ring-inset ring-kiwi-200/70'
             : 'text-slate-600 hover:bg-white/80',
+      pressing ? 'bg-kiwi-50/90 ring-1 ring-inset ring-kiwi-200/70' : '',
       dragging ? 'opacity-40' : '',
       dropTarget === 'into' ? 'ring-2 ring-kiwi-300 ring-inset bg-kiwi-50/80' : '',
     ]"
@@ -166,8 +236,11 @@ function onDblClick(event: MouseEvent) {
     :aria-expanded="hasChildren ? open : undefined"
     @click="onClick"
     @dblclick="onDblClick"
-    @contextmenu.prevent.stop="emit('menu', $event, row)"
-    @pointerdown="emit('pointerdown', $event, row)"
+    @contextmenu="onContextMenu"
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerEnd"
+    @pointercancel="onPointerEnd"
   >
     <span
       v-if="dropTarget === 'before'"
@@ -244,3 +317,10 @@ function onDblClick(event: MouseEvent) {
     >集合记录</span>
   </div>
 </template>
+
+<style scoped>
+/* 触摸端长按打开菜单时，阻止 iOS 原生长按菜单 / 文本选择。 */
+.tree-row {
+  -webkit-touch-callout: none;
+}
+</style>

@@ -210,8 +210,8 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   gap: 8px;
   min-height: 30px;
   padding: 4px 10px;
-  border-bottom: 1px solid rgb(226 232 240 / 0.8);
-  color: rgb(100 116 139);
+  border-bottom: 1px solid rgb(var(--theme-border) / 0.8);
+  color: rgb(var(--theme-text-muted));
   font-size: 11px;
 }
 .kiwi-mermaid-tag {
@@ -222,15 +222,15 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   color: rgb(var(--theme-text-secondary));
 }
 .kiwi-mermaid-status {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-mermaid-status.is-error {
-  color: rgb(220 38 38);
+  color: rgb(var(--theme-danger));
 }
 .kiwi-mermaid-action {
   padding: 3px;
   border-radius: 6px;
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
 }
 .kiwi-mermaid-action:hover {
   color: rgb(var(--kiwi-600));
@@ -244,7 +244,7 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   background: rgb(var(--theme-surface));
 }
 .kiwi-mermaid-btn.is-primary {
-  color: #fff;
+  color: rgb(var(--theme-accent-foreground));
   border-color: rgb(var(--kiwi-600));
   background: rgb(var(--kiwi-600));
 }
@@ -265,7 +265,7 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.65;
-  color: rgb(51 65 85);
+  color: rgb(var(--theme-text-strong));
   outline: none;
 }
 .kiwi-mermaid-preview,
@@ -298,14 +298,14 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   letter-spacing: 0 !important;
 }
 .kiwi-mermaid-empty {
-  color: rgb(148 163 184);
+  color: rgb(var(--theme-text-subtle));
   font-size: 12px;
 }
 .kiwi-mermaid-error {
   margin: 0;
   max-width: 100%;
   overflow: auto;
-  color: rgb(220 38 38);
+  color: rgb(var(--theme-danger));
   font-size: 11.5px;
   white-space: pre-wrap;
 }

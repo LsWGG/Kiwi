@@ -417,7 +417,7 @@ sudo systemctl status cloudflared
 | `KIWI_JOB_WORKER_ENABLED` | `true` | 是否消费持久化任务队列（导入 / 编译）；独立于 `KIWI_BACKGROUND_JOBS`，设为 `false` 时任务只会排队 |
 | `KIWI_BACKUP_ENABLED` | `true` | 是否启用自动备份 |
 | `KIWI_BACKUP_INTERVAL_HOURS` | `24` | 自动备份间隔（小时） |
-| `KIWI_BACKUP_RETENTION_DAYS` | `14` | 备份保留天数 |
+| `KIWI_BACKUP_RETENTION_DAYS` | `3` | 备份保留天数 |
 | `KIWI_OPS_RETENTION_DAYS` | `14` | 后台任务与审计日志保留天数；`0` 关闭自动清理 |
 | `PGDG_MIRROR` | 阿里云 PGDG 镜像 | 后端镜像安装 `postgresql-client-16` 的 apt 源 |
 | `PYPI_INDEX_URL` | 清华 PyPI 镜像 | 后端构建时的 Python 包源 |
@@ -445,7 +445,13 @@ sudo systemctl status cloudflared
 ### 备份
 
 后端默认每 24 小时自动执行一次备份（`KIWI_BACKUP_ENABLED` / `KIWI_BACKUP_INTERVAL_HOURS`），
-写入数据卷的 `/app/data/backups`。也可以在 **设置 → 运维 → 自动备份** 点击「立即备份」。
+默认保留 3 天（`KIWI_BACKUP_RETENTION_DAYS`），写入数据卷的 `/app/data/backups`。
+也可以在 **设置 → 运维 → 自动备份** 点击「立即备份」。
+
+备份列表每行都可以下载为 zip 归档，也可以把 zip 导入回备份目录。导入会校验
+manifest、文件大小与 sha256，只保存为一份新快照，**不会覆盖当前数据库**；
+恢复仍使用下方的 `restore_backup.sh`。导入的快照按导入时间起算保留期，
+因此导入旧备份不会立刻被清理。
 
 后端镜像安装的是 PostgreSQL 16 客户端（`pg_dump`），必须与服务端大版本一致。
 升级后需要重新构建镜像（`./deploy.sh build && ./deploy.sh update`，或直接执行完整的
