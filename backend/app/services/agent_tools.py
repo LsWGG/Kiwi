@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Note, NoteFolder
+from app.db.models import Note, NoteFolder, NoteTemplate
 from app.mcp import Toolbox, ToolDef, ToolError
 from app.mcp.client import call_external_tool, external_tools
 from app.mcp.types import field_labels
@@ -46,6 +46,7 @@ from app.routers.notes_crud import create_note as create_note_route
 from app.routers.notes_crud import update_note as update_note_route
 from app.routers.notes_lifecycle import delete_note as delete_note_route
 from app.routers.notes_search import search_notes as search_notes_route
+from app.routers.notes_templates import _ensure_builtin_templates
 from app.routers.notes_tree import create_folder as create_folder_route
 from app.routers.notes_tree import delete_folder as delete_folder_route
 from app.routers.notes_tree import update_folder as update_folder_route
@@ -171,6 +172,29 @@ class ListFoldersArgs(BaseModel):
 
 class ListDatabasesArgs(BaseModel):
     pass
+
+
+class ListTemplatesArgs(BaseModel):
+    query: str = Field(
+        default="",
+        max_length=100,
+        title="关键词",
+        description="按模板名称或说明过滤，例如「旅游规划」；留空返回全部模板。",
+    )
+
+
+class GetTemplateArgs(BaseModel):
+    template_id: uuid.UUID | None = Field(
+        default=None,
+        title="模板 ID",
+        description="模板 UUID，来自 list_templates；与 name 二选一。",
+    )
+    name: str = Field(
+        default="",
+        max_length=200,
+        title="模板名称",
+        description="按名称查找模板，例如「旅游规划」；与 template_id 二选一。",
+    )
 
 
 class QueryDatabaseRowsArgs(BaseModel):
@@ -683,6 +707,126 @@ async def _list_folders(
             }
             for folder in folders
         ]
+    }
+
+
+async def _template_rows(
+    session: AsyncSession, kb_id: uuid.UUID
+) -> list[NoteTemplate]:
+    # 内置模板按需补齐，保证 Agent 与「新建笔记 → 模板」看到的是同一批。
+    await _ensure_builtin_templates(session, kb_id)
+    return (
+        (
+            await session.execute(
+                select(NoteTemplate)
+                .where(NoteTemplate.kb_id == kb_id)
+                .order_by(
+                    NoteTemplate.is_builtin.desc(),
+                    NoteTemplate.sort_order,
+                    NoteTemplate.name,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _template_key(value: str) -> str:
+    return "".join(str(value or "").split()).lower()
+
+
+@_tool(
+    "list_templates",
+    "列出模板",
+    "列出当前知识库的笔记模板（名称、说明、默认标题格式与标签），返回模板 ID 和正文预览。"
+    "用户说「基于 / 使用 / 套用某个模板」时，先用本工具按名称找到模板，再用 get_template "
+    "读取完整正文；模板不是笔记，不要用 search_notes 查找模板。",
+    ListTemplatesArgs,
+    read_only=True,
+)
+async def _list_templates(
+    session: AsyncSession, kb_id: uuid.UUID, args: ListTemplatesArgs
+) -> dict:
+    query = _template_key(args.query)
+    items: list[dict[str, Any]] = []
+    for template in await _template_rows(session, kb_id):
+        if query and query not in _template_key(template.name) and query not in _template_key(
+            template.description
+        ):
+            continue
+        body = " ".join((template.body_md or "").split())
+        items.append(
+            {
+                "id": str(template.id),
+                "name": template.name,
+                "description": template.description,
+                "title_pattern": template.title_pattern,
+                "tags": list(template.tags_json or []),
+                "is_builtin": template.is_builtin,
+                "body_chars": len(template.body_md or ""),
+                "body_preview": body[:180],
+            }
+        )
+    return {
+        "items": items,
+        "hint": "需要完整正文时调用 get_template（可用模板 ID 或名称）。",
+    }
+
+
+@_tool(
+    "get_template",
+    "读取模板",
+    "读取指定笔记模板的完整 Markdown 正文、默认标题格式与标签。用户要求「基于模板」生成笔记时，"
+    "先取得模板结构，再沿用模板的章节、表格与组件生成内容；不要把模板正文当成检索到的资料。",
+    GetTemplateArgs,
+    read_only=True,
+)
+async def _get_template(
+    session: AsyncSession, kb_id: uuid.UUID, args: GetTemplateArgs
+) -> dict:
+    rows = await _template_rows(session, kb_id)
+    template: NoteTemplate | None = None
+    if args.template_id is not None:
+        template = next((row for row in rows if row.id == args.template_id), None)
+        if template is None:
+            raise ToolError("模板不存在，或不属于当前知识库")
+    elif args.name.strip():
+        key = _template_key(args.name)
+        exact = [row for row in rows if _template_key(row.name) == key]
+        if not exact:
+            partial = [row for row in rows if key in _template_key(row.name)]
+            if len(partial) > 1:
+                return {
+                    "ambiguous": True,
+                    "items": [
+                        {"id": str(row.id), "name": row.name} for row in partial
+                    ],
+                    "hint": "有多个名称相近的模板，请用 template_id 指定其中一个。",
+                }
+            exact = partial
+        if not exact:
+            names = "、".join(row.name for row in rows[:20]) or "（无）"
+            raise ToolError(f"没有找到名为「{args.name}」的模板。可用模板：{names}")
+        template = exact[0]
+    else:
+        raise ToolError("请提供 template_id 或 name")
+
+    body = template.body_md or ""
+    truncated = len(body) > MAX_RESULT_NOTE_BODY
+    return {
+        "id": str(template.id),
+        "name": template.name,
+        "description": template.description,
+        "title_pattern": template.title_pattern,
+        "tags": list(template.tags_json or []),
+        "is_builtin": template.is_builtin,
+        "body_md": body[:MAX_RESULT_NOTE_BODY],
+        "body_truncated": truncated,
+        "hint": (
+            "请沿用模板的章节结构与组件，把用户给出的信息填进去；"
+            "模板里的示例内容要替换，不要原样保留。"
+        ),
     }
 
 

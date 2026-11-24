@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -23,6 +24,7 @@ from pathlib import Path
 from string import Template
 from typing import Any, AsyncIterator
 
+from openai import APIConnectionError, APIStatusError, APITimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -211,6 +213,63 @@ def parse_reply(text: str) -> AgentReply:
     return reply
 
 
+# 部分模型（如 DeepSeek 系列）会无视「只返回 JSON」的约定，直接输出原生工具
+# 调用标记。这些标记不能当回答展示，也不该让用户自己重问；先尝试转成协议动作，
+# 转不了再要求模型按 JSON 重试。
+_DSML_MARKER_RE = re.compile(r"｜｜DSML｜｜|<\|DSML\|")
+_DSML_INVOKE_RE = re.compile(
+    r"<[｜|]{2}\s*DSML\s*[｜|]{2}\s*invoke\b([^>]*)>(.*?)</[｜|]{2}\s*DSML\s*[｜|]{2}\s*invoke>",
+    re.S,
+)
+_DSML_PARAM_RE = re.compile(
+    r"<[｜|]{2}\s*DSML\s*[｜|]{2}\s*parameter\b([^>]*)>(.*?)</[｜|]{2}\s*DSML\s*[｜|]{2}\s*parameter>",
+    re.S,
+)
+_DSML_ATTR_RE = re.compile(r'([A-Za-z_][\w-]*)\s*=\s*"([^"]*)"')
+
+
+def _dsml_attrs(raw: str) -> dict[str, str]:
+    return {match.group(1): match.group(2) for match in _DSML_ATTR_RE.finditer(raw)}
+
+
+def _dsml_value(raw: str, string_flag: str | None) -> Any:
+    if string_flag == "true":
+        return raw
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw
+
+
+def _parse_dsml_reply(text: str) -> AgentReply | None:
+    """把原生工具调用标记转换为 Agent 协议动作；无法解析时返回 None。"""
+    if not text or not _DSML_MARKER_RE.search(text):
+        return None
+    for invoke in _DSML_INVOKE_RE.finditer(text):
+        tool = (_dsml_attrs(invoke.group(1)).get("name") or "").strip()
+        if not tool:
+            continue
+        args: dict[str, Any] = {}
+        for param in _DSML_PARAM_RE.finditer(invoke.group(2)):
+            attrs = _dsml_attrs(param.group(1))
+            name = (attrs.get("name") or "").strip()
+            if name:
+                args[name] = _dsml_value(param.group(2), attrs.get("string"))
+        action = {"tool": tool, "args": args, "summary": "", "step": None}
+        # 写回历史的 raw 使用协议 JSON，避免模型在下一轮继续模仿原生标记。
+        normalized = json.dumps(
+            {"thought": "", "plan": [], "action": action}, ensure_ascii=False
+        )
+        logger.info("已把模型的原生工具调用转换为协议动作：%s", tool)
+        return AgentReply(action=action, raw=normalized)
+    return None
+
+
+def _parse_reply_with_dsml(text: str) -> AgentReply:
+    reply = _parse_dsml_reply(text)
+    return reply if reply is not None else parse_reply(text)
+
+
 def answer_echoes_prompt(answer: str, prompt: str) -> bool:
     """回答是否在复述 Agent 系统提示。
 
@@ -360,13 +419,45 @@ def _history(messages: list[dict]) -> list[dict]:
     return result
 
 
+MAX_LLM_RETRIES = 2
+LLM_RETRY_DELAY = 1.2
+
+
 async def _complete(ctx: AgentContext) -> str:
-    response = await ctx.client.chat.completions.create(
-        model=ctx.model_name,
-        messages=_history(ctx.messages),
-        stream=False,
-        temperature=ctx.temperature,
-    )
+    attempts = 0
+    while True:
+        try:
+            response = await ctx.client.chat.completions.create(
+                model=ctx.model_name,
+                messages=_history(ctx.messages),
+                stream=False,
+                temperature=ctx.temperature,
+            )
+            break
+        except (APIConnectionError, APITimeoutError) as e:
+            # 代理或网络偶发断连：已确认的写操作之后继续生成总结时也会遇到，
+            # 直接失败会让用户以为操作没成功。短暂退避后重试。
+            if attempts >= MAX_LLM_RETRIES:
+                raise
+            attempts += 1
+            logger.warning(
+                "模型连接失败（%s），第 %s/%s 次重试",
+                type(e).__name__,
+                attempts,
+                MAX_LLM_RETRIES,
+            )
+            await asyncio.sleep(LLM_RETRY_DELAY * attempts)
+        except APIStatusError as e:
+            if e.status_code not in (429, 500, 502, 503, 504) or attempts >= MAX_LLM_RETRIES:
+                raise
+            attempts += 1
+            logger.warning(
+                "模型服务返回 %s，第 %s/%s 次重试",
+                e.status_code,
+                attempts,
+                MAX_LLM_RETRIES,
+            )
+            await asyncio.sleep(LLM_RETRY_DELAY * attempts)
     choices = getattr(response, "choices", None) or []
     if not choices:
         raise AgentFormatError("模型没有返回内容")
@@ -484,11 +575,38 @@ async def run_agent(
     tool_steps = 0
     attempts = 0
     leak_retries = 0
+    native_retries = 0
     try:
         while tool_steps < max_steps and attempts < max_steps * 2:
             attempts += 1
             raw = await _complete(ctx)
-            reply = parse_reply(raw)
+            reply = _parse_reply_with_dsml(raw)
+            if reply.action is None and _DSML_MARKER_RE.search(raw):
+                # 原生工具调用标记既不是回答也不是合法协议；要求模型改写。
+                if native_retries < 2:
+                    native_retries += 1
+                    ctx.messages.append({"role": "assistant", "content": raw})
+                    ctx.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "上一条回复使用了原生工具调用标记（如 <｜｜DSML｜｜>），"
+                                "Kiwi 无法执行。请严格只返回一个 JSON 对象："
+                                '{"thought":"…","plan":["…"],"action":{"tool":"…",'
+                                '"args":{…},"summary":"…"},"answer":null}。'
+                                "不要使用任何 XML / DSML / 函数调用标记，也不要把工具参数"
+                                "写在 JSON 之外。"
+                            ),
+                        }
+                    )
+                    yield "notice", {"message": "模型返回的工具调用格式无效，正在重新生成"}
+                    continue
+                yield "chunk", {
+                    "text": "模型连续返回了无法解析的工具调用格式，本轮已中止。请重试，"
+                    "或在「设置 → 模型」中换一个模型。"
+                }
+                yield "done", {"ok": False, "plan": plan}
+                return
             if reply.plan and not plan:
                 plan = _normalize_plan(reply.plan)
                 yield "plan", {"steps": plan, "thought": reply.thought}
@@ -499,7 +617,9 @@ async def run_agent(
                 if answer_echoes_prompt(reply.answer, protocol_prompt):
                     if leak_retries < 1:
                         leak_retries += 1
-                        ctx.messages.append({"role": "assistant", "content": raw})
+                        ctx.messages.append(
+                            {"role": "assistant", "content": reply.raw or raw}
+                        )
                         ctx.messages.append(
                             {
                                 "role": "user",
@@ -536,7 +656,9 @@ async def run_agent(
                 )
             except agent_tools.ToolError as e:
                 # 参数错误 / 越权：把错误反馈给模型，让它修正，不计入工具步数。
-                ctx.messages.append({"role": "assistant", "content": raw})
+                ctx.messages.append(
+                    {"role": "assistant", "content": reply.raw or raw}
+                )
                 ctx.messages.append(
                     {"role": "user", "content": f"工具调用未能执行：{e}\n请修正后重试。"}
                 )
@@ -569,7 +691,7 @@ async def run_agent(
                     summary=summary,
                     label=label,
                     messages=[dict(item) for item in ctx.messages],
-                    assistant_content=raw,
+                    assistant_content=reply.raw or raw,
                     plan=[dict(step) for step in plan],
                     kb_id=str(ctx.kb_id) if ctx.kb_id else None,
                     kb_ids=[str(item) for item in ctx.kb_ids],
@@ -623,7 +745,9 @@ async def run_agent(
                 "message": f"{label}{'完成' if ok else '失败'}",
                 "detail": "" if ok else error,
             }
-            ctx.messages.append({"role": "assistant", "content": raw})
+            ctx.messages.append(
+                {"role": "assistant", "content": reply.raw or raw}
+            )
             ctx.messages.append(
                 {
                     "role": "user",
@@ -665,8 +789,10 @@ async def run_agent(
             }
         )
         raw = await _complete(ctx)
-        reply = parse_reply(raw)
-        answer = _repair_note_links(reply.answer or "", known_links) or (
+        reply = _parse_reply_with_dsml(raw)
+        # 原生工具调用标记不能当回答展示；这里只接受普通文本回答。
+        answer_text = "" if _DSML_MARKER_RE.search(raw) else reply.answer
+        answer = _repair_note_links(answer_text or "", known_links) or (
             "已达到最大工具调用步数，请补充更具体的要求后重试。"
         )
         if plan:

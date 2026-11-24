@@ -52,6 +52,47 @@ async def test_agent_note_crud_and_search(client, kb, db):
         await agent_tools.execute_tool(db, kb_id, "get_note", {"note_id": note_id})
 
 
+async def test_agent_reads_note_templates(client, kb, db):
+    kb_id = uuid.UUID(kb["id"])
+    body = "# 旅游规划\n\n## 行程时间\n\n## 行前准备\n"
+    created = await client.post(
+        f"/api/notes/templates?kb_id={kb_id}",
+        json={
+            "name": "旅游规划",
+            "description": "按天整理行程、交通与预约信息",
+            "title_pattern": "{{date}} 旅游规划",
+            "body_md": body,
+            "tags_json": ["旅行"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    template_id = created.json()["id"]
+
+    listed = await agent_tools.execute_tool(
+        db, kb_id, "list_templates", {"query": "旅游"}
+    )
+    item = next(item for item in listed["items"] if item["name"] == "旅游规划")
+    assert item["id"] == template_id
+    assert item["title_pattern"] == "{{date}} 旅游规划"
+    assert "行程时间" in item["body_preview"]
+
+    fetched = await agent_tools.execute_tool(
+        db, kb_id, "get_template", {"name": "旅游规划"}
+    )
+    assert fetched["body_md"] == body
+    assert fetched["tags"] == ["旅行"]
+
+    by_id = await agent_tools.execute_tool(
+        db, kb_id, "get_template", {"template_id": template_id}
+    )
+    assert by_id["name"] == "旅游规划"
+
+    with pytest.raises(agent_tools.ToolError, match="没有找到"):
+        await agent_tools.execute_tool(
+            db, kb_id, "get_template", {"name": "不存在的模板"}
+        )
+
+
 async def test_agent_folder_crud(client, kb, db):
     kb_id = uuid.UUID(kb["id"])
     created = await agent_tools.execute_tool(

@@ -54,11 +54,18 @@ def _clean_messages(raw: list[dict] | None) -> list[dict]:
     return out
 
 
+MAX_AUTO_TITLE_CHARS = 24
+
+
 def _auto_title(messages: list[dict]) -> str:
     for message in messages:
         if message.get("role") == "user" and str(message.get("content") or "").strip():
             text = " ".join(str(message["content"]).split())
-            return text[:40] or "新对话"
+            # 会话列表只有两行宽度；直接用第一个问题当标题时会把侧栏塞满，
+            # 也会把上百字的问题写进数据库。这里按 24 字裁剪并加省略号。
+            if len(text) > MAX_AUTO_TITLE_CHARS:
+                text = text[:MAX_AUTO_TITLE_CHARS].rstrip("，,。.;；:：、!！?？ ") + "…"
+            return text or "新对话"
     return "新对话"
 
 

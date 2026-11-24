@@ -412,6 +412,135 @@ def test_answer_echo_detection_ignores_normal_tool_mentions():
     )
 
 
+async def test_complete_retries_transient_connection_error(monkeypatch):
+    import httpx
+    from openai import APIConnectionError
+
+    class _FlakyCompletions:
+        def __init__(self):
+            self.calls = 0
+
+        async def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise APIConnectionError(
+                    request=httpx.Request(
+                        "POST", "http://test/v1/chat/completions"
+                    )
+                )
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content='{"answer":"ok"}')
+                    )
+                ]
+            )
+
+    completions = _FlakyCompletions()
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=completions)
+    )
+
+    async def _no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(agent_harness.asyncio, "sleep", _no_sleep)
+    text = await agent_harness._complete(_ctx(client))
+    assert "ok" in text
+    assert completions.calls == 2
+
+
+def _dsml_call(tool: str, params: dict[str, tuple[str, str]]) -> str:
+    lines = ["<｜｜DSML｜｜ calls>", f'<｜｜DSML｜｜ invoke name="{tool}">']
+    for name, (string_flag, value) in params.items():
+        lines.append(
+            f'<｜｜DSML｜｜ parameter name="{name}" string="{string_flag}">{value}'
+            "</｜｜DSML｜｜ parameter>"
+        )
+    lines += ["</｜｜DSML｜｜ invoke>", "</｜｜DSML｜｜ calls>"]
+    return "\n".join(lines)
+
+
+def test_native_tool_markup_is_converted_to_action():
+    dsml = _dsml_call(
+        "create_note",
+        {
+            "title": ("true", "测试标题"),
+            "tags": ("false", '["a", "b"]'),
+            "body_md": ("true", "# 正文\n\n没有 JSON"),
+        },
+    )
+    reply = agent_harness._parse_reply_with_dsml(dsml)
+    assert reply.action is not None
+    assert reply.action["tool"] == "create_note"
+    assert reply.action["args"]["title"] == "测试标题"
+    assert reply.action["args"]["tags"] == ["a", "b"]
+    assert reply.action["args"]["body_md"].startswith("# 正文")
+    # 写回历史的内容必须是协议 JSON，不能留下原生标记。
+    assert "DSML" not in reply.raw
+    assert json.loads(reply.raw)["action"]["tool"] == "create_note"
+
+
+async def test_native_tool_markup_runs_tool_and_keeps_history_clean(monkeypatch):
+    kb_id = uuid.uuid4()
+    note_id = uuid.uuid4()
+    dsml = _dsml_call(
+        "create_note",
+        {
+            "title": ("true", "行宫"),
+            "body_md": ("true", "# 行宫\n\n正文"),
+        },
+    )
+    client = _FakeClient([dsml])
+    executed: list[str] = []
+
+    async def fake_execute(session, kb_id_arg, tool, args):
+        executed.append(tool)
+        return {"ok": True, "note": {"id": str(note_id), "title": "行宫"}}
+
+    monkeypatch.setattr(agent_tools, "execute_tool", fake_execute)
+
+    events = await _collect(_ctx(client, kb_id=kb_id), session=object())
+    names = [name for name, _ in events]
+    assert "approval" in names
+    assert events[-1][1]["awaiting_approval"] is True
+    assert not any(
+        "DSML" in str(payload.get("text", "")) for _, payload in events
+    )
+
+    pending = agent_actions.claim(events[-1][1]["action_id"])
+    assert pending is not None and pending.tool == "create_note"
+    assert pending.args["title"] == "行宫"
+    assert "DSML" not in pending.assistant_content
+    assert executed == []
+
+
+async def test_unparseable_native_markup_is_retried_then_answered():
+    bad = "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"\">\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>"
+    client = _FakeClient([bad, _reply(action=None, answer="已经改好了")])
+
+    events = await _collect(_ctx(client), session=object())
+    names = [name for name, _ in events]
+    assert "notice" in names
+    assert [payload["text"] for name, payload in events if name == "chunk"] == [
+        "已经改好了"
+    ]
+    assert events[-1][0] == "done" and events[-1][1]["ok"] is True
+
+
+async def test_unparseable_native_markup_stops_with_readable_error():
+    bad = "<｜｜DSML｜｜ calls>\n</｜｜DSML｜｜ calls>"
+    client = _FakeClient([bad, bad, bad])
+
+    events = await _collect(_ctx(client), session=object())
+    chunks = [payload["text"] for name, payload in events if name == "chunk"]
+    assert chunks and all("DSML" not in text for text in chunks)
+    assert events[-1] == (
+        "done",
+        {"ok": False, "plan": []},
+    )
+
+
 def test_system_prompt_includes_current_week_range():
     now = datetime.now(app_timezone())
     monday = now - timedelta(days=now.weekday())
