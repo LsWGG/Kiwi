@@ -17,7 +17,8 @@
 # 安全约束：
 # - 前端构建默认要求本地 HEAD == origin/main 且工作区干净，避免把未提交改动
 #   传到线上；确需如此时加 --allow-dirty（会显著提示版本风险）。
-# - 远端后端使用 `git pull --ff-only`，不会产生合并提交；失败则中止。
+# - 远端后端使用 `git pull --ff-only`，不会产生合并提交；GitHub 偶发连接
+#   失败时最多重试 5 次，仍失败则中止。
 # - 远端旧 dist 在覆盖前不会自动备份；脚本会打印远端提交号，便于回滚。
 
 set -euo pipefail
@@ -166,7 +167,8 @@ fi
 # ---------- 后端 ----------
 if ((BACKEND)); then
   log "更新后端"
-  remote "set -e; cd '$REMOTE_PATH'; echo '--- 更新前提交'; sudo git rev-parse --short HEAD; sudo git pull --ff-only; echo '--- 更新后提交'; sudo git rev-parse --short HEAD"
+  # 远端到 GitHub 的连通性偶尔失败（Empty reply / 超时），拉取最多重试 5 次。
+  remote "set -e; cd '$REMOTE_PATH'; echo '--- 更新前提交'; sudo git rev-parse --short HEAD; if [ -n \"\$(sudo git status --porcelain --untracked-files=no)\" ]; then echo '远端工作区有未提交改动，已中止（请先处理后再更新）' >&2; sudo git status --porcelain --untracked-files=no | head >&2; exit 3; fi; ok=0; for attempt in 1 2 3 4 5; do if sudo git pull --ff-only; then ok=1; break; fi; echo \"git pull 失败（第 \$attempt/5 次），10 秒后重试...\" >&2; sleep 10; done; [ \"\$ok\" = 1 ] || { echo 'git pull 连续失败，已中止' >&2; exit 1; }; echo '--- 更新后提交'; sudo git rev-parse --short HEAD"
   if ((BUILD_BACKEND)); then
     log "重建后端镜像（pyproject / uv.lock 变化时依赖才会更新）"
     remote "set -e; cd '$REMOTE_PATH'; sudo docker compose --env-file .env.prod -f docker-compose.prod.yml build backend"
@@ -192,7 +194,7 @@ if ((FRONTEND)); then
   fi
 
   log "替换 dist 并重启前端"
-  remote "set -e; sudo rsync -a --delete '$remote_tmp/' '$REMOTE_PATH/frontend/dist/'; cd '$REMOTE_PATH'; sudo docker compose -f docker-compose.prod.yml restart frontend; case '$remote_tmp' in /tmp/kiwi-dist.*) rm -rf -- '$remote_tmp' ;; esac"
+  remote "set -e; sudo rsync -a --delete '$remote_tmp/' '$REMOTE_PATH/frontend/dist/'; cd '$REMOTE_PATH'; sudo docker compose --env-file .env.prod -f docker-compose.prod.yml restart frontend; case '$remote_tmp' in /tmp/kiwi-dist.*) rm -rf -- '$remote_tmp' ;; esac"
 
   if ((DRY_RUN == 0)); then
     built_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$DIST/build-info.json" 2>/dev/null || true)"

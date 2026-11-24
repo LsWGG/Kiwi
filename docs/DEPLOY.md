@@ -152,7 +152,7 @@ cp scripts/update_online.env.example scripts/update_online.env
 ./scripts/update_online.sh --frontend-only
 ```
 
-连接配置放在 `scripts/update_online.env`（已被 `.gitignore` 忽略），不要把服务器地址与路径提交到仓库。脚本默认要求本地 `HEAD == origin/main` 且工作区干净，避免把未提交改动带到线上；确需例外时用 `--allow-dirty`。远端后端使用 `git pull --ff-only`，失败会中止。仅执行 `deploy.sh update` 只重建容器、不会更新镜像内的 Python 依赖；本次起对象存储依赖 boto3，升级时需要加 `--build-backend`。
+连接配置放在 `scripts/update_online.env`（已被 `.gitignore` 忽略），不要把服务器地址与路径提交到仓库。脚本默认要求本地 `HEAD == origin/main` 且工作区干净，避免把未提交改动带到线上；确需例外时用 `--allow-dirty`。远端后端使用 `git pull --ff-only`，不会产生合并提交；线上主机访问 GitHub 偶发失败时会自动重试 5 次，仍失败才中止。远端有未提交的已跟踪改动时脚本会先中止并列出文件。仅执行 `deploy.sh update` 只重建容器、不会更新镜像内的 Python 依赖；本次起对象存储依赖 boto3，升级时需要加 `--build-backend`。
 
 ### 线上嵌入模型（无法本地向量化时）
 
