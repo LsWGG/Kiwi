@@ -35,6 +35,10 @@ os.environ["KIWI_ACCESS_TOKEN"] = ""
 # 测试使用固定密钥，避免把真实 KIWI_FERNET_KEY 用于测试数据。
 os.environ["KIWI_FERNET_KEY"] = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 os.environ.setdefault("KIWI_QDRANT_URL", "http://localhost:6333")
+# 测试固定用本地媒体后端，避免依赖 MinIO / 污染线上 bucket；S3 集成测试
+# 显式构造 S3ObjectStore。
+os.environ["KIWI_MEDIA_BACKEND"] = "local"
+os.environ["KIWI_MEDIA_LOCAL_FALLBACK"] = "true"
 
 
 @pytest.fixture(scope="session", autouse=True)

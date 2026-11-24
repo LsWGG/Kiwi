@@ -10,7 +10,12 @@ from types import SimpleNamespace
 import pytest
 
 from app.mcp import Toolbox
-from app.services import agent_actions, agent_harness, agent_tools
+from app.services import (
+    agent_actions,
+    agent_fast_path,
+    agent_harness,
+    agent_tools,
+)
 from app.services.agent_planner import app_timezone
 
 
@@ -23,7 +28,17 @@ class _FakeCompletions:
         self.calls.append(kwargs)
         text = next(self.replies)
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=text))]
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=text),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+            ),
         )
 
 
@@ -222,6 +237,90 @@ async def test_fetch_url_runs_then_note_creation_waits_for_approval(monkeypatch)
     assert pending.args["body_md"] == page_body
 
 
+async def test_fast_path_uses_fetched_page_without_second_completion(monkeypatch):
+    kb_id = uuid.uuid4()
+    note_id = uuid.uuid4()
+    client = _FakeClient(
+        [
+            _reply(
+                thought="先读取网页",
+                plan=["读取网页", "新建笔记"],
+                action={
+                    "tool": "fetch_url",
+                    "args": {"url": "https://www.guwendao.net/shiwenv_45.aspx"},
+                    "summary": "读取古诗文网页",
+                    "step": 1,
+                },
+            )
+        ]
+    )
+    executed: list[str] = []
+
+    async def fake_execute(session, kb_id_arg, tool, args):
+        executed.append(tool)
+        if tool == "fetch_url":
+            return {
+                "ok": True,
+                "title": "关雎",
+                "markdown": "# 关雎\n\n关关雎鸠，在河之洲。",
+                "final_url": "https://www.guwendao.net/shiwenv_45.aspx",
+                "markdown_truncated": False,
+            }
+        return {"ok": True, "note": {"id": str(note_id), "title": "关雎"}}
+
+    monkeypatch.setattr(agent_tools, "execute_tool", fake_execute)
+    ctx = _ctx(client, kb_id=kb_id)
+    ctx.user_query = (
+        "将网页 https://www.guwendao.net/shiwenv_45.aspx 内容新建为笔记，"
+        "放到知识库根目录下"
+    )
+
+    events = await _collect(ctx, session=object())
+    names = [name for name, _ in events]
+    assert "approval" in names
+    # 快路径不再调用第二次模型来“重写”整页正文。
+    assert len(client.completions.calls) == 1
+    pending = agent_actions.claim(events[-1][1]["action_id"])
+    assert pending is not None and pending.tool == "create_note"
+    assert pending.args["title"] == "关雎"
+    assert pending.args["body_md"].startswith("# 关雎")
+    assert "来源：https://www.guwendao.net/shiwenv_45.aspx" in pending.args["body_md"]
+    assert executed == ["fetch_url"]
+
+
+def test_fast_path_eligibility_is_narrow():
+    base = {
+        "ok": True,
+        "title": "关雎",
+        "markdown": "# 关雎\n\n正文",
+        "final_url": "https://example.com/a",
+        "markdown_truncated": False,
+    }
+    plan = [{"id": "p1", "title": "读取网页"}, {"id": "p2", "title": "新建笔记"}]
+    build = agent_fast_path.build_after_read_tool
+
+    assert build("把网页内容新建为笔记，放到知识库根目录", "fetch_url", base, can_write=True, plan=plan)
+    # 需要总结 / 指定分组 / 正文被截断时回退正常循环。
+    assert build("总结网页内容并新建为笔记", "fetch_url", base, can_write=True, plan=plan) is None
+    assert build("把网页内容新建为笔记，放到 生活/旅行 目录", "fetch_url", base, can_write=True, plan=plan) is None
+    assert build("把网页内容新建为笔记", "fetch_url", {**base, "markdown_truncated": True}, can_write=True, plan=plan) is None
+    # 多库 / 全局范围不能写入。
+    assert build("把网页内容新建为笔记", "fetch_url", base, can_write=False, plan=plan) is None
+
+    template = {
+        "ok": True,
+        "name": "旅游规划",
+        "title_pattern": "{{date}} 旅游规划",
+        "body_md": "# 旅游规划\n\n## 行程时间\n",
+        "tags": ["旅行"],
+        "body_truncated": False,
+    }
+    action = build("使用 旅游规划 模板新建一篇空白笔记", "get_template", template, can_write=True, plan=plan)
+    assert action and action["args"]["title"].endswith("旅游规划")
+    assert action["args"]["tags"] == ["旅行"]
+    assert build("基于 旅游规划 模板，生成天津三日游内容", "get_template", template, can_write=True, plan=plan) is None
+
+
 async def test_write_tool_waits_for_approval_then_resumes(monkeypatch):
     kb_id = uuid.uuid4()
     note_id = uuid.uuid4()
@@ -282,12 +381,13 @@ async def test_write_tool_waits_for_approval_then_resumes(monkeypatch):
     assert "tool_result" in resumed_names
     assert resumed[-1][0] == "done"
     assert resumed[-1][1]["ok"] is True
+    assert resumed[-1][1].get("undo_id")
     assert [step["status"] for step in resumed[-1][1]["plan"]] == ["done"]
     assert executed == ["create_note"]
-    assert resumed[0] == (
+    assert (
         "stage",
         {"stage": "approve", "status": "done", "message": "已确认：新建笔记"},
-    )
+    ) in resumed
     answer = "".join(
         payload["text"] for name, payload in resumed if name == "chunk"
     )
@@ -315,6 +415,58 @@ def test_repair_note_links_keeps_valid_ids_and_unlinks_unfixable():
         f"见 [行宫](kiwi://note/{broken})。", {}
     )
     assert unlinked == "见 行宫。"
+
+
+async def test_write_success_survives_model_disconnect(monkeypatch):
+    import httpx
+    from openai import APIConnectionError
+
+    kb_id = uuid.uuid4()
+    note_id = uuid.uuid4()
+
+    class _BrokenCompletions:
+        async def create(self, **kwargs):
+            raise APIConnectionError(
+                request=httpx.Request("POST", "http://test/v1/chat/completions")
+            )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=_BrokenCompletions())
+    )
+    executed: list[str] = []
+
+    async def fake_execute(session, kb_id_arg, tool, args):
+        executed.append(tool)
+        return {"ok": True, "note": {"id": str(note_id), "title": "断连回执"}}
+
+    monkeypatch.setattr(agent_tools, "execute_tool", fake_execute)
+    monkeypatch.setattr(agent_harness, "MAX_LLM_RETRIES", 0)
+    pending = agent_actions.PendingAction(
+        tool="create_note",
+        args={"title": "断连回执", "body_md": "正文"},
+        summary="新建笔记《断连回执》",
+        label="新建笔记",
+        messages=[{"role": "system", "content": "资料"}],
+        assistant_content="{}",
+        plan=[],
+        kb_id=str(kb_id),
+        kb_ids=[str(kb_id)],
+        scope_mode="kb",
+        llm_config_id=None,
+        model_override=None,
+        intent="note",
+    )
+
+    events = await _collect(
+        _ctx(client, kb_id=kb_id), session=object(), resume=pending, approved=True
+    )
+    chunks = "".join(
+        payload.get("text", "") for name, payload in events if name == "chunk"
+    )
+    assert "已执行完成" in chunks
+    assert f"kiwi://note/{note_id}" in chunks
+    assert events[-1][0] == "done" and events[-1][1]["ok"] is True
+    assert executed == ["create_note"]
 
 
 async def test_rejected_action_never_executes(monkeypatch):
@@ -459,6 +611,87 @@ def _dsml_call(tool: str, params: dict[str, tuple[str, str]]) -> str:
         )
     lines += ["</｜｜DSML｜｜ invoke>", "</｜｜DSML｜｜ calls>"]
     return "\n".join(lines)
+
+
+async def test_agent_trace_and_metrics_are_recorded(monkeypatch):
+    from app.services import agent_trace
+    from app.services.metrics import metrics
+
+    agent_trace.clear()
+    kb_id = uuid.uuid4()
+    client = _FakeClient(
+        [
+            _reply(
+                plan=["搜索周报", "总结"],
+                action={
+                    "tool": "search_notes",
+                    "args": {"query": "周报"},
+                    "summary": "搜索周报",
+                    "step": 1,
+                },
+            ),
+            _reply(action=None, answer="找到周报了。"),
+        ]
+    )
+
+    async def fake_execute(session, kb_id_arg, tool, args):
+        return {"total": 1, "items": [{"id": str(uuid.uuid4()), "title": "周报"}]}
+
+    monkeypatch.setattr(agent_tools, "execute_tool", fake_execute)
+    ctx = _ctx(client, kb_id=kb_id)
+    ctx.user_query = "总结一下周报"
+    ctx.planner_input = {"query": "周报"}
+    ctx.planner_output = {"queries": ["周报"], "source": "rules"}
+    ctx.planner_ms = 120
+    events = await _collect(ctx, session=object())
+    trace_ids = [
+        payload.get("trace_id")
+        for name, payload in events
+        if name == "trace"
+    ]
+    assert trace_ids and trace_ids[0]
+
+    traces = agent_trace.recent(1)
+    assert traces, "应记录一轮 trace"
+    trace = traces[0]
+    assert trace["status"] == "done"
+    assert trace["query"] == "总结一下周报"
+    by_kind = {}
+    for event in trace["events"]:
+        by_kind.setdefault(event["kind"], event)
+    assert {"planner", "model", "tool"} <= set(by_kind)
+    assert by_kind["planner"]["input"]["query"] == "周报"
+    assert by_kind["planner"]["output"]["queries"] == ["周报"]
+    model_event = by_kind["model"]
+    assert model_event["input"]["messages"]
+    assert model_event["output"]
+    assert model_event["meta"]["usage"]["total_tokens"] == 15
+    assert model_event["meta"]["finish_reason"] == "stop"
+    tool_event = by_kind["tool"]
+    assert tool_event["input"]["tool"] == "search_notes"
+    assert tool_event["output"]["items"]
+
+    detail = agent_trace.get(trace_ids[0])
+    assert detail is not None and detail["id"] == trace_ids[0]
+    assert agent_trace.get("missing-trace") is None
+
+    rendered = metrics.render()
+    assert "kiwi_agent_turns_total" in rendered
+    assert "kiwi_agent_model_seconds" in rendered
+    assert "kiwi_agent_tool_seconds" in rendered
+
+
+def test_unrecorded_trace_stays_out_of_ops_list():
+    from app.services import agent_trace
+
+    agent_trace.clear()
+    trace = agent_trace.start_trace(
+        query="你好", model="m", scope="kb", record=False
+    )
+    trace.event("understand", "理解范围")
+    assert trace.events
+    assert agent_trace.get(trace.id) is None
+    assert agent_trace.recent(10) == []
 
 
 def test_native_tool_markup_is_converted_to_action():

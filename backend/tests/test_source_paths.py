@@ -48,8 +48,8 @@ async def test_reimport_rewrites_stale_relative_source(client, kb):
                 )
             )
         ).scalar_one()
-        canonical = Path(source.raw_path)
-        assert canonical.is_absolute() and canonical.exists()
+        canonical = resolve_raw_path(source.raw_path)
+        assert canonical.exists()
         # 模拟另一环境留下的记录：相对路径，且文件不在当前目录下。
         source.raw_path = f"data/uploads/{kb['id']}/{canonical.name}"
         await db.commit()
@@ -62,7 +62,6 @@ async def test_reimport_rewrites_stale_relative_source(client, kb):
     async with async_session_factory() as db:
         source = await db.get(Source, source_id)
         assert source is not None
-        resolved = Path(source.raw_path)
-        assert resolved.is_absolute()
+        resolved = resolve_raw_path(source.raw_path)
         assert resolved.exists()
         assert resolved.read_bytes() == content

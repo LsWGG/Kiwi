@@ -14,6 +14,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +29,7 @@ from app.db.models import (
     WikiLintReport,
     WikiPage,
 )
-from app.services.source_paths import resolve_raw_path
+from app.services.source_paths import delete_source, storage_key
 
 logger = logging.getLogger("kiwi.compiled_data")
 
@@ -111,12 +112,11 @@ async def _delete_note_snapshot_sources(
             await asyncio.to_thread(qs.delete_source_chunks, source.id, None)
         except Exception as exc:  # noqa: BLE001
             logger.warning("删除笔记快照向量失败 %s：%s", source.id, exc)
-        path = resolve_raw_path(source.raw_path) if source.raw_path else None
-        if path and path.name.startswith("note-") and path.exists():
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        if source.raw_path:
+            key = storage_key(source.raw_path)
+            name = Path(key or source.raw_path).name
+            if name.startswith("note-"):
+                await delete_source(source.raw_path)
     ids = [source.id for source in sources]
     # 先解除笔记对 Source 的软引用（若仍有），再删除 Source（级联 IngestJob）。
     await session.execute(

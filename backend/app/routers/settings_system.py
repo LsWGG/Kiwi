@@ -1,6 +1,7 @@
 """系统设置路由：品牌信息、主题色与线上 OCR。"""
 
 import asyncio
+import mimetypes
 import re
 import uuid
 from pathlib import Path
@@ -8,7 +9,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models.system_settings import SYSTEM_SETTINGS_ID, SystemSettings
 from app.db.session import get_session
 from app.schemas.system import (
@@ -21,6 +21,7 @@ from app.schemas.system import (
 from app.services import ocr_service, system_settings
 from app.services.desktop_guard import require_online_feature
 from app.services.llm_factory import CryptoError, LLMCrypto
+from app.services.object_store import ObjectStoreError, get_object_store
 
 router = APIRouter(prefix="/api/settings/system", tags=["settings"])
 
@@ -221,8 +222,15 @@ async def upload_logo(file: UploadFile = File(...)):
     if ext == ".webp" and content[8:12] != b"WEBP":
         raise HTTPException(415, "图片内容与扩展名不符")
 
-    storage_dir = settings.upload_dir / "media" / "branding"
-    storage_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{ext}"
-    (storage_dir / stored_name).write_bytes(content)
-    return LogoUploadOut(url=f"/media/branding/{stored_name}")
+    key = f"media/branding/{stored_name}"
+    store = get_object_store()
+    try:
+        await store.save_bytes(
+            key,
+            content,
+            content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream",
+        )
+    except ObjectStoreError as exc:
+        raise HTTPException(500, f"Logo 写入失败：{exc}") from exc
+    return LogoUploadOut(url=store.media_url(key))

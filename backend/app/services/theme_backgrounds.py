@@ -1,22 +1,20 @@
-"""主题自定义背景：100MB 图片 / 动图 / 视频的落盘与清理。
+"""主题自定义背景：100MB 图片 / 动图 / 视频的存储与清理。
 
 自定义背景不再塞进 `system_settings` 的 JSONB（data URL 会把单行记录撑大），
-而是流式写入 `/media/theme-backgrounds/`，覆盖值里只保存站内 URL。文件类型
-按魔数判断，不信任扩展名；写入先落 `.part` 再原子替换，失败不会留下半成品。
+而是流式写入媒体存储（本地目录或 S3 / MinIO），覆盖值里只保存站内 URL。
+文件类型按魔数判断，不信任扩展名。
 """
 
 from __future__ import annotations
 
-import os
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from fastapi import UploadFile
 
-from app.config import settings
+from app.services.object_store import ObjectStoreError, get_object_store
 
 MAX_BACKGROUND_BYTES = 100 * 1024 * 1024
 UPLOAD_SUBDIR = "theme-backgrounds"
@@ -66,8 +64,7 @@ class StoredBackground:
     size: int
 
 
-def media_dir() -> Path:
-    return settings.upload_dir / "media" / UPLOAD_SUBDIR
+MEDIA_KEY_PREFIX = f"media/{UPLOAD_SUBDIR}/"
 
 
 def sniff(head: bytes) -> BackgroundMedia | None:
@@ -98,11 +95,7 @@ def sniff(head: bytes) -> BackgroundMedia | None:
     return None
 
 
-def is_local_url(url: str | None) -> bool:
-    return local_path(url) is not None
-
-
-def local_path(url: str | None) -> Path | None:
+def background_key(url: str | None) -> str | None:
     """只接受 `/media/theme-backgrounds/<文件名>` 形式的站内 URL。"""
     if not url:
         return None
@@ -114,11 +107,11 @@ def local_path(url: str | None) -> Path | None:
     name = unquote(parsed.path[len(MEDIA_URL_PREFIX) :])
     if not name or "/" in name or "\\" in name or name in {".", ".."}:
         return None
-    root = media_dir().resolve()
-    candidate = (root / name).resolve()
-    if candidate.parent != root:
-        return None
-    return candidate
+    return f"{MEDIA_KEY_PREFIX}{name}"
+
+
+def is_local_url(url: str | None) -> bool:
+    return background_key(url) is not None
 
 
 async def save_upload(upload: UploadFile) -> StoredBackground:
@@ -135,68 +128,74 @@ async def save_upload(upload: UploadFile) -> StoredBackground:
             "或 MP4 / WebM / Ogg / MOV 视频"
         )
 
-    target_dir = media_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
-    temp = target_dir / f".{token}.part"
-    final = target_dir / f"{token}{media.ext}"
+    key = f"{MEDIA_KEY_PREFIX}{token}{media.ext}"
     total = 0
+
+    async def chunks():
+        nonlocal total
+        chunk = first
+        while chunk:
+            total += len(chunk)
+            if total > MAX_BACKGROUND_BYTES:
+                raise BackgroundTooLarge("背景文件不能超过 100MB")
+            yield chunk
+            chunk = await upload.read(CHUNK_SIZE)
+
     try:
-        with temp.open("wb") as out:
-            chunk = first
-            while chunk:
-                total += len(chunk)
-                if total > MAX_BACKGROUND_BYTES:
-                    raise BackgroundTooLarge("背景文件不能超过 100MB")
-                out.write(chunk)
-                chunk = await upload.read(CHUNK_SIZE)
-        os.replace(temp, final)
-    except BaseException:
-        temp.unlink(missing_ok=True)
-        raise
+        stored = await get_object_store().save_stream(
+            key, chunks(), content_type=media.content_type
+        )
+    except ObjectStoreError as exc:
+        raise BackgroundUnsupported(f"背景文件写入失败：{exc}") from exc
 
     return StoredBackground(
-        url=f"{MEDIA_URL_PREFIX}{final.name}",
+        url=get_object_store().media_url(key),
         kind=media.kind,
         content_type=media.content_type,
-        size=total,
+        size=stored.size,
     )
 
 
-def remove_url(url: str | None) -> bool:
-    path = local_path(url)
-    if path is None:
+async def remove_url(url: str | None) -> bool:
+    key = background_key(url)
+    if key is None:
         return False
+    store = get_object_store()
     try:
-        path.unlink()
-    except FileNotFoundError:
+        if await store.stat(key) is None:
+            return False
+        await store.delete(key)
+    except (OSError, ObjectStoreError):
         return False
     return True
 
 
-def prune_replaced(old_values: set[str], new_values: set[str]) -> None:
+async def prune_replaced(old_values: set[str], new_values: set[str]) -> None:
     """覆盖值更新后，删除不再被引用的旧背景文件。"""
     for value in old_values - new_values:
-        remove_url(value)
+        await remove_url(value)
 
 
-def prune_orphans(referenced: set[str], *, ttl_seconds: int = ORPHAN_TTL_SECONDS) -> None:
-    """清理长期没有被任何覆盖值引用的上传文件与残留分片。"""
-    directory = media_dir()
-    if not directory.is_dir():
-        return
+async def prune_orphans(
+    referenced: set[str], *, ttl_seconds: int = ORPHAN_TTL_SECONDS
+) -> None:
+    """清理长期没有被任何覆盖值引用的上传文件。"""
     cutoff = time.time() - ttl_seconds
-    referenced_paths = {
-        path.name for path in (local_path(url) for url in referenced) if path is not None
+    referenced_keys = {
+        key for key in (background_key(url) for url in referenced) if key is not None
     }
-    for path in directory.iterdir():
-        if not path.is_file():
+    store = get_object_store()
+    try:
+        items = await store.list(f"media/{UPLOAD_SUBDIR}")
+    except ObjectStoreError:
+        return
+    for item in items:
+        if item.key in referenced_keys:
             continue
-        if path.name in referenced_paths:
+        if item.last_modified is not None and item.last_modified > cutoff:
             continue
         try:
-            if path.stat().st_mtime > cutoff:
-                continue
-            path.unlink()
-        except OSError:
+            await store.delete(item.key)
+        except (OSError, ObjectStoreError):
             continue

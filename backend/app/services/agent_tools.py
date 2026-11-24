@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -195,6 +195,68 @@ class GetTemplateArgs(BaseModel):
         title="模板名称",
         description="按名称查找模板，例如「旅游规划」；与 template_id 二选一。",
     )
+
+
+class CreateNoteFromTemplateArgs(BaseModel):
+    template_id: uuid.UUID | None = Field(
+        default=None,
+        title="模板 ID",
+        description="模板 UUID，来自 list_templates；与 name 二选一。",
+    )
+    name: str = Field(
+        default="",
+        max_length=200,
+        title="模板名称",
+        description="按名称查找模板，例如「旅游规划」；与 template_id 二选一。",
+    )
+    title: str = Field(
+        default="",
+        max_length=300,
+        title="笔记标题",
+        description="留空时使用模板的默认标题格式（{{date}} 会替换为当天）。",
+    )
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        title="分组",
+        description="放到该分组；不传表示知识库根目录。",
+    )
+    parent_note_id: uuid.UUID | None = Field(
+        default=None,
+        title="父笔记",
+        description="作为该笔记的子笔记；与 folder_id 二选一。",
+    )
+
+    @model_validator(mode="after")
+    def require_template(self):
+        if self.template_id is None and not self.name.strip():
+            raise ValueError("请提供 template_id 或 name")
+        return self
+
+
+class ApplyTemplateArgs(BaseModel):
+    note_id: uuid.UUID = Field(title="笔记", description="要写入模板的笔记 UUID。")
+    template_id: uuid.UUID | None = Field(
+        default=None,
+        title="模板 ID",
+        description="模板 UUID，来自 list_templates；与 name 二选一。",
+    )
+    name: str = Field(
+        default="",
+        max_length=200,
+        title="模板名称",
+        description="按名称查找模板；与 template_id 二选一。",
+    )
+    mode: Literal["replace", "prepend", "append"] = Field(
+        default="replace",
+        title="写入方式",
+        description="replace 替换正文（会覆盖原内容）；prepend 放到正文前；append 追加到正文后。",
+    )
+
+    @model_validator(mode="after")
+    def require_template(self):
+        if self.template_id is None and not self.name.strip():
+            raise ValueError("请提供 template_id 或 name")
+        return self
 
 
 class QueryDatabaseRowsArgs(BaseModel):
@@ -827,6 +889,117 @@ async def _get_template(
             "请沿用模板的章节结构与组件，把用户给出的信息填进去；"
             "模板里的示例内容要替换，不要原样保留。"
         ),
+    }
+
+
+async def _resolve_template(
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    template_id: uuid.UUID | None,
+    name: str,
+) -> NoteTemplate:
+    rows = await _template_rows(session, kb_id)
+    if template_id is not None:
+        found = next((row for row in rows if row.id == template_id), None)
+        if found is None:
+            raise ToolError("模板不存在，或不属于当前知识库")
+        return found
+    key = _template_key(name)
+    exact = [row for row in rows if _template_key(row.name) == key]
+    if len(exact) == 1:
+        return exact[0]
+    partial = [row for row in rows if key and key in _template_key(row.name)]
+    if len(partial) == 1:
+        return partial[0]
+    if len(partial) > 1:
+        names = "、".join(row.name for row in partial[:10])
+        raise ToolError(f"有多个名称相近的模板：{names}；请提供 template_id")
+    available = "、".join(row.name for row in rows[:20]) or "（无）"
+    raise ToolError(f"没有找到名为「{name}」的模板。可用模板：{available}")
+
+
+def _template_note_title(template: NoteTemplate, override: str) -> str:
+    title = override.strip()
+    if not title:
+        title = (template.title_pattern or template.name or "无标题文档").replace(
+            "{{date}}", datetime.now().strftime("%Y-%m-%d")
+        )
+    return (title.strip() or template.name or "无标题文档")[:300]
+
+
+@_tool(
+    "create_note_from_template",
+    "按模板新建笔记",
+    "按现有模板新建一篇笔记，只套用模板的正文结构与标签，不生成新内容。"
+    "用户要求「用某个模板新建笔记 / 套用模板」时使用；模板 ID 或名称来自 "
+    "list_templates。写操作需要用户确认。",
+    CreateNoteFromTemplateArgs,
+    read_only=False,
+    summary_template="按模板《{name}》新建笔记",
+)
+async def _create_note_from_template(
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    args: CreateNoteFromTemplateArgs,
+) -> dict:
+    template = await _resolve_template(session, kb_id, args.template_id, args.name)
+    note = await create_note_route(
+        NoteCreate(
+            title=_template_note_title(template, args.title),
+            body_md=template.body_md or "",
+            kind="doc",
+            folder_id=args.folder_id,
+            parent_note_id=args.parent_note_id,
+            tags=[str(tag) for tag in template.tags_json or []][:30],
+        ),
+        kb_id=kb_id,
+        session=session,
+    )
+    return {
+        "ok": True,
+        "note": {"id": str(note.id), "title": note.title, "kind": note.kind},
+        "template": {"id": str(template.id), "name": template.name},
+    }
+
+
+@_tool(
+    "apply_template",
+    "套用模板到笔记",
+    "把模板正文写入一篇现有笔记：replace 替换正文（会覆盖原内容）、prepend 放到前面、"
+    "append 追加到后面。目标笔记上锁或在回收站时不可写；写操作需要用户确认，"
+    "系统会在修改前保留笔记历史版本。",
+    ApplyTemplateArgs,
+    read_only=False,
+    summary_template="套用模板《{name}》",
+)
+async def _apply_template(
+    session: AsyncSession,
+    kb_id: uuid.UUID,
+    args: ApplyTemplateArgs,
+) -> dict:
+    note = await _load_note(session, kb_id, args.note_id)
+    template = await _resolve_template(session, kb_id, args.template_id, args.name)
+    old_body = note.body_md or ""
+    template_body = template.body_md or ""
+    if args.mode == "prepend":
+        body = template_body + (f"\n\n{old_body}" if old_body else "")
+    elif args.mode == "append":
+        body = old_body + (f"\n\n{template_body}" if template_body else "")
+    else:
+        body = template_body
+    updated = await update_note_route(
+        note_id=note.id,
+        kb_id=kb_id,
+        data=NoteUpdate(body_md=body),
+        x_note_token=None,
+        session=session,
+    )
+    return {
+        "ok": True,
+        "note": {"id": str(updated.id), "title": updated.title, "kind": updated.kind},
+        "mode": args.mode,
+        "template": {"id": str(template.id), "name": template.name},
+        "previous_chars": len(old_body),
     }
 
 

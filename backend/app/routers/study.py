@@ -4,6 +4,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from html import escape
+from pathlib import Path
 from urllib.parse import quote, unquote
 
 from fastapi import (
@@ -19,7 +20,6 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import (
     KnowledgeBase,
     LearningAnnotation,
@@ -85,6 +85,7 @@ from app.services.anki_export import (
 )
 from app.services.anki_import import AnkiImportError, import_anki_package
 from app.services.desktop_guard import require_online_feature
+from app.services.object_store import get_object_store, normalize_key
 from app.services.study_engine import (
     WEAK_THRESHOLD,
     StudyEngineError,
@@ -744,7 +745,7 @@ async def export_anki(
     title_by_slug = {page.slug: page.title for page in pages}
     deck_root = f"Kiwi::{sanitize_deck_segment(kb.name or '学习')}"
 
-    media_root = settings.upload_dir / "media"
+    store = get_object_store()
     media: dict[str, bytes] = {}
     cards = []
     for question in questions:
@@ -783,13 +784,12 @@ async def export_anki(
             if not url.startswith("/media/"):
                 continue
             relative = unquote(url[len("/media/") :])
-            path = (media_root / relative).resolve()
-            if not path.is_file() or not path.is_relative_to(media_root.resolve()):
+            key = f"media/{normalize_key(relative)}"
+            stat = await store.stat(key)
+            if stat is None or stat.size > 25 * 1024 * 1024:
                 continue
-            if path.stat().st_size > 25 * 1024 * 1024:
-                continue
-            name = f"{question.id.hex[:8]}-{path.name}"
-            media[name] = path.read_bytes()
+            name = f"{question.id.hex[:8]}-{Path(relative).name}"
+            media[name] = await store.read_bytes(key)
             images.append(f'<div class="kiwi-media"><img src="{escape(name)}" alt=""></div>')
         card.front_html += "".join(images)
         cards.append(card)
@@ -822,12 +822,7 @@ async def import_anki(
         raise HTTPException(400, "请选择 .apkg 或 .colpkg 牌组文件")
     payload = await file.read()
     try:
-        result = await import_anki_package(
-            session,
-            kb_id,
-            payload,
-            settings.upload_dir / "media",
-        )
+        result = await import_anki_package(session, kb_id, payload)
     except AnkiImportError as e:
         raise HTTPException(400, str(e)) from e
     return AnkiImportOut(

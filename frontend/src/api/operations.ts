@@ -91,6 +91,46 @@ export interface BuildInfo {
   started_at?: string
 }
 
+export interface AgentTraceEvent {
+  at: number
+  kind: string
+  name: string
+  ms: number
+  ok: boolean
+  detail: string
+  /** 模型消息 / 工具参数等；后端已截断并脱敏。 */
+  input?: unknown
+  /** 模型原文 / 工具结果 / 错误等。 */
+  output?: unknown
+  /** token、finish_reason、重试次数等。 */
+  meta?: Record<string, any>
+}
+
+export interface AgentTrace {
+  id: string
+  started_at: number
+  finished_at: number | null
+  duration_ms: number
+  status: 'running' | 'done' | 'awaiting_approval' | 'error' | 'cancelled' | string
+  /** 完整用户问题；后端截断到 4000 字。 */
+  query?: string
+  query_chars: number
+  model: string
+  scope: string
+  planner_source: string
+  planner_ms: number
+  planner_queries: number
+  events: AgentTraceEvent[]
+}
+
+export function listAgentTraces(limit = 10) {
+  return request<{ items: AgentTrace[] }>(`/maintenance/agent-traces?limit=${limit}`)
+}
+
+export function getAgentTrace(id: string) {
+  return request<AgentTrace>(`/maintenance/agent-traces/${encodeURIComponent(id)}`)
+}
+
 export function listJobs(
   params: { limit?: number; offset?: number; status?: string; kind?: string; kbId?: string | null } = {},
 ) {

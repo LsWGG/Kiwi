@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -19,11 +20,54 @@ from app.event_hub import hub
 from app.services import job_queue, ocr_service, qdrant_store
 from app.services.embedder import embed_texts_async, is_disabled
 from app.services.metrics import compile_job
+from app.services.object_store import get_object_store
 from app.services.ocr_formatter import format_ocr_document
 from app.services.parser import ParseError, parse_file
-from app.services.source_paths import resolve_raw_path
+from app.services.source_paths import (
+    delete_source,
+    materialize_raw_path,
+    save_source_bytes,
+    storage_key,
+)
 from app.services.splitter import split_markdown
 from app.services.wiki_compiler import CompileError, compile_source
+
+
+async def _store_source_file(
+    kb_id: uuid.UUID, filename: str, data: bytes
+) -> str:
+    """把素材写入对象存储，返回相对 upload_dir 的键。
+
+    默认 S3 模式只写对象存储；读取方通过 ``materialize_raw_path`` 按需取回。
+    """
+    return await save_source_bytes(kb_id, filename, data)
+
+
+async def _upload_ocr_figures(kb_id: uuid.UUID, since: float) -> None:
+    """S3 模式下把本次解析新生成的 OCR / PDF 图片补传到对象存储。
+
+    OCR 解析在同步线程里写本地文件（PyMuPDF 的裁剪结果），解析结束后在这里
+    把新文件同步到 S3；媒体 URL 不变，`/media` 会从对象存储读取。
+    """
+    if settings.media_backend != "s3":
+        return
+    directory = Path(settings.upload_dir) / "media" / str(kb_id)
+    if not directory.is_dir():
+        return
+    store = get_object_store()
+    for path in directory.glob("ocr-*.png"):
+        try:
+            if path.stat().st_mtime < since - 1:
+                continue
+            await store.save_bytes(
+                f"media/{kb_id}/{path.name}",
+                path.read_bytes(),
+                content_type="image/png",
+            )
+            # 默认 S3 模式不保留本地副本；上传失败则留下本地文件作为回退。
+            path.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def _ocr_figure_sink(kb_id: uuid.UUID) -> ocr_service.FigureSink:
@@ -167,22 +211,26 @@ async def _process_note_from_existing_source(
                 await db.execute(select(Source).where(Source.id == source_id))
             ).scalar_one()
             source_type = source.type
-            raw_path = resolve_raw_path(source.raw_path)
+            raw_value = source.raw_path
             kb_id = source.kb_id
 
-        parsed = await asyncio.to_thread(
-            parse_file,
-            raw_path,
-            source_type,
-            force_ocr=use_ocr,
-            figure_sink=_ocr_figure_sink(kb_id) if use_ocr else None,
-        )
+        async with materialize_raw_path(raw_value) as raw_path:
+            _parse_started = time.time()
+            parsed = await asyncio.to_thread(
+                parse_file,
+                raw_path,
+                source_type,
+                force_ocr=use_ocr,
+                figure_sink=_ocr_figure_sink(kb_id) if use_ocr else None,
+            )
+            await _upload_ocr_figures(kb_id, _parse_started)
+            raw_stem = Path(raw_path).stem
         parsed = await format_ocr_document(parsed, kb_id)
         await _update_import_note(
             note_id,
             source_id=source_id,
             parsed=parsed,
-            raw_stem=Path(raw_path).stem,
+            raw_stem=raw_stem,
             status="parsing",
             progress=0.6,
         )
@@ -291,13 +339,14 @@ async def run_ingest(
                         use_ocr=use_ocr,
                     )
                     return job_id
-                old_path = Path(existing_external.raw_path)
-                rel_path.write_bytes(file_bytes)
+                old_raw = existing_external.raw_path
+                old_key = storage_key(old_raw)
+                key = await _store_source_file(kb.id, rel_path.name, file_bytes)
                 existing_external.type = (
                     source_type or suffix.lstrip(".").lower() or "md"
                 )
                 existing_external.title = title or filename
-                existing_external.raw_path = str(rel_path)
+                existing_external.raw_path = key
                 existing_external.sha256 = fp
                 existing_external.status = "received"
                 existing_external.parse_quality = "clean"
@@ -336,11 +385,8 @@ async def run_ingest(
                         "detected_at": drift_at,
                     }
                     drift_page.frontmatter_json = fm
-                if old_path != rel_path:
-                    try:
-                        old_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                if old_key != key:
+                    await delete_source(old_raw)
                 job = IngestJob(
                     kb_id=kb.id,
                     source_id=source_id,
@@ -374,8 +420,8 @@ async def run_ingest(
             # 共享数据库 / 迁移场景下，旧记录的 raw_path 可能指向另一个环境，
             # 或仍是相对路径。本次上传的字节就是权威内容，重新落到当前
             # upload_dir 并修正路径，避免解析时报「文件不存在」。
-            rel_path.write_bytes(file_bytes)
-            existed.raw_path = str(rel_path)
+            key = await _store_source_file(kb.id, rel_path.name, file_bytes)
+            existed.raw_path = key
             job = IngestJob(
                 kb_id=kb.id,
                 source_id=existed.id,
@@ -397,14 +443,14 @@ async def run_ingest(
             )
             return job_id
 
-        # 落盘原始素材（不可变）
-        rel_path.write_bytes(file_bytes)
+        # 落盘原始素材（不可变）；S3 模式同时写入对象存储。
+        key = await _store_source_file(kb.id, rel_path.name, file_bytes)
 
         source = Source(
             kb_id=kb.id,
             type=source_type or suffix.lstrip(".").lower() or "md",
             title=title or filename,
-            raw_path=str(rel_path),
+            raw_path=key,
             sha256=fp,
             status="received",
             parse_engine="native",
@@ -480,18 +526,24 @@ async def _process_ingest(
             kb = (
                 await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))
             ).scalar_one()
-            raw_path = resolve_raw_path(source.raw_path)
+            raw_value = source.raw_path
 
         await _emit(job_id, "parse_progress", {"status": "starting"})
-        parsed = await asyncio.to_thread(
-            parse_file,
-            raw_path,
-            source.type,
-            force_ocr=use_ocr,
-            figure_sink=(
-                _ocr_figure_sink(kb.id) if use_ocr and note_id is not None else None
-            ),
-        )
+        async with materialize_raw_path(raw_value) as raw_path:
+            _parse_started = time.time()
+            parsed = await asyncio.to_thread(
+                parse_file,
+                raw_path,
+                source.type,
+                force_ocr=use_ocr,
+                figure_sink=(
+                    _ocr_figure_sink(kb.id)
+                    if use_ocr and note_id is not None
+                    else None
+                ),
+            )
+            await _upload_ocr_figures(kb.id, _parse_started)
+            raw_stem = raw_path.stem
         parsed = await format_ocr_document(parsed, kb.id)
         await _update_job(job_id, progress=0.2)
         if note_id is not None:
@@ -500,7 +552,7 @@ async def _process_ingest(
                 note_id,
                 source_id=source_id,
                 parsed=parsed,
-                raw_stem=raw_path.stem,
+                raw_stem=raw_stem,
                 status="parsing",
                 progress=0.25,
             )

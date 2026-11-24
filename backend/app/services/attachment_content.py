@@ -15,11 +15,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
 from app.config import settings
+from app.services.object_store import get_object_store
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +347,29 @@ def _read_document_file(path: Path, filename: str, max_chars: int) -> tuple[str,
     return text[:max_chars], len(text) > max_chars
 
 
+def _media_rel(url: str) -> str | None:
+    if not url.startswith("/media/"):
+        return None
+    rel = unquote(url[len("/media/") :].split("?", 1)[0].split("#", 1)[0])
+    parts = [part for part in rel.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        return None
+    return "/".join(parts)
+
+
+def _mirror_media(url: str, root: Path) -> None:
+    rel = _media_rel(url)
+    if rel is None:
+        return
+    try:
+        with get_object_store().materialize_sync(f"media/{rel}") as source:
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    except Exception:  # noqa: BLE001 —— 单个文件缺失 / 读取失败时跳过
+        return
+
+
 def _resolve_media_path(url: str, media_root: Path) -> Path | None:
     """把 ``/media/<kb>/<file>`` 解析到媒体根目录内；越界或不存在返回 None。"""
     raw = unquote(url)
@@ -411,10 +437,23 @@ def read_embedded_attachments(
     """
     if not body_md or "kiwi-embed" not in body_md:
         return []
-    root = media_root if media_root is not None else settings.upload_dir / "media"
     blocks = embedded_file_blocks(body_md)
     if not blocks:
         return []
+    if media_root is None and settings.media_backend == "s3":
+        with tempfile.TemporaryDirectory(prefix="kiwi-attach-") as tmp:
+            temp_root = Path(tmp)
+            for data in blocks:
+                _mirror_media(str(data.get("url") or ""), temp_root)
+            return read_embedded_attachments(
+                body_md,
+                query=query,
+                media_root=temp_root,
+                max_files=max_files,
+                max_chars=max_chars,
+                total_chars=total_chars,
+            )
+    root = media_root if media_root is not None else settings.upload_dir / "media"
 
     ranked: list[tuple[int, int, dict, Path, str]] = []
     for order, data in enumerate(blocks):
@@ -480,6 +519,13 @@ def read_import_attachment(
     url = str(import_meta.get("media_url") or "").strip()
     if not url:
         return None
+    if media_root is None and settings.media_backend == "s3":
+        with tempfile.TemporaryDirectory(prefix="kiwi-import-") as tmp:
+            temp_root = Path(tmp)
+            _mirror_media(url, temp_root)
+            return read_import_attachment(
+                import_meta, media_root=temp_root, max_chars=max_chars
+            )
     root = media_root if media_root is not None else settings.upload_dir / "media"
     path = _resolve_media_path(url, root)
     if path is None:

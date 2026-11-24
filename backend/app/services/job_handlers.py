@@ -44,9 +44,9 @@ async def _refresh_note_snapshot(
     """
     from hashlib import sha256
 
-    from app.config import settings
     from app.db.models import Note, Source
     from app.services import note_compiler
+    from app.services.source_paths import save_source_bytes
 
     async with async_session_factory() as db:
         note = await db.get(Note, note_id)
@@ -58,12 +58,10 @@ async def _refresh_note_snapshot(
             return False
         content = body.encode("utf-8")
         fingerprint = sha256(content).hexdigest()
-        target = Path(settings.upload_dir) / str(kb_id)
-        target.mkdir(parents=True, exist_ok=True)
-        raw_path = target / f"note-{note.id}.md"
         changed = source.sha256 != fingerprint
-        raw_path.write_bytes(content)
-        source.raw_path = str(raw_path)
+        source.raw_path = await save_source_bytes(
+            kb_id, f"note-{note.id}.md", content
+        )
         source.sha256 = fingerprint
         source.type = "note"
         source.external_id = f"note:{note.id}"

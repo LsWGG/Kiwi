@@ -17,7 +17,6 @@ import asyncio
 import json
 import logging
 import re
-import shutil
 import tempfile
 import uuid
 import zipfile
@@ -62,7 +61,8 @@ from app.db.models import (
 )
 from app.db.session import async_session_factory
 from app.services.embedder import is_disabled
-from app.services.source_paths import resolve_raw_path
+from app.services.object_store import get_object_store
+from app.services.source_paths import materialize_raw_path, save_source_bytes
 
 logger = logging.getLogger("kiwi.transfer")
 
@@ -173,10 +173,6 @@ async def _collect_rows(session: AsyncSession, kb_id: uuid.UUID) -> dict[str, li
     return data
 
 
-def _media_root() -> Path:
-    return settings.upload_dir / "media"
-
-
 def _safe_ext(path: str) -> str:
     ext = re.sub(r"[^a-z0-9.]", "", Path(path).suffix.lower())[:16]
     return ext or ".bin"
@@ -200,18 +196,19 @@ async def build_export(session: AsyncSession, kb_id: uuid.UUID) -> tuple[str, st
                 raw = source.get("raw_path") or ""
                 if not raw:
                     continue
-                path = resolve_raw_path(raw)
-                if not path.exists() or not path.is_file():
-                    continue
-                ext = _safe_ext(path.name)
-                archive_path = f"files/sources/{source['id']}{ext}"
-                zf.write(path, archive_path)
+                async with materialize_raw_path(raw) as path:
+                    if not path.is_file():
+                        continue
+                    ext = _safe_ext(path.name)
+                    archive_path = f"files/sources/{source['id']}{ext}"
+                    zf.write(path, archive_path)
+                    filename = path.name
                 files.append(
                     {
                         "kind": "source",
                         "old_id": source["id"],
                         "archive_path": archive_path,
-                        "filename": path.name,
+                        "filename": filename,
                         "ext": ext,
                     }
                 )
@@ -219,19 +216,22 @@ async def build_export(session: AsyncSession, kb_id: uuid.UUID) -> tuple[str, st
                 storage_path = attachment.get("storage_path") or ""
                 if not storage_path:
                     continue
-                path = _media_root() / storage_path
-                if not path.exists() or not path.is_file():
-                    continue
-                ext = _safe_ext(path.name)
-                archive_path = f"files/media/{attachment['id']}{ext}"
-                zf.write(path, archive_path)
+                async with get_object_store().materialize(
+                    f"media/{storage_path}"
+                ) as path:
+                    if not path.is_file():
+                        continue
+                    ext = _safe_ext(path.name)
+                    archive_path = f"files/media/{attachment['id']}{ext}"
+                    zf.write(path, archive_path)
+                    filename = attachment.get("filename") or path.name
                 files.append(
                     {
                         "kind": "attachment",
                         "old_id": attachment["id"],
                         "old_storage_path": storage_path,
                         "archive_path": archive_path,
-                        "filename": attachment.get("filename") or path.name,
+                        "filename": filename,
                         "content_type": attachment.get("content_type") or "",
                         "ext": ext,
                     }
@@ -421,19 +421,18 @@ async def import_package(session: AsyncSession, package_path: Path) -> tuple[Kno
                     raise TransferError("导出包内单个文件过大")
                 ext = entry.get("ext") or _safe_ext(archive_path)
                 if kind == "source":
-                    target = settings.upload_dir / str(new_kb_id) / f"{new_id}{ext}"
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(info) as src, target.open("wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    created_files.append(target)
-                    file_overrides[("source", new_id)] = {"raw_path": str(target)}
+                    data = zf.read(info)
+                    key = await save_source_bytes(
+                        new_kb_id, f"{new_id}{ext}", data
+                    )
+                    created_files.append(key)
+                    file_overrides[("source", new_id)] = {"raw_path": key}
                 elif kind == "attachment":
                     storage_path = f"{new_kb_id}/{new_id}{ext}"
-                    target = _media_root() / storage_path
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(info) as src, target.open("wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    created_files.append(target)
+                    await get_object_store().save_bytes(
+                        f"media/{storage_path}", zf.read(info)
+                    )
+                    created_files.append(f"media/{storage_path}")
                     old_storage = str(entry.get("old_storage_path") or "")
                     if old_storage:
                         replace[old_storage] = storage_path
@@ -576,10 +575,11 @@ async def import_package(session: AsyncSession, package_path: Path) -> tuple[Kno
                 await session.rollback()
         except Exception:  # noqa: BLE001
             pass
-        for path in created_files:
+        store = get_object_store()
+        for key in created_files:
             try:
-                path.unlink(missing_ok=True)
-            except OSError:
+                await store.delete(key)
+            except Exception:  # noqa: BLE001 —— 清理失败不掩盖原始错误
                 pass
         raise
     finally:

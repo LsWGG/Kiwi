@@ -19,6 +19,8 @@ import KiwiDateInput from '@/components/ui/KiwiDateInput.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import MarkdownView from '@/components/editor/MarkdownView.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
+import AgentTraceDialog from '@/components/settings/AgentTraceDialog.vue'
+import { getAgentTrace, type AgentTrace } from '@/api/operations'
 import { toast } from '@/components/ui/toast'
 
 interface Citation {
@@ -160,6 +162,14 @@ interface Msg {
   /** 等待用户确认的写操作；确认或取消后保留到本轮结束。 */
   pendingAction?: PendingAction | null
   actionState?: 'idle' | 'approving' | 'approved' | 'failed' | 'rejected' | 'expired'
+  /** 本轮写操作的一键撤销（15 分钟内有效）。 */
+  undo?: {
+    id: string
+    label: string
+    state: 'idle' | 'running' | 'done' | 'failed'
+  }
+  /** 本轮 Agent 轨迹 ID；用于跳转运维页查看流转。 */
+  traceId?: string
 }
 
 interface SessionSummary {
@@ -202,6 +212,10 @@ const llmMissing = computed(
   () => desktop.isDesktop && desktop.ready && !desktop.llmConfigured,
 )
 const router = useRouter()
+
+/** 当前打开的本轮 Agent 流转；不跳转页面，关闭后仍停留在问答。 */
+const traceDialogTrace = ref<AgentTrace | null>(null)
+const traceDialogLoading = ref(false)
 
 const messages = ref<Msg[]>([])
 const input = ref('')
@@ -491,13 +505,51 @@ let hydratingSession = false
 function applySession(detail: SessionDetail) {
   hydratingSession = true
   currentSessionId.value = detail.id
-  const loaded: Msg[] = (detail.messages || []).map((m) => ({
-    role: m.role,
-    content: String(m.content || ''),
-    citations: Array.isArray(m.citations) ? m.citations : [],
-    streaming: false,
-    created_at: m.created_at,
-  }))
+  const loaded: Msg[] = (detail.messages || []).map((m) => {
+    const raw = m as any
+    const steps = Array.isArray(raw.steps)
+      ? raw.steps.map((step: any) => ({
+          id: String(step?.id || ''),
+          message: String(step?.message || ''),
+          detail: String(step?.detail || ''),
+          status:
+            step?.status === 'error'
+              ? ('error' as const)
+              : step?.status === 'pending'
+                ? ('pending' as const)
+                : ('done' as const),
+        }))
+      : []
+    const plan = Array.isArray(raw.plan)
+      ? raw.plan.map((step: any) => ({
+          id: String(step?.id || ''),
+          title: String(step?.title || ''),
+          status:
+            step?.status === 'active'
+              ? ('active' as const)
+              : step?.status === 'pending'
+                ? ('pending' as const)
+                : ('done' as const),
+        }))
+      : []
+    return {
+      role: m.role,
+      content: String(m.content || ''),
+      citations: Array.isArray(m.citations) ? m.citations : [],
+      streaming: false,
+      created_at: m.created_at,
+      steps: steps.length ? steps : undefined,
+      plan: plan.length ? plan : undefined,
+      traceId:
+        typeof raw.trace_id === 'string' && raw.trace_id
+          ? raw.trace_id
+          : undefined,
+      startedAt:
+        typeof raw.started_at === 'number' ? raw.started_at : undefined,
+      finishedAt:
+        typeof raw.finished_at === 'number' ? raw.finished_at : undefined,
+    }
+  })
   // 历史消息同样只展示正文实际引用的来源；旧数据里的编号一并重排。
   for (const message of loaded) {
     if (message.role === 'assistant') normalizeCitations(message, message.citations)
@@ -1121,6 +1173,11 @@ function sessionPayload() {
         content: m.content,
         citations: m.citations,
         created_at: m.created_at,
+        steps: m.role === 'assistant' ? m.steps : undefined,
+        plan: m.role === 'assistant' ? m.plan : undefined,
+        trace_id: m.role === 'assistant' ? m.traceId : undefined,
+        started_at: m.role === 'assistant' ? m.startedAt : undefined,
+        finished_at: m.role === 'assistant' ? m.finishedAt : undefined,
       })),
     scope: sessionScopePayload(),
     intent: intent.value,
@@ -1594,7 +1651,10 @@ interface StreamCitations {
 /** 应用一条 Agent SSE 事件；首轮提问与确认后恢复共用同一套处理。 */
 function handleStreamEvent(assistant: Msg, event: SSEMessage, pendingCitations: StreamCitations) {
   const data: any = event.data
-  if (event.event === 'stage') {
+  if (event.event === 'trace') {
+    const traceId = String(data?.trace_id || '').trim()
+    if (traceId) assistant.traceId = traceId
+  } else if (event.event === 'stage') {
     applyStage(assistant, data)
     scrollToBottom()
   } else if (event.event === 'plan') {
@@ -1630,6 +1690,13 @@ function handleStreamEvent(assistant: Msg, event: SSEMessage, pendingCitations: 
       scrollToBottom(true)
       if (assistant.pendingAction) revealApproval(assistant.pendingAction.action_id)
       return
+    }
+    if (data?.undo_id) {
+      assistant.undo = {
+        id: String(data.undo_id),
+        label: String(data.undo_label || '本次操作'),
+        state: 'idle',
+      }
     }
     if (data?.cancelled) assistant.actionState = 'rejected'
     else if (assistant.actionState === 'approving') assistant.actionState = 'approved'
@@ -1688,6 +1755,38 @@ function resolveAction(msg: Msg, approve: boolean) {
       onError: (error) => handleStreamError(msg, error),
     },
   )
+}
+
+/** 在问答页原地打开本轮 Agent 流转，不改变当前路由。 */
+async function openAgentTrace(msg: Msg) {
+  const traceId = String(msg.traceId || '').trim()
+  if (!traceId || traceDialogLoading.value) return
+  traceDialogLoading.value = true
+  try {
+    traceDialogTrace.value = await getAgentTrace(traceId)
+  } catch {
+    toast.info('该轮 Agent 轨迹已过期（仅保留最近 100 轮）')
+  } finally {
+    traceDialogLoading.value = false
+  }
+}
+
+/** 撤销本轮 Agent 写操作；记录只在服务端保留 15 分钟。 */
+async function undoAgentAction(msg: Msg) {
+  const undo = msg.undo
+  if (!undo || undo.state === 'running' || undo.state === 'done') return
+  undo.state = 'running'
+  try {
+    const res = await request<{ ok: boolean; message?: string }>(
+      `/chat/undo/${encodeURIComponent(undo.id)}`,
+      { method: 'POST' },
+    )
+    undo.state = 'done'
+    toast.success(res.message || '已撤销本次操作')
+  } catch (e: any) {
+    undo.state = 'failed'
+    toast.error(e.message || '撤销失败，记录可能已过期')
+  }
 }
 
 function formatDuration(ms: number): string {
@@ -3110,6 +3209,27 @@ watch(
                     复制
                   </button>
                   <button
+                    v-if="m.traceId"
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition hover:bg-kiwi-50 hover:text-kiwi-700"
+                    title="查看本次回复的 Agent 流转"
+                    @click="openAgentTrace(m)"
+                  >
+                    <KiwiIcon name="graph" :size="11" />
+                    Agent 流转
+                  </button>
+                  <button
+                    v-if="m.undo && m.undo.state !== 'done'"
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition hover:bg-kiwi-50 hover:text-kiwi-700 disabled:opacity-60"
+                    :disabled="m.undo.state === 'running'"
+                    :title="`撤销：${m.undo.label}`"
+                    @click="undoAgentAction(m)"
+                  >
+                    <KiwiIcon name="undo" :size="11" />
+                    {{ m.undo.state === 'running' ? '撤销中…' : m.undo.state === 'failed' ? '重试撤销' : '撤销本次操作' }}
+                  </button>
+                  <button
                     v-if="m.citations?.length"
                     type="button"
                     class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition hover:bg-kiwi-50 hover:text-kiwi-700"
@@ -3507,6 +3627,12 @@ watch(
         </button>
       </div>
     </KiwiModal>
+
+    <!-- 本轮 Agent 流转：原地弹窗，关闭后仍停留在问答页 -->
+    <AgentTraceDialog
+      :trace="traceDialogTrace"
+      @close="traceDialogTrace = null"
+    />
   </div>
 </template>
 

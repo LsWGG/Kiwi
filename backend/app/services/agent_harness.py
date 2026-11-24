@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -30,8 +31,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.mcp import Toolbox
 from app.schemas.chat import Citation
-from app.services import agent_actions, agent_tools
+from app.services import (
+    agent_actions,
+    agent_fast_path,
+    agent_tools,
+    agent_trace,
+    agent_undo,
+)
 from app.services.agent_planner import app_timezone
+from app.services.metrics import metrics
 
 logger = logging.getLogger("kiwi.agent")
 
@@ -58,6 +66,22 @@ class AgentContext:
     plan: list[dict] = field(default_factory=list)
     # 本轮可见的工具集（内置 + 外部 MCP）；为空时由 run_agent 延迟加载。
     toolbox: Toolbox | None = None
+    # 用户这一轮的原话，用于快路径资格判断；为空表示不做快路径。
+    user_query: str = ""
+    # 单次模型调用超时（秒）；0 表示使用客户端默认值。
+    completion_timeout: float = 0.0
+    # 检索规划阶段的来源与耗时，随本轮 trace 一起展示。
+    planner_source: str = ""
+    planner_ms: float = 0.0
+    planner_queries: int = 0
+    planner_input: dict[str, Any] = field(default_factory=dict)
+    planner_output: dict[str, Any] = field(default_factory=dict)
+    # 最近一次模型调用的 usage / finish_reason / 尝试次数，供 trace 记录。
+    last_usage: dict[str, int] = field(default_factory=dict)
+    last_finish_reason: str = ""
+    last_attempts: int = 0
+    # 由检索准备阶段提前创建的 trace；为空时 run_agent 自己创建。
+    trace: agent_trace.AgentTrace | None = None
 
 
 class AgentFormatError(Exception):
@@ -402,6 +426,12 @@ def _mark_plan(plan: list[dict], index: Any, status: str) -> None:
         plan[position]["status"] = status
 
 
+def _undo_fields(record: agent_undo.UndoRecord | None) -> dict[str, Any]:
+    if record is None:
+        return {}
+    return {"undo_id": record.id, "undo_label": record.label}
+
+
 def _finalize_plan(plan: list[dict]) -> None:
     for step in plan:
         if step.get("status") in ("pending", "active"):
@@ -425,15 +455,32 @@ LLM_RETRY_DELAY = 1.2
 
 async def _complete(ctx: AgentContext) -> str:
     attempts = 0
+    ctx.last_usage = {}
+    ctx.last_finish_reason = ""
+    ctx.last_attempts = 0
     while True:
         try:
-            response = await ctx.client.chat.completions.create(
+            call = ctx.client.chat.completions.create(
                 model=ctx.model_name,
                 messages=_history(ctx.messages),
                 stream=False,
                 temperature=ctx.temperature,
             )
+            if ctx.completion_timeout and ctx.completion_timeout > 0:
+                response = await asyncio.wait_for(
+                    call, timeout=ctx.completion_timeout
+                )
+            else:
+                response = await call
             break
+        except asyncio.TimeoutError:
+            if attempts >= MAX_LLM_RETRIES:
+                raise
+            attempts += 1
+            logger.warning(
+                "模型调用超时，第 %s/%s 次重试", attempts, MAX_LLM_RETRIES
+            )
+            await asyncio.sleep(LLM_RETRY_DELAY * attempts)
         except (APIConnectionError, APITimeoutError) as e:
             # 代理或网络偶发断连：已确认的写操作之后继续生成总结时也会遇到，
             # 直接失败会让用户以为操作没成功。短暂退避后重试。
@@ -461,6 +508,19 @@ async def _complete(ctx: AgentContext) -> str:
     choices = getattr(response, "choices", None) or []
     if not choices:
         raise AgentFormatError("模型没有返回内容")
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        ctx.last_usage = {
+            "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(
+                getattr(usage, "completion_tokens", 0) or 0
+            ),
+            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+        }
+    ctx.last_finish_reason = str(
+        getattr(choices[0], "finish_reason", "") or ""
+    )
+    ctx.last_attempts = attempts + 1
     message = getattr(choices[0], "message", None)
     content = getattr(message, "content", None) if message is not None else None
     return str(content or "")
@@ -510,11 +570,40 @@ async def run_agent(
     protocol_prompt = agent_system_prompt(
         can_write=can_write, toolbox=toolbox, max_steps=max_steps
     )
+    trace = ctx.trace or agent_trace.start_trace(
+        query=ctx.user_query,
+        query_chars=len(ctx.user_query),
+        model=ctx.model_name,
+        scope=ctx.scope_mode,
+        planner_source=ctx.planner_source,
+        planner_ms=ctx.planner_ms,
+        planner_queries=ctx.planner_queries,
+    )
+    ctx.trace = trace
+    trace.model = ctx.model_name or trace.model
+    # 前端用这个 ID 在「设置 → 运维 → Agent 轨迹」里定位本轮流转。
+    yield "trace", {"trace_id": trace.id}
+    if (
+        ctx.planner_input or ctx.planner_output
+    ) and not any(event["kind"] == "planner" for event in trace.events):
+        trace.event(
+            "planner",
+            "检索规划",
+            ms=ctx.planner_ms,
+            input=ctx.planner_input,
+            output=ctx.planner_output,
+            meta={"source": ctx.planner_source, "queries": ctx.planner_queries},
+        )
     plan = [dict(step) for step in ctx.plan]
     # 本轮工具真正返回过的笔记 / Wiki，用于修正模型回答里抄错的链接 id。
     known_links: dict[str, str] = {}
+    # 确认执行成功的写操作；后续模型若断连，用它给出确定性的完成回执。
+    last_write: tuple[str, dict[str, Any]] | None = None
+    undo_record: agent_undo.UndoRecord | None = None
     if resume is not None:
         if not approved:
+            trace.finish("cancelled")
+            metrics.inc("kiwi_agent_turns_total", {"status": "cancelled"})
             yield "stage", {
                 "stage": "approve",
                 "status": "done",
@@ -534,6 +623,10 @@ async def run_agent(
             "status": "start",
             "message": f"正在执行：{resume.label}",
         }
+        undo_snapshot = await agent_undo.capture_before(
+            session, ctx.kb_id, resume.tool, resume.args
+        )
+        _tool_started = time.perf_counter()
         try:
             result = await toolbox.execute(
                 session, ctx.kb_id, resume.tool, resume.args
@@ -544,7 +637,33 @@ async def run_agent(
             result = {"ok": False, "error": str(e)}
             ok = False
             summary = str(e)
+        _tool_elapsed = time.perf_counter() - _tool_started
+        trace.event(
+            "tool",
+            resume.tool,
+            ms=_tool_elapsed * 1000,
+            ok=ok,
+            detail=resume.label,
+            input={"tool": resume.tool, "args": resume.args},
+            output=result,
+            meta={"read_only": False, "label": resume.label},
+        )
+        metrics.observe(
+            "kiwi_agent_tool_seconds",
+            _tool_elapsed,
+            {"tool": resume.tool, "ok": str(ok).lower()},
+        )
         _collect_link_targets(result, known_links)
+        if ok:
+            last_write = (resume.label, result)
+            if ctx.kb_id is not None:
+                undo_record = agent_undo.register(
+                    tool=resume.tool,
+                    kb_id=ctx.kb_id,
+                    label=resume.label,
+                    snapshot=undo_snapshot,
+                    result=result,
+                )
         yield "tool_result", {
             "tool": resume.tool,
             "label": resume.label,
@@ -576,15 +695,141 @@ async def run_agent(
     attempts = 0
     leak_retries = 0
     native_retries = 0
+    fast_tool: str | None = None
+    fast_result: dict[str, Any] | None = None
     try:
         while tool_steps < max_steps and attempts < max_steps * 2:
             attempts += 1
-            raw = await _complete(ctx)
-            reply = _parse_reply_with_dsml(raw)
+            fast_action = (
+                agent_fast_path.build_after_read_tool(
+                    ctx.user_query,
+                    fast_tool,
+                    fast_result or {},
+                    can_write=can_write,
+                    plan=plan,
+                )
+                if fast_tool
+                else None
+            )
+            fast_tool = None
+            fast_result = None
+            if fast_action is not None:
+                logger.info(
+                    "Agent 快路径：%s → %s", fast_action.get("tool"), fast_action.get("summary")
+                )
+                trace.event(
+                    "fast_path",
+                    fast_action["tool"],
+                    detail=str(fast_action.get("summary") or ""),
+                    input={"query": ctx.user_query},
+                    output={
+                        "tool": fast_action["tool"],
+                        "args": fast_action["args"],
+                        "summary": fast_action.get("summary") or "",
+                    },
+                    meta={"reason": "确定性任务，跳过第二次模型改写"},
+                )
+                metrics.inc(
+                    "kiwi_agent_fast_path_total", {"tool": fast_action["tool"]}
+                )
+                raw = json.dumps(
+                    {
+                        "thought": fast_action.get("thought") or "",
+                        "plan": [],
+                        "action": {
+                            "tool": fast_action["tool"],
+                            "args": fast_action["args"],
+                            "summary": fast_action.get("summary") or "",
+                            "step": fast_action.get("step"),
+                        },
+                        "answer": None,
+                    },
+                    ensure_ascii=False,
+                )
+                reply = AgentReply(
+                    thought=str(fast_action.get("thought") or ""),
+                    action={
+                        "tool": fast_action["tool"],
+                        "args": fast_action["args"],
+                        "summary": fast_action.get("summary") or "",
+                        "step": fast_action.get("step"),
+                    },
+                    raw=raw,
+                )
+            else:
+                _model_started = time.perf_counter()
+                try:
+                    raw = await _complete(ctx)
+                except Exception as exc:
+                    _model_elapsed = time.perf_counter() - _model_started
+                    trace.event(
+                        "model",
+                        ctx.model_name,
+                        ms=_model_elapsed * 1000,
+                        ok=False,
+                        detail=type(exc).__name__,
+                        input={
+                            "messages": _history(ctx.messages),
+                            "model": ctx.model_name,
+                            "temperature": ctx.temperature,
+                        },
+                        output={"error": str(exc)[:2000]},
+                        meta={
+                            "model": ctx.model_name,
+                            "attempts": max(1, ctx.last_attempts),
+                            "error": type(exc).__name__,
+                        },
+                    )
+                    metrics.observe(
+                        "kiwi_agent_model_seconds",
+                        _model_elapsed,
+                        {"model": ctx.model_name, "ok": "false"},
+                    )
+                    metrics.inc(
+                        "kiwi_agent_model_errors_total",
+                        {"error": type(exc).__name__},
+                    )
+                    raise
+                _model_elapsed = time.perf_counter() - _model_started
+                tokens = ctx.last_usage.get("total_tokens", 0)
+                trace.event(
+                    "model",
+                    ctx.model_name,
+                    ms=_model_elapsed * 1000,
+                    detail=f"chars={len(raw)}" + (f" · {tokens} tokens" if tokens else ""),
+                    input={
+                        "messages": _history(ctx.messages),
+                        "model": ctx.model_name,
+                        "temperature": ctx.temperature,
+                    },
+                    output=raw,
+                    meta={
+                        "model": ctx.model_name,
+                        "temperature": ctx.temperature,
+                        "usage": ctx.last_usage,
+                        "finish_reason": ctx.last_finish_reason,
+                        "attempts": ctx.last_attempts,
+                    },
+                )
+                metrics.observe(
+                    "kiwi_agent_model_seconds",
+                    _model_elapsed,
+                    {"model": ctx.model_name, "ok": "true"},
+                )
+                reply = _parse_reply_with_dsml(raw)
             if reply.action is None and _DSML_MARKER_RE.search(raw):
                 # 原生工具调用标记既不是回答也不是合法协议；要求模型改写。
                 if native_retries < 2:
                     native_retries += 1
+                    trace.event(
+                        "retry",
+                        "原生工具调用格式",
+                        ok=False,
+                        detail="要求模型按 JSON 协议重写",
+                        input={"raw": raw},
+                        output={"attempt": native_retries},
+                        meta={"reason": "dsml_or_native_tool_call"},
+                    )
                     ctx.messages.append({"role": "assistant", "content": raw})
                     ctx.messages.append(
                         {
@@ -617,6 +862,14 @@ async def run_agent(
                 if answer_echoes_prompt(reply.answer, protocol_prompt):
                     if leak_retries < 1:
                         leak_retries += 1
+                        trace.event(
+                            "retry",
+                            "回答复述系统提示",
+                            ok=False,
+                            detail="要求模型删除内部说明后重写",
+                            input=reply.answer,
+                            meta={"reason": "prompt_leak"},
+                        )
                         ctx.messages.append(
                             {"role": "assistant", "content": reply.raw or raw}
                         )
@@ -643,9 +896,20 @@ async def run_agent(
                     yield "plan", {"steps": plan, "thought": reply.thought}
                 yield "stage", {"stage": "agent", "status": "done", "message": "已完成思考"}
                 yield "stage", {"stage": "generate", "status": "start", "message": "正在整理回答"}
-                yield "chunk", {"text": _repair_note_links(reply.answer, known_links)}
+                answer_text = _repair_note_links(reply.answer, known_links)
+                trace.event(
+                    "answer",
+                    "最终回答",
+                    input={
+                        "model": ctx.model_name,
+                        "citations": len(ctx.citations),
+                    },
+                    output=answer_text,
+                    meta={"chars": len(answer_text)},
+                )
+                yield "chunk", {"text": answer_text}
                 yield "stage", {"stage": "generate", "status": "done", "message": "回答生成完成"}
-                yield "done", {"ok": True, "plan": plan}
+                yield "done", {"ok": True, "plan": plan, **_undo_fields(undo_record)}
                 return
 
             tool = action["tool"]
@@ -703,6 +967,15 @@ async def run_agent(
                     arg_labels=arg_labels,
                 )
                 agent_actions.store(pending)
+                trace.event(
+                    "approval",
+                    label,
+                    detail=summary,
+                    input=pending.payload(),
+                    output={"awaiting_approval": True},
+                    meta={"tool": tool},
+                )
+                metrics.inc("kiwi_agent_approvals_total", {"tool": tool})
                 if plan and action.get("step") is not None:
                     _mark_plan(plan, action.get("step"), "pending")
                     yield "plan", {"steps": plan, "thought": reply.thought}
@@ -720,6 +993,7 @@ async def run_agent(
                 }
                 return
 
+            _tool_started = time.perf_counter()
             try:
                 result = await toolbox.execute(session, ctx.kb_id, tool, args)
                 ok = True
@@ -728,6 +1002,22 @@ async def run_agent(
                 result = {"ok": False, "error": str(e)}
                 ok = False
                 error = str(e)
+            _tool_elapsed = time.perf_counter() - _tool_started
+            trace.event(
+                "tool",
+                tool,
+                ms=_tool_elapsed * 1000,
+                ok=ok,
+                detail=summary,
+                input={"tool": tool, "args": args},
+                output=_tool_result_ui(result),
+                meta={"read_only": True, "summary": summary},
+            )
+            metrics.observe(
+                "kiwi_agent_tool_seconds",
+                _tool_elapsed,
+                {"tool": tool, "ok": str(ok).lower()},
+            )
             _collect_link_targets(result, known_links)
             if plan and action.get("step") is not None:
                 _mark_plan(plan, action.get("step"), "done" if ok else "pending")
@@ -777,6 +1067,9 @@ async def run_agent(
                     "status": "start",
                     "message": "工具执行失败，正在让模型调整方案",
                 }
+            if ok and tool in ("fetch_url", "get_template"):
+                fast_tool = tool
+                fast_result = result
 
         # 达到工具调用上限：再给模型一次只回答、不调工具的机会。
         ctx.messages.append(
@@ -799,15 +1092,93 @@ async def run_agent(
             _finalize_plan(plan)
             yield "plan", {"steps": plan, "thought": reply.thought}
         yield "stage", {"stage": "agent", "status": "done", "message": "已达到工具调用上限"}
+        trace.event(
+            "answer",
+            "最终回答（步数上限）",
+            output=answer,
+            meta={"chars": len(answer), "step_limit": True},
+        )
         yield "chunk", {"text": answer}
-        yield "done", {"ok": True, "plan": plan, "step_limit": True}
+        yield "done", {
+            "ok": True,
+            "plan": plan,
+            "step_limit": True,
+            **_undo_fields(undo_record),
+        }
     except (agent_tools.ToolError,) as e:
+        trace.event(
+            "error",
+            type(e).__name__,
+            ok=False,
+            detail=str(e),
+            output={"error": str(e)},
+        )
         yield "error", {"message": str(e)}
     except AgentFormatError as e:
+        trace.event(
+            "error",
+            type(e).__name__,
+            ok=False,
+            detail=str(e),
+            output={"error": str(e)},
+        )
         yield "error", {"message": f"Agent 响应格式不正确：{e}"}
     except Exception as e:  # noqa: BLE001 —— SSE 已开始，只能通知前端
+        # 写操作已经落库，只是后续模型总结失败：不能报“执行失败”让用户误以为
+        # 没保存。给出确定性的完成回执与真实笔记链接。
+        if last_write is not None and isinstance(
+            e, (APIConnectionError, APITimeoutError, APIStatusError, asyncio.TimeoutError)
+        ):
+            label, _result = last_write
+            links = "、".join(
+                f"[{title}](kiwi://note/{note_id})"
+                for note_id, title in known_links.items()
+            )
+            suffix = f" 已完成：{links}。" if links else ""
+            trace.event(
+                "fallback",
+                label,
+                detail="模型总结中断，返回确定性回执",
+                input={"label": label},
+                output={"links": links, "error": type(e).__name__},
+                meta={"error": str(e)[:1000]},
+            )
+            yield "chunk", {
+                "text": (
+                    f"{label}已执行完成，但模型连接中断，未能生成总结。"
+                    f"{suffix}请在笔记列表确认结果。"
+                )
+            }
+            _finalize_plan(plan)
+            if plan:
+                yield "plan", {"steps": plan, "thought": "操作已完成"}
+            yield "stage", {
+                "stage": "generate",
+                "status": "done",
+                "message": "操作完成（模型总结中断）",
+            }
+            yield "done", {"ok": True, "plan": plan, **_undo_fields(undo_record)}
+            return
+        trace.event(
+            "error",
+            type(e).__name__,
+            ok=False,
+            detail=str(e),
+            output={"error": str(e)},
+            meta={"error": type(e).__name__},
+        )
         logger.exception("Agent 循环失败")
         yield "error", {"message": f"Agent 执行失败：{e}"}
+    finally:
+        has_error = any(event["kind"] == "error" for event in trace.events)
+        has_approval = any(event["kind"] == "approval" for event in trace.events)
+        status = (
+            "error"
+            if has_error
+            else ("awaiting_approval" if has_approval else "done")
+        )
+        trace.finish(status)
+        metrics.inc("kiwi_agent_turns_total", {"status": status})
 
 
 __all__ = [

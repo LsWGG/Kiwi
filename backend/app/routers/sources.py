@@ -14,7 +14,12 @@ from app.schemas.source import SourceOut, SourcePreviewOut
 from app.services import ingest_service, qdrant_store
 from app.services.embedder import is_disabled
 from app.services.parser import parse_file
-from app.services.source_paths import resolve_raw_path
+from app.services.source_paths import (
+    delete_source as delete_stored_source,
+)
+from app.services.source_paths import (
+    materialize_raw_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,24 +66,28 @@ async def preview_source(
     src = await session.get(Source, source_id)
     if src is None or src.kb_id != kb_id:
         raise HTTPException(404, "素材不存在")
-    path = resolve_raw_path(src.raw_path)
-    if not path.exists():
-        raise HTTPException(404, "素材原文件已不存在")
-
     text = ""
     engine = src.parse_engine
     try:
-        parsed = await asyncio.to_thread(parse_file, path, src.type)
-        text = parsed.text or ""
-        engine = parsed.parse_engine
-    except Exception as e:  # noqa: BLE001 - 解析失败时对文本类素材降级直读
-        if src.type in ("md", "markdown", "txt"):
+        async with materialize_raw_path(src.raw_path) as path:
             try:
-                text = path.read_text(encoding="utf-8", errors="replace")
-            except OSError as read_error:
-                raise HTTPException(500, f"读取素材失败：{read_error}") from read_error
-        else:
-            raise HTTPException(422, f"素材原文解析失败：{e}") from e
+                parsed = await asyncio.to_thread(parse_file, path, src.type)
+                text = parsed.text or ""
+                engine = parsed.parse_engine
+            except Exception as e:  # noqa: BLE001 - 解析失败时对文本类素材降级直读
+                if src.type in ("md", "markdown", "txt"):
+                    try:
+                        text = path.read_text(encoding="utf-8", errors="replace")
+                    except OSError as read_error:
+                        raise HTTPException(
+                            500, f"读取素材失败：{read_error}"
+                        ) from read_error
+                else:
+                    raise HTTPException(
+                        422, f"素材原文解析失败：{e}"
+                    ) from e
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "素材原文件已不存在") from exc
 
     truncated = len(text) > PREVIEW_LIMIT
     return SourcePreviewOut(
@@ -148,7 +157,7 @@ async def delete_source(
     if src is None or src.kb_id != kb_id:
         raise HTTPException(404, "素材不存在")
     kb = await session.get(KnowledgeBase, kb_id)
-    raw_path = resolve_raw_path(src.raw_path)
+    raw_path = src.raw_path
     await session.delete(src)
     await session.commit()
 
@@ -162,7 +171,4 @@ async def delete_source(
             )
         except Exception:  # noqa: BLE001 - 向量库不可用时不应阻塞素材删除
             logger.warning("删除素材 %s 的向量失败", source_id, exc_info=True)
-    try:
-        raw_path.unlink(missing_ok=True)
-    except OSError:
-        logger.warning("删除素材原文件失败：%s", raw_path, exc_info=True)
+    await delete_stored_source(raw_path)

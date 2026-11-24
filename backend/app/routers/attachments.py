@@ -9,12 +9,12 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import Note, NoteAttachment
 from app.db.session import get_session
 from app.schemas.attachment import AttachmentOut, MdBundleOut
 from app.services import md_bundle
 from app.services.file_security import MAX_UPLOAD_BYTES
+from app.services.object_store import ObjectStoreError, get_object_store
 
 router = APIRouter(prefix="/api/attachments", tags=["attachments"])
 
@@ -41,12 +41,6 @@ ALLOWED_EXT = {
     ".csv",
     ".zip",
 }
-
-
-def media_dir() -> Path:
-    path = settings.upload_dir / "media"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def attachment_out(att: NoteAttachment) -> AttachmentOut:
@@ -83,33 +77,24 @@ async def upload_attachment(
         if note is None or note.kb_id != kb_id:
             raise HTTPException(404, "笔记不存在")
 
-    storage_dir = media_dir() / str(kb_id)
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    stored_name = f"{uuid.uuid4().hex}{ext}"
-    target = storage_dir / stored_name
-    partial = storage_dir / f".{stored_name}.part"
-    size = 0
-    try:
-        with partial.open("wb") as out:
-            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
-                size += len(chunk)
-                out.write(chunk)
-        if size == 0:
-            raise HTTPException(400, "空文件")
-        partial.replace(target)
-    except HTTPException:
-        partial.unlink(missing_ok=True)
-        raise
-    except OSError as exc:
-        partial.unlink(missing_ok=True)
-        raise HTTPException(500, "附件写入失败，请检查磁盘空间") from exc
-    except Exception:
-        partial.unlink(missing_ok=True)
-        raise
-
     content_type = (file.content_type or "").split(";")[0].strip()
     if not content_type or content_type == "application/octet-stream":
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    storage_path = f"{kb_id}/{stored_name}"
+
+    async def chunks():
+        while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+            yield chunk
+
+    try:
+        stored = await get_object_store().save_stream(
+            f"media/{storage_path}", chunks(), content_type=content_type
+        )
+    except ObjectStoreError as exc:
+        raise HTTPException(500, f"附件写入失败：{exc}") from exc
+    size = stored.size
 
     att = NoteAttachment(
         kb_id=kb_id,
@@ -117,7 +102,7 @@ async def upload_attachment(
         filename=filename[:300],
         content_type=content_type[:120],
         size=size,
-        storage_path=f"{kb_id}/{stored_name}",
+        storage_path=storage_path,
     )
     session.add(att)
     await session.commit()
@@ -211,10 +196,8 @@ async def delete_attachment(
     storage_path = att.storage_path
     await session.delete(att)
     await session.commit()
-    # 尽力删除磁盘文件（失败不阻塞）
+    # 尽力删除存储对象（失败不阻塞）
     try:
-        target = (media_dir() / storage_path).resolve()
-        if target.is_relative_to(media_dir().resolve()):
-            target.unlink(missing_ok=True)
-    except OSError:
+        await get_object_store().delete(f"media/{storage_path}")
+    except (OSError, ObjectStoreError):
         pass

@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import shutil
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -25,6 +26,7 @@ import pymupdf
 from markdown_it import MarkdownIt
 
 from app.config import settings
+from app.services.object_store import get_object_store
 
 _CM_TO_PT = 72.0 / 2.54
 _MAX_PAGES = 500
@@ -163,9 +165,27 @@ def _media_rel(src: str) -> str | None:
         path.relative_to(root)
     except ValueError:
         return None
-    if not path.is_file():
+    if settings.media_backend == "local" and not path.is_file():
         return None
     return path.relative_to(root).as_posix()
+
+
+def _mirror_pdf_media(body: str, root: Path) -> None:
+    """S3 模式下把正文引用的图片下载到临时目录，供 pymupdf.Archive 读取。"""
+    store = get_object_store()
+    for match in re.finditer(r"/media/([^\"'\s<>)]+)", body):
+        rel = unquote(match.group(1).split("?", 1)[0].split("#", 1)[0])
+        parts = [part for part in rel.split("/") if part not in ("", ".")]
+        if not parts or any(part == ".." for part in parts):
+            continue
+        rel = "/".join(parts)
+        try:
+            with store.materialize_sync(f"media/{rel}") as source:
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        except Exception:  # noqa: BLE001 —— 单张图片缺失时走文字占位
+            continue
 
 
 def _image_tag(src: Any, alt: Any, width: Any = None) -> str | None:
@@ -478,6 +498,11 @@ def markdown_to_pdf(title: str, body_md: str, prefs: dict | None = None) -> Byte
 
     html_body = markdown_to_html(body)
     media_root = _media_root()
+    media_tmp = None
+    if settings.media_backend == "s3":
+        media_tmp = tempfile.TemporaryDirectory(prefix="kiwi-pdf-media-")
+        media_root = Path(media_tmp.name)
+        _mirror_pdf_media(body, media_root)
     archive = pymupdf.Archive(str(media_root)) if media_root.is_dir() else None
     css = _css(font_size)
     # 显式分页：每个片段单独排版，片段之间自然从新页开始。
@@ -516,5 +541,7 @@ def markdown_to_pdf(title: str, body_md: str, prefs: dict | None = None) -> Byte
         doc.save(buffer, garbage=4, deflate=True, clean=True)
         doc.close()
 
+    if media_tmp is not None:
+        media_tmp.cleanup()
     buffer.seek(0)
     return buffer

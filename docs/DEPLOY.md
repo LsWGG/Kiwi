@@ -137,6 +137,23 @@ rsync -av --delete frontend/dist/ user@server:/path/to/Kiwi/frontend/dist/
 
 前端更新后重新生成 `frontend/dist` 即可，nginx 直接读取新文件，无需重启或重建容器。若希望把静态产物打进不可变镜像，可先构建 `dist`，再执行 `docker build -f deploy/frontend.Dockerfile -t kiwi-frontend .`。
 
+#### 本地一键更新（推荐）
+
+`scripts/update_online.sh` 把「本地构建前端 → 上传 dist → 远端 `git pull` + `./deploy.sh update` → 重启 frontend」串成一步：
+
+```bash
+cp scripts/update_online.env.example scripts/update_online.env
+# 填写 KIWI_DEPLOY_HOST / PORT / USER / PATH
+
+./scripts/update_online.sh --dry-run   # 只打印将执行的命令
+./scripts/update_online.sh             # 后端 + 前端
+./scripts/update_online.sh --build-backend  # 依赖（pyproject / uv.lock）变化时先重建 backend 镜像
+./scripts/update_online.sh --backend-only
+./scripts/update_online.sh --frontend-only
+```
+
+连接配置放在 `scripts/update_online.env`（已被 `.gitignore` 忽略），不要把服务器地址与路径提交到仓库。脚本默认要求本地 `HEAD == origin/main` 且工作区干净，避免把未提交改动带到线上；确需例外时用 `--allow-dirty`。远端后端使用 `git pull --ff-only`，失败会中止。仅执行 `deploy.sh update` 只重建容器、不会更新镜像内的 Python 依赖；本次起对象存储依赖 boto3，升级时需要加 `--build-backend`。
+
 ### 线上嵌入模型（无法本地向量化时）
 
 默认使用本地 `fastembed` 模型，首次摄入时下载数百 MB 的 ONNX 模型。若部署环境内存不足、无法下载模型，或希望统一使用线上向量服务，推荐在应用内 **设置 → 向量模型** 切换到「线上接口」，填写地址、Key 与模型名并测试连接。应用内配置会加密保存到数据库，并优先于环境变量。
@@ -430,6 +447,12 @@ sudo systemctl status cloudflared
 | `KIWI_EMBED_API_MODEL` | `text-embedding-3-small` | 线上 embedding 模型名 |
 | `KIWI_RETRIEVAL_MIN_SCORE` | `0.4` | 检索最低余弦相似度；低于该值的命中不进入问答上下文与引用，设为 `0` 关闭过滤 |
 | `KIWI_LLM_TIMEOUT` | `600` | LLM 请求超时（秒） |
+| `KIWI_AGENT_PLANNER_TIMEOUT` | `60` | 检索规划超时；超时回退规则规划 |
+| `KIWI_AGENT_PLANNER_MODEL` | 空 | 规划 / 分类使用的快模型；留空沿用用户选择的模型 |
+| `KIWI_AGENT_MAX_STEPS` | `6` | 单轮最多工具调用次数 |
+| `KIWI_AGENT_COMPLETION_TIMEOUT` | `0` | 单次 Agent 模型调用超时（秒）；`0` 沿用 `KIWI_LLM_TIMEOUT` |
+| `KIWI_MEDIA_BACKEND` | `s3` | 媒体存储后端；`s3` 使用 S3 / MinIO，`local` 仅测试 / 离线，详见「媒体对象存储」 |
+| `KIWI_MEDIA_LOCAL_FALLBACK` | `true` | S3 未命中时回退本地，迁移期建议保持开启 |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 
 ## 数据与持久化
@@ -481,6 +504,55 @@ backups/kiwi-20261021-120000/
 ```
 
 建议把备份目录同步到另一块磁盘或对象存储；Qdrant 向量可通过 Wiki 的「重建」/「重新索引」重新生成，不必单独备份。
+
+### 媒体对象存储（默认 S3）
+
+媒体、素材原文件与笔记快照默认写入 S3 / MinIO；`local` 仅用于测试或离线环境。
+新装实例必须先建桶并配置凭据：
+
+| 变量 | 说明 |
+|---|---|
+| `KIWI_MEDIA_BACKEND` | 默认 `s3`；测试 / 离线可设 `local` |
+| `KIWI_MEDIA_LOCAL_FALLBACK` | 迁移期双读，S3 未命中时回退本地，默认 `true` |
+| `KIWI_S3_ENDPOINT` | 例如 `http://minio:9000`（MinIO API 端口） |
+| `KIWI_S3_BUCKET` | 桶名，默认 `kiwi-media`；**不会自动创建** |
+| `KIWI_S3_PREFIX` | 对象前缀，默认 `uploads` |
+| `KIWI_S3_REGION` | `us-east-1` 即可（MinIO） |
+| `KIWI_S3_ACCESS_KEY` / `KIWI_S3_SECRET_KEY` | 专用账号的凭据；不要使用 root 账号 |
+
+新装步骤：
+
+```bash
+# 建桶（MinIO Console 或 mc）
+mc mb local/kiwi-media
+# 在 .env.prod 填好 KIWI_S3_*，然后正常部署
+```
+
+从本地存储升级：
+
+```bash
+# 1. 先建桶并配置 S3，保留 KIWI_MEDIA_LOCAL_FALLBACK=true 让旧文件仍可读
+# 2. 预演 / 迁移历史文件（可重复执行；默认迁移全部，已存在且大小一致会跳过）
+KIWI_MEDIA_BACKEND=s3 python scripts/migrate_storage.py --dry-run
+KIWI_MEDIA_BACKEND=s3 python scripts/migrate_storage.py
+# 3. 重启 backend，新写入全部进入 S3
+```
+
+生产环境在 backend 容器内执行（脚本随镜像分发）：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend \
+  python scripts/migrate_storage.py --dry-run
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend \
+  python scripts/migrate_storage.py
+```
+
+- `/media/...` 仍由后端鉴权/签名后代理，不会把 MinIO 地址直接暴露给浏览器。
+- 媒体下载支持 Range；主题背景视频可直接播放。
+- 素材原文件、笔记快照与 OCR 图片只写 S3；解析器 / 导出器通过临时下载读取，不再保留本地副本。
+- 换机或离线环境可用 `scripts/rehydrate_storage.py` 把对象拉回本地；恢复备份后可用 `migrate_storage.py --overwrite` 回写 S3。
+- 备份的 `uploads.tar.gz` 在 S3 模式下会包含对象存储中的全部文件；恢复后按上面的 rehydrate / migrate 步骤同步。
+- 同一 bucket 建议只给 Kiwi 使用；如需多实例共享媒体，让所有实例指向同一个 bucket 与前缀。
 
 ### 恢复
 
@@ -538,7 +610,7 @@ git pull
 自动化或没有交互终端时使用 `./deploy.sh --yes`；它会直接采用 `.env.prod` 中的配置，
 不会询问、不会自动备份，也不会重新构建已存在的 `frontend/dist`。
 
-生产 Compose 把 `backend/app`、`backend/alembic` 与 `backend/alembic.ini` 以只读方式挂载进容器，镜像内的虚拟环境与系统依赖保持不变。`./deploy.sh update` 会重建 backend 容器（而不是仅重启），因此 `.env.prod` 中的环境变量变更也会生效，同时重新执行入口脚本、自动应用数据库迁移，数据卷不受影响。只有依赖变化时才需要重新构建镜像。
+生产 Compose 把 `backend/app`、`backend/alembic` 与 `backend/alembic.ini` 以只读方式挂载进容器，镜像内的虚拟环境与系统依赖保持不变。`./deploy.sh update` 会重建 backend 容器（而不是仅重启），因此 `.env.prod` 中的环境变量变更也会生效，同时重新执行入口脚本、自动应用数据库迁移，数据卷不受影响。只有依赖变化时才需要重新构建镜像；一键脚本用 `--build-backend`，手动部署用 `./deploy.sh build && ./deploy.sh update`。
 
 ## 排障
 

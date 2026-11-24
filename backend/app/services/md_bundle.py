@@ -26,9 +26,9 @@ from typing import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import NoteAttachment
 from app.services.file_security import FileRejected, inspect_archive
+from app.services.object_store import ObjectStoreError, get_object_store
 
 MD_EXT = {".md", ".markdown"}
 JUNK_DIRS = {"__macosx", ".git", ".svn", ".idea", ".vscode"}
@@ -295,7 +295,7 @@ async def import_md_bundle(
     except FileRejected as exc:
         raise MdBundleError(exc.message, exc.status_code) from exc
 
-    written: list[Path] = []
+    written: list[str] = []
     try:
         entries: list[tuple[str, object]] = []
         warnings: list[str] = []
@@ -329,9 +329,7 @@ async def import_md_bundle(
         markdown = _decode_text(archive.read(md_info))
         base_dir = posixpath.dirname(main_entry)
 
-        storage_dir = settings.upload_dir / "media" / str(kb_id)
-        storage_dir.mkdir(parents=True, exist_ok=True)
-
+        store = get_object_store()
         url_by_entry: dict[str, str] = {}
         attachments: list[NoteAttachment] = []
         total_bytes = 0
@@ -349,35 +347,42 @@ async def import_md_bundle(
 
             ext = _safe_ext(entry)
             stored_name = f"{uuid.uuid4().hex}{ext}"
-            target = storage_dir / stored_name
+            key = f"media/{kb_id}/{stored_name}"
+            content_type = _content_type(entry)[:120]
             try:
-                with archive.open(info) as src, target.open("wb") as out:
+                with archive.open(info) as src:
                     head = src.read(8)
                     if any(head.startswith(magic) for magic in EXEC_MAGIC):
                         warnings.append(f"已跳过可执行文件：{entry[:120]}")
                         skipped += 1
-                        target.unlink(missing_ok=True)
                         continue
-                    out.write(head)
-                    while chunk := src.read(1024 * 1024):
-                        out.write(chunk)
+
+                    async def chunks():
+                        yield head
+                        while chunk := src.read(1024 * 1024):
+                            yield chunk
+
+                    stored = await store.save_stream(
+                        key, chunks(), content_type=content_type
+                    )
             except OSError as exc:
-                target.unlink(missing_ok=True)
-                raise MdBundleError(f"附件写入失败，请检查磁盘空间：{exc}", 500) from exc
-            written.append(target)
-            size = target.stat().st_size
+                raise MdBundleError(
+                    f"附件写入失败，请检查存储空间：{exc}", 500
+                ) from exc
+            written.append(key)
+            size = stored.size
             total_bytes += size
             attachment = NoteAttachment(
                 kb_id=kb_id,
                 note_id=note_id,
                 filename=(posixpath.basename(entry) or f"文件{ext}")[:300],
-                content_type=_content_type(entry)[:120],
+                content_type=content_type,
                 size=size,
                 storage_path=f"{kb_id}/{stored_name}",
             )
             session.add(attachment)
             attachments.append(attachment)
-            url_by_entry[entry] = f"/media/{kb_id}/{stored_name}"
+            url_by_entry[entry] = store.media_url(key)
 
         if skipped:
             warnings.append(f"另有 {skipped} 个文件未导入（数量 / 大小限制）")
@@ -399,10 +404,11 @@ async def import_md_bundle(
             rewritten_refs=count,
         )
     except Exception:
-        for path in written:
+        cleanup = get_object_store()
+        for key in written:
             try:
-                path.unlink(missing_ok=True)
-            except OSError:
+                await cleanup.delete(key)
+            except (OSError, ObjectStoreError):
                 pass
         raise
     finally:

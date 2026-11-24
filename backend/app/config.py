@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # backend/
@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     agent_planner_timeout: float = 60.0
     # Agent 单轮最多执行多少次工具调用；可通过环境变量调整。
     agent_max_steps: int = 6
+    # 规划 / 分类可单独指定快模型；留空沿用用户选择的模型。
+    agent_planner_model: str = ""
+    # 单次 Agent 模型调用超时（秒）；0 表示沿用 KIWI_LLM_TIMEOUT。
+    agent_completion_timeout: float = 0.0
     # 可选：自定义 Agent 系统提示模板（Markdown，$tool_prompt 等占位符）。
     agent_prompt_file: Path | None = None
 
@@ -84,6 +88,21 @@ class Settings(BaseSettings):
     # 绝对路径：相对路径会随进程 CWD 漂移，导致同一数据库记录在开发实例与
     # 容器中指向不同的目录（表现为「no such file: data/uploads/...」）。
     upload_dir: Path = PROJECT_ROOT / "data" / "uploads"
+
+    # --- 媒体存储 ---
+    # local：沿用 upload_dir/media；s3：S3 兼容服务（MinIO / 云对象存储）。
+    # 对象键与本地 storage_path 保持一致，便于平滑迁移与双读。
+    media_backend: Literal["local", "s3"] = "s3"
+    # 迁移期双读：S3 中不存在时回退到本地 upload_dir，未迁移的历史文件仍可访问。
+    media_local_fallback: bool = True
+    s3_endpoint: str = ""
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "kiwi-media"
+    s3_prefix: str = "uploads"
+    s3_access_key: SecretStr = SecretStr("")
+    s3_secret_key: SecretStr = SecretStr("")
+    s3_connect_timeout: float = 10.0
+    s3_read_timeout: float = 60.0
 
     @field_validator("upload_dir")
     @classmethod

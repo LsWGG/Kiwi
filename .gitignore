@@ -48,3 +48,5 @@ desktop/dist/
 
 # claude code local worktrees
 .claude/worktrees/
+# 线上部署连接配置（含服务器地址 / 路径）
+scripts/update_online.env

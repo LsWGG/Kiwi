@@ -93,6 +93,63 @@ async def test_agent_reads_note_templates(client, kb, db):
         )
 
 
+async def test_agent_template_write_tools(client, kb, db):
+    kb_id = uuid.UUID(kb["id"])
+    template_body = "# 旅游规划\n\n## 行程时间\n\n## 行前准备\n"
+    created_template = await client.post(
+        f"/api/notes/templates?kb_id={kb_id}",
+        json={
+            "name": "旅游规划",
+            "title_pattern": "{{date}} 旅游规划",
+            "body_md": template_body,
+            "tags_json": ["旅行"],
+        },
+    )
+    assert created_template.status_code == 201, created_template.text
+
+    created = await agent_tools.execute_tool(
+        db, kb_id, "create_note_from_template", {"name": "旅游规划"}
+    )
+    note_id = created["note"]["id"]
+    assert created["note"]["title"].endswith("旅游规划")
+    fetched = await agent_tools.execute_tool(
+        db, kb_id, "get_note", {"note_id": note_id}
+    )
+    assert fetched["body_md"] == template_body
+    assert fetched["tags"] == ["旅行"]
+
+    plain = await client.post(
+        f"/api/notes?kb_id={kb_id}",
+        json={"title": "已有笔记", "kind": "doc", "body_md": "旧正文"},
+    )
+    assert plain.status_code == 201, plain.text
+    plain_id = plain.json()["id"]
+
+    replaced = await agent_tools.execute_tool(
+        db,
+        kb_id,
+        "apply_template",
+        {"note_id": plain_id, "name": "旅游规划", "mode": "replace"},
+    )
+    assert replaced["mode"] == "replace"
+    after = await agent_tools.execute_tool(
+        db, kb_id, "get_note", {"note_id": plain_id}
+    )
+    assert after["body_md"] == template_body
+
+    appended = await agent_tools.execute_tool(
+        db,
+        kb_id,
+        "apply_template",
+        {"note_id": plain_id, "name": "旅游规划", "mode": "append"},
+    )
+    assert appended["previous_chars"] == len(template_body)
+    after = await agent_tools.execute_tool(
+        db, kb_id, "get_note", {"note_id": plain_id}
+    )
+    assert after["body_md"] == template_body + "\n\n" + template_body
+
+
 async def test_agent_folder_crud(client, kb, db):
     kb_id = uuid.UUID(kb["id"])
     created = await agent_tools.execute_tool(

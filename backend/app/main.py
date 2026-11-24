@@ -6,7 +6,6 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.build_info import APP_VERSION
 from app.config import settings
@@ -28,6 +27,7 @@ from app.routers import (
     kb,
     llm,
     maintenance,
+    media,
     note_databases,
     note_editor,
     note_share_public,
@@ -186,6 +186,7 @@ app.include_router(note_editor.router)
 app.include_router(notebooks.router)
 app.include_router(code_run.router)
 app.include_router(attachments.router)
+app.include_router(media.router)
 app.include_router(sources.router)
 app.include_router(ingest.router)
 app.include_router(wiki.router)
@@ -208,12 +209,6 @@ app.include_router(mcp_server.router)
 if settings.desktop_mode:
     app.include_router(desktop.router)
     app.include_router(desktop.internal_router)
-
-
-# 附件 / 编辑器内嵌媒体
-_media_dir = settings.upload_dir / "media"
-_media_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/media", StaticFiles(directory=str(_media_dir)), name="media")
 
 
 # 桌面模式：FastAPI 直接提供打包后的 SPA。Docker / 源码部署不设置

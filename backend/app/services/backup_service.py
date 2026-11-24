@@ -27,6 +27,7 @@ import re
 import shutil
 import tarfile
 import tempfile
+import time
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -87,21 +88,60 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _archive_uploads(target: Path) -> bool:
+def _archive_s3_objects(tar: tarfile.TarFile) -> tuple[set[str], int, int]:
+    """把对象存储中的全部文件写入 uploads.tar.gz，归档路径即对象键。"""
+    from app.services.object_store import get_object_store
+
+    async def collect() -> tuple[set[str], int, int]:
+        store = get_object_store()
+        items = await store.list("")
+        keys: set[str] = set()
+        total = 0
+        for item in items:
+            async with store.materialize(item.key) as path:
+                info = tarfile.TarInfo(item.key)
+                info.size = path.stat().st_size
+                info.mtime = int(item.last_modified or time.time())
+                info.mode = 0o644
+                with path.open("rb") as handle:
+                    tar.addfile(info, handle)
+            keys.add(item.key)
+            total += info.size
+        return keys, len(items), total
+
+    return asyncio.run(collect())
+
+
+def _archive_uploads(target: Path) -> tuple[bool, dict]:
     upload_dir = settings.upload_dir
     if not upload_dir.is_absolute():
         upload_dir = Path.cwd() / upload_dir
-    if not upload_dir.exists():
-        return False
+    if not upload_dir.exists() and settings.media_backend != "s3":
+        return False, {}
     root = backup_root()
+    stats: dict = {"backend": settings.media_backend, "objects": 0, "bytes": 0}
     with tarfile.open(target, "w:gz") as tar:
-        for path in sorted(upload_dir.rglob("*")):
-            if path.is_dir():
-                continue
-            if root in path.parents:
-                continue
-            tar.add(path, arcname=str(path.relative_to(upload_dir)))
-    return True
+        s3_keys: set[str] = set()
+        if settings.media_backend == "s3":
+            s3_keys, objects, total = _archive_s3_objects(tar)
+            stats.update(
+                objects=objects,
+                bytes=total,
+                bucket=settings.s3_bucket,
+                prefix=settings.s3_prefix,
+            )
+        if upload_dir.exists():
+            for path in sorted(upload_dir.rglob("*")):
+                if path.is_dir():
+                    continue
+                if root in path.parents:
+                    continue
+                rel = path.relative_to(upload_dir).as_posix()
+                # S3 对象已归档；本地只补遗留 / 尚未迁移的文件。
+                if rel in s3_keys:
+                    continue
+                tar.add(path, arcname=rel)
+    return True, stats
 
 
 def _prune() -> list[str]:
@@ -368,7 +408,9 @@ async def create_backup(trigger: str = "manual", label: str = "") -> dict:
                     "pg_dump 失败：" + (stderr.decode("utf-8", "ignore").strip()[-500:] or "未知错误")
                 )
             uploads_file = tmp / "uploads.tar.gz"
-            uploads_included = await asyncio.to_thread(_archive_uploads, uploads_file)
+            uploads_included, storage_stats = await asyncio.to_thread(
+                _archive_uploads, uploads_file
+            )
             files = [
                 {
                     "name": "db.dump",
@@ -413,6 +455,7 @@ async def create_backup(trigger: str = "manual", label: str = "") -> dict:
                     "database": env["PGDATABASE"],
                 },
                 "uploads_included": uploads_included,
+                "storage": storage_stats,
                 "fernet_key_included": fernet_included,
                 "retention_days": settings.backup_retention_days,
                 "files": files,

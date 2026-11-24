@@ -25,6 +25,46 @@ router = APIRouter(prefix="/api/chat/sessions", tags=["chat-sessions"])
 
 MAX_MESSAGES = 200
 MAX_MESSAGE_CHARS = 50_000
+MAX_STEPS = 80
+MAX_PLAN_STEPS = 20
+_STEP_STATUS = {"pending", "active", "done", "error"}
+
+
+def _clean_steps(raw: object) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    steps: list[dict] = []
+    for item in raw[:MAX_STEPS]:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "done")
+        steps.append(
+            {
+                "id": str(item.get("id") or "")[:80],
+                "message": str(item.get("message") or "")[:300],
+                "detail": str(item.get("detail") or "")[:500],
+                "status": status if status in _STEP_STATUS else "done",
+            }
+        )
+    return steps
+
+
+def _clean_plan(raw: object) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    plan: list[dict] = []
+    for item in raw[:MAX_PLAN_STEPS]:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "pending")
+        plan.append(
+            {
+                "id": str(item.get("id") or "")[:80],
+                "title": str(item.get("title") or "")[:300],
+                "status": status if status in _STEP_STATUS else "pending",
+            }
+        )
+    return plan
 
 
 def _clean_messages(raw: list[dict] | None) -> list[dict]:
@@ -43,14 +83,28 @@ def _clean_messages(raw: list[dict] | None) -> list[dict]:
         created_at = item.get("created_at")
         if not isinstance(created_at, str) or not created_at:
             created_at = datetime.now(timezone.utc).isoformat()
-        out.append(
-            {
-                "role": role,
-                "content": content,
-                "citations": citations,
-                "created_at": created_at,
-            }
-        )
+        entry = {
+            "role": role,
+            "content": content,
+            "citations": citations,
+            "created_at": created_at,
+        }
+        # 处理步骤 / 计划 / 轨迹 ID 需要跨刷新保留，否则刷新后只剩正文。
+        if role == "assistant":
+            steps = _clean_steps(item.get("steps"))
+            if steps:
+                entry["steps"] = steps
+            plan = _clean_plan(item.get("plan"))
+            if plan:
+                entry["plan"] = plan
+            trace_id = item.get("trace_id")
+            if isinstance(trace_id, str) and trace_id.strip():
+                entry["trace_id"] = trace_id.strip()[:64]
+            for key in ("started_at", "finished_at"):
+                value = item.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    entry[key] = int(value)
+        out.append(entry)
     return out
 
 

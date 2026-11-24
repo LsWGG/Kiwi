@@ -33,6 +33,48 @@ async def test_auto_title_trims_long_first_question(client):
         await client.delete(f"/api/chat/sessions/{created['id']}")
 
 
+async def test_session_keeps_agent_progress_metadata(client):
+    steps = [
+        {
+            "id": "tool-1",
+            "message": "读取网页完成",
+            "detail": "网页正文",
+            "status": "done",
+        }
+    ]
+    plan = [{"id": "p1", "title": "读取网页", "status": "done"}]
+    resp = await client.post(
+        "/api/chat/sessions",
+        json={
+            "scope": {"scope": "global", "kb_ids": [str(uuid.uuid4())]},
+            "intent": "auto",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "已完成。",
+                    "steps": steps,
+                    "plan": plan,
+                    "trace_id": "trace-abc-123",
+                    "started_at": 1000,
+                    "finished_at": 26000,
+                }
+            ],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    session_id = resp.json()["id"]
+    try:
+        detail = await client.get(f"/api/chat/sessions/{session_id}")
+        message = detail.json()["messages"][0]
+        assert message["steps"] == steps
+        assert message["plan"] == plan
+        assert message["trace_id"] == "trace-abc-123"
+        assert message["started_at"] == 1000
+        assert message["finished_at"] == 26000
+    finally:
+        await client.delete(f"/api/chat/sessions/{session_id}")
+
+
 async def test_auto_title_keeps_short_question(client):
     created = await _create(client, "你好")
     try:

@@ -45,7 +45,8 @@ from app.schemas.wiki import (
 )
 from app.services import audit
 from app.services.compile_eligibility import note_compile_eligible
-from app.services.source_paths import resolve_raw_path
+from app.services.object_store import get_object_store
+from app.services.source_paths import storage_key
 from app.services.wiki_links import (
     WIKI_LINK_RE,
     extract_links,
@@ -757,7 +758,7 @@ def _lint_deterministic(
     return issues
 
 
-def _source_drift_issues(
+async def _source_drift_issues(
     pages: list[WikiPage], sources: list[Source]
 ) -> list[LintIssue]:
     """比较素材落盘内容指纹与入库时 sha256，检测源漂移。"""
@@ -773,8 +774,10 @@ def _source_drift_issues(
             source = source_by_id.get(sid)
             if source is None:
                 continue
-            path = resolve_raw_path(source.raw_path)
-            if not path.exists():
+            store = get_object_store()
+            key = storage_key(source.raw_path)
+            stat = await store.stat(key) if key else None
+            if stat is None:
                 issues.append(
                     LintIssue(
                         code="source_missing",
@@ -787,20 +790,18 @@ def _source_drift_issues(
                     )
                 )
                 continue
-            key = str(path)
-            if key not in hash_cache:
+            cache_key = key or source.raw_path
+            if cache_key not in hash_cache:
                 try:
-                    if path.stat().st_size > 20 * 1024 * 1024:
-                        hash_cache[key] = None
+                    if stat.size > 20 * 1024 * 1024:
+                        hash_cache[cache_key] = None
                     else:
                         digest = hashlib.sha256()
-                        with path.open("rb") as fh:
-                            for block in iter(lambda: fh.read(1024 * 1024), b""):
-                                digest.update(block)
-                        hash_cache[key] = digest.hexdigest()
-                except OSError:
-                    hash_cache[key] = None
-            current = hash_cache[key]
+                        digest.update(await store.read_bytes(key))
+                        hash_cache[cache_key] = digest.hexdigest()
+                except Exception:  # noqa: BLE001 —— 读取失败按无法校验处理
+                    hash_cache[cache_key] = None
+            current = hash_cache[cache_key]
             if current and current != source.sha256:
                 issues.append(
                     LintIssue(
@@ -909,7 +910,9 @@ async def lint_deterministic(
     sources = list(
         (await session.execute(select(Source).where(Source.kb_id == kb_id))).scalars().all()
     )
-    issues = _lint_deterministic(pages, links) + _source_drift_issues(pages, sources)
+    issues = _lint_deterministic(pages, links) + await _source_drift_issues(
+        pages, sources
+    )
     return LintReport(
         generated_at=datetime.now(timezone.utc),
         summary=_lint_summary(pages, issues),
@@ -942,7 +945,9 @@ async def run_lint(
     sources = list(
         (await session.execute(select(Source).where(Source.kb_id == kb_id))).scalars().all()
     )
-    issues = _lint_deterministic(pages, links) + _source_drift_issues(pages, sources)
+    issues = _lint_deterministic(pages, links) + await _source_drift_issues(
+        pages, sources
+    )
     semantic_status = "skipped"
     semantic_error: str | None = None
     if include_semantic and pages:

@@ -462,6 +462,9 @@ class AgentPlan:
 
     queries: list[str] = field(default_factory=list)
     time_window: TimeWindow | None = None
+    # 规划器的语义判断：回答是否需要检索资料。不需要资料时 queries 为空，
+    # 问答链路会跳过索引同步、Wiki / 笔记检索与联网。
+    needs_retrieval: bool = True
     # wants_web 是「是否需要联网」的判断；use_web 还要求用户开关已开启。
     wants_web: bool = False
     use_web: bool = False
@@ -471,6 +474,8 @@ class AgentPlan:
     personal: bool = False
 
     def describe(self) -> str:
+        if not self.needs_retrieval:
+            return "无需检索资料"
         parts: list[str] = []
         if self.time_window:
             parts.append(f"时间 {self.time_window.describe()}")
@@ -560,6 +565,7 @@ _PLANNER_SYSTEM = """你是 Kiwi 个人知识库问答的检索规划器。你�
 
 输出 JSON：
 {
+  "needs_retrieval": true/false,
   "time_range": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"} 或 null,
   "queries": ["用于知识库检索的 1-3 个查询"],
   "use_web": true/false,
@@ -568,6 +574,10 @@ _PLANNER_SYSTEM = """你是 Kiwi 个人知识库问答的检索规划器。你�
 }
 
 规则：
+- needs_retrieval 表示回答这个问题是否需要检索知识库或联网资料。判断依据是
+  回答问题所需的信息是否来自资料，而不是问题的长短或措辞：仅凭对话上下文与
+  常识即可回答时为 false，此时 queries 与 web_queries 都返回 []，不要为了
+  「走流程」编造检索词。判断不了时按 true 处理。
 - 问题里出现「今天 / 这周 / 上周 / 最近 N 天 / 上个月 / 去年」等相对时间时，
   time_range 必须给出对应的日期闭区间；问「我做了什么」时应结合时间范围理解。
 - 「我 / 我的笔记 / 日记 / 记录 / 待办 / 这周我干嘛了」属于个人记录，use_web 必须为 false。
@@ -669,11 +679,22 @@ def _plan_from_payload(
         for item in raw_queries
         if isinstance(item, str) and str(item).strip()
     ]
-    queries = list(dict.fromkeys(queries))[:3] or [resolved]
+    queries = list(dict.fromkeys(queries))[:3]
+
+    # 是否检索由规划器按语义判断（不是关键词表）；没有给出布尔值时，
+    # 以是否规划出查询词为准。追问只看当前几个字容易误判，强制按完整问题检索。
+    raw_needs = payload.get("needs_retrieval")
+    needs_retrieval = raw_needs if isinstance(raw_needs, bool) else bool(queries)
     if follow_up:
-        longest = max((len(item) for item in queries), default=0)
-        if resolved not in queries and longest <= len(current) + 1:
-            queries = list(dict.fromkeys([resolved, *queries]))[:3]
+        needs_retrieval = True
+    if not needs_retrieval:
+        queries = []
+    else:
+        queries = queries or [resolved]
+        if follow_up:
+            longest = max((len(item) for item in queries), default=0)
+            if resolved not in queries and longest <= len(current) + 1:
+                queries = list(dict.fromkeys([resolved, *queries]))[:3]
 
     window = rule_window
     if window is None:
@@ -712,6 +733,9 @@ def _plan_from_payload(
             web_queries = [item for item in web_queries if item != current]
             web_queries = list(dict.fromkeys([context_web, *web_queries]))[:2]
 
+    if not needs_retrieval:
+        wants_web = False
+        web_queries = []
     use_web = wants_web and web_allowed
     if use_web and not web_queries:
         web_queries = [refine_web_query(resolved, now=now)]
@@ -722,6 +746,7 @@ def _plan_from_payload(
         reason = "追问补全主题后需要联网补充信息"
     return AgentPlan(
         queries=queries,
+        needs_retrieval=needs_retrieval,
         time_window=window,
         wants_web=wants_web,
         use_web=use_web,

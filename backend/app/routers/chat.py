@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -18,10 +19,18 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.models import KnowledgeBase, LLMConfig, Note, WikiLink, WikiPage
 from app.db.session import get_session
 from app.schemas.chat import ChatRequest, Citation, SearchScope
-from app.services import agent_actions, agent_harness, agent_tools, attachment_content
+from app.services import (
+    agent_actions,
+    agent_harness,
+    agent_tools,
+    agent_trace,
+    agent_undo,
+    attachment_content,
+)
 from app.services.agent_planner import (
     AgentPlan,
     apply_time_window,
@@ -118,7 +127,7 @@ async def _plan_request(
         return await plan_with_llm(
             query,
             client=client,
-            model=model,
+            model=settings.agent_planner_model or model,
             web_allowed=bool(data.web_search),
             current_query=current_query or None,
             history=history,
@@ -340,6 +349,12 @@ class _PreparedChat:
     notices: list[str]
     kb_ids: list[uuid.UUID] = field(default_factory=list)
     kb_id: uuid.UUID | None = None
+    planner_source: str = ""
+    planner_ms: float = 0.0
+    planner_queries: int = 0
+    planner_input: dict = field(default_factory=dict)
+    planner_output: dict = field(default_factory=dict)
+    trace: agent_trace.AgentTrace | None = None
 
 
 async def _prepare_chat(
@@ -348,10 +363,24 @@ async def _prepare_chat(
     query: str,
     intent: str,
     stage: Callable[[str, str, str, str], None],
+    *,
+    trace: agent_trace.AgentTrace | None = None,
 ) -> _PreparedChat:
     """检索资料并组装 LLM 请求；耗时步骤通过 stage 回调实时上报。"""
+    # 非 Agent 请求不展示流转，也不占用运维页的轨迹列表。
+    trace = trace or agent_trace.start_trace(
+        query=query, model="", scope=data.scope.scope, record=bool(data.agent)
+    )
+    _understand_started = time.perf_counter()
     stage("understand", "start", "正在理解问题")
     kb_ids = await _resolve_scope(session, data.scope)
+    trace.event(
+        "understand",
+        "理解范围",
+        ms=(time.perf_counter() - _understand_started) * 1000,
+        input={"scope": data.scope.model_dump(mode="json")},
+        output={"kb_ids": [str(kb_id) for kb_id in kb_ids]},
+    )
     stage("understand", "done", "已理解问题")
 
     # 先解析本次模型：Agent 规划与联网检索都复用同一个连接与凭据。
@@ -359,6 +388,7 @@ async def _prepare_chat(
     cfg, api_key = await resolve_llm(session, bound_kb_id, data.llm_config_id)
     model_name = (data.model_override or "").strip() or cfg.model_name
     client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
+    trace.model = model_name
 
     # 规划检索路径：时间窗口、知识库查询、是否联网。规则解析先跑；
     # Agent 模式再让模型补充查询，模型失败 / 超时会回退到规则结果。
@@ -370,6 +400,7 @@ async def _prepare_chat(
         "start",
         "正在结合上下文规划检索路径" if contextual else "正在规划检索路径",
     )
+    _plan_started = time.perf_counter()
     plan = await _plan_request(
         data,
         context_query,
@@ -378,16 +409,50 @@ async def _prepare_chat(
         current_query=query,
         history=data.messages[:-1],
     )
+    _plan_ms = (time.perf_counter() - _plan_started) * 1000
+    planner_input = {
+        "query": context_query,
+        "current_query": query,
+        "history": data.messages[:-1][-6:],
+    }
+    planner_output = {
+        "needs_retrieval": plan.needs_retrieval,
+        "queries": list(plan.queries),
+        "time_window": (
+            plan.time_window.describe() if plan.time_window is not None else ""
+        ),
+        "wants_web": plan.wants_web,
+        "use_web": plan.use_web,
+        "web_queries": list(plan.web_queries),
+        "reason": plan.reason,
+        "source": plan.source,
+        "personal": plan.personal,
+    }
+    trace.event(
+        "planner",
+        "检索规划",
+        ms=_plan_ms,
+        input=planner_input,
+        output=planner_output,
+        meta={"source": plan.source, "queries": len(plan.queries)},
+    )
     filters = _retrieval_filters(data.scope)
     time_window_ok = apply_time_window(filters, plan.time_window)
-    plan_message = "已结合上下文补全追问" if contextual else "检索计划已生成"
-    if plan.time_window:
-        plan_message = f"已应用时间范围：{plan.time_window.label}"
-        if not time_window_ok:
-            plan_message = "时间范围与筛选没有交集"
-    plan_detail = plan.describe()
-    if contextual:
-        plan_detail += f" · 补全问题：{context_query[:80]}"
+    # 规划器按语义判断回答是否需要资料；不需要时整条检索链路直接跳过，
+    # 不再为寒暄类问题同步索引、检索知识库或联网。
+    needs_retrieval = bool(plan.needs_retrieval and plan.queries)
+    if not needs_retrieval:
+        plan_message = "无需检索资料"
+        plan_detail = plan.reason
+    else:
+        plan_message = "已结合上下文补全追问" if contextual else "检索计划已生成"
+        if plan.time_window:
+            plan_message = f"已应用时间范围：{plan.time_window.label}"
+            if not time_window_ok:
+                plan_message = "时间范围与筛选没有交集"
+        plan_detail = plan.describe()
+        if contextual:
+            plan_detail += f" · 补全问题：{context_query[:80]}"
     stage("plan", "done", plan_message, plan_detail)
 
     # 「这周我干嘛了」这类个人时间问题优先按笔记回答；显式意图仍以用户选择为准。
@@ -398,7 +463,7 @@ async def _prepare_chat(
     # 多取一些笔记分块：数据表 / 长文档的相邻行可能排在稍后的名次，
     # 只取 8 条会漏掉尾部记录；合并后仍按笔记去重并受上下文预算约束。
     note_limit = 16
-    queries = plan.queries or [context_query]
+    queries = list(plan.queries)
     notices: list[str] = []
     if plan.time_window and not time_window_ok:
         notices.append(
@@ -406,44 +471,77 @@ async def _prepare_chat(
             "本次未检索到内容。"
         )
     wiki_hits: list[dict] = []
-    stage("search", "start", "正在检索 Wiki 与笔记")
-    if not filters.has_note_constraints:
-        wiki_hits, wiki_error = await _safe_search_many(
-            session, queries, kb_ids, limit=wiki_limit, collection="wiki"
+    note_hits: list[dict] = []
+    kb_names: dict[str, str] = {}
+    if needs_retrieval:
+        stage("search", "start", "正在检索 Wiki 与笔记")
+        if not filters.has_note_constraints:
+            _wiki_started = time.perf_counter()
+            wiki_hits, wiki_error = await _safe_search_many(
+                session, queries, kb_ids, limit=wiki_limit, collection="wiki"
+            )
+            trace.event(
+                "tool",
+                "检索 Wiki",
+                ms=(time.perf_counter() - _wiki_started) * 1000,
+                input={"queries": queries, "kb_ids": [str(k) for k in kb_ids]},
+                output={"hits": len(wiki_hits), "error": wiki_error},
+                meta={"collection": "wiki"},
+            )
+            if wiki_error:
+                notices.append(wiki_error)
+        stage("index", "start", "正在同步最新笔记")
+        _index_started = time.perf_counter()
+        _index_ok = True
+        try:
+            # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
+            await ensure_notes_indexed(kb_ids)
+        except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
+            _index_ok = False
+            logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
+        trace.event(
+            "tool",
+            "同步笔记索引",
+            ms=(time.perf_counter() - _index_started) * 1000,
+            ok=_index_ok,
+            output={"ok": _index_ok},
+            meta={"kb_ids": [str(k) for k in kb_ids]},
         )
-        if wiki_error:
-            notices.append(wiki_error)
-    stage("index", "start", "正在同步最新笔记")
-    try:
-        # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
-        await ensure_notes_indexed(kb_ids)
-    except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
-        logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
-    stage("index", "done", "笔记已同步")
-    note_hits, note_error = await _safe_search_many(
-        session,
-        queries,
-        kb_ids,
-        limit=note_limit,
-        collection="note",
-        filters=filters,
-    )
-    if note_error and note_error not in notices:
-        notices.append(note_error)
-    kb_names = await _kb_names(session, kb_ids)
-    stage(
-        "search",
-        "done",
-        "知识库检索完成",
-        f"命中 {len(wiki_hits) + len(note_hits)} 个片段",
-    )
+        stage("index", "done", "笔记已同步")
+        _note_started = time.perf_counter()
+        note_hits, note_error = await _safe_search_many(
+            session,
+            queries,
+            kb_ids,
+            limit=note_limit,
+            collection="note",
+            filters=filters,
+        )
+        trace.event(
+            "tool",
+            "检索笔记",
+            ms=(time.perf_counter() - _note_started) * 1000,
+            input={"queries": queries},
+            output={"hits": len(note_hits), "error": note_error},
+            meta={"collection": "note"},
+        )
+        if note_error and note_error not in notices:
+            notices.append(note_error)
+        kb_names = await _kb_names(session, kb_ids)
+        stage(
+            "search",
+            "done",
+            "知识库检索完成",
+            f"命中 {len(wiki_hits) + len(note_hits)} 个片段",
+        )
 
     # 只有规划判断确实需要外部信息时才联网，并使用规划出的具体查询词，
     # 不再把「这周我干嘛了」这类个人问题原句丢给搜索引擎。
     web_results: list[dict] = []
     web_error = ""
-    if data.web_search and plan.use_web:
+    if needs_retrieval and data.web_search and plan.use_web:
         stage("web", "start", "正在联网检索")
+        _web_started = time.perf_counter()
         try:
             web_results = await _search_web_many(
                 plan.web_queries or [context_query],
@@ -460,17 +558,26 @@ async def _prepare_chat(
                     detail += f" · {plan.web_queries[0][:60]}"
                 stage("web", "done", "联网检索完成", detail)
         except Exception as exc:  # noqa: BLE001 —— 网络失败降级为知识库问答
-            logger.warning("问答联网检索失败：%s", exc)
+            logger.warning("联网检索失败：%s", exc)
             web_error = (
                 "联网检索失败：搜索服务不可用。请检查网络，或在 .env 配置 "
                 "KIWI_STUDY_SEARCH_PROVIDER（bing/duckduckgo/searxng/tavily/deepseek）。"
                 "本次仅使用知识库内容回答。"
             )
             stage("web", "error", "联网检索失败", "本次仅使用知识库内容")
-    elif data.web_search:
+        trace.event(
+            "tool",
+            "联网检索",
+            ms=(time.perf_counter() - _web_started) * 1000,
+            ok=not bool(web_error),
+            input={"queries": list(plan.web_queries or [context_query])},
+            output={"hits": len(web_results), "error": web_error},
+            meta={"provider": "web"},
+        )
+    elif needs_retrieval and data.web_search:
         # 用户开了联网，但规划判断问题属于个人记录 / 无需外部信息。
         stage("web", "done", "已跳过联网", plan.reason or "问题优先使用知识库")
-    elif plan.wants_web and data.agent:
+    elif needs_retrieval and plan.wants_web and data.agent:
         # Agent 判断需要联网，但用户没有开启联网开关：只提示，不擅自外联。
         stage("web", "done", "未开启联网", "该问题可能需要外部信息")
         notices.append(
@@ -868,32 +975,46 @@ async def _prepare_chat(
     if not data.agent:
         stage("generate", "start", "正在生成回答")
 
-    system_prompt = (
-        "你是 Kiwi 个人知识库助手。基于提供的 Wiki 页面与工作区笔记回答用户问题。\n"
-        "规则：\n"
-        "1. 综合 Wiki 的概念结构与笔记中的事实、数据、出处；笔记是用户整理后的最终内容，"
-        "两者冲突时以笔记记录的出处为准，并明确指出冲突。\n"
-        "2. 资料不足以回答时，明确说'知识库中未找到相关内容'，不要编造。\n"
-        "3. 每个事实性结论都要在句末标注来源 [n]（n 为资料序号），可并列多个如 [1][3]；"
-        "不要编造序号，也不要在正文中另列来源清单。\n"
-        "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
-        "5. 标注「联网结果」的资料来自互联网，引用时同样使用 [n]；涉及网页时在"
-        "对应结论后附上资料给出的原文链接，不要编造 URL。\n"
-        "6. 资料中的「笔记内嵌附件」与「导入文件正文」是用户上传文件的正文"
-        "（可能被截断，图片与扫描件经由 OCR）；回答文件相关问题时，应依据其中的"
-        "函数、参数与流程说明，而不是只复述文件名和大小。\n"
-        + (
-            f"对话上下文：用户当前消息「{query}」是对上一轮的追问，"
-            f"已按补全后的问题「{context_query}」检索；回答时请延续上文主题，"
-            "不要只按当前几个字作答。\n"
-            if contextual
-            else ""
+    if needs_retrieval:
+        system_prompt = (
+            "你是 Kiwi 个人知识库助手。基于提供的 Wiki 页面与工作区笔记回答用户问题。\n"
+            "规则：\n"
+            "1. 综合 Wiki 的概念结构与笔记中的事实、数据、出处；笔记是用户整理后的最终内容，"
+            "两者冲突时以笔记记录的出处为准，并明确指出冲突。\n"
+            "2. 资料不足以回答时，明确说'知识库中未找到相关内容'，不要编造。\n"
+            "3. 每个事实性结论都要在句末标注来源 [n]（n 为资料序号），可并列多个如 [1][3]；"
+            "不要编造序号，也不要在正文中另列来源清单。\n"
+            "4. 回答保持简洁，优先直接回应用户问题，再补充必要的背景。\n"
+            "5. 标注「联网结果」的资料来自互联网，引用时同样使用 [n]；涉及网页时在"
+            "对应结论后附上资料给出的原文链接，不要编造 URL。\n"
+            "6. 资料中的「笔记内嵌附件」与「导入文件正文」是用户上传文件的正文"
+            "（可能被截断，图片与扫描件经由 OCR）；回答文件相关问题时，应依据其中的"
+            "函数、参数与流程说明，而不是只复述文件名和大小。\n"
+            + (
+                f"对话上下文：用户当前消息「{query}」是对上一轮的追问，"
+                f"已按补全后的问题「{context_query}」检索；回答时请延续上文主题，"
+                "不要只按当前几个字作答。\n"
+                if contextual
+                else ""
+            )
+            + plan.prompt_context()
+            + "\n资料：\n\n"
+            + "\n\n---\n\n".join(context_parts)
+            + (
+                "\n\n（本次检索未命中任何资料，请如实告知用户。）"
+                if not context_parts
+                else ""
+            )
         )
-        + plan.prompt_context()
-        + "\n资料：\n\n"
-        + "\n\n---\n\n".join(context_parts)
-        + ("\n\n（本次检索未命中任何资料，请如实告知用户。）" if not context_parts else "")
-    )
+    else:
+        # 规划器判断本轮无需资料：直接回答，避免把「资料不足」的话术套到寒暄上。
+        system_prompt = (
+            "你是 Kiwi 个人知识库助手。本轮问题无需检索知识库或联网资料，"
+            "请直接、简洁地回答用户。\n"
+            "不要声称'知识库中未找到相关内容'；如果确实需要用户的具体资料才能回答，"
+            "说明需要哪些信息并请用户补充。\n"
+            + plan.prompt_context()
+        )
     openai_msgs = [{"role": "system", "content": system_prompt}]
     for m in data.messages:
         if m.get("role") in ("user", "assistant"):
@@ -909,6 +1030,12 @@ async def _prepare_chat(
         notices=notices,
         kb_ids=kb_ids,
         kb_id=bound_kb_id,
+        planner_source=str(getattr(plan, "source", "") or ""),
+        planner_ms=_plan_ms,
+        planner_queries=len(getattr(plan, "queries", []) or []),
+        planner_input=planner_input,
+        planner_output=planner_output,
+        trace=trace,
     )
 
 
@@ -923,6 +1050,17 @@ async def _resume_agent_events(data: ChatRequest, session: AsyncSession):
         yield "error", {"message": "操作已过期或已被处理，请重新提问。"}
         return
     approved = bool(data.approve)
+    resume_query = ""
+    for item in reversed(pending.messages or []):
+        if item.get("role") == "user":
+            resume_query = str(item.get("content") or "")
+            break
+    trace = agent_trace.start_trace(
+        query=resume_query,
+        model="",
+        scope=pending.scope_mode,
+        planner_source="resume",
+    )
     client = None
     model_name = ""
     temperature = 0.3
@@ -935,10 +1073,12 @@ async def _resume_agent_events(data: ChatRequest, session: AsyncSession):
             client = llm_factory.get_client(cfg.base_url, api_key or None, model_name)
             temperature = cfg.extra_params.get("temperature", 0.3)
         except HTTPException as e:
+            trace.finish("error")
             yield "error", {"message": str(e.detail)}
             return
         except Exception:  # noqa: BLE001
             logger.exception("恢复 Agent 操作时解析模型失败")
+            trace.finish("error")
             yield "error", {"message": "恢复操作时无法连接模型，请重试。"}
             return
     citations: list[Citation] = []
@@ -952,6 +1092,7 @@ async def _resume_agent_events(data: ChatRequest, session: AsyncSession):
         kb_ids = [uuid.UUID(item) for item in pending.kb_ids]
         cfg_uuid = uuid.UUID(pending.llm_config_id) if pending.llm_config_id else None
     except ValueError:
+        trace.finish("error")
         yield "error", {"message": "操作上下文已损坏，请重新提问。"}
         return
     ctx = agent_harness.AgentContext(
@@ -967,11 +1108,31 @@ async def _resume_agent_events(data: ChatRequest, session: AsyncSession):
         model_override=pending.model_override,
         scope_mode=pending.scope_mode,
         plan=[dict(step) for step in pending.plan],
+        user_query=resume_query,
+        completion_timeout=settings.agent_completion_timeout,
+        trace=trace,
     )
     async for event, payload in agent_harness.run_agent(
         ctx, session, resume=pending, approved=approved
     ):
         yield event, payload
+
+
+@router.post("/undo/{undo_id}")
+async def undo_agent_action(
+    undo_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """撤销最近一次 Agent 写操作（15 分钟内有效，进程内记录）。"""
+    record = agent_undo.claim(undo_id)
+    if record is None:
+        raise HTTPException(404, "撤销记录不存在、已使用或已过期")
+    try:
+        message = await agent_undo.execute(record, session)
+    except (agent_undo.UndoError, agent_tools.ToolError) as exc:
+        agent_undo.release(record)
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "message": message}
 
 
 @router.post("/stream")
@@ -1027,7 +1188,16 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 )
             )
 
-        task = asyncio.create_task(_prepare_chat(session, data, query, intent, stage))
+        # 轨迹从检索准备开始计时，覆盖理解、规划、检索、索引与 Agent 循环；
+        # 准备阶段异常时也要收尾，避免运维页留下「进行中」的僵尸轨迹。
+        prepare_trace = (
+            agent_trace.start_trace(query=query, model="", scope=data.scope.scope)
+            if data.agent
+            else None
+        )
+        task = asyncio.create_task(
+            _prepare_chat(session, data, query, intent, stage, trace=prepare_trace)
+        )
         try:
             # 检索期间持续把阶段事件推给前端；等待时发注释帧保持连接。
             while True:
@@ -1046,10 +1216,14 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         try:
             prepared = task.result()
         except HTTPException as exc:
+            if prepare_trace is not None:
+                prepare_trace.finish("error")
             yield sse("error", {"message": str(exc.detail)})
             return
         except Exception:  # noqa: BLE001 —— 流已开始，只能通过 SSE 通知
             logger.exception("问答检索准备失败")
+            if prepare_trace is not None:
+                prepare_trace.finish("error")
             yield sse("error", {"message": "检索资料时出现异常，请稍后重试。"})
             return
 
@@ -1091,6 +1265,14 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 model_override=data.model_override,
                 scope_mode=data.scope.scope,
                 toolbox=toolbox,
+                user_query=query,
+                completion_timeout=settings.agent_completion_timeout,
+                planner_source=prepared.planner_source,
+                planner_ms=prepared.planner_ms,
+                planner_queries=prepared.planner_queries,
+                planner_input=prepared.planner_input,
+                planner_output=prepared.planner_output,
+                trace=prepared.trace,
             )
             async for event, payload in agent_harness.run_agent(ctx, session):
                 yield sse(event, payload)

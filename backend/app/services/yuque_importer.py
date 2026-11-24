@@ -18,6 +18,8 @@ from urllib.parse import quote, unquote
 
 import httpx
 
+from app.services.object_store import get_object_store, guess_content_type
+
 YUQUE_API = "https://www.yuque.com/api/v2"
 MAX_DOCS = 1000
 
@@ -534,12 +536,11 @@ def read_export_zip(
             return None
         digest = hashlib.sha256(raw).hexdigest()[:16]
         filename = f"yuque-{digest}{suffix}"
-        target_dir = Path(media_dir) / kb_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / filename
-        if not target.exists():
-            target.write_bytes(raw)
-        url_out = f"/media/{kb_id}/{filename}"
+        key = f"media/{kb_id}/{filename}"
+        get_object_store().save_bytes_sync(
+            key, raw, content_type=guess_content_type(filename)
+        )
+        url_out = get_object_store().media_url(key)
         asset_urls[resolved] = url_out
         return url_out
 

@@ -1013,4 +1013,4 @@ async def delete_plugin(plugin_id: uuid.UUID, session: AsyncSession = Depends(ge
     # 数据库提交成功后再删文件：只清理该主题独占的上传背景，
     # 其他主题仍引用的 URL 会保留。
     for url in orphaned_backgrounds:
-        theme_backgrounds.remove_url(url)
+        await theme_backgrounds.remove_url(url)

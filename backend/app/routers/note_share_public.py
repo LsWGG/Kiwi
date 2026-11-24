@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import mimetypes
 import re
 import time
 from datetime import datetime, timezone
@@ -18,7 +17,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +27,11 @@ from app.db.session import get_session
 from app.schemas.note import SharedNoteOut
 from app.services import note_compiler, note_lock
 from app.services.canvas_legacy import draw_doc_from_props
+from app.services.object_store import (
+    ObjectStoreError,
+    get_object_store,
+    normalize_key,
+)
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
@@ -263,36 +267,45 @@ async def shared_media(
     if not hmac.compare_digest(sig, expected):
         raise _error(404, "share_media_not_found", "图片不存在")
 
-    root = (Path(settings.upload_dir) / "media").resolve()
-    target = (root / path).resolve()
+    store = get_object_store()
     try:
-        target.relative_to(root)
-    except ValueError:
-        raise _error(404, "share_media_not_found", "图片不存在") from None
-    if not target.is_file():
+        key = f"media/{normalize_key(path)}"
+        stat = await store.stat(key)
+    except ObjectStoreError:
+        stat = None
+    if stat is None:
         raise _error(404, "share_media_not_found", "图片不存在")
 
-    suffix = target.suffix.lower()
+    suffix = Path(path).suffix.lower()
     headers = {
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
     }
+    local = store.local_path(key)
     if suffix in INLINE_MEDIA_SUFFIXES:
-        media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        media_type = stat.content_type or "application/octet-stream"
         # SVG 可以携带脚本：CSP sandbox 让它在被直接打开时也失去脚本能力，
         # 作为 <img> 加载时不受影响。
         if suffix == ".svg":
             headers["Content-Security-Policy"] = "sandbox"
-        return FileResponse(target, media_type=media_type, headers=headers)
+        if local is not None:
+            return FileResponse(local, media_type=media_type, headers=headers)
+        return StreamingResponse(
+            store.open(key), media_type=media_type, headers=headers
+        )
 
-    filename = target.name
+    filename = Path(path).name
     fallback = filename.encode("ascii", "ignore").decode() or "download"
     headers["Content-Disposition"] = (
         f"attachment; filename=\"{fallback}\"; "
         f"filename*=UTF-8''{quote(filename, safe='')}"
     )
-    return FileResponse(
-        target, media_type="application/octet-stream", headers=headers
+    if local is not None:
+        return FileResponse(
+            local, media_type="application/octet-stream", headers=headers
+        )
+    return StreamingResponse(
+        store.open(key), media_type="application/octet-stream", headers=headers
     )
 
 

@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import (
     CollectionRow,
     ImportBatch,
@@ -63,6 +62,7 @@ from app.services.note_database import (
     default_views_for,
     ensure_collection,
 )
+from app.services.object_store import ObjectStoreError, get_object_store
 from app.services.remote_file import SSRFError, fetch_remote_file
 from app.services.table_import import (
     MAX_TABLE_BYTES,
@@ -348,10 +348,13 @@ async def _create_readonly_file_note(
     session.add(note)
     await session.flush()
 
-    storage_dir = settings.upload_dir / "media" / str(kb_id)
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    store = get_object_store()
     stored_name = f"{uuid.uuid4().hex}{safe_ext}"
-    (storage_dir / stored_name).write_bytes(content)
+    key = f"media/{kb_id}/{stored_name}"
+    try:
+        await store.save_bytes(key, content, content_type=content_type[:120])
+    except ObjectStoreError as exc:
+        raise HTTPException(500, f"原始文件写入失败：{exc}") from exc
     attachment = NoteAttachment(
         kb_id=kb_id,
         note_id=note.id,
@@ -372,7 +375,7 @@ async def _create_readonly_file_note(
             "filename": filename,
             "content_type": content_type,
             "size": len(content),
-            "media_url": f"/media/{kb_id}/{stored_name}",
+            "media_url": store.media_url(key),
             "attachment_id": str(attachment.id),
             "scan_status": inspection.scan_status,
             "scan_detail": inspection.scan_detail,

@@ -5,11 +5,10 @@ import mimetypes
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import (
     NoteAttachment,
     NoteCollection,
@@ -35,7 +34,8 @@ from app.schemas.note import (
 from app.services import (
     audit,
 )
-from app.services.source_paths import resolve_raw_path
+from app.services.object_store import get_object_store, normalize_key
+from app.services.source_paths import resolve_raw_path, storage_key
 
 logger = logging.getLogger("kiwi.notes.revisions")
 
@@ -151,22 +151,50 @@ async def note_source_file(
     import_meta = _import_props(note)
     filename = str(import_meta.get("filename") or f"{note.title}")
 
+    store = get_object_store()
     if note.source_id is not None:
         source = await session.get(Source, note.source_id)
         if source is not None and source.kb_id == kb_id:
-            path = resolve_raw_path(source.raw_path)
-            if path.exists() and path.is_file():
-                content_type = (
-                    mimetypes.guess_type(filename)[0]
-                    or mimetypes.guess_type(path.name)[0]
-                    or "application/octet-stream"
-                )
-                return FileResponse(
-                    path,
-                    media_type=content_type,
-                    filename=filename,
-                    content_disposition_type="inline",
-                )
+            key = storage_key(source.raw_path)
+            if key:
+                stat = await store.stat(key)
+                if stat is not None:
+                    content_type = (
+                        mimetypes.guess_type(filename)[0]
+                        or stat.content_type
+                        or "application/octet-stream"
+                    )
+                    local = store.local_path(key)
+                    if local is not None and local.is_file():
+                        return FileResponse(
+                            local,
+                            media_type=content_type,
+                            filename=filename,
+                            content_disposition_type="inline",
+                        )
+                    return StreamingResponse(
+                        store.open(key),
+                        media_type=content_type,
+                        headers={
+                            "Content-Disposition": (
+                                f'inline; filename="{filename}"'
+                            )
+                        },
+                    )
+            else:
+                path = resolve_raw_path(source.raw_path)
+                if path.is_file():
+                    content_type = (
+                        mimetypes.guess_type(filename)[0]
+                        or mimetypes.guess_type(path.name)[0]
+                        or "application/octet-stream"
+                    )
+                    return FileResponse(
+                        path,
+                        media_type=content_type,
+                        filename=filename,
+                        content_disposition_type="inline",
+                    )
 
     # 只读导入没有 Source：回退到附件 / media_url。
     media_url = str(import_meta.get("media_url") or "")
@@ -178,23 +206,45 @@ async def note_source_file(
         except (ValueError, TypeError):
             attachment = None
     if attachment is not None and attachment.note_id == note.id:
-        path = settings.upload_dir / "media" / attachment.storage_path
-        if path.exists() and path.is_file():
-            return FileResponse(
-                path,
+        key = f"media/{attachment.storage_path}"
+        stat = await store.stat(key)
+        if stat is not None:
+            local = store.local_path(key)
+            if local is not None:
+                return FileResponse(
+                    local,
+                    media_type=attachment.content_type
+                    or "application/octet-stream",
+                    filename=attachment.filename,
+                    content_disposition_type="inline",
+                )
+            return StreamingResponse(
+                store.open(key),
                 media_type=attachment.content_type or "application/octet-stream",
-                filename=attachment.filename,
-                content_disposition_type="inline",
+                headers={"Content-Disposition": f'inline; filename="{attachment.filename}"'},
             )
     if media_url.startswith("/media/"):
         rel = media_url[len("/media/") :].lstrip("/")
-        path = settings.upload_dir / "media" / rel
-        if path.exists() and path.is_file():
-            return FileResponse(
-                path,
-                media_type=str(import_meta.get("content_type") or "application/octet-stream"),
-                filename=filename,
-                content_disposition_type="inline",
+        key = f"media/{normalize_key(rel)}"
+        stat = await store.stat(key)
+        if stat is not None:
+            content_type = str(
+                import_meta.get("content_type")
+                or stat.content_type
+                or "application/octet-stream"
+            )
+            local = store.local_path(key)
+            if local is not None:
+                return FileResponse(
+                    local,
+                    media_type=content_type,
+                    filename=filename,
+                    content_disposition_type="inline",
+                )
+            return StreamingResponse(
+                store.open(key),
+                media_type=content_type,
+                headers={"Content-Disposition": f'inline; filename="{filename}"'},
             )
     raise HTTPException(404, "原始文件不存在")
 

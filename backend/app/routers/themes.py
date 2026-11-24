@@ -321,7 +321,7 @@ async def activate_theme(
     if data.overrides is not None:
         # 背景文件在提交成功后清理，避免保存失败把仍在使用的背景删掉；
         # 比较的是所有主题的引用，不影响其他主题保存的背景。
-        theme_backgrounds.prune_replaced(
+        await theme_backgrounds.prune_replaced(
             old_backgrounds, theme_overrides.stored_refs(stored)
         )
     return await _active_payload(session)
@@ -424,7 +424,7 @@ async def upload_background(
     referenced = theme_overrides.all_background_refs(
         row.theme_overrides if row else None, _active_key(row)
     )
-    theme_backgrounds.prune_orphans(referenced | {stored.url})
+    await theme_backgrounds.prune_orphans(referenced | {stored.url})
     return ThemeBackgroundOut(
         url=stored.url,
         kind=stored.kind,
@@ -445,7 +445,7 @@ async def delete_background(
     )
     if url in referenced:
         raise HTTPException(400, "该背景正在使用，请先保存新的背景或恢复默认")
-    if not theme_backgrounds.remove_url(url):
+    if not await theme_backgrounds.remove_url(url):
         raise HTTPException(404, "背景文件不存在")
     return Response(status_code=204)
 

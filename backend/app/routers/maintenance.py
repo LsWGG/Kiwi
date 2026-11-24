@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from starlette.background import BackgroundTask
 
 from app.build_info import info as build_info
-from app.services import backup_service, job_queue
+from app.services import agent_trace, backup_service, job_queue
 from app.services.metrics import metrics
 
 logger = logging.getLogger("kiwi.maintenance")
@@ -25,6 +25,23 @@ def _remove_temp(path: Path) -> None:
         path.unlink(missing_ok=True)
     except OSError:
         logger.warning("临时备份文件清理失败：%s", path)
+
+
+@router.get("/agent-traces")
+async def recent_agent_traces(
+    limit: int = Query(20, ge=1, le=100),
+):
+    """最近若干轮 Agent 的耗时 / 工具 / 状态轨迹（含脱敏后的输入输出）。"""
+    return {"items": agent_trace.recent(limit)}
+
+
+@router.get("/agent-traces/{trace_id}")
+async def agent_trace_detail(trace_id: str):
+    """按 ID 取单条轨迹；会话页据此打开某一轮的流转详情。"""
+    trace = agent_trace.get(trace_id)
+    if trace is None:
+        raise HTTPException(404, "该轮轨迹不存在或已被新的轨迹挤出内存")
+    return trace
 
 
 @router.get("/build-info")

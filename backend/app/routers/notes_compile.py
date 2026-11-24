@@ -5,13 +5,11 @@ import re
 import uuid
 from datetime import datetime, timezone
 from hashlib import sha256
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db.models import (
     IngestJob,
     KnowledgeBase,
@@ -39,6 +37,7 @@ from app.services.compile_eligibility import (
 from app.services.compile_status import reconcile_ingest_jobs
 from app.services.embedder import is_disabled
 from app.services.note_indexer import ensure_notes_indexed
+from app.services.source_paths import delete_source, save_source_bytes, storage_key
 
 logger = logging.getLogger("kiwi.notes.compile")
 
@@ -106,22 +105,16 @@ async def _prepare_note_compile(
         if last_job is not None:
             source = await session.get(Source, last_job.source_id)
 
-    rel = Path(settings.upload_dir) / str(kb_id)
-    rel.mkdir(parents=True, exist_ok=True)
-    raw_path = rel / f"note-{note.id}.md"
-    reused = bool(
-        source is not None
-        and source.sha256 == fingerprint
-        and Path(source.raw_path).exists()
-    )
+    snapshot_name = f"note-{note.id}.md"
+    reused = bool(source is not None and source.sha256 == fingerprint)
 
     if source is None:
-        raw_path.write_bytes(content)
+        key = await save_source_bytes(kb_id, snapshot_name, content)
         source = Source(
             kb_id=kb_id,
             type="note",
             title=(note.title or "笔记")[:300],
-            raw_path=str(raw_path),
+            raw_path=key,
             sha256=fingerprint,
             status="parsed",
             parse_quality="clean",
@@ -131,23 +124,23 @@ async def _prepare_note_compile(
         session.add(source)
         await session.flush()
     else:
-        old_path = Path(source.raw_path)
+        old_raw = source.raw_path
         if not reused:
-            raw_path.write_bytes(content)
-            source.raw_path = str(raw_path)
+            key = await save_source_bytes(kb_id, snapshot_name, content)
+            source.raw_path = key
             source.sha256 = fingerprint
+        else:
+            key = storage_key(source.raw_path) or source.raw_path
         source.type = "note"
         source.external_id = external_id
         source.title = (note.title or "笔记")[:300]
         source.status = "parsed"
         source.parse_quality = "clean"
         source.parsed_at = datetime.now(timezone.utc)
-        # 旧版本按指纹命名的临时原文，迁移到稳定路径后清理。
-        if old_path != raw_path and old_path.exists() and old_path.name.startswith("note-"):
-            try:
-                old_path.unlink()
-            except OSError:
-                pass
+        # 旧快照按指纹命名；迁移到稳定键后清理旧对象。
+        old_key = storage_key(old_raw)
+        if old_key and old_key != key:
+            await delete_source(old_raw)
 
     job = IngestJob(
         kb_id=kb_id,

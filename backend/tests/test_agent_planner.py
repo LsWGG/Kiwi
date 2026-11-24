@@ -386,6 +386,51 @@ async def test_plan_with_llm_keeps_specific_model_query_for_follow_up():
     assert plan.web_queries[0] == "北京今天天气 2026"
 
 
+async def test_plan_with_llm_skips_retrieval_when_not_needed():
+    """寒暄类问题由规划器按语义判断，不检索也不联网。"""
+    content = (
+        '{"needs_retrieval": false, "queries": [], "use_web": false, '
+        '"web_queries": [], "reason": "日常对话无需检索资料"}'
+    )
+    client, _ = _fake_client(content)
+    plan = await plan_with_llm(
+        "你好", client=client, model="m", web_allowed=True, now=NOW
+    )
+    assert plan.source == "llm"
+    assert plan.needs_retrieval is False
+    assert plan.queries == []
+    assert plan.wants_web is False
+    assert plan.use_web is False
+    assert plan.describe() == "无需检索资料"
+
+
+async def test_plan_with_llm_empty_queries_means_no_retrieval():
+    content = '{"queries": [], "use_web": false, "reason": "无需资料"}'
+    client, _ = _fake_client(content)
+    plan = await plan_with_llm(
+        "谢谢", client=client, model="m", web_allowed=True, now=NOW
+    )
+    assert plan.needs_retrieval is False
+    assert plan.queries == []
+
+
+async def test_plan_with_llm_follow_up_never_skips_retrieval():
+    """追问只看当前几个字容易误判，必须按补全后的完整问题检索。"""
+    content = '{"needs_retrieval": false, "queries": [], "use_web": false, "reason": "片段"}'
+    client, _ = _fake_client(content)
+    plan = await plan_with_llm(
+        "这周我干嘛了",
+        client=client,
+        model="m",
+        web_allowed=False,
+        now=NOW,
+        current_query="这周呢",
+        history=_messages(("user", "上周我干了什么"), ("assistant", "整理笔记。")),
+    )
+    assert plan.needs_retrieval is True
+    assert plan.queries == ["这周我干嘛了"]
+
+
 async def test_plan_with_llm_falls_back_on_bad_json():
     client, _ = _fake_client("这不是 JSON")
     plan = await plan_with_llm(

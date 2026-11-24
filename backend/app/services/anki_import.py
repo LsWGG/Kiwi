@@ -21,12 +21,13 @@ from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import StudyQuestion
+from app.services.object_store import get_object_store
 
 MAX_APKG_BYTES = 300 * 1024 * 1024
 MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024
@@ -489,19 +490,18 @@ def _safe_filename(value: str, fallback: str) -> str:
     return name
 
 
-def _store_media(
+async def _store_media(
     payload: bytes,
     media_names: dict[str, str],
     used: set[str],
     kb_id: uuid.UUID,
-    media_root: Path,
 ) -> tuple[dict[str, dict[str, str]], int]:
-    """把被题目引用的媒体写入 /media，返回引用名 -> 媒体描述。"""
+    """把被题目引用的媒体写入对象存储，返回引用名 -> 媒体描述。"""
     lookup = _media_lookup(media_names)
     if not used:
         return {}, 0
     token = uuid.uuid4().hex[:12]
-    target_dir = media_root / str(kb_id) / f"anki-{token}"
+    store = get_object_store()
     stored: dict[str, dict[str, str]] = {}
     entry_by_index: dict[str, dict[str, str]] = {}
     used_names: set[str] = set()
@@ -535,9 +535,18 @@ def _store_media(
                 candidate = f"{Path(name).stem}-{counter}{suffix}"
                 counter += 1
             used_names.add(candidate)
-            target_dir.mkdir(parents=True, exist_ok=True)
-            (target_dir / candidate).write_bytes(content)
-            url = f"/media/{kb_id}/anki-{token}/{quote(candidate)}"
+            await store.save_bytes(
+                f"media/{kb_id}/anki-{token}/{candidate}",
+                content,
+                content_type=(
+                    "image/svg+xml"
+                    if suffix.lower() == ".svg"
+                    else f"image/{suffix.lstrip('.').lower()}"
+                    if suffix.lower() in image_suffixes
+                    else "application/octet-stream"
+                ),
+            )
+            url = store.media_url(f"media/{kb_id}/anki-{token}/{candidate}")
             entry = {
                 "url": url,
                 "name": original,
@@ -567,15 +576,14 @@ async def import_anki_package(
     session: AsyncSession,
     kb_id: uuid.UUID,
     payload: bytes,
-    media_root: Path,
 ) -> AnkiImportResult:
     parsed = parse_apkg(payload)
     if not parsed.cards:
         raise AnkiImportError("牌组中没有可导入的卡片")
 
     used_media = {src for card in parsed.cards for src in card.media}
-    media_by_src, media_count = _store_media(
-        payload, parsed.media_names, used_media, kb_id, media_root
+    media_by_src, media_count = await _store_media(
+        payload, parsed.media_names, used_media, kb_id
     )
 
     fingerprints: dict[str, ParsedCard] = {}

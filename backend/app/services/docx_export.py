@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import re
 from io import BytesIO
-from pathlib import Path
 from urllib.parse import unquote
 
 from docx import Document
@@ -18,7 +17,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Inches, Pt, RGBColor
 from markdown_it import MarkdownIt
 
-from app.config import settings
+from app.services.object_store import get_object_store
 
 _HEADING_COLOR = RGBColor(0x1F, 0x29, 0x37)
 _MUTED_COLOR = RGBColor(0x64, 0x74, 0x8B)
@@ -395,26 +394,24 @@ def _add_hyperlink(paragraph, url: str, text: str) -> None:
     paragraph._p.append(hyperlink)
 
 
-def _media_path(src: str) -> Path | None:
+def _media_rel(src: str) -> str | None:
     if not src.startswith("/media/"):
         return None
     rel = unquote(src[len("/media/") :].split("?", 1)[0].split("#", 1)[0])
-    root = (settings.upload_dir / "media").resolve()
-    path = (root / rel).resolve()
-    try:
-        path.relative_to(root)
-    except ValueError:
+    parts = [part for part in rel.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
         return None
-    return path if path.is_file() else None
+    return "/".join(parts)
 
 
 def _add_image(paragraph, token) -> None:
     src = (token.attrs or {}).get("src", "")
     alt = (token.attrs or {}).get("alt", "")
-    path = _media_path(src)
-    if path is not None:
+    rel = _media_rel(src)
+    if rel is not None:
         try:
-            paragraph.add_run().add_picture(str(path), width=Inches(5.5))
+            with get_object_store().materialize_sync(f"media/{rel}") as path:
+                paragraph.add_run().add_picture(str(path), width=Inches(5.5))
             return
         except Exception:  # noqa: BLE001 - 损坏图片降级为文字
             pass

@@ -53,7 +53,8 @@ from app.db.models import (
 from app.db.session import async_session_factory
 from app.services import todo_sync
 from app.services.embedder import is_disabled
-from app.services.source_paths import resolve_raw_path
+from app.services.object_store import get_object_store
+from app.services.source_paths import materialize_raw_path
 
 logger = logging.getLogger("kiwi.builtin_demo")
 
@@ -138,23 +139,21 @@ def _order_tree(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ordered
 
 
-def _copy_assets() -> None:
-    """把随包素材复制到运行时上传目录（幂等，固定文件覆盖写）。"""
-    upload_root = Path(settings.upload_dir)
+async def _copy_assets() -> None:
+    """把随包素材写入对象存储（幂等，固定键覆盖写）。"""
+    store = get_object_store()
     for source in ASSETS_DIR.glob("uploads/**/*"):
         if not source.is_file():
             continue
         relative = source.relative_to(ASSETS_DIR / "uploads")
-        target = upload_root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(source.read_bytes())
+        await store.save_bytes(relative.as_posix(), source.read_bytes())
     for source in ASSETS_DIR.glob("media/**/*"):
         if not source.is_file():
             continue
         relative = source.relative_to(ASSETS_DIR / "media")
-        target = upload_root / "media" / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(source.read_bytes())
+        await store.save_bytes(
+            f"media/{relative.as_posix()}", source.read_bytes()
+        )
 
 
 async def _unique_slug(session: AsyncSession) -> str:
@@ -287,11 +286,11 @@ async def ensure_builtin_demo(session: AsyncSession) -> tuple[KnowledgeBase | No
                 changed = True
         if changed:
             await session.commit()
-        _copy_assets()
+        await _copy_assets()
         return kb, False
 
     # 全新安装 / 旧库升级：创建并一次性写入全部演示数据。
-    _copy_assets()
+    await _copy_assets()
     kb = KnowledgeBase(
         id=BUILTIN_KB_ID,
         name=BUILTIN_NAME,
@@ -405,11 +404,6 @@ async def restore_builtin(session: AsyncSession) -> KnowledgeBase | None:
 # ---------- 向量索引（后台补齐，失败不影响启动） ----------
 
 
-def _resolve_source_path(raw_path: str) -> Path | None:
-    path = resolve_raw_path(raw_path)
-    return path if path.exists() else None
-
-
 async def seed_builtin_vectors() -> None:
     """为演示库补齐 Wiki / 素材向量，保证检索与问答开箱可用。"""
     if is_disabled():
@@ -496,11 +490,15 @@ async def seed_builtin_vectors() -> None:
             if raw_count == 0 and sources:
                 total = 0
                 for source in sources:
-                    path = _resolve_source_path(source.raw_path)
-                    if path is None:
+                    try:
+                        async with materialize_raw_path(
+                            source.raw_path
+                        ) as path:
+                            text = path.read_text(encoding="utf-8")
+                    except (FileNotFoundError, OSError):
                         logger.warning("演示素材文件缺失：%s", source.raw_path)
                         continue
-                    chunks = split_markdown(path.read_text(encoding="utf-8"))
+                    chunks = split_markdown(text)
                     if not chunks:
                         continue
                     vectors = await embed_texts_async(

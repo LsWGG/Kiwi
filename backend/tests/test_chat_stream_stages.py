@@ -100,11 +100,78 @@ async def _collect(resp) -> str:
     return raw
 
 
+async def test_prepare_chat_skips_retrieval_for_smalltalk(monkeypatch):
+    """规划器判断无需资料时，不检索、不同步索引、不联网。"""
+    from app.services import agent_trace
+    from app.services.agent_planner import AgentPlan
+
+    agent_trace.clear()
+    calls: list[str] = []
+
+    async def fake_resolve_scope(session, scope):
+        return []
+
+    async def fake_resolve_llm(session, kb_id, llm_config_id=None):
+        return (
+            SimpleNamespace(
+                base_url="http://127.0.0.1:9", model_name="m", extra_params={}
+            ),
+            "",
+        )
+
+    async def fake_plan(*args, **kwargs):
+        return AgentPlan(
+            queries=[],
+            needs_retrieval=False,
+            reason="打招呼无需资料",
+            source="llm",
+        )
+
+    async def fake_search(*args, **kwargs):
+        calls.append("search")
+        return [], ""
+
+    async def fake_index(*args, **kwargs):
+        calls.append("index")
+
+    monkeypatch.setattr(chat, "_resolve_scope", fake_resolve_scope)
+    monkeypatch.setattr(chat, "resolve_llm", fake_resolve_llm)
+    monkeypatch.setattr(chat, "_plan_request", fake_plan)
+    monkeypatch.setattr(chat, "_safe_search_many", fake_search)
+    monkeypatch.setattr(chat, "ensure_notes_indexed", fake_index)
+
+    stages: list[tuple] = []
+    prepared = await chat._prepare_chat(
+        None,
+        ChatRequest(messages=[{"role": "user", "content": "你好"}], agent=True),
+        "你好",
+        "note",
+        lambda *args: stages.append(args),
+    )
+    assert calls == []
+    assert all(stage[0] not in ("search", "index", "web") for stage in stages)
+    assert ("plan", "done", "无需检索资料", "打招呼无需资料") in stages
+    system = prepared.openai_msgs[0]["content"]
+    assert "无需检索知识库或联网资料" in system
+    assert "资料：" not in system
+
+    trace = prepared.trace
+    assert trace is not None
+    kinds = [event["kind"] for event in trace.events]
+    assert "understand" in kinds and "planner" in kinds
+    assert all(
+        event["name"] not in ("检索 Wiki", "检索笔记", "同步笔记索引", "联网检索")
+        for event in trace.events
+    )
+    trace.finish("done")
+    agent_trace.clear()
+
+
 async def test_stream_emits_stages_notice_citation_chunks_done(monkeypatch):
     fake_client = _FakeClient([_delta("你"), _delta("好")])
     notice = "知识库检索暂时不可用，本次将基于联网结果或对话上下文回答。"
 
-    async def fake_prepare(session, data, query, intent, stage):
+    async def fake_prepare(session, data, query, intent, stage, *, trace=None):
         stage("understand", "start", "正在理解问题")
         stage("search", "start", "正在检索 Wiki 与笔记")
         stage("search", "done", "知识库检索完成", "命中 0 个片段")
@@ -145,7 +212,7 @@ async def test_stream_emits_stages_notice_citation_chunks_done(monkeypatch):
 
 
 async def test_stream_reports_prepare_failure_as_sse_error(monkeypatch):
-    async def fake_prepare(session, data, query, intent, stage):
+    async def fake_prepare(session, data, query, intent, stage, *, trace=None):
         raise HTTPException(400, "未配置大模型连接，请先在设置中添加并设为默认。")
 
     monkeypatch.setattr(chat, "_prepare_chat", fake_prepare)
@@ -162,7 +229,7 @@ async def test_stream_reports_prepare_failure_as_sse_error(monkeypatch):
 
 
 async def test_stream_reports_unexpected_prepare_error(monkeypatch):
-    async def fake_prepare(session, data, query, intent, stage):
+    async def fake_prepare(session, data, query, intent, stage, *, trace=None):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(chat, "_prepare_chat", fake_prepare)

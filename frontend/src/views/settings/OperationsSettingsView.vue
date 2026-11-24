@@ -5,9 +5,11 @@
  * 任务与备份均来自后台队列；备份在服务端执行，前端只负责触发与展示，
  * 不提供覆盖式恢复入口（恢复属于不可逆操作，由 scripts/restore_backup.sh 完成）。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
+import AgentTraceDialog from '@/components/settings/AgentTraceDialog.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import {
@@ -17,11 +19,13 @@ import {
   getBackendBuildInfo,
   getFrontendBuildInfo,
   importBackup,
+  listAgentTraces,
   listAudit,
   listBackups,
   listJobs,
   retryJob,
   triggerBackup,
+  type AgentTrace,
   type AuditEntry,
   type BackupEntry,
   type BackupList,
@@ -55,6 +59,23 @@ const jobsPageCount = computed(() =>
 const auditPageCount = computed(() =>
   Math.max(1, Math.ceil(auditTotal.value / AUDIT_PAGE_SIZE)),
 )
+
+const OPS_TABS = [
+  { key: 'jobs', label: '持久化任务', icon: 'listOrdered' },
+  { key: 'audit', label: '审计日志', icon: 'shield' },
+  { key: 'backup', label: '自动备份', icon: 'storage' },
+  { key: 'traces', label: 'Agent 轨迹', icon: 'sparkle' },
+] as const
+
+type OpsTab = (typeof OPS_TABS)[number]['key']
+const route = useRoute()
+const opsTab = ref<OpsTab>('jobs')
+const traceDeepLink = ref('')
+let traceDeepLinkHandled = false
+
+const agentTraces = ref<AgentTrace[]>([])
+const tracesLoading = ref(false)
+const activeTrace = ref<AgentTrace | null>(null)
 
 const backups = ref<BackupList | null>(null)
 const backupsLoading = ref(false)
@@ -283,8 +304,98 @@ async function loadBuildInfo() {
   frontendBuild.value = await getFrontendBuildInfo()
 }
 
+async function loadAgentTraces() {
+  if (tracesLoading.value) return
+  tracesLoading.value = true
+  try {
+    const res = await listAgentTraces(100)
+    agentTraces.value = res.items || []
+    if (!traceDeepLinkHandled && traceDeepLink.value) {
+      traceDeepLinkHandled = true
+      const target = agentTraces.value.find(
+        (trace) => trace.id === traceDeepLink.value,
+      )
+      if (target) openTrace(target)
+      else {
+        toast.info('该轮 Agent 轨迹已过期（仅保留最近 100 轮）')
+      }
+    }
+  } catch (e: any) {
+    toast.error(e.message || '读取 Agent 轨迹失败')
+  } finally {
+    tracesLoading.value = false
+  }
+}
+
+watch(
+  () => route.query.trace,
+  (value) => {
+    const id = typeof value === 'string' ? value.trim() : ''
+    if (!id) return
+    traceDeepLink.value = id
+    traceDeepLinkHandled = false
+    opsTab.value = 'traces'
+    void loadAgentTraces()
+  },
+)
+
 async function refreshAll() {
-  await Promise.allSettled([loadJobs(true), loadAudit(), loadBackups(), loadBuildInfo()])
+  await Promise.allSettled([
+    loadJobs(true),
+    loadAudit(),
+    loadBackups(),
+    loadBuildInfo(),
+    loadAgentTraces(),
+  ])
+}
+
+const TRACE_STATUS: Record<string, { label: string; tone: string }> = {
+  running: { label: '进行中', tone: 'info' },
+  done: { label: '完成', tone: 'success' },
+  awaiting_approval: { label: '待确认', tone: 'warning' },
+  error: { label: '失败', tone: 'danger' },
+  cancelled: { label: '已取消', tone: 'muted' },
+}
+
+function traceStatusMeta(status: string) {
+  return TRACE_STATUS[status] || { label: status, tone: 'muted' }
+}
+
+function traceToneStyle(tone: string) {
+  const token =
+    tone === 'success'
+      ? 'var(--theme-success)'
+      : tone === 'warning'
+        ? 'var(--theme-warning)'
+        : tone === 'danger'
+          ? 'var(--theme-danger)'
+          : tone === 'info'
+            ? 'var(--theme-info)'
+            : 'var(--theme-text-secondary, 100 116 139)'
+  return { color: `rgb(${token})`, backgroundColor: `rgb(${token} / 0.12)` }
+}
+
+function formatTraceTime(ts: number | null) {
+  if (!ts) return '—'
+  return new Date(ts * 1000).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function formatMs(ms: number) {
+  if (!ms) return '0ms'
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`
+}
+
+function openTrace(trace: AgentTrace) {
+  // 画布先完整展示流转，点击节点再弹出输入 / 输出。
+  activeTrace.value = trace
+}
+
+function closeTrace() {
+  activeTrace.value = null
 }
 
 async function onStatusChange() {
@@ -391,6 +502,14 @@ function schedulePoll() {
 }
 
 onMounted(async () => {
+  const tab = typeof route.query.tab === 'string' ? route.query.tab : ''
+  if (tab === 'traces') opsTab.value = 'traces'
+  const traceId =
+    typeof route.query.trace === 'string' ? route.query.trace.trim() : ''
+  if (traceId) {
+    traceDeepLink.value = traceId
+    opsTab.value = 'traces'
+  }
   await refreshAll()
 })
 
@@ -425,7 +544,7 @@ function setAuditAction(value: string | number) {
         <div>
           <h1 class="text-2xl font-semibold text-slate-800">运维与安全</h1>
           <p class="mt-1 text-sm text-slate-500">
-            查看构建版本、后台任务、审计记录与自动备份状态。
+            查看构建版本、后台任务、审计记录、自动备份与 Agent 轨迹。
           </p>
         </div>
       </div>
@@ -506,8 +625,130 @@ function setAuditAction(value: string | number) {
         </div>
       </section>
 
+      <!-- 运维子页签：样式与顶部「品牌 / 模型 / 运维…」保持一致 -->
+      <nav
+        class="mb-5 flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-slate-200/70 bg-white/60 p-1 backdrop-blur-xl"
+        aria-label="运维分类"
+        role="tablist"
+      >
+        <button
+          v-for="tab in OPS_TABS"
+          :key="tab.key"
+          type="button"
+          role="tab"
+          :aria-selected="opsTab === tab.key"
+          class="group flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-medium transition-all"
+          :class="
+            opsTab === tab.key
+              ? 'bg-white text-kiwi-700 shadow-soft ring-1 ring-kiwi-100'
+              : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+          "
+          @click="opsTab = tab.key"
+        >
+          <span
+            class="grid h-5 w-5 place-items-center rounded-md transition-colors"
+            :class="
+              opsTab === tab.key
+                ? 'bg-kiwi-50 text-kiwi-600'
+                : 'bg-slate-100/80 text-slate-400 group-hover:text-slate-500'
+            "
+          >
+            <KiwiIcon :name="tab.icon" :size="11" />
+          </span>
+          {{ tab.label }}
+          <span
+            v-if="tab.key === 'jobs' && activeCount"
+            class="rounded-full bg-kiwi-100 px-1 text-[8px] text-kiwi-700"
+          >
+            {{ activeCount }}
+          </span>
+          <span
+            v-if="tab.key === 'jobs' && failedCount"
+            class="rounded-full px-1 text-[8px]"
+            :style="traceToneStyle('danger')"
+          >
+            {{ failedCount }}
+          </span>
+        </button>
+      </nav>
+
+      <!-- Agent 轨迹 -->
+      <section v-if="opsTab === 'traces'" :class="cardClass">
+        <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div class="flex items-center gap-2">
+            <KiwiIcon name="sparkle" :size="15" class="text-kiwi-500" />
+            <h2 class="text-[14px] font-semibold text-slate-700">Agent 轨迹</h2>
+          </div>
+          <span class="text-[10px] text-slate-400">
+            最近 100 轮问答的规划、模型与工具耗时；包含输入 / 输出日志，仅管理员可见。
+          </span>
+          <button
+            type="button"
+            class="ml-auto rounded-lg border border-slate-200/70 bg-white/60 px-2.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white hover:text-slate-700 disabled:opacity-60"
+            :disabled="tracesLoading"
+            @click="loadAgentTraces"
+          >
+            {{ tracesLoading ? '读取中…' : '刷新' }}
+          </button>
+        </div>
+
+        <p
+          v-if="!agentTraces.length"
+          class="rounded-xl border border-dashed border-slate-200/70 px-3 py-5 text-center text-[11px] text-slate-400"
+        >
+          {{ tracesLoading ? '读取 Agent 轨迹…' : '还没有轨迹。发起一次问答后，这里会显示每轮耗时与工具调用。' }}
+        </p>
+
+        <div v-else class="space-y-2">
+          <article
+            v-for="trace in agentTraces"
+            :key="trace.id"
+            class="cursor-pointer rounded-xl border border-slate-200/70 bg-white/60 p-3 transition-colors hover:border-kiwi-200/80 hover:bg-white/80"
+            role="button"
+            tabindex="0"
+            @click="openTrace(trace)"
+            @keydown.enter="openTrace(trace)"
+          >
+            <div class="flex flex-wrap items-center gap-2 text-[11px]">
+              <span
+                class="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                :style="traceToneStyle(traceStatusMeta(trace.status).tone)"
+              >
+                {{ traceStatusMeta(trace.status).label }}
+              </span>
+              <span class="font-mono text-slate-500">{{ formatTraceTime(trace.started_at) }}</span>
+              <span class="text-slate-400">· {{ formatMs(trace.duration_ms) }}</span>
+              <span class="text-slate-400">· {{ trace.model || '未知模型' }}</span>
+              <span v-if="trace.planner_source" class="text-slate-400">
+                · 规划 {{ trace.planner_source }} {{ formatMs(trace.planner_ms) }} /
+                {{ trace.planner_queries }} 条
+              </span>
+              <span class="ml-auto text-[10px] text-slate-400">
+                {{ trace.query_chars }} 字提问 · {{ trace.scope }}
+              </span>
+              <span class="inline-flex items-center gap-0.5 text-[10px] text-kiwi-600">
+                查看流转
+                <KiwiIcon name="chevronRight" :size="10" />
+              </span>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <span
+                v-for="(event, index) in trace.events"
+                :key="index"
+                class="inline-flex items-center gap-1 rounded-md border border-slate-200/70 px-1.5 py-0.5 text-[10px] text-slate-500"
+                :style="event.ok ? undefined : traceToneStyle('danger')"
+              >
+                <span class="font-mono">{{ event.kind }}</span>
+                <span>{{ event.name }}</span>
+                <span class="text-slate-400">{{ formatMs(event.ms) }}</span>
+              </span>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <!-- 持久化任务 -->
-      <section :class="cardClass">
+      <section v-if="opsTab === 'jobs'" :class="cardClass">
         <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           <div class="flex items-center gap-2">
             <KiwiIcon name="loader" :size="15" class="text-kiwi-500" />
@@ -641,7 +882,7 @@ function setAuditAction(value: string | number) {
       </section>
 
       <!-- 审计日志 -->
-      <section :class="cardClass">
+      <section v-if="opsTab === 'audit'" :class="cardClass">
         <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           <div class="flex items-center gap-2">
             <KiwiIcon name="shield" :size="15" class="text-kiwi-500" />
@@ -738,7 +979,7 @@ function setAuditAction(value: string | number) {
       </section>
 
       <!-- 自动备份 -->
-      <section :class="cardClass">
+      <section v-if="opsTab === 'backup'" :class="cardClass">
         <div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           <div class="flex items-center gap-2">
             <KiwiIcon name="database" :size="15" class="text-kiwi-500" />
@@ -828,6 +1069,8 @@ function setAuditAction(value: string | number) {
           大库备份可能耗时较久，执行期间可继续使用系统。
         </p>
       </section>
+
+      <AgentTraceDialog :trace="activeTrace" @close="closeTrace" />
     </div>
   </div>
 </template>

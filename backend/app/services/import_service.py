@@ -806,8 +806,11 @@ async def start_yuque_zip_import(
 
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            items, errors = read_export_zip(
-                zf, media_dir=Path(settings.media_dir), kb_id=str(kb.id)
+            items, errors = await asyncio.to_thread(
+                read_export_zip,
+                zf,
+                media_dir=Path(settings.upload_dir) / "media",
+                kb_id=str(kb.id),
             )
     except (zipfile.BadZipFile, OSError) as exc:
         await mark_closed(batch.id, error=f"导出包解析失败：{exc}")
