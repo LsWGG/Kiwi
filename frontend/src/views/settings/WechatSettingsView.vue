@@ -61,6 +61,23 @@ const remainingLabel = computed(() => {
   return hours > 0 ? `${hours} 小时 ${minutes} 分钟` : `${minutes} 分钟`
 })
 
+const connectedStyle = computed(() =>
+  connected.value
+    ? {
+        color: 'rgb(var(--theme-success, 34 197 94))',
+        backgroundColor: 'rgb(var(--theme-success, 34 197 94) / 0.12)',
+      }
+    : {
+        color: 'rgb(var(--theme-text-secondary, 100 116 139))',
+        backgroundColor: 'rgb(var(--theme-surface-strong, 226 232 240) / 0.45)',
+      },
+)
+const warningBoxStyle = {
+  borderColor: 'rgb(var(--theme-warning, 245 158 11) / 0.32)',
+  backgroundColor: 'rgb(var(--theme-warning, 245 158 11) / 0.08)',
+}
+const warningTextStyle = { color: 'rgb(var(--theme-warning, 245 158 11))' }
+
 const kbOptions = computed(() =>
   kbs.kbs.map((kb) => ({ value: kb.id, label: kb.name })),
 )
@@ -300,18 +317,6 @@ onBeforeUnmount(stopPolling)
 
 <template>
   <div class="page-wrap-slim px-3 py-4 sm:px-8 sm:py-8">
-    <div class="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up">
-      <div>
-        <h1 class="flex items-center gap-2 text-[19px] font-semibold text-slate-800">
-          <KiwiIcon name="chat" :size="18" class="text-kiwi-500" />
-          ClawBot
-        </h1>
-        <p class="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-slate-500">
-          在手机上直接向 Kiwi 提问，或让系统定时推送待办、周报；写操作会在对话里二次确认。
-        </p>
-      </div>
-    </div>
-
     <SettingsTabs />
 
     <div v-if="loading" class="py-16 text-center text-sm text-slate-400">
@@ -319,39 +324,50 @@ onBeforeUnmount(stopPolling)
       正在读取 ClawBot 状态…
     </div>
 
-    <div v-else class="space-y-5">
+    <div v-else class="space-y-4">
       <section
         v-if="!status?.system_enabled"
-        class="rounded-2xl border border-amber-200/80 bg-amber-50/70 p-4 text-[12px] leading-relaxed text-amber-800"
+        class="rounded-2xl border p-4 text-[12px] leading-relaxed"
+        :style="warningBoxStyle"
       >
-        服务端尚未启用 ClawBot 渠道：请在 <code class="rounded bg-amber-100 px-1">.env</code>
-        设置 <code class="rounded bg-amber-100 px-1">KIWI_WECHAT_ENABLED=true</code>
-        并重启后端，然后回到本页扫码登录。
+        <p class="flex items-center gap-2 font-medium" :style="warningTextStyle">
+          <KiwiIcon name="alert" :size="14" />
+          服务端尚未启用 ClawBot 渠道
+        </p>
+        <p class="mt-1" :style="warningTextStyle">
+          请在 <code class="rounded bg-white/50 px-1">.env</code> 设置
+          <code class="rounded bg-white/50 px-1">KIWI_WECHAT_ENABLED=true</code>
+          并重启后端，然后回到本页扫码登录。
+        </p>
       </section>
 
-      <section class="animate-fade-up rounded-2xl glass-strong p-5">
+      <!-- 页面头部 / 连接状态 -->
+      <section class="animate-fade-up rounded-2xl glass-strong p-4 sm:p-5">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div class="flex min-w-0 items-start gap-3">
-            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-kiwi-50 text-kiwi-600">
-              <KiwiIcon name="chat" :size="18" />
+            <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-kiwi-50 text-kiwi-600">
+              <KiwiIcon name="chat" :size="20" />
             </span>
             <div class="min-w-0">
-              <h2 class="text-[14px] font-semibold text-slate-800">连接状态</h2>
-              <p class="mt-0.5 text-[11.5px] leading-relaxed text-slate-500">
-                扫码登录后，Bot 会持续接收消息；登录有效期约 24 小时，到期前会提醒续连。
+              <p class="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">
+                消息渠道
+              </p>
+              <h1 class="mt-0.5 text-[17px] font-semibold text-slate-800">ClawBot</h1>
+              <p class="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-slate-500">
+                在手机上直接向 Kiwi 提问，或让系统定时推送待办、周报；写操作会在对话里二次确认。
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
                 <span
-                  class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium"
-                  :class="
-                    connected
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-slate-100 text-slate-500'
-                  "
+                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium"
+                  :style="connectedStyle"
                 >
                   <span
                     class="h-1.5 w-1.5 rounded-full"
-                    :class="connected ? 'bg-emerald-500' : 'bg-slate-400'"
+                    :style="{
+                      backgroundColor: connected
+                        ? 'rgb(var(--theme-success, 34 197 94))'
+                        : 'rgb(var(--theme-text-subtle, 148 163 184))',
+                    }"
                   />
                   {{ connected ? '已连接' : '未连接' }}
                 </span>
@@ -365,62 +381,92 @@ onBeforeUnmount(stopPolling)
             </div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              role="switch"
-              :aria-checked="form.enabled"
-              :disabled="!status?.system_enabled"
-              class="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-              :class="form.enabled ? 'bg-kiwi-500' : 'bg-slate-300'"
-              :title="form.enabled ? '停用 ClawBot 渠道' : '启用 ClawBot 渠道'"
-              @click="toggleEnabled"
-            >
-              <span
-                class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
-                :class="form.enabled ? 'left-[18px]' : 'left-0.5'"
-              />
-            </button>
-            <button
-              v-if="!connected"
-              type="button"
-              class="kiwi-btn-primary"
-              :disabled="loginBusy || !status?.system_enabled"
-              @click="startLogin"
-            >
-              <KiwiIcon :name="loginBusy ? 'loader' : 'refresh'" :size="13" :spin="loginBusy" />
-              扫码登录
-            </button>
-            <button
-              v-else
-              type="button"
-              class="kiwi-btn-secondary"
-              :disabled="loginBusy"
-              @click="startLogin"
-            >
-              <KiwiIcon :name="loginBusy ? 'loader' : 'refresh'" :size="13" :spin="loginBusy" />
-              重新扫码
-            </button>
-            <button v-if="connected" type="button" class="kiwi-btn-ghost" @click="disconnect">
-              断开
-            </button>
+          <div class="flex w-full flex-col items-end gap-2.5 sm:w-auto">
+            <div class="flex items-center gap-2">
+              <span class="text-[10.5px] text-slate-400">
+                {{ form.enabled ? '已启用' : '已停用' }}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="form.enabled"
+                :disabled="!status?.system_enabled"
+                class="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                :class="form.enabled ? 'bg-kiwi-500' : 'bg-slate-300'"
+                :title="form.enabled ? '停用 ClawBot 渠道' : '启用 ClawBot 渠道'"
+                @click="toggleEnabled"
+              >
+                <span
+                  class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
+                  :class="form.enabled ? 'left-[18px]' : 'left-0.5'"
+                />
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <button
+                v-if="!connected"
+                type="button"
+                class="kiwi-btn-primary"
+                :disabled="loginBusy || !status?.system_enabled"
+                @click="startLogin"
+              >
+                <KiwiIcon
+                  :name="loginBusy ? 'loader' : 'refresh'"
+                  :size="13"
+                  :spin="loginBusy"
+                />
+                扫码登录
+              </button>
+              <button
+                v-else
+                type="button"
+                class="kiwi-btn-secondary"
+                :disabled="loginBusy"
+                @click="startLogin"
+              >
+                <KiwiIcon
+                  :name="loginBusy ? 'loader' : 'refresh'"
+                  :size="13"
+                  :spin="loginBusy"
+                />
+                重新扫码
+              </button>
+              <button
+                v-if="connected"
+                type="button"
+                class="kiwi-btn-ghost !px-2 text-[11px] text-slate-400 hover:text-rose-500"
+                @click="disconnect"
+              >
+                断开
+              </button>
+            </div>
           </div>
         </div>
 
         <div
           v-if="login.status === 'pending'"
-          class="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-200/70 bg-white/60 p-4"
+          class="mt-4 flex flex-col gap-4 rounded-xl border border-slate-200/70 bg-white/55 p-4 sm:flex-row sm:items-center"
         >
-          <img
-            v-if="qrSrc"
-            :src="qrSrc"
-            alt="扫码登录二维码"
-            class="h-44 w-44 rounded-lg border border-slate-200/70 bg-white p-1"
-          />
-          <div class="min-w-0 text-[12px] leading-relaxed text-slate-600">
-            <p class="font-medium text-slate-700">用手机扫码并确认</p>
-            <p class="mt-1 text-slate-400">扫码后本页会自动更新；二维码约 10 分钟内有效。</p>
-            <p v-if="qrLink" class="mt-2 flex flex-wrap gap-2 text-[11px]">
+          <div class="mx-auto shrink-0 rounded-xl border border-slate-200/70 bg-white p-2 shadow-sm sm:mx-0">
+            <img
+              v-if="qrSrc"
+              :src="qrSrc"
+              alt="扫码登录二维码"
+              class="h-40 w-40 rounded-lg"
+            />
+            <div
+              v-else
+              class="grid h-40 w-40 place-items-center text-[11px] text-slate-400"
+            >
+              二维码加载中…
+            </div>
+          </div>
+          <div class="min-w-0 text-[11.5px] leading-relaxed text-slate-600">
+            <p class="text-[12.5px] font-medium text-slate-700">用手机扫码并确认</p>
+            <p class="mt-1 text-slate-400">
+              扫码后本页会自动更新；二维码约 10 分钟内有效。
+            </p>
+            <div v-if="qrLink" class="mt-2 flex flex-wrap gap-2">
               <a
                 :href="qrLink"
                 target="_blank"
@@ -436,29 +482,37 @@ onBeforeUnmount(stopPolling)
               >
                 复制链接
               </button>
-            </p>
+            </div>
             <p v-else class="mt-2 text-[11px] text-slate-400">
               如果二维码没有显示，请刷新页面重新获取。
             </p>
           </div>
         </div>
         <p
-          v-else-if="login.message"
-          class="mt-3 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-500"
+          v-else-if="login.status !== 'connected' && login.message"
+          class="mt-3 rounded-lg border border-slate-200/70 bg-white/50 px-3 py-2 text-[11px] text-slate-500"
         >
           {{ login.message }}
         </p>
       </section>
 
-      <section class="animate-fade-up rounded-2xl glass-strong p-5">
-        <h2 class="text-[14px] font-semibold text-slate-800">问答权限</h2>
-        <p class="mt-0.5 text-[11.5px] leading-relaxed text-slate-500">
-          未授权的联系人无法使用知识库；写操作默认关闭，开启后也必须在对话里回复「确认」。
-        </p>
+      <!-- 问答权限 -->
+      <section class="animate-fade-up rounded-2xl glass-strong p-4 sm:p-5">
+        <div class="flex items-start gap-3">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-kiwi-50 text-kiwi-600">
+            <KiwiIcon name="shield" :size="16" />
+          </span>
+          <div class="min-w-0">
+            <h2 class="text-[14px] font-semibold text-slate-800">问答权限</h2>
+            <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+              未授权的联系人无法使用知识库；写操作默认关闭，开启后也必须在对话里回复「确认」。
+            </p>
+          </div>
+        </div>
 
-        <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="mt-4 grid gap-4 lg:grid-cols-2">
           <label class="block">
-            <span class="mb-1 block text-[11.5px] font-medium text-slate-500">默认知识库</span>
+            <span class="mb-1 block text-[11px] font-medium text-slate-500">默认知识库</span>
             <KiwiSelect
               v-model="form.default_kb_id"
               :options="kbOptions"
@@ -468,10 +522,12 @@ onBeforeUnmount(stopPolling)
               placeholder="选择知识库"
             />
           </label>
-          <div class="flex items-center justify-between rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2">
-            <div>
+          <div class="flex items-center justify-between gap-4 rounded-xl border border-slate-200/70 bg-white/50 px-3 py-2.5">
+            <div class="min-w-0">
               <p class="text-[12px] font-medium text-slate-700">允许写操作</p>
-              <p class="mt-0.5 text-[10.5px] text-slate-400">新建 / 修改 / 删除笔记前仍需在对话中确认</p>
+              <p class="mt-0.5 text-[10.5px] text-slate-400">
+                新建 / 修改 / 删除笔记前仍需在对话中确认
+              </p>
             </div>
             <button
               type="button"
@@ -490,21 +546,34 @@ onBeforeUnmount(stopPolling)
         </div>
 
         <div class="mt-4">
-          <p class="text-[11.5px] font-medium text-slate-500">允许的联系人</p>
-          <div class="mt-1.5 flex flex-wrap gap-1.5">
-            <span
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-[11px] font-medium text-slate-500">允许的联系人</p>
+            <span class="text-[10.5px] text-slate-400">{{ form.allowed_users.length }} 个</span>
+          </div>
+          <div class="mt-2 overflow-hidden rounded-xl border border-slate-200/70 bg-white/50">
+            <div
               v-for="user in form.allowed_users"
               :key="user"
-              class="inline-flex items-center gap-1 rounded-full border border-slate-200/70 bg-white/70 px-2 py-0.5 font-mono text-[10.5px] text-slate-600"
+              class="flex items-center gap-2 border-b border-slate-200/60 px-3 py-2 last:border-b-0"
             >
-              {{ user }}
-              <button type="button" class="text-slate-400 hover:text-rose-500" @click="removeUser(user)">
-                <KiwiIcon name="close" :size="10" />
+              <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-kiwi-50 text-kiwi-600">
+                <KiwiIcon name="chat" :size="11" />
+              </span>
+              <span class="min-w-0 flex-1 truncate font-mono text-[11.5px] text-slate-600">
+                {{ user }}
+              </span>
+              <button
+                type="button"
+                class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-rose-500"
+                title="移除联系人"
+                @click="removeUser(user)"
+              >
+                <KiwiIcon name="close" :size="11" />
               </button>
-            </span>
-            <span v-if="!form.allowed_users.length" class="text-[11px] text-slate-400">
+            </div>
+            <div v-if="!form.allowed_users.length" class="px-3 py-3 text-[11px] text-slate-400">
               还没有允许的联系人
-            </span>
+            </div>
           </div>
           <div class="mt-2 flex gap-2">
             <input
@@ -513,27 +582,39 @@ onBeforeUnmount(stopPolling)
               placeholder="联系人 ID，例如 xxx@im.wechat"
               @keydown.enter.prevent="addUser()"
             />
-            <button type="button" class="kiwi-btn-secondary" @click="addUser()">添加</button>
+            <button type="button" class="kiwi-btn-secondary" @click="addUser()">
+              <KiwiIcon name="plus" :size="13" />
+              添加
+            </button>
           </div>
         </div>
 
-        <div v-if="status?.unknown_users?.length" class="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/60 p-3">
-          <p class="text-[11.5px] font-medium text-amber-800">待授权联系人</p>
-          <div class="mt-2 space-y-1.5">
-            <div
-              v-for="item in status.unknown_users"
-              :key="item.sender"
-              class="flex flex-wrap items-center gap-2 text-[11px] text-amber-800"
+        <div
+          v-if="status?.unknown_users?.length"
+          class="mt-3 overflow-hidden rounded-xl border"
+          :style="warningBoxStyle"
+        >
+          <div class="flex items-center gap-2 px-3 py-2">
+            <KiwiIcon name="alert" :size="12" :style="warningTextStyle" />
+            <span class="text-[11px] font-medium" :style="warningTextStyle">待授权联系人</span>
+          </div>
+          <div
+            v-for="item in status.unknown_users"
+            :key="item.sender"
+            class="flex flex-wrap items-center gap-2 border-t px-3 py-2"
+            :style="{ borderColor: 'rgb(var(--theme-warning, 245 158 11) / 0.2)' }"
+          >
+            <span class="min-w-0 flex-1 truncate font-mono text-[11px]" :style="warningTextStyle">
+              {{ item.sender }}
+            </span>
+            <button
+              type="button"
+              class="rounded-md bg-white/70 px-2 py-0.5 text-[10.5px] font-medium shadow-sm hover:bg-white"
+              :style="warningTextStyle"
+              @click="approveUser(item.sender)"
             >
-              <span class="font-mono">{{ item.sender }}</span>
-              <button
-                type="button"
-                class="rounded-md bg-white/70 px-2 py-0.5 text-[10.5px] text-amber-700 hover:bg-white"
-                @click="approveUser(item.sender)"
-              >
-                允许
-              </button>
-            </div>
+              允许
+            </button>
           </div>
         </div>
 
@@ -545,107 +626,164 @@ onBeforeUnmount(stopPolling)
         </div>
       </section>
 
-      <section class="animate-fade-up rounded-2xl glass-strong p-5">
-        <h2 class="text-[14px] font-semibold text-slate-800">定时主动推送</h2>
-        <p class="mt-0.5 text-[11.5px] leading-relaxed text-slate-500">
-          例如「每天早上 9 点总结 XXX 知识库的待办」。官方 24 小时会话窗口过期时，内容会排队到下次互动补发。
-        </p>
-
-        <div class="mt-4 grid gap-2.5 md:grid-cols-[120px_1fr_180px_220px_auto]">
-          <input v-model="scheduleForm.time" type="time" class="kiwi-input h-9" aria-label="推送时间" />
-          <input
-            v-model="scheduleForm.prompt"
-            class="kiwi-input h-9"
-            placeholder="推送内容，例如：总结今天的待办，按优先级列出"
-            aria-label="推送内容"
-          />
-          <KiwiSelect
-            v-model="scheduleForm.kb_id"
-            :options="kbOptions"
-            variant="input"
-            width="w-full"
-            aria-label="推送知识库"
-            placeholder="知识库"
-          />
-          <KiwiSelect
-            v-if="senderOptions.length"
-            v-model="scheduleForm.sender"
-            :options="senderOptions"
-            variant="input"
-            width="w-full"
-            aria-label="推送联系人"
-            placeholder="联系人"
-          />
-          <input
-            v-else
-            v-model="scheduleForm.sender"
-            class="kiwi-input h-9"
-            placeholder="联系人 ID"
-            aria-label="推送联系人"
-          />
-          <button
-            type="button"
-            class="kiwi-btn-primary"
-            :disabled="scheduleBusy || !scheduleForm.prompt.trim()"
-            @click="addSchedule"
-          >
-            <KiwiIcon :name="scheduleBusy ? 'loader' : 'plus'" :size="13" :spin="scheduleBusy" />
-            添加
-          </button>
+      <!-- 定时主动推送 -->
+      <section class="animate-fade-up rounded-2xl glass-strong p-4 sm:p-5">
+        <div class="flex items-start gap-3">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-kiwi-50 text-kiwi-600">
+            <KiwiIcon name="clock" :size="16" />
+          </span>
+          <div class="min-w-0">
+            <h2 class="text-[14px] font-semibold text-slate-800">定时主动推送</h2>
+            <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+              例如「每天早上 9 点总结 XXX 知识库的待办」。官方 24 小时会话窗口过期时，内容会排队到下次互动补发。
+            </p>
+          </div>
         </div>
 
-        <div v-if="status?.schedules?.length" class="mt-4 space-y-1.5">
-          <div
-            v-for="item in status.schedules"
-            :key="item.id"
-            class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2"
-          >
-            <span class="rounded-lg bg-kiwi-50 px-2 py-0.5 font-mono text-[11px] text-kiwi-700">
-              {{ item.time }}
-            </span>
-            <span class="min-w-0 flex-1 truncate text-[12px] text-slate-600" :title="item.prompt">
-              {{ item.prompt }}
-            </span>
-            <span class="text-[10.5px] text-slate-400">{{ kbName(item.kb_id) }}</span>
-            <button
-              type="button"
-              role="switch"
-              :aria-checked="item.enabled"
-              class="relative h-4 w-7 shrink-0 rounded-full transition-colors"
-              :class="item.enabled ? 'bg-kiwi-500' : 'bg-slate-300'"
-              @click="toggleSchedule(item)"
-            >
-              <span
-                class="absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all"
-                :class="item.enabled ? 'left-[14px]' : 'left-0.5'"
+        <div class="mt-4 rounded-xl border border-slate-200/70 bg-white/50 p-3">
+          <div class="grid gap-3 lg:grid-cols-[130px_180px_minmax(0,1fr)]">
+            <label class="block">
+              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">时间</span>
+              <input v-model="scheduleForm.time" type="time" class="kiwi-input h-9" aria-label="推送时间" />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">知识库</span>
+              <KiwiSelect
+                v-model="scheduleForm.kb_id"
+                :options="kbOptions"
+                variant="input"
+                width="w-full"
+                aria-label="推送知识库"
+                placeholder="知识库"
               />
-            </button>
+            </label>
+            <label v-if="senderOptions.length" class="block">
+              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">联系人</span>
+              <KiwiSelect
+                v-model="scheduleForm.sender"
+                :options="senderOptions"
+                variant="input"
+                width="w-full"
+                aria-label="推送联系人"
+                placeholder="联系人"
+              />
+            </label>
+            <label v-else class="block">
+              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">联系人</span>
+              <input
+                v-model="scheduleForm.sender"
+                class="kiwi-input h-9"
+                placeholder="联系人 ID"
+                aria-label="推送联系人"
+              />
+            </label>
+          </div>
+          <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              v-model="scheduleForm.prompt"
+              class="kiwi-input h-9 flex-1"
+              placeholder="推送内容，例如：总结今天的待办，按优先级列出"
+              aria-label="推送内容"
+            />
             <button
               type="button"
-              class="text-slate-400 transition-colors hover:text-rose-500"
-              title="删除定时推送"
-              @click="removeSchedule(item)"
+              class="kiwi-btn-primary shrink-0"
+              :disabled="scheduleBusy || !scheduleForm.prompt.trim()"
+              @click="addSchedule"
             >
-              <KiwiIcon name="trash" :size="13" />
+              <KiwiIcon :name="scheduleBusy ? 'loader' : 'plus'" :size="13" :spin="scheduleBusy" />
+              添加
             </button>
           </div>
         </div>
-        <p v-else class="mt-4 text-[11px] text-slate-400">还没有定时推送。</p>
+
+        <div v-if="status?.schedules?.length" class="mt-3 space-y-1.5">
+          <div
+            v-for="item in status.schedules"
+            :key="item.id"
+            class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/70 bg-white/50 px-3 py-2 transition-colors hover:bg-white/75"
+          >
+            <span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-kiwi-50 text-kiwi-600">
+              <KiwiIcon name="clock" :size="13" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="font-mono text-[11px] font-medium text-kiwi-700">{{ item.time }}</span>
+                <span class="text-[10px] text-slate-400">· 每天</span>
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
+                  {{ kbName(item.kb_id) }}
+                </span>
+              </div>
+              <p class="mt-0.5 truncate text-[12px] text-slate-600" :title="item.prompt">
+                {{ item.prompt }}
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="item.enabled"
+                class="relative h-4 w-7 shrink-0 rounded-full transition-colors"
+                :class="item.enabled ? 'bg-kiwi-500' : 'bg-slate-300'"
+                @click="toggleSchedule(item)"
+              >
+                <span
+                  class="absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all"
+                  :class="item.enabled ? 'left-[14px]' : 'left-0.5'"
+                />
+              </button>
+              <button
+                type="button"
+                class="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-white hover:text-rose-500"
+                title="删除定时推送"
+                @click="removeSchedule(item)"
+              >
+                <KiwiIcon name="trash" :size="13" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div
+          v-else
+          class="mt-3 rounded-xl border border-dashed border-slate-200/80 bg-white/40 px-4 py-8 text-center"
+        >
+          <div class="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-2xl bg-kiwi-50 text-kiwi-500">
+            <KiwiIcon name="clock" :size="18" />
+          </div>
+          <p class="text-[12px] font-medium text-slate-600">还没有定时推送</p>
+          <p class="mt-0.5 text-[10.5px] text-slate-400">
+            设置一个时间，Kiwi 会每天自动把结果发给你。
+          </p>
+        </div>
       </section>
 
-      <section class="animate-fade-up rounded-2xl glass-strong p-5">
-        <h2 class="text-[14px] font-semibold text-slate-800">发送测试消息</h2>
-        <p class="mt-0.5 text-[11.5px] text-slate-500">
-          发到最近一次互动的联系人；如果窗口已过期，会排队到下次互动。
-        </p>
-        <div class="mt-3 flex gap-2">
+      <!-- 测试消息 -->
+      <section class="animate-fade-up rounded-2xl glass-strong p-4 sm:p-5">
+        <div class="flex items-start gap-3">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-kiwi-50 text-kiwi-600">
+            <KiwiIcon name="send" :size="16" />
+          </span>
+          <div class="min-w-0">
+            <h2 class="text-[14px] font-semibold text-slate-800">发送测试消息</h2>
+            <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+              发到最近一次互动的联系人；如果窗口已过期，会排队到下次互动。
+            </p>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row">
           <input
             v-model="testText"
             class="kiwi-input h-9 flex-1"
             placeholder="测试消息内容"
             @keydown.enter.prevent="sendTest"
           />
-          <button type="button" class="kiwi-btn-secondary" :disabled="!testText.trim()" @click="sendTest">
+          <button
+            type="button"
+            class="kiwi-btn-secondary shrink-0"
+            :disabled="!testText.trim()"
+            @click="sendTest"
+          >
+            <KiwiIcon name="send" :size="13" />
             发送
           </button>
         </div>
