@@ -574,8 +574,9 @@ onBeforeUnmount(stopPolling)
               width="w-full"
             />
           </label>
-          <div class="self-start rounded-xl border border-slate-200/70 bg-white/50 px-3 py-2">
-            <div class="flex items-center justify-between gap-4">
+          <div>
+            <span class="mb-1 block text-[11px] font-medium text-slate-500">写操作</span>
+            <div class="flex h-9 items-center justify-between gap-4 rounded-xl border border-slate-200/70 bg-white/50 px-3">
               <p class="text-[12px] font-medium text-slate-700">允许写操作</p>
               <button
                 type="button"
