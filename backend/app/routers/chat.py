@@ -1371,6 +1371,7 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 data.scope.scope == "kb"
                 and len(prepared.kb_ids) == 1
                 and prepared.kb_id is not None
+                and (data.allow_write is not False)
             )
             toolbox = await agent_tools.load_toolbox()
             ctx = agent_harness.AgentContext(

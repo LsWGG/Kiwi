@@ -9,6 +9,9 @@
 - 问答 Agent 快路径：URL 正文与空白模板在读取完成后直接合成待确认写操作，减少一次大模型改写；确认卡与普通写操作一致。
 - Agent 轨迹：一轮问答从理解、规划、检索、索引到模型、工具与审批的完整耗时；节点保存脱敏后的输入 / 输出与 token 用量，运维页与问答页共用可拖动流转画布（最近 100 轮）。
 - 问答页每条回复可直接查看本轮 Agent 流转，弹窗在原地打开，关闭后仍停留在当前会话；新增按 ID 读取单条轨迹的接口。
+- 微信 ClawBot（官方 iLink）渠道：设置页扫码登录、允许联系人、默认知识库、写操作确认、每天定时推送与 24 小时窗口过期补发；新增 `docs/WECHAT.md`。
+- 微信渠道 Agent 工具：`list_knowledge_bases`、`schedule_wechat_push` / `list_wechat_pushes` / `cancel_wechat_push`。
+
 - 模板闭环：`list_templates` / `get_template`、`create_note_from_template` 与 `apply_template`；支持按模板新建、套用到现有笔记与一键撤销（15 分钟内）。
 - Agent 写操作撤销：创建 → 回收站、更新 → 恢复旧内容、删除 → 从回收站恢复。
 - 媒体对象存储：默认 S3 / MinIO，`local` 仅用于测试 / 离线；`/media` 统一代理并支持 Range；附件、主题背景、Branding、导入媒体、素材原文件、笔记快照与 OCR 图片全部写入对象存储，提供迁移 / rehydrate 脚本与迁移期本地双读。

@@ -86,6 +86,17 @@ class Settings(BaseSettings):
     # 防止某个外部服务返回海量工具拖垮提示词。
     mcp_max_tools: int = 80
 
+    # --- 微信 ClawBot（iLink） ---
+    # 总开关；具体是否已登录、允许哪些联系人等运行时状态保存在 JSON 文件中。
+    wechat_enabled: bool = False
+    wechat_store_file: Path = PROJECT_ROOT / "data" / "wechat_channel.json"
+    # 官方 iLink 登录有效期约 24 小时，到期前提醒扫码续连。
+    wechat_session_hours: float = 24.0
+    # 主动推送可用的 context_token 窗口；过期后排队到下次互动补发。
+    wechat_push_window_hours: float = 24.0
+    # getupdates 长轮询会被服务端 hold 约 35 秒，客户端超时需大于该值。
+    wechat_request_timeout: float = 45.0
+
     # --- 上传 ---
     # 绝对路径：相对路径会随进程 CWD 漂移，导致同一数据库记录在开发实例与
     # 容器中指向不同的目录（表现为「no such file: data/uploads/...」）。

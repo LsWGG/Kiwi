@@ -77,6 +77,8 @@ class ChatRequest(BaseModel):
     # 服务端只保存 15 分钟，且一次确认只能执行一次。
     resume_action_id: str | None = Field(default=None, max_length=64)
     approve: bool | None = None
+    # 外部渠道（微信等）可显式关闭写工具；Web 端不传，保持原有权限。
+    allow_write: bool | None = None
 
 
 class ChatEvent(BaseModel):

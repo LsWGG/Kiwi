@@ -42,6 +42,7 @@ from app.routers import (
     study,
     themes,
     transcribe,
+    wechat,
     wiki,
 )
 from app.security import AccessControlMiddleware
@@ -141,8 +142,26 @@ async def lifespan(app: FastAPI):
             "KIWI_JOB_WORKER_ENABLED=false：不消费持久化任务，导入与编译将保持排队"
         )
 
+    # 微信 ClawBot：扫码登录状态存在运行时 JSON 中，登录后自动开始长轮询。
+    if settings.wechat_enabled:
+        try:
+            from app.services import wechat_clawbot
+
+            await wechat_clawbot.channel.start()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("微信 ClawBot 启动失败（不影响主服务）：%s", e)
+    else:
+        logger.info("KIWI_WECHAT_ENABLED=false：跳过微信 ClawBot 渠道")
+
     yield
 
+    if settings.wechat_enabled:
+        try:
+            from app.services import wechat_clawbot
+
+            await wechat_clawbot.channel.stop()
+        except Exception:  # noqa: BLE001
+            logger.warning("微信 ClawBot 关闭失败", exc_info=True)
     await job_queue.stop_worker()
     await backup_service.stop_backup_task(backup_task)
     await ops_retention.stop_retention_task(retention_task)
@@ -195,6 +214,7 @@ app.include_router(chat_sessions.router)
 app.include_router(chat.router)
 app.include_router(study.router)
 app.include_router(push.router)
+app.include_router(wechat.router)
 app.include_router(transcribe.router)
 app.include_router(plugins.router)
 app.include_router(themes.router)

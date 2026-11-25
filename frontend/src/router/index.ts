@@ -77,6 +77,11 @@ const router = createRouter({
           component: () => import('@/views/settings/OperationsSettingsView.vue'),
         },
         {
+          path: 'settings/wechat',
+          name: 'settings-wechat',
+          component: () => import('@/views/settings/WechatSettingsView.vue'),
+        },
+        {
           path: 'settings/theme',
           name: 'settings-theme',
           component: () => import('@/views/settings/ThemeSettingsView.vue'),

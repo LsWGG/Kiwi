@@ -115,6 +115,11 @@ services:
       KIWI_S3_REGION: ${KIWI_S3_REGION:-us-east-1}
       KIWI_S3_ACCESS_KEY: ${KIWI_S3_ACCESS_KEY:-}
       KIWI_S3_SECRET_KEY: ${KIWI_S3_SECRET_KEY:-}
+      # 微信 ClawBot（官方 iLink）：运行时登录状态保存在数据卷。
+      KIWI_WECHAT_ENABLED: ${KIWI_WECHAT_ENABLED:-false}
+      KIWI_WECHAT_STORE_FILE: /app/data/wechat_channel.json
+      KIWI_WECHAT_SESSION_HOURS: ${KIWI_WECHAT_SESSION_HOURS:-24}
+      KIWI_WECHAT_PUSH_WINDOW_HOURS: ${KIWI_WECHAT_PUSH_WINDOW_HOURS:-24}
       # 外部 MCP 服务（JSON 字符串；也可挂载 data/mcp_servers.json）。
       KIWI_MCP_SERVERS_JSON: ${KIWI_MCP_SERVERS_JSON:-}
       KIWI_MCP_TIMEOUT: ${KIWI_MCP_TIMEOUT:-30}

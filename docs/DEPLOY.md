@@ -505,6 +505,13 @@ backups/kiwi-20261021-120000/
 
 建议把备份目录同步到另一块磁盘或对象存储；Qdrant 向量可通过 Wiki 的「重建」/「重新索引」重新生成，不必单独备份。
 
+### 微信 ClawBot 渠道
+
+设置 `KIWI_WECHAT_ENABLED=true` 后重启 backend，在「设置 → 微信」扫码登录；
+登录状态保存在数据卷的 `data/wechat_channel.json`。官方 API 需要访问
+`https://ilinkai.weixin.qq.com`，登录约 24 小时有效，主动推送受
+`context_token` 窗口限制。完整说明见 [WECHAT.md](WECHAT.md)。
+
 ### 媒体对象存储（默认 S3）
 
 媒体、素材原文件与笔记快照默认写入 S3 / MinIO；`local` 仅用于测试或离线环境。
