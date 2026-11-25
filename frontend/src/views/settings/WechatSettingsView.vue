@@ -5,11 +5,13 @@
  * 登录二维码直接显示在页面里；未登录时轮询 /api/wechat/status 直到扫码完成。
  * 主动推送受官方 24 小时 context_token 窗口限制，过期内容会在下一次互动时补发。
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
+import { copyTextToClipboard } from '@/utils/clipboard'
+import qrcode from 'qrcode-generator'
 import { useKbsStore } from '@/stores/kbs'
 import {
   createWeChatSchedule,
@@ -66,15 +68,43 @@ const senderOptions = computed(() =>
   (status.value?.allowed_users ?? []).map((item) => ({ value: item, label: item })),
 )
 
-const qrSrc = computed(() => {
-  const raw = String(login.value.qr || '').trim()
+const qrRaw = computed(() => String(login.value.qr || '').trim())
+const qrDirect = computed(() => {
+  const raw = qrRaw.value
   if (!raw) return ''
-  if (raw.startsWith('data:image/') || raw.startsWith('https://')) return raw
+  if (raw.startsWith('data:image/')) return raw
   if (raw.startsWith('<svg')) {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(raw)}`
   }
-  return `data:image/png;base64,${raw}`
+  if (!raw.startsWith('http')) return `data:image/png;base64,${raw}`
+  return ''
 })
+const qrLink = computed(() => (qrRaw.value.startsWith('http') ? qrRaw.value : ''))
+const generatedQr = ref('')
+watch(
+  qrRaw,
+  (raw) => {
+    generatedQr.value = ''
+    if (!raw.startsWith('http')) return
+    try {
+      const code = qrcode(0, 'M')
+      code.addData(raw)
+      code.make()
+      generatedQr.value = code.createDataURL(6, 2)
+    } catch {
+      generatedQr.value = ''
+    }
+  },
+  { immediate: true },
+)
+const qrSrc = computed(() => qrDirect.value || generatedQr.value)
+
+async function copyLoginLink() {
+  if (!qrLink.value) return
+  const ok = await copyTextToClipboard(qrLink.value)
+  if (ok) toast.success('登录链接已复制')
+  else toast.error('复制失败，请手动选择链接')
+}
 
 function stopPolling() {
   if (pollTimer !== undefined) {
@@ -390,9 +420,25 @@ onBeforeUnmount(stopPolling)
           <div class="min-w-0 text-[12px] leading-relaxed text-slate-600">
             <p class="font-medium text-slate-700">用手机扫码并确认</p>
             <p class="mt-1 text-slate-400">扫码后本页会自动更新；二维码约 10 分钟内有效。</p>
-            <p class="mt-2 text-[11px] text-slate-400">
-              如果图片没有显示，可在手机中打开链接：
-              <span class="break-all font-mono text-slate-500">{{ login.qr }}</span>
+            <p v-if="qrLink" class="mt-2 flex flex-wrap gap-2 text-[11px]">
+              <a
+                :href="qrLink"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="rounded-md bg-white/80 px-2 py-1 text-kiwi-700 shadow-sm hover:bg-white"
+              >
+                在手机中打开登录链接
+              </a>
+              <button
+                type="button"
+                class="rounded-md bg-white/80 px-2 py-1 text-slate-500 shadow-sm hover:bg-white"
+                @click="copyLoginLink"
+              >
+                复制链接
+              </button>
+            </p>
+            <p v-else class="mt-2 text-[11px] text-slate-400">
+              如果二维码没有显示，请刷新页面重新获取。
             </p>
           </div>
         </div>

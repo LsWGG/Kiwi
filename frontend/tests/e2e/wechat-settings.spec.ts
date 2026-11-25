@@ -69,6 +69,7 @@ test.describe('微信 ClawBot 设置', () => {
     })
     await expect(page.getByRole('button', { name: '扫码登录' })).toBeVisible()
     await expect(page.getByText('tester@im.wechat').first()).toBeVisible()
+    await expect(page.locator('body')).not.toContainText('微信')
 
     await page.getByRole('button', { name: '扫码登录' }).click()
     await expect(page.locator('img[alt="扫码登录二维码"]')).toBeVisible()
@@ -89,4 +90,25 @@ test.describe('微信 ClawBot 设置', () => {
     await expect.poll(() => schedulePayload?.sender).toBe('tester@im.wechat')
     await expect.poll(() => schedulePayload?.time).toBe('09:00')
   })
+})
+
+test('登录链接在前端生成可扫描二维码', async ({ page }) => {
+  await page.route('**/api/wechat/status', async (route) => {
+    await route.fulfill({
+      json: statusPayload({
+        status: 'pending',
+        qr: 'https://example.test/clawbot-login',
+        message: '请扫码',
+      }),
+    })
+  })
+  await page.goto('/settings/wechat', { waitUntil: 'networkidle' })
+  await expect(page.getByText('ClawBot', { exact: true }).first()).toBeVisible({
+    timeout: 30_000,
+  })
+  const qr = page.locator('img[alt="扫码登录二维码"]')
+  await expect(qr).toBeVisible()
+  const src = await qr.getAttribute('src')
+  expect(src?.startsWith('data:image/')).toBeTruthy()
+  await expect(page.locator('body')).not.toContainText('微信')
 })

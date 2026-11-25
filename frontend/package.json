@@ -59,6 +59,7 @@
     "pdfjs-dist": "^6.4.299",
     "pinia": "^2.3.1",
     "pptx-preview": "^1.0.7",
+    "qrcode-generator": "^2.0.4",
     "remixicon": "^4.9.1",
     "smol-toml": "^1.9.1",
     "tiptap-extension-global-drag-handle": "^0.1.18",
