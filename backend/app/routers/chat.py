@@ -40,7 +40,7 @@ from app.services.agent_planner import (
     rules_plan,
     split_queries,
 )
-from app.services.embedder import is_disabled
+from app.services.embedder import embed_texts_async, is_disabled, is_remote_provider
 from app.services.lexical import tokenize
 from app.services.llm_factory import LLMCrypto, llm_factory
 from app.services.note_indexer import ensure_notes_indexed
@@ -193,11 +193,26 @@ async def _search_many(
         return await search(
             session, queries[0], kb_ids, limit=limit, collection=collection, filters=filters
         )
+    # 远程 embedding：多个子问题一次批量请求，避免逐条等待嵌入接口。
+    query_vectors: list[list[float] | None] = [None] * len(queries)
+    if is_remote_provider():
+        try:
+            vectors = await embed_texts_async(list(queries))
+            if len(vectors) == len(queries):
+                query_vectors = [list(vector) for vector in vectors]
+        except Exception:  # noqa: BLE001 —— 批量失败时退回逐条嵌入
+            logger.warning("批量嵌入子问题失败，回退逐条检索", exc_info=True)
     merged: list[dict] = []
     seen: set[str] = set()
-    for query in queries:
+    for index, query in enumerate(queries):
         hits = await search(
-            session, query, kb_ids, limit=limit, collection=collection, filters=filters
+            session,
+            query,
+            kb_ids,
+            limit=limit,
+            collection=collection,
+            filters=filters,
+            query_vector=query_vectors[index],
         )
         for hit in hits:
             payload = hit.get("payload") or {}
@@ -475,6 +490,19 @@ async def _prepare_chat(
     kb_names: dict[str, str] = {}
     if needs_retrieval:
         stage("search", "start", "正在检索 Wiki 与笔记")
+
+        async def _sync_note_index() -> tuple[bool, float]:
+            started = time.perf_counter()
+            try:
+                # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
+                await ensure_notes_indexed(kb_ids)
+                return True, (time.perf_counter() - started) * 1000
+            except Exception:  # noqa: BLE001 —— 索引失败不影响检索
+                logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
+                return False, (time.perf_counter() - started) * 1000
+
+        # 索引同步不依赖 Wiki 检索，两者并行，省掉串行等待。
+        index_task = asyncio.create_task(_sync_note_index())
         if not filters.has_note_constraints:
             _wiki_started = time.perf_counter()
             wiki_hits, wiki_error = await _safe_search_many(
@@ -491,18 +519,11 @@ async def _prepare_chat(
             if wiki_error:
                 notices.append(wiki_error)
         stage("index", "start", "正在同步最新笔记")
-        _index_started = time.perf_counter()
-        _index_ok = True
-        try:
-            # 问答前同步刚编辑过的笔记，避免答案落后于用户的最新整理。
-            await ensure_notes_indexed(kb_ids)
-        except Exception:  # noqa: BLE001 —— 索引失败不影响 Wiki 检索
-            _index_ok = False
-            logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
+        _index_ok, _index_ms = await index_task
         trace.event(
             "tool",
             "同步笔记索引",
-            ms=(time.perf_counter() - _index_started) * 1000,
+            ms=_index_ms,
             ok=_index_ok,
             output={"ok": _index_ok},
             meta={"kb_ids": [str(k) for k in kb_ids]},

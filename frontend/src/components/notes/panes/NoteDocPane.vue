@@ -1626,6 +1626,7 @@ async function copyMarkdown() {
             :agent-open="agentMode"
             :toolbar-host="docxToolbarExternal ? '#note-docx-toolbar-slot' : null"
             @update="onBody"
+            @attachment-inserted="autosave.flushNow()"
             @paragraph-formats="onParagraphFormats"
             @text-formats="onTextFormats"
             @ordered-list-style="setOrderedListStyle"

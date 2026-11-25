@@ -7,9 +7,11 @@ Qdrant 过滤，避免「先召回后过滤」导致结果被截断。
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -197,7 +199,7 @@ def _lexical_text(payload: dict) -> str:
     ).strip()
 
 
-async def _lexical_hits(
+def _lexical_hits(
     query: str,
     kb_ids: list[uuid.UUID],
     collection: str,
@@ -206,11 +208,11 @@ async def _lexical_hits(
     allowed_note_ids: list[str] | None,
     filters: RetrievalFilters,
 ) -> list[dict]:
-    """从 Qdrant payload 读取分块并计算 BM25。
+    """从 Qdrant payload 读取分块并计算 BM25（同步实现，由线程池调用）。
 
     Qdrant 的全文索引对中文分词支持有限，这里直接读取 payload 在应用层
-    打分：个人知识库规模下开销可接受，且能保证与向量命中共享 point id，
-    从而让 RRF 准确合并同一分块。
+    打分；分词与 BM25 是 CPU 密集操作，必须放到线程里，避免阻塞事件循环。
+    与向量命中共享 point id，从而让 RRF 准确合并同一分块。
     """
     query_tokens = tokenize(query)
     if not query_tokens:
@@ -269,6 +271,8 @@ async def search(
     limit: int = 10,
     collection: str = "raw",
     filters: RetrievalFilters | None = None,
+    *,
+    query_vector: list[float] | None = None,
 ) -> list[dict]:
     """跨库混合检索：向量召回 + BM25 → RRF → 可选重排。
 
@@ -293,12 +297,16 @@ async def search(
     per_kb_results: list[list[dict]] = []
     for kb_id in kb_ids:
         model = models.get(kb_id, settings.embed_model)
-        if model not in vec_cache:
-            try:
-                vec_cache[model] = await embed_one_async(query, model)
-            except Exception:
-                vec_cache[model] = []
-        vector = vec_cache[model]
+        if query_vector is not None:
+            # 调用方已批量嵌入同一问题（多子问题一次请求），直接复用。
+            vector = query_vector
+        else:
+            if model not in vec_cache:
+                try:
+                    vec_cache[model] = await embed_one_async(query, model)
+                except Exception:
+                    vec_cache[model] = []
+            vector = vec_cache[model]
         if not vector:
             per_kb_results.append([])
             continue
@@ -308,18 +316,23 @@ async def search(
             name = qdrant_store.note_collection(model)
         else:
             name = qdrant_store.raw_collection(model)
-        hits = qdrant_store.search(
-            collection=name,
-            vector=vector,
-            kb_id=kb_id,
-            limit=limit,
-            # 向量检索总会返回 top-k，即使内容与问题无关；先按相似度过滤，
-            # 避免问答把无关分块当作资料并展示成引用来源。
-            score_threshold=(
-                settings.retrieval_min_score if settings.retrieval_min_score > 0 else None
-            ),
-            note_ids=allowed_note_ids if kind == "note" else None,
-            note_kinds=filters.note_kinds if kind == "note" else None,
+        hits = await asyncio.to_thread(
+            partial(
+                qdrant_store.search,
+                collection=name,
+                vector=vector,
+                kb_id=kb_id,
+                limit=limit,
+                # 向量检索总会返回 top-k，即使内容与问题无关；先按相似度过滤，
+                # 避免问答把无关分块当作资料并展示成引用来源。
+                score_threshold=(
+                    settings.retrieval_min_score
+                    if settings.retrieval_min_score > 0
+                    else None
+                ),
+                note_ids=allowed_note_ids if kind == "note" else None,
+                note_kinds=filters.note_kinds if kind == "note" else None,
+            )
         )
         for h in hits:
             h["kb_id"] = str(kb_id)
@@ -336,14 +349,17 @@ async def search(
     lexical: list[dict] = []
     if settings.retrieval_hybrid_enabled and kind in ("wiki", "note"):
         try:
-            lexical = await _lexical_hits(
-                query,
-                kb_ids,
-                collection,
-                models,
-                limit,
-                allowed_note_ids,
-                filters,
+            lexical = await asyncio.to_thread(
+                partial(
+                    _lexical_hits,
+                    query,
+                    kb_ids,
+                    collection,
+                    models,
+                    limit,
+                    allowed_note_ids,
+                    filters,
+                )
             )
         except Exception:  # noqa: BLE001 —— 词法召回失败时保留纯向量结果
             from logging import getLogger

@@ -43,8 +43,10 @@ class Settings(BaseSettings):
     retrieval_min_score: float = 0.4
     # 混合检索：向量召回 + BM25 词法召回，再用 RRF 融合。
     retrieval_hybrid_enabled: bool = True
-    # 单次词法召回最多读取的分块数；个人库通常远小于该值。
-    retrieval_lexical_limit: int = 8000
+    # 单次词法召回最多读取的分块数。词法召回在应用层分词并计算 BM25，
+    # 读取量越大耗时线性增长；个人库通常远小于该值，8000 会让一次问答
+    # 在笔记检索上多花数十秒。需要更高召回时可显式调大。
+    retrieval_lexical_limit: int = 1500
     retrieval_dense_weight: float = 1.0
     retrieval_lexical_weight: float = 0.8
 

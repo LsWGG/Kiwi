@@ -69,10 +69,17 @@ def env_runtime_config() -> EmbeddingRuntimeConfig:
 
 _runtime_override: EmbeddingRuntimeConfig | None = None
 
+# 远程 embedding 结果缓存：同一轮问答会先检索 Wiki 再检索笔记，重复查询
+# 不应重复调用嵌入接口；不同轮次里相同的问题也能直接复用。
+_REMOTE_CACHE_MAX = 512
+_remote_cache: dict[tuple[str, str, str], tuple[float, ...]] = {}
+
 
 def configure_runtime(config: EmbeddingRuntimeConfig | None) -> None:
     """注入应用内配置；传 None 表示回退到环境变量。"""
     global _runtime_override
+    # 模型 / 接口变化后旧向量不可复用。
+    _remote_cache.clear()
     _runtime_override = config
 
 
@@ -215,23 +222,37 @@ async def _request_embeddings(
 async def _embed_texts_remote(
     texts: list[str], config: EmbeddingRuntimeConfig | None = None
 ) -> list[list[float]]:
-    """调用线上 OpenAI 兼容 embedding 接口，按批次并发请求。"""
+    """调用线上 OpenAI 兼容 embedding 接口，按批次并发请求；命中缓存则跳过。"""
     cfg = config or runtime_config()
-    url = _remote_endpoint(cfg)
-    # 桌面离线模式：登记后才会允许该主机的外联；Docker 下为空操作。
-    offline_guard.register_endpoint(cfg.api_base)
-    batch_size = max(1, cfg.batch_size)
-    batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
-    timeout = httpx.Timeout(max(5.0, cfg.timeout))
-    semaphore = asyncio.Semaphore(max(1, cfg.concurrency))
+    key_base = (cfg.api_base.strip(), cfg.api_model.strip())
+    missing = [
+        text
+        for text in dict.fromkeys(texts)
+        if (key_base, text) not in _remote_cache
+    ]
+    if missing:
+        url = _remote_endpoint(cfg)
+        # 桌面离线模式：登记后才会允许该主机的外联；Docker 下为空操作。
+        offline_guard.register_endpoint(cfg.api_base)
+        batch_size = max(1, cfg.batch_size)
+        batches = [
+            missing[i : i + batch_size] for i in range(0, len(missing), batch_size)
+        ]
+        timeout = httpx.Timeout(max(5.0, cfg.timeout))
+        semaphore = asyncio.Semaphore(max(1, cfg.concurrency))
 
-    async def limited(batch: list[str]) -> list[list[float]]:
-        async with semaphore:
-            return await _request_embeddings(client, url, batch, cfg)
+        async def limited(batch: list[str]) -> list[list[float]]:
+            async with semaphore:
+                return await _request_embeddings(client, url, batch, cfg)
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        results = await asyncio.gather(*(limited(batch) for batch in batches))
-    return [vector for batch_result in results for vector in batch_result]
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            results = await asyncio.gather(*(limited(batch) for batch in batches))
+        vectors = [vector for batch_result in results for vector in batch_result]
+        for text, vector in zip(missing, vectors):
+            _remote_cache[(key_base, text)] = tuple(vector)
+        while len(_remote_cache) > _REMOTE_CACHE_MAX:
+            _remote_cache.pop(next(iter(_remote_cache)))
+    return [list(_remote_cache[(key_base, text)]) for text in texts]
 
 
 async def test_remote_connection(

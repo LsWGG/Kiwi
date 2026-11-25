@@ -181,6 +181,8 @@ const emit = defineEmits<{
   (e: 'word-preview'): void
   (e: 'toggle-agent'): void
   (e: 'ordered-list-style', key: OrderedListStyleKey): void
+  /** 附件 / 图片上传并插入后触发，让上层立即落盘而不是等自动保存防抖。 */
+  (e: 'attachment-inserted'): void
 }>()
 
 const kbs = useKbsStore()
@@ -1265,23 +1267,44 @@ async function uploadFile(file: File): Promise<AttachmentOut> {
 }
 
 /** 上传并插入图片（粘贴 / 拖拽图片走这里） */
+/** 块级插入失败时至少保留一个可点击的附件链接，避免文件上传后“消失”。 */
+function insertAttachmentLink(
+  ed: Editor,
+  filename: string,
+  url: string,
+): boolean {
+  const content = {
+    type: 'text',
+    text: filename,
+    marks: [{ type: 'link', attrs: { href: url } }],
+  }
+  try {
+    if (ed.chain().focus().insertContent(content).run()) return true
+  } catch {
+    // 继续尝试文档末尾
+  }
+  try {
+    return ed.chain().focus('end').insertContent(content).run()
+  } catch {
+    return false
+  }
+}
+
 async function uploadAndInsert(file: File, asImage: boolean) {
   try {
     const att = await uploadFile(file)
     const ed = editor.value
     if (!ed) return
+    let inserted = false
     if (asImage && att.content_type.startsWith('image/')) {
-      ed.chain().focus().setImage({ src: att.url, alt: att.filename }).run()
-    } else {
-      ed.chain()
-        .focus()
-        .insertContent({
-          type: 'text',
-          text: att.filename,
-          marks: [{ type: 'link', attrs: { href: att.url } }],
-        })
-        .run()
+      inserted = ed.chain().focus().setImage({ src: att.url, alt: att.filename }).run()
+      if (!inserted) {
+        inserted = ed.chain().focus('end').setImage({ src: att.url, alt: att.filename }).run()
+      }
     }
+    if (!inserted) inserted = insertAttachmentLink(ed, att.filename, att.url)
+    if (inserted) emit('attachment-inserted')
+    else toast.error(`${file.name} 已上传，但未能插入正文；请把光标放到正文中重试`)
   } catch (e: any) {
     if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
     else toast.error(e.message || '上传失败')
@@ -1320,15 +1343,66 @@ function captureSelection() {
   return { text: ed.state.doc.textBetween(from, to, ' '), from, to }
 }
 
-/** 插入内嵌块并把光标折叠到块后，避免连续插入时相互替换。 */
-function insertEmbedNode(ed: Editor, attrs: Record<string, any>) {
-  const sel = ed.state.selection
-  const chain = ed.chain().focus()
-  if (sel instanceof NodeSelection) chain.setTextSelection(sel.to)
-  chain.insertContent({ type: 'embedBlock', attrs }).run()
-  if (ed.state.selection instanceof NodeSelection) {
+/**
+ * 找一个能安全插入块节点的位置。
+ *
+ * 表格单元格、代码块与插件块（数据表 / 画布组件等原子块）内部不能稳定承载
+ * 新的块节点；直接 insertContent 可能失败或保存后被序列化器丢掉。选中这些
+ * 节点时插到其后，光标在单元格 / 代码块内时插到整个表格 / 代码块之后。
+ */
+function safeBlockInsertPos(ed: Editor): number | null {
+  const { selection } = ed.state
+  if (selection instanceof NodeSelection) return selection.to
+  const { $from } = selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth)
+    if (node.type.spec.tableRole === 'table' || node.type.spec.code) {
+      return $from.after(depth)
+    }
+  }
+  return null
+}
+
+/**
+ * 插入内嵌块并把光标折叠到块后，避免连续插入时相互替换。
+ *
+ * 上传期间焦点会转到弹窗，回来时当前选区可能已落在图片节点 / 段落边界，
+ * 直接 insertContent 会失败且不报错（附件已上传但正文没有引用）。优先使用
+ * 安全落点，再退回打开弹窗前记录的落点、当前选区，最后退回文档末尾。
+ */
+function insertEmbedNode(
+  ed: Editor,
+  attrs: Record<string, any>,
+  range?: { from: number; to: number } | null,
+): boolean {
+  const content = { type: 'embedBlock', attrs }
+  const tryInsert = (at?: number) => {
+    try {
+      if (typeof at === 'number') {
+        return ed.chain().focus().insertContentAt({ from: at, to: at }, content).run()
+      }
+      return ed.chain().focus().insertContent(content).run()
+    } catch {
+      return false
+    }
+  }
+  const safePos = safeBlockInsertPos(ed)
+  let ok = safePos !== null ? tryInsert(safePos) : false
+  if (!ok && range) ok = tryInsert(range.to)
+  if (!ok) ok = tryInsert()
+  if (!ok) {
+    ok = (() => {
+      try {
+        return ed.chain().focus('end').insertContent(content).run()
+      } catch {
+        return false
+      }
+    })()
+  }
+  if (ok && ed.state.selection instanceof NodeSelection) {
     ed.chain().setTextSelection(ed.state.selection.to).run()
   }
+  return ok
 }
 
 function openEmbedDialog(tab: EmbedTab, files: File[] = [], url = '') {
@@ -1390,7 +1464,9 @@ function insertLinkEmbed(payload: {
 }
 
 async function insertAttachmentEmbeds(payload: { files: File[] }) {
+  const insertRange = embedRange.value
   closeEmbedDialog()
+  let first = true
   for (const file of payload.files) {
     // 压缩包版 Markdown：解析包内 md 与图片 / 附件，重写引用后直接插入正文。
     if (/\.zip$/i.test(file.name)) {
@@ -1398,6 +1474,7 @@ async function insertAttachmentEmbeds(payload: { files: File[] }) {
         const bundle = await importMdBundle(file, props.noteId ?? null, kbs.currentKbId)
         if (bundle.found && bundle.markdown.trim()) {
           insertMarkdown(bundle.markdown)
+          emit('attachment-inserted')
           const extra = bundle.attachments.length
             ? `，已保存 ${bundle.attachments.length} 个图片 / 附件`
             : ''
@@ -1413,7 +1490,7 @@ async function insertAttachmentEmbeds(payload: { files: File[] }) {
       const att = await uploadFile(file)
       const ed = editor.value
       if (!ed) return
-      insertEmbedNode(
+      let inserted = insertEmbedNode(
         ed,
         embedAttrs({
           kind: 'file',
@@ -1424,7 +1501,12 @@ async function insertAttachmentEmbeds(payload: { files: File[] }) {
           size: att.size,
           display: 'content',
         }),
+        first ? insertRange : null,
       )
+      first = false
+      if (!inserted) inserted = insertAttachmentLink(ed, att.filename, att.url)
+      if (inserted) emit('attachment-inserted')
+      else toast.error(`${file.name} 已上传，但未能插入正文；请把光标放到正文中重试`)
     } catch (e: any) {
       if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
       else toast.error(e.message || `${file.name} 上传失败`)
