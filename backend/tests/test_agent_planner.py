@@ -296,6 +296,7 @@ async def test_plan_with_llm_parses_json_and_reuses_rule_window():
     content = """```json
     {
       "time_range": {"from": "2026-10-01", "to": "2026-10-31"},
+      "plan": ["检索本周工作记录", "整理完成事项", "总结进展"],
       "queries": ["本周工作记录", "完成事项"],
       "use_web": false,
       "web_queries": [],
@@ -308,6 +309,7 @@ async def test_plan_with_llm_parses_json_and_reuses_rule_window():
     )
     assert plan.source == "llm"
     assert plan.queries == ["本周工作记录", "完成事项"]
+    assert plan.steps == ["检索本周工作记录", "整理完成事项", "总结进展"]
     assert plan.use_web is False
     # 规则解析出的「本周」优先于模型给出的时间范围，避免模型算错周边界。
     assert (plan.time_window.start, plan.time_window.end) == (

@@ -367,6 +367,7 @@ class _PreparedChat:
     planner_source: str = ""
     planner_ms: float = 0.0
     planner_queries: int = 0
+    planner_steps: list[str] = field(default_factory=list)
     planner_input: dict = field(default_factory=dict)
     planner_output: dict = field(default_factory=dict)
     trace: agent_trace.AgentTrace | None = None
@@ -380,6 +381,7 @@ async def _prepare_chat(
     stage: Callable[[str, str, str, str], None],
     *,
     trace: agent_trace.AgentTrace | None = None,
+    on_plan: Callable[[list[str]], None] | None = None,
 ) -> _PreparedChat:
     """检索资料并组装 LLM 请求；耗时步骤通过 stage 回调实时上报。"""
     # 非 Agent 请求不展示流转，也不占用运维页的轨迹列表。
@@ -432,6 +434,7 @@ async def _prepare_chat(
     }
     planner_output = {
         "needs_retrieval": plan.needs_retrieval,
+        "plan": list(plan.steps),
         "queries": list(plan.queries),
         "time_window": (
             plan.time_window.describe() if plan.time_window is not None else ""
@@ -469,6 +472,10 @@ async def _prepare_chat(
         if contextual:
             plan_detail += f" · 补全问题：{context_query[:80]}"
     stage("plan", "done", plan_message, plan_detail)
+    # 在检索开始前先把行动计划推给前端：规划通常 5-10 秒完成，而检索可能
+    # 还要数秒；先展示计划能让用户知道系统打算怎么做。
+    if on_plan is not None and plan.steps:
+        on_plan(list(plan.steps))
 
     # 「这周我干嘛了」这类个人时间问题优先按笔记回答；显式意图仍以用户选择为准。
     if plan.personal and plan.time_window and data.intent in (None, "auto"):
@@ -1054,6 +1061,7 @@ async def _prepare_chat(
         planner_source=str(getattr(plan, "source", "") or ""),
         planner_ms=_plan_ms,
         planner_queries=len(getattr(plan, "queries", []) or []),
+        planner_steps=list(getattr(plan, "steps", []) or []),
         planner_input=planner_input,
         planner_output=planner_output,
         trace=trace,
@@ -1209,6 +1217,25 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 )
             )
 
+        def plan_event(steps: list[str]) -> None:
+            # 规划完成即推送，不必等检索结束；Agent 后续会用模型自己的
+            # 行动计划覆盖这份预规划。
+            queue.put_nowait(
+                (
+                    "plan",
+                    {
+                        "steps": [
+                            {
+                                "id": f"preplan-{index}",
+                                "title": title,
+                                "status": "pending",
+                            }
+                            for index, title in enumerate(steps[:3])
+                        ]
+                    },
+                )
+            )
+
         # 轨迹从检索准备开始计时，覆盖理解、规划、检索、索引与 Agent 循环；
         # 准备阶段异常时也要收尾，避免运维页留下「进行中」的僵尸轨迹。
         prepare_trace = (
@@ -1217,7 +1244,15 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
             else None
         )
         task = asyncio.create_task(
-            _prepare_chat(session, data, query, intent, stage, trace=prepare_trace)
+            _prepare_chat(
+                session,
+                data,
+                query,
+                intent,
+                stage,
+                trace=prepare_trace,
+                on_plan=plan_event,
+            )
         )
         try:
             # 检索期间持续把阶段事件推给前端；等待时发注释帧保持连接。

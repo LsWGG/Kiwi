@@ -171,10 +171,12 @@ async def test_stream_emits_stages_notice_citation_chunks_done(monkeypatch):
     fake_client = _FakeClient([_delta("你"), _delta("好")])
     notice = "知识库检索暂时不可用，本次将基于联网结果或对话上下文回答。"
 
-    async def fake_prepare(session, data, query, intent, stage, *, trace=None):
+    async def fake_prepare(session, data, query, intent, stage, *, trace=None, on_plan=None):
         stage("understand", "start", "正在理解问题")
         stage("search", "start", "正在检索 Wiki 与笔记")
         stage("search", "done", "知识库检索完成", "命中 0 个片段")
+        if on_plan is not None:
+            on_plan(["检查资料", "整理回答"])
         return _prepared(fake_client, intent, [notice])
 
     monkeypatch.setattr(chat, "_prepare_chat", fake_prepare)
@@ -187,18 +189,22 @@ async def test_stream_emits_stages_notice_citation_chunks_done(monkeypatch):
     events = _parse_events(await _collect(resp))
 
     names = [name for name, _ in events]
-    assert names[:3] == ["stage", "stage", "stage"]
+    assert names[:4] == ["stage", "stage", "stage", "plan"]
+    assert [step["title"] for step in events[3][1]["steps"]] == [
+        "检查资料",
+        "整理回答",
+    ]
     assert events[0][1] == {
         "stage": "understand",
         "status": "start",
         "message": "正在理解问题",
         "detail": "",
     }
-    assert names[3] == "notice"
-    assert events[3][1] == {"message": notice}
-    assert names[4] == "citation"
-    assert events[4][1]["intent"] == "wiki"
-    assert events[4][1]["citations"][0]["title"] == "测试页面"
+    assert names[4] == "notice"
+    assert events[4][1] == {"message": notice}
+    assert names[5] == "citation"
+    assert events[5][1]["intent"] == "wiki"
+    assert events[5][1]["citations"][0]["title"] == "测试页面"
     assert [payload["text"] for name, payload in events if name == "chunk"] == [
         "你",
         "好",
@@ -212,7 +218,7 @@ async def test_stream_emits_stages_notice_citation_chunks_done(monkeypatch):
 
 
 async def test_stream_reports_prepare_failure_as_sse_error(monkeypatch):
-    async def fake_prepare(session, data, query, intent, stage, *, trace=None):
+    async def fake_prepare(session, data, query, intent, stage, *, trace=None, on_plan=None):
         raise HTTPException(400, "未配置大模型连接，请先在设置中添加并设为默认。")
 
     monkeypatch.setattr(chat, "_prepare_chat", fake_prepare)
@@ -229,7 +235,7 @@ async def test_stream_reports_prepare_failure_as_sse_error(monkeypatch):
 
 
 async def test_stream_reports_unexpected_prepare_error(monkeypatch):
-    async def fake_prepare(session, data, query, intent, stage, *, trace=None):
+    async def fake_prepare(session, data, query, intent, stage, *, trace=None, on_plan=None):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(chat, "_prepare_chat", fake_prepare)

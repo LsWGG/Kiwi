@@ -461,6 +461,9 @@ class AgentPlan:
     """一次问答的检索计划。"""
 
     queries: list[str] = field(default_factory=list)
+    # 规划器给出的 1-3 步行动计划；问答页在检索开始前先展示，避免用户
+    # 长时间只看到「正在检索」。
+    steps: list[str] = field(default_factory=list)
     time_window: TimeWindow | None = None
     # 规划器的语义判断：回答是否需要检索资料。不需要资料时 queries 为空，
     # 问答链路会跳过索引同步、Wiki / 笔记检索与联网。
@@ -567,6 +570,7 @@ _PLANNER_SYSTEM = """你是 Kiwi 个人知识库问答的检索规划器。你�
 {
   "needs_retrieval": true/false,
   "time_range": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"} 或 null,
+  "plan": ["1-3 个短句组成的行动计划"],
   "queries": ["用于知识库检索的 1-3 个查询"],
   "use_web": true/false,
   "web_queries": ["最多 2 个具体、可搜索的联网查询"],
@@ -574,6 +578,8 @@ _PLANNER_SYSTEM = """你是 Kiwi 个人知识库问答的检索规划器。你�
 }
 
 规则：
+- plan 描述这轮将如何回答（先做什么、再做什么），每一步不超过 20 字；
+  不要重复 queries 里的检索词，也不需要资料时给出直接回答的步骤。
 - needs_retrieval 表示回答这个问题是否需要检索知识库或联网资料。判断依据是
   回答问题所需的信息是否来自资料，而不是问题的长短或措辞：仅凭对话上下文与
   常识即可回答时为 false，此时 queries 与 web_queries 都返回 []，不要为了
@@ -681,6 +687,16 @@ def _plan_from_payload(
     ]
     queries = list(dict.fromkeys(queries))[:3]
 
+    raw_plan = payload.get("plan")
+    if not isinstance(raw_plan, list):
+        raw_plan = []
+    steps = [
+        str(item).strip()[:60]
+        for item in raw_plan
+        if isinstance(item, str) and str(item).strip()
+    ]
+    steps = list(dict.fromkeys(steps))[:3]
+
     # 是否检索由规划器按语义判断（不是关键词表）；没有给出布尔值时，
     # 以是否规划出查询词为准。追问只看当前几个字容易误判，强制按完整问题检索。
     raw_needs = payload.get("needs_retrieval")
@@ -746,6 +762,7 @@ def _plan_from_payload(
         reason = "追问补全主题后需要联网补充信息"
     return AgentPlan(
         queries=queries,
+        steps=steps,
         needs_retrieval=needs_retrieval,
         time_window=window,
         wants_web=wants_web,
