@@ -34,7 +34,7 @@ test.describe('微信 ClawBot 设置', () => {
       if (route.request().method() === 'GET') {
         await route.fulfill({
           json: [
-            { id: 'kb-wechat-1', name: '微信测试库', slug: 'wechat', stats: {} },
+            { id: 'kb-wechat-1', name: 'ClawBot 测试库', slug: 'wechat', stats: {} },
           ],
         })
         return
@@ -64,15 +64,15 @@ test.describe('微信 ClawBot 设置', () => {
     })
 
     await page.goto('/settings/wechat', { waitUntil: 'networkidle' })
-    await expect(page.getByText('微信 ClawBot', { exact: true }).first()).toBeVisible({
+    await expect(page.getByText('ClawBot', { exact: true }).first()).toBeVisible({
       timeout: 30_000,
     })
     await expect(page.getByRole('button', { name: '扫码登录' })).toBeVisible()
     await expect(page.getByText('tester@im.wechat').first()).toBeVisible()
 
     await page.getByRole('button', { name: '扫码登录' }).click()
-    await expect(page.locator('img[alt="微信登录二维码"]')).toBeVisible()
-    await expect(page.getByText('用手机微信扫码并确认')).toBeVisible()
+    await expect(page.locator('img[alt="扫码登录二维码"]')).toBeVisible()
+    await expect(page.getByText('用手机扫码并确认')).toBeVisible()
 
     await page.getByRole('switch').nth(1).click()
     await page.getByRole('button', { name: '保存设置' }).click()

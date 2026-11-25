@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 微信 ClawBot 设置：扫码登录、允许联系人、知识库绑定与定时推送。
+ * ClawBot 设置：扫码登录、允许联系人、知识库绑定与定时推送。
  *
  * 登录二维码直接显示在页面里；未登录时轮询 /api/wechat/status 直到扫码完成。
  * 主动推送受官方 24 小时 context_token 窗口限制，过期内容会在下一次互动时补发。
@@ -90,7 +90,7 @@ function startPolling() {
     const value = login.value.status
     if (value === 'connected') {
       stopPolling()
-      toast.success('微信连接成功')
+      toast.success('ClawBot 连接成功')
     } else if (value === 'expired' || value === 'error') {
       stopPolling()
       toast.error(login.value.message || '二维码已失效，请重新获取')
@@ -114,7 +114,7 @@ async function refresh(silent = false) {
     }
     if (data.login.status === 'pending') startPolling()
   } catch (e: any) {
-    if (!silent) toast.error(e.message || '读取微信状态失败')
+    if (!silent) toast.error(e.message || '读取 ClawBot 状态失败')
   } finally {
     loading.value = false
   }
@@ -135,11 +135,11 @@ async function startLogin() {
 }
 
 async function disconnect() {
-  if (!window.confirm('断开微信连接？断开后需要重新扫码才能继续使用。')) return
+  if (!window.confirm('断开 ClawBot 连接？断开后需要重新扫码才能继续使用。')) return
   try {
     status.value = await logoutWeChat()
     stopPolling()
-    toast.success('已断开微信连接')
+    toast.success('已断开 ClawBot 连接')
   } catch (e: any) {
     toast.error(e.message || '断开失败')
   }
@@ -150,7 +150,7 @@ async function toggleEnabled() {
     status.value = await updateWeChatSettings({ enabled: !form.enabled })
     form.enabled = status.value.enabled
     if (form.enabled && !status.value.connected) {
-      toast.info('已启用，请扫码登录微信')
+      toast.info('已启用，请扫码登录')
     }
   } catch (e: any) {
     toast.error(e.message || '保存失败')
@@ -167,7 +167,7 @@ async function saveSettings() {
       allowed_users: form.allowed_users,
     })
     scheduleForm.kb_id = scheduleForm.kb_id || status.value.default_kb_id
-    toast.success('微信设置已保存')
+    toast.success('ClawBot 设置已保存')
   } catch (e: any) {
     toast.error(e.message || '保存失败')
   } finally {
@@ -199,7 +199,7 @@ async function addSchedule() {
     return
   }
   if (!scheduleForm.sender) {
-    toast.info('请选择微信联系人；先让用户给 Bot 发一条消息')
+    toast.info('请选择联系人；先让用户给 Bot 发一条消息')
     return
   }
   scheduleBusy.value = true
@@ -274,10 +274,10 @@ onBeforeUnmount(stopPolling)
       <div>
         <h1 class="flex items-center gap-2 text-[19px] font-semibold text-slate-800">
           <KiwiIcon name="chat" :size="18" class="text-kiwi-500" />
-          微信 ClawBot
+          ClawBot
         </h1>
         <p class="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-slate-500">
-          在微信里直接向 Kiwi 提问，或让系统定时推送待办、周报；写操作会在微信里二次确认。
+          在手机上直接向 Kiwi 提问，或让系统定时推送待办、周报；写操作会在对话里二次确认。
         </p>
       </div>
     </div>
@@ -286,7 +286,7 @@ onBeforeUnmount(stopPolling)
 
     <div v-if="loading" class="py-16 text-center text-sm text-slate-400">
       <KiwiIcon name="loader" :size="18" :spin="true" class="mx-auto mb-2" />
-      正在读取微信状态…
+      正在读取 ClawBot 状态…
     </div>
 
     <div v-else class="space-y-5">
@@ -294,7 +294,7 @@ onBeforeUnmount(stopPolling)
         v-if="!status?.system_enabled"
         class="rounded-2xl border border-amber-200/80 bg-amber-50/70 p-4 text-[12px] leading-relaxed text-amber-800"
       >
-        服务端尚未启用微信渠道：请在 <code class="rounded bg-amber-100 px-1">.env</code>
+        服务端尚未启用 ClawBot 渠道：请在 <code class="rounded bg-amber-100 px-1">.env</code>
         设置 <code class="rounded bg-amber-100 px-1">KIWI_WECHAT_ENABLED=true</code>
         并重启后端，然后回到本页扫码登录。
       </section>
@@ -308,7 +308,7 @@ onBeforeUnmount(stopPolling)
             <div class="min-w-0">
               <h2 class="text-[14px] font-semibold text-slate-800">连接状态</h2>
               <p class="mt-0.5 text-[11.5px] leading-relaxed text-slate-500">
-                扫码登录后，Bot 会持续接收微信消息；登录有效期约 24 小时，到期前会在微信提醒续连。
+                扫码登录后，Bot 会持续接收消息；登录有效期约 24 小时，到期前会提醒续连。
               </p>
               <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
                 <span
@@ -343,7 +343,7 @@ onBeforeUnmount(stopPolling)
               :disabled="!status?.system_enabled"
               class="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               :class="form.enabled ? 'bg-kiwi-500' : 'bg-slate-300'"
-              :title="form.enabled ? '停用微信渠道' : '启用微信渠道'"
+              :title="form.enabled ? '停用 ClawBot 渠道' : '启用 ClawBot 渠道'"
               @click="toggleEnabled"
             >
               <span
@@ -384,14 +384,14 @@ onBeforeUnmount(stopPolling)
           <img
             v-if="qrSrc"
             :src="qrSrc"
-            alt="微信登录二维码"
+            alt="扫码登录二维码"
             class="h-44 w-44 rounded-lg border border-slate-200/70 bg-white p-1"
           />
           <div class="min-w-0 text-[12px] leading-relaxed text-slate-600">
-            <p class="font-medium text-slate-700">用手机微信扫码并确认</p>
+            <p class="font-medium text-slate-700">用手机扫码并确认</p>
             <p class="mt-1 text-slate-400">扫码后本页会自动更新；二维码约 10 分钟内有效。</p>
             <p class="mt-2 text-[11px] text-slate-400">
-              如果图片没有显示，可在手机微信中打开链接：
+              如果图片没有显示，可在手机中打开链接：
               <span class="break-all font-mono text-slate-500">{{ login.qr }}</span>
             </p>
           </div>
@@ -407,7 +407,7 @@ onBeforeUnmount(stopPolling)
       <section class="animate-fade-up rounded-2xl glass-strong p-5">
         <h2 class="text-[14px] font-semibold text-slate-800">问答权限</h2>
         <p class="mt-0.5 text-[11.5px] leading-relaxed text-slate-500">
-          未授权的微信联系人无法使用知识库；写操作默认关闭，开启后也必须在微信里回复「确认」。
+          未授权的联系人无法使用知识库；写操作默认关闭，开启后也必须在对话里回复「确认」。
         </p>
 
         <div class="mt-4 grid gap-4 md:grid-cols-2">
@@ -425,7 +425,7 @@ onBeforeUnmount(stopPolling)
           <div class="flex items-center justify-between rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2">
             <div>
               <p class="text-[12px] font-medium text-slate-700">允许写操作</p>
-              <p class="mt-0.5 text-[10.5px] text-slate-400">新建 / 修改 / 删除笔记前仍需微信确认</p>
+              <p class="mt-0.5 text-[10.5px] text-slate-400">新建 / 修改 / 删除笔记前仍需在对话中确认</p>
             </div>
             <button
               type="button"

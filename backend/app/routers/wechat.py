@@ -65,7 +65,7 @@ async def start_wechat_login():
     if not settings.wechat_enabled:
         raise HTTPException(
             400,
-            "服务端未启用微信渠道：请在 .env 设置 KIWI_WECHAT_ENABLED=true 并重启后端。",
+            "服务端未启用 ClawBot 渠道：请在 .env 设置 KIWI_WECHAT_ENABLED=true 并重启后端。",
         )
     return await _channel().start_login()
 
@@ -95,7 +95,7 @@ async def create_wechat_schedule(
         allowed = status.get("allowed_users") or []
         sender = str(allowed[0]) if allowed else ""
     if not sender:
-        raise HTTPException(400, "还没有微信联系人；请先让用户给 Bot 发一条消息")
+        raise HTTPException(400, "还没有联系人；请先让用户给 Bot 发一条消息")
     kb_id = (payload.kb_id or "").strip() or str(status.get("default_kb_id") or "")
     if not kb_id:
         raise HTTPException(400, "请先选择默认知识库")
@@ -135,6 +135,6 @@ async def send_wechat_test(payload: WeChatTestPush):
     last = status.get("last_contact") or {}
     sender = str(last.get("sender") or "")
     if not sender:
-        raise HTTPException(400, "还没有微信联系人；请先让用户给 Bot 发一条消息")
+        raise HTTPException(400, "还没有联系人；请先让用户给 Bot 发一条消息")
     sent = await _channel().send_proactive(sender, payload.text)
     return {"ok": sent, "queued": not sent}

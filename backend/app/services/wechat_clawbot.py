@@ -49,7 +49,7 @@ MAX_HISTORY_MESSAGES = 12
 MAX_TEXT_CHARS = 1800
 DEDUPE_LIMIT = 200
 
-HELP_TEXT = """微信 ClawBot 指令：
+HELP_TEXT = """ClawBot 指令：
 /help  查看指令
 /kb  列出知识库；/kb 名称 切换当前知识库
 /status  查看连接、当前知识库与定时任务
@@ -425,7 +425,7 @@ class WeChatChannel:
         if not settings.wechat_enabled:
             return {
                 "status": "disabled",
-                "message": "服务端未启用微信渠道（KIWI_WECHAT_ENABLED=false）",
+                "message": "服务端未启用 ClawBot 渠道（KIWI_WECHAT_ENABLED=false）",
             }
         if self._login_task is not None and not self._login_task.done():
             return self.status()
@@ -434,7 +434,7 @@ class WeChatChannel:
         if not qrcode:
             self._login_state = {
                 "status": "error",
-                "message": "获取微信二维码失败，请稍后重试",
+                "message": "获取登录二维码失败，请稍后重试",
             }
             return self.status()
         qr = str(data.get("qrcode_img_content") or qrcode)
@@ -444,7 +444,7 @@ class WeChatChannel:
             "qrcode": qrcode,
             "qr": qr,
             "started_at": _now(),
-            "message": "请用手机微信扫码并确认",
+            "message": "请用手机扫码并确认",
         }
         self._login_task = asyncio.create_task(
             self._poll_login(qrcode), name="kiwi-wechat-login"
@@ -469,7 +469,7 @@ class WeChatChannel:
                 self._base_url = base_url
                 self._login_state = {
                     "status": "connected",
-                    "message": "微信连接成功",
+                    "message": "ClawBot 连接成功",
                     "at": _now(),
                 }
                 self._login_qrcode = ""
@@ -617,7 +617,7 @@ class WeChatChannel:
             await self.send_reply(
                 sender,
                 context_token,
-                f"未授权。请让管理员在 Kiwi「设置 → 微信 ClawBot」中添加：\n{sender}",
+                f"未授权。请让管理员在 Kiwi「设置 → ClawBot」中添加：\n{sender}",
             )
             return
 
@@ -761,7 +761,7 @@ class WeChatChannel:
             await self.send_reply(
                 sender,
                 context_token,
-                "还没有设置默认知识库，请在 Kiwi「设置 → 微信 ClawBot」中选择。",
+                "还没有设置默认知识库，请在 Kiwi「设置 → ClawBot」中选择。",
             )
             return
         history = list((data.get("history") or {}).get(sender) or [])
@@ -1133,7 +1133,7 @@ class WeChatChannel:
                     )
                     await self.send_proactive(
                         sender,
-                        "微信连接即将到期，请在 Kiwi「设置 → 微信 ClawBot」重新扫码。"
+                        "ClawBot 连接即将到期，请在 Kiwi「设置 → ClawBot」重新扫码。"
                         f"\n{qr}",
                     )
             except asyncio.CancelledError:
