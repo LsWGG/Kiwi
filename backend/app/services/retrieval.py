@@ -264,6 +264,27 @@ def _lexical_hits(
     return candidates[: max(limit * 4, 20)]
 
 
+async def prepare_search_context(
+    db: AsyncSession,
+    kb_ids: list[uuid.UUID],
+    collection: str,
+    filters: RetrievalFilters | None = None,
+) -> tuple[dict[uuid.UUID, str], list[str] | None]:
+    """预先解析模型与笔记范围，供并发检索复用同一个 AsyncSession。
+
+    ``search`` 内部需要两次数据库查询；要并发执行多个查询时，必须先把
+    这些信息算好，让每个查询只做嵌入 / Qdrant / BM25，不碰 session。
+    """
+    filters = filters or RetrievalFilters()
+    models = await _kb_models(db, kb_ids)
+    allowed_note_ids = (
+        await resolve_note_ids(db, kb_ids, filters)
+        if _normalize_kind(collection) == "note"
+        else None
+    )
+    return models, allowed_note_ids
+
+
 async def search(
     db: AsyncSession,
     query: str,
@@ -273,6 +294,9 @@ async def search(
     filters: RetrievalFilters | None = None,
     *,
     query_vector: list[float] | None = None,
+    models: dict[uuid.UUID, str] | None = None,
+    allowed_note_ids: list[str] | None = None,
+    note_ids_resolved: bool = False,
 ) -> list[dict]:
     """跨库混合检索：向量召回 + BM25 → RRF → 可选重排。
 
@@ -286,10 +310,13 @@ async def search(
         # 无向量模型时没有任何语义召回；调用方应改用笔记全文搜索或提示配置模型。
         return []
     kind = _normalize_kind(collection)
-    models = await _kb_models(db, kb_ids)
-    allowed_note_ids = (
-        await resolve_note_ids(db, kb_ids, filters) if kind == "note" else None
-    )
+    if models is None:
+        models = await _kb_models(db, kb_ids)
+    if kind == "note":
+        if not note_ids_resolved:
+            allowed_note_ids = await resolve_note_ids(db, kb_ids, filters)
+    else:
+        allowed_note_ids = None
     if kind == "note" and allowed_note_ids == []:
         return []
 

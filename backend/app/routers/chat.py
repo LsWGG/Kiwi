@@ -44,7 +44,12 @@ from app.services.embedder import embed_texts_async, is_disabled, is_remote_prov
 from app.services.lexical import tokenize
 from app.services.llm_factory import LLMCrypto, llm_factory
 from app.services.note_indexer import ensure_notes_indexed
-from app.services.retrieval import RetrievalFilters, route_intent, search
+from app.services.retrieval import (
+    RetrievalFilters,
+    prepare_search_context,
+    route_intent,
+    search,
+)
 from app.services.web_research import search_web
 
 logger = logging.getLogger("kiwi.chat")
@@ -187,12 +192,25 @@ async def _search_many(
     limit: int,
     collection: str,
     filters: RetrievalFilters | None = None,
+    models: dict[uuid.UUID, str] | None = None,
+    allowed_note_ids: list[str] | None = None,
+    note_ids_resolved: bool = False,
 ) -> list[dict]:
-    """对多个子问题分别检索，按命中分块去重后合并（保持原顺序）。"""
+    """对多个子问题分别检索，按命中分块去重后合并（保持原顺序）。
+
+    ``models`` 与 ``allowed_note_ids`` 由调用方预先解析时，各子问题可并发
+    执行且不再触碰 AsyncSession；未提供时保持串行，避免并发复用 session。
+    """
+    search_kwargs = {
+        "limit": limit,
+        "collection": collection,
+        "filters": filters,
+        "models": models,
+        "allowed_note_ids": allowed_note_ids,
+        "note_ids_resolved": note_ids_resolved,
+    }
     if len(queries) == 1:
-        return await search(
-            session, queries[0], kb_ids, limit=limit, collection=collection, filters=filters
-        )
+        return await search(session, queries[0], kb_ids, **search_kwargs)
     # 远程 embedding：多个子问题一次批量请求，避免逐条等待嵌入接口。
     query_vectors: list[list[float] | None] = [None] * len(queries)
     if is_remote_provider():
@@ -202,18 +220,26 @@ async def _search_many(
                 query_vectors = [list(vector) for vector in vectors]
         except Exception:  # noqa: BLE001 —— 批量失败时退回逐条嵌入
             logger.warning("批量嵌入子问题失败，回退逐条检索", exc_info=True)
-    merged: list[dict] = []
-    seen: set[str] = set()
-    for index, query in enumerate(queries):
-        hits = await search(
+
+    async def one(index: int, query: str) -> list[dict]:
+        return await search(
             session,
             query,
             kb_ids,
-            limit=limit,
-            collection=collection,
-            filters=filters,
             query_vector=query_vectors[index],
+            **search_kwargs,
         )
+
+    if models is not None and note_ids_resolved:
+        results = await asyncio.gather(
+            *(one(index, query) for index, query in enumerate(queries))
+        )
+    else:
+        results = [await one(index, query) for index, query in enumerate(queries)]
+
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for hits in results:
         for hit in hits:
             payload = hit.get("payload") or {}
             key = str(hit.get("id") or "")
@@ -497,6 +523,10 @@ async def _prepare_chat(
     kb_names: dict[str, str] = {}
     if needs_retrieval:
         stage("search", "start", "正在检索 Wiki 与笔记")
+        # 先解析模型与笔记范围；并发检索时各子任务不再使用 AsyncSession。
+        search_models, note_allowed_ids = await prepare_search_context(
+            session, kb_ids, "note", filters
+        )
 
         async def _sync_note_index() -> tuple[bool, float]:
             started = time.perf_counter()
@@ -508,23 +538,28 @@ async def _prepare_chat(
                 logger.warning("笔记索引同步失败，继续检索已有向量", exc_info=True)
                 return False, (time.perf_counter() - started) * 1000
 
-        # 索引同步不依赖 Wiki 检索，两者并行，省掉串行等待。
+        async def _timed_search_many(**kwargs) -> tuple[list[dict], str, float]:
+            started = time.perf_counter()
+            hits, error = await _safe_search_many(
+                session, queries, kb_ids, **kwargs
+            )
+            return hits, error, (time.perf_counter() - started) * 1000
+
+        # 索引同步、Wiki 检索互不依赖，先并行启动；笔记检索等索引完成后再
+        # 与 Wiki 检索并行，整体等待时间从「三段相加」降到「最慢一段」。
         index_task = asyncio.create_task(_sync_note_index())
-        if not filters.has_note_constraints:
-            _wiki_started = time.perf_counter()
-            wiki_hits, wiki_error = await _safe_search_many(
-                session, queries, kb_ids, limit=wiki_limit, collection="wiki"
+        wiki_task = (
+            asyncio.create_task(
+                _timed_search_many(
+                    limit=wiki_limit,
+                    collection="wiki",
+                    models=search_models,
+                    note_ids_resolved=True,
+                )
             )
-            trace.event(
-                "tool",
-                "检索 Wiki",
-                ms=(time.perf_counter() - _wiki_started) * 1000,
-                input={"queries": queries, "kb_ids": [str(k) for k in kb_ids]},
-                output={"hits": len(wiki_hits), "error": wiki_error},
-                meta={"collection": "wiki"},
-            )
-            if wiki_error:
-                notices.append(wiki_error)
+            if not filters.has_note_constraints
+            else None
+        )
         stage("index", "start", "正在同步最新笔记")
         _index_ok, _index_ms = await index_task
         trace.event(
@@ -536,19 +571,33 @@ async def _prepare_chat(
             meta={"kb_ids": [str(k) for k in kb_ids]},
         )
         stage("index", "done", "笔记已同步")
-        _note_started = time.perf_counter()
-        note_hits, note_error = await _safe_search_many(
-            session,
-            queries,
-            kb_ids,
-            limit=note_limit,
-            collection="note",
-            filters=filters,
+        note_task = asyncio.create_task(
+            _timed_search_many(
+                limit=note_limit,
+                collection="note",
+                filters=filters,
+                models=search_models,
+                allowed_note_ids=note_allowed_ids,
+                note_ids_resolved=True,
+            )
         )
+        if wiki_task is not None:
+            wiki_hits, wiki_error, _wiki_ms = await wiki_task
+            trace.event(
+                "tool",
+                "检索 Wiki",
+                ms=_wiki_ms,
+                input={"queries": queries, "kb_ids": [str(k) for k in kb_ids]},
+                output={"hits": len(wiki_hits), "error": wiki_error},
+                meta={"collection": "wiki"},
+            )
+            if wiki_error:
+                notices.append(wiki_error)
+        note_hits, note_error, _note_ms = await note_task
         trace.event(
             "tool",
             "检索笔记",
-            ms=(time.perf_counter() - _note_started) * 1000,
+            ms=_note_ms,
             input={"queries": queries},
             output={"hits": len(note_hits), "error": note_error},
             meta={"collection": "note"},
