@@ -18,7 +18,6 @@ import base64
 import json
 import logging
 import random
-import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -33,6 +32,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models import KnowledgeBase
 from app.db.session import async_session_factory
+from app.services import cron_schedule
 from app.services.channel_context import (
     current_wechat_kb_id,
     current_wechat_sender,
@@ -84,6 +84,7 @@ def _default_store() -> dict[str, Any]:
         "allowed_users": [],
         "unknown_users": {},
         "default_kb_id": "",
+        "default_kb_ids": [],
         "allow_write": False,
         "contacts": {},
         "sender_kb": {},
@@ -138,6 +139,20 @@ class WeChatStore:
             pass
         except Exception:  # noqa: BLE001
             logger.warning("微信渠道状态文件读取失败：%s", self.path, exc_info=True)
+        # 兼容旧版单知识库 / 单时间字段。
+        if not data.get("default_kb_ids") and data.get("default_kb_id"):
+            data["default_kb_ids"] = [str(data["default_kb_id"])]
+        for item in data.get("schedules") or []:
+            if not item.get("kb_ids"):
+                item["kb_ids"] = [str(item["kb_id"])] if item.get("kb_id") else []
+            if not item.get("cron"):
+                try:
+                    item["cron"] = cron_schedule.from_legacy_time(
+                        str(item.get("time") or "09:00"),
+                        str(item.get("days") or "daily"),
+                    )
+                except cron_schedule.CronError:
+                    pass
         return data
 
     def _persist(self, data: dict[str, Any]) -> None:
@@ -600,27 +615,13 @@ class WeChatChannel:
     async def _handle_message_locked(
         self, sender: str, text: str, context_token: str
     ) -> None:
-        data = await self.store.read()
-        allowed = sender in (data.get("allowed_users") or [])
-
         def touch(state):
             state.setdefault("contacts", {})[sender] = {
                 "context_token": context_token,
                 "at": _now(),
             }
-            if not allowed:
-                state.setdefault("unknown_users", {})[sender] = _now()
 
         await self.store.update(touch)
-
-        if not allowed:
-            await self.send_reply(
-                sender,
-                context_token,
-                f"未授权。请让管理员在 Kiwi「设置 → ClawBot」中添加：\n{sender}",
-            )
-            return
-
         data = await self.store.read()
         pending = (data.get("pending") or {}).get(sender) or {}
         normalized = text.strip().lower()
@@ -682,6 +683,15 @@ class WeChatChannel:
     async def _command_kb(
         self, sender: str, context_token: str, name: str
     ) -> None:
+        if name.strip().lower() in ("all", "全部", "默认", "default"):
+            def clear(state):
+                state.setdefault("sender_kb", {}).pop(sender, None)
+
+            await self.store.update(clear)
+            await self.send_reply(
+                sender, context_token, "已恢复默认知识库范围。"
+            )
+            return
         async with async_session_factory() as session:
             kbs = (
                 (
@@ -719,13 +729,27 @@ class WeChatChannel:
         self, sender: str, context_token: str
     ) -> None:
         data = await self.store.read()
-        kb_id = self._kb_for(sender, data)
-        kb_name = kb_id[:8]
-        if kb_id:
-            async with async_session_factory() as session:
-                kb = await session.get(KnowledgeBase, uuid.UUID(kb_id))
-                if kb is not None:
-                    kb_name = kb.name
+        kb_ids = self._kb_ids_for(sender, data)
+        kb_names: list[str] = []
+        if kb_ids:
+            try:
+                wanted = [uuid.UUID(item) for item in kb_ids]
+            except ValueError:
+                wanted = []
+            if wanted:
+                async with async_session_factory() as session:
+                    rows = (
+                        (
+                            await session.execute(
+                                select(KnowledgeBase).where(
+                                    KnowledgeBase.id.in_(wanted)
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    kb_names = [kb.name for kb in rows]
         schedules = [
             item
             for item in data.get("schedules") or []
@@ -734,30 +758,65 @@ class WeChatChannel:
         login_at = float(data.get("login_at") or 0)
         remaining = max(0, login_at + settings.wechat_session_hours * 3600 - _now())
         lines = [
-            f"知识库：{kb_name}",
+            f"知识库：{'、'.join(kb_names) or '未设置'}",
             f"连接剩余：{remaining / 3600:.1f} 小时",
             f"定时推送：{len(schedules)} 个",
         ]
         for item in schedules[:10]:
             lines.append(
-                f"- 每天 {item.get('time')}：{str(item.get('prompt'))[:40]}"
+                f"- {self._schedule_description(item)}：{str(item.get('prompt'))[:40]}"
                 + ("" if item.get("enabled", True) else "（已暂停）")
             )
         await self.send_reply(sender, context_token, "\n".join(lines))
 
     # ------------------------------------------------------------ Q&A
 
-    def _kb_for(self, sender: str, data: dict[str, Any]) -> str:
+    def _primary_sender(self, data: dict[str, Any]) -> str:
+        contacts = data.get("contacts") or {}
+        if not contacts:
+            return ""
         return str(
-            (data.get("sender_kb") or {}).get(sender)
-            or data.get("default_kb_id")
-            or ""
+            max(contacts.items(), key=lambda item: item[1].get("at", 0))[0]
         )
+
+    def _schedule_description(self, item: dict[str, Any]) -> str:
+        try:
+            return cron_schedule.describe(cron_schedule.schedule_cron(item))
+        except cron_schedule.CronError:
+            return str(item.get("cron") or item.get("time") or "未设置")
+
+    def _schedule_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+        kb_ids = item.get("kb_ids") or (
+            [item.get("kb_id")] if item.get("kb_id") else []
+        )
+        return {
+            **item,
+            "kb_ids": list(kb_ids),
+            "kb_id": str(kb_ids[0]) if kb_ids else "",
+            "description": self._schedule_description(item),
+        }
+
+    def _kb_ids_for(self, sender: str, data: dict[str, Any]) -> list[str]:
+        override = str((data.get("sender_kb") or {}).get(sender) or "")
+        if override:
+            return [override]
+        ids = [
+            str(item)
+            for item in (data.get("default_kb_ids") or [])
+            if str(item).strip()
+        ]
+        if not ids and data.get("default_kb_id"):
+            ids = [str(data["default_kb_id"])]
+        return list(dict.fromkeys(ids))
 
     async def _answer(self, sender: str, text: str, context_token: str) -> None:
         data = await self.store.read()
-        kb_id = self._kb_for(sender, data)
-        if not kb_id:
+        kb_ids = [
+            uuid.UUID(item)
+            for item in self._kb_ids_for(sender, data)
+            if item
+        ]
+        if not kb_ids:
             await self.send_reply(
                 sender,
                 context_token,
@@ -769,7 +828,7 @@ class WeChatChannel:
         messages = history[-MAX_HISTORY_MESSAGES:]
         await self._send_typing(sender, context_token, 1)
         try:
-            result = await self._run_chat(messages, uuid.UUID(kb_id), sender)
+            result = await self._run_chat(messages, kb_ids, sender)
         finally:
             await self._send_typing(sender, context_token, 2)
 
@@ -789,7 +848,7 @@ class WeChatChannel:
     async def _run_chat(
         self,
         messages: list[dict[str, Any]],
-        kb_id: uuid.UUID,
+        kb_ids: list[uuid.UUID],
         sender: str,
         *,
         resume_action_id: str | None = None,
@@ -806,7 +865,10 @@ class WeChatChannel:
         )
         request = ChatRequest(
             messages=messages,
-            scope=SearchScope(scope="kb", kb_ids=[kb_id]),
+            scope=SearchScope(
+                scope="kb" if len(kb_ids) == 1 else "multi",
+                kb_ids=kb_ids,
+            ),
             intent="auto",
             agent=True,
             web_search=False,
@@ -815,7 +877,7 @@ class WeChatChannel:
             allow_write=write_allowed,
         )
         sender_token = current_wechat_sender.set(sender)
-        kb_token = current_wechat_kb_id.set(str(kb_id))
+        kb_token = current_wechat_kb_id.set(",".join(str(item) for item in kb_ids))
         result = ChatResult()
         chunks: list[str] = []
         try:
@@ -892,15 +954,22 @@ class WeChatChannel:
             await self.store.update(clear)
             await self.send_reply(sender, context_token, "操作已过期，请重新提问。")
             return
-        kb_id = self._kb_for(sender, data)
-        if not kb_id:
+        try:
+            kb_ids = [
+                uuid.UUID(item)
+                for item in self._kb_ids_for(sender, data)
+                if item
+            ]
+        except ValueError:
+            kb_ids = []
+        if not kb_ids:
             await self.send_reply(sender, context_token, "当前没有绑定知识库。")
             return
         await self._send_typing(sender, context_token, 1)
         try:
             result = await self._run_chat(
                 [{"role": "user", "content": "确认执行" if approve else "取消执行"}],
-                uuid.UUID(kb_id),
+                kb_ids,
                 sender,
                 resume_action_id=action_id,
                 approve=approve,
@@ -981,22 +1050,26 @@ class WeChatChannel:
     async def schedule_push(
         self,
         sender: str,
-        kb_id: str,
+        kb_ids: list[str],
         prompt: str,
-        at_time: str,
-        days: str = "daily",
+        cron: str,
     ) -> dict[str, Any]:
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", at_time or ""):
-            raise ValueError("时间格式应为 HH:MM，例如 09:00")
+        expr = cron_schedule.validate_cron(cron)
+        ids = [str(item) for item in kb_ids if str(item).strip()]
+        if not ids:
+            raise ValueError("请选择至少一个知识库")
+        data = await self.store.read()
+        target_sender = sender or self._primary_sender(data)
+        if not target_sender:
+            raise ValueError("还没有联系人；请先给 Bot 发一条消息")
         item = {
             "id": uuid.uuid4().hex[:12],
-            "sender": sender,
-            "kb_id": str(kb_id),
+            "sender": target_sender,
+            "kb_ids": list(dict.fromkeys(ids)),
             "prompt": prompt.strip()[:2000],
-            "time": at_time,
-            "days": days or "daily",
+            "cron": expr,
             "enabled": True,
-            "last_run": "",
+            "last_fire": "",
             "created_at": _now(),
         }
 
@@ -1046,19 +1119,22 @@ class WeChatChannel:
                 if not data.get("enabled"):
                     continue
                 now = datetime.now(_tz())
-                current = now.strftime("%H:%M")
-                today = now.strftime("%Y-%m-%d")
+                minute_key = now.strftime("%Y-%m-%d %H:%M")
                 due: list[dict[str, Any]] = []
 
                 def mark(state):
                     for item in state.setdefault("schedules", []):
                         if not item.get("enabled", True):
                             continue
-                        if item.get("time") != current:
+                        try:
+                            cron = cron_schedule.schedule_cron(item)
+                        except cron_schedule.CronError:
                             continue
-                        if item.get("last_run") == today:
+                        if item.get("last_fire") == minute_key:
                             continue
-                        item["last_run"] = today
+                        if not cron_schedule.matches(cron, now):
+                            continue
+                        item["last_fire"] = minute_key
                         due.append(dict(item))
 
                 await self.store.update(mark)
@@ -1074,15 +1150,22 @@ class WeChatChannel:
                 logger.exception("微信定时任务检查失败")
 
     async def _run_schedule(self, item: dict[str, Any]) -> None:
-        sender = str(item.get("sender") or "")
-        kb_id = str(item.get("kb_id") or "")
+        data = await self.store.read()
+        sender = str(item.get("sender") or "") or self._primary_sender(data)
+        raw_ids = item.get("kb_ids") or (
+            [item.get("kb_id")] if item.get("kb_id") else []
+        )
+        try:
+            kb_ids = [uuid.UUID(str(value)) for value in raw_ids if value]
+        except ValueError:
+            kb_ids = []
         prompt = str(item.get("prompt") or "").strip()
-        if not sender or not kb_id or not prompt:
+        if not sender or not kb_ids or not prompt:
             return
         try:
             result = await self._run_chat(
                 [{"role": "user", "content": prompt}],
-                uuid.UUID(kb_id),
+                kb_ids,
                 sender,
             )
             if result.approval:
@@ -1121,16 +1204,8 @@ class WeChatChannel:
                 await self.store.update(save)
                 login = await self.start_login()
                 qr = str((login.get("login") or {}).get("qr") or "")
-                allowed = set(data.get("allowed_users") or [])
-                recent = [
-                    (sender, contact)
-                    for sender, contact in (data.get("contacts") or {}).items()
-                    if sender in allowed
-                ]
-                if qr and recent:
-                    sender, _contact = max(
-                        recent, key=lambda item: item[1].get("at", 0)
-                    )
+                sender = self._primary_sender(data)
+                if qr and sender:
                     await self.send_proactive(
                         sender,
                         "ClawBot 连接即将到期，请在 Kiwi「设置 → ClawBot」重新扫码。"
@@ -1171,14 +1246,16 @@ class WeChatChannel:
             if login_at
             else 0,
             "login": dict(self._login_state),
-            "default_kb_id": str(data.get("default_kb_id") or ""),
+            "default_kb_ids": list(data.get("default_kb_ids") or []),
+            "default_kb_id": str(
+                (data.get("default_kb_ids") or [data.get("default_kb_id") or ""])[0]
+                or ""
+            ),
             "allow_write": bool(data.get("allow_write")),
-            "allowed_users": list(data.get("allowed_users") or []),
-            "unknown_users": [
-                {"sender": sender, "at": at}
-                for sender, at in (data.get("unknown_users") or {}).items()
+            "schedules": [
+                self._schedule_payload(item)
+                for item in data.get("schedules") or []
             ],
-            "schedules": list(data.get("schedules") or []),
             "last_contact": {
                 "sender": last_sender,
                 "at": last.get("at", 0),
@@ -1191,23 +1268,22 @@ class WeChatChannel:
         self,
         *,
         enabled: bool | None = None,
-        default_kb_id: str | None = None,
+        default_kb_ids: list[str] | None = None,
         allow_write: bool | None = None,
-        allowed_users: list[str] | None = None,
     ) -> dict[str, Any]:
         def save(state):
             if enabled is not None:
                 state["enabled"] = bool(enabled)
-            if default_kb_id is not None:
-                state["default_kb_id"] = default_kb_id
+            if default_kb_ids is not None:
+                ids = [
+                    str(item).strip()
+                    for item in default_kb_ids
+                    if str(item).strip()
+                ]
+                state["default_kb_ids"] = list(dict.fromkeys(ids))
+                state["default_kb_id"] = ids[0] if ids else ""
             if allow_write is not None:
                 state["allow_write"] = bool(allow_write)
-            if allowed_users is not None:
-                users = [item.strip() for item in allowed_users if item.strip()]
-                state["allowed_users"] = list(dict.fromkeys(users))
-                unknown = state.setdefault("unknown_users", {})
-                for user in users:
-                    unknown.pop(user, None)
 
         await self.store.update(save)
         data = await self.store.read()

@@ -165,23 +165,6 @@ async def test_write_approval_needs_confirm_then_resumes(tmp_path, monkeypatch):
     assert "u@im.wechat" not in (await channel.store.read())["pending"]
 
 
-async def test_unknown_user_is_denied_with_their_id(tmp_path, monkeypatch):
-    channel = _channel(tmp_path)
-    sent: list[str] = []
-
-    async def fake_send(sender, token, text):
-        sent.append(text)
-        return True
-
-    monkeypatch.setattr(channel, "send_reply", fake_send)
-    await channel.store.update(lambda state: state.update({"enabled": True}))
-    await channel._handle_message_locked("stranger@im.wechat", "你好", "ctx")
-    assert "未授权" in sent[0]
-    assert "stranger@im.wechat" in sent[0]
-    data = await channel.store.read()
-    assert "stranger@im.wechat" in data["unknown_users"]
-
-
 async def test_proactive_push_queues_when_window_expired(tmp_path):
     channel = _channel(tmp_path)
     await channel.store.update(
@@ -211,10 +194,12 @@ async def test_proactive_push_queues_when_window_expired(tmp_path):
 
 async def test_schedule_push_persists_and_filters_by_sender(tmp_path):
     channel = _channel(tmp_path)
+    kb_id = str(uuid.uuid4())
     item = await channel.schedule_push(
-        "u@im.wechat", str(uuid.uuid4()), "总结今天待办", "09:00"
+        "u@im.wechat", [kb_id], "总结今天待办", "0 9 * * *"
     )
-    assert item["time"] == "09:00"
+    assert item["cron"] == "0 9 * * *"
+    assert item["kb_ids"] == [kb_id]
     assert (await channel.list_schedules())[0]["prompt"] == "总结今天待办"
     assert await channel.toggle_schedule(item["id"], False)
     assert (await channel.list_schedules())[0]["enabled"] is False
@@ -229,9 +214,12 @@ async def test_wechat_tool_requires_channel_sender(tmp_path, monkeypatch):
     monkeypatch.setattr(wechat_clawbot, "channel", channel)
     token = current_wechat_sender.set("")
     try:
-        with pytest.raises(agent_tools.ToolError, match="仅支持微信渠道"):
+        with pytest.raises(agent_tools.ToolError, match="仅支持 ClawBot 渠道"):
             await agent_tools.execute_tool(
-                object(), uuid.uuid4(), "schedule_wechat_push", {"time": "09:00", "prompt": "待办"}
+                object(),
+                uuid.uuid4(),
+                "schedule_wechat_push",
+                {"schedule": "每天早上九点", "prompt": "待办"},
             )
     finally:
         current_wechat_sender.reset(token)

@@ -423,11 +423,6 @@ class ListKnowledgeBasesArgs(BaseModel):
 
 
 class ScheduleWeChatPushArgs(BaseModel):
-    time: str = Field(
-        pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$",
-        title="推送时间",
-        description="每天推送的时间，HH:MM，例如 09:00。",
-    )
     prompt: str = Field(
         min_length=1,
         max_length=2000,
@@ -437,17 +432,39 @@ class ScheduleWeChatPushArgs(BaseModel):
             "例如「总结 XXX 知识库今天的待办，按优先级列出」。"
         ),
     )
+    cron: str = Field(
+        default="",
+        max_length=120,
+        title="Cron 表达式",
+        description=(
+            "标准 5 段 cron（分 时 日 月 周，周日=0），优先使用。例如每天 09:00 为 0 9 * * *。"
+        ),
+    )
+    schedule: str = Field(
+        default="",
+        max_length=200,
+        title="自然语言计划",
+        description=(
+            "没有 cron 时填写自然语言计划，例如「每天早上九点」「工作日 08:30」"
+            "「每周一 10:00」「每月 1 号 09:00」。"
+        ),
+    )
+    time: str = Field(
+        default="",
+        max_length=5,
+        title="旧版时间",
+        description="兼容旧调用：HH:MM，默认按每天执行；新调用请用 cron 或 schedule。",
+    )
+    kb_names: list[str] = Field(
+        default_factory=list,
+        title="知识库名称",
+        description="目标知识库名称数组，支持跨库汇总；留空时使用 kb_name 或当前知识库。",
+    )
     kb_name: str = Field(
         default="",
         max_length=200,
         title="知识库名称",
-        description="目标知识库名称；留空使用当前知识库。可先用 list_knowledge_bases 查询。",
-    )
-    days: str = Field(
-        default="daily",
-        max_length=20,
-        title="频率",
-        description="目前仅支持 daily（每天）。",
+        description="单个目标知识库名称；可先用 list_knowledge_bases 查询。",
     )
 
 
@@ -1405,67 +1422,88 @@ async def _list_knowledge_bases(session: AsyncSession, _kb_id, _args) -> dict:
 
 @_tool(
     "schedule_wechat_push",
-    "创建微信定时推送",
-    "仅微信渠道可用：创建一个每天定时推送到当前微信的任务。用户说「每天早上九点给我 "
-    "XXX 知识库的待办」时使用；time 用 HH:MM，prompt 写清楚每次要生成的内容。",
+    "创建 ClawBot 定时推送",
+    "仅 ClawBot 渠道可用：创建定时推送到当前对话的任务。用户说「每天早上九点给我 "
+    "XXX 知识库的待办」时使用；可用 5 段 cron 或自然语言计划，prompt 写清楚每次要生成的内容。",
     ScheduleWeChatPushArgs,
     read_only=True,
-    summary_template="创建微信定时推送 {time}",
+    requires_kb=False,
+    summary_template="创建定时推送",
 )
 async def _schedule_wechat_push(
-    session: AsyncSession, kb_id: uuid.UUID, args: ScheduleWeChatPushArgs
+    session: AsyncSession, kb_id: uuid.UUID | None, args: ScheduleWeChatPushArgs
 ) -> dict:
     from app.db.models import KnowledgeBase
-    from app.services import wechat_clawbot
+    from app.services import cron_schedule, schedule_parser, wechat_clawbot
     from app.services.channel_context import current_wechat_sender
 
     sender = current_wechat_sender.get()
     if not sender:
-        raise ToolError("定时推送仅支持微信渠道；Web 端请在「设置 → 微信 ClawBot」创建")
+        raise ToolError("定时推送仅支持 ClawBot 渠道；Web 端请在「设置 → ClawBot」创建")
 
-    target = None
-    if args.kb_name.strip():
-        name = args.kb_name.strip()
-        rows = (
-            (
-                await session.execute(
-                    select(KnowledgeBase).where(
-                        KnowledgeBase.deleted_at.is_(None),
-                        KnowledgeBase.name.ilike(f"%{name}%"),
+    names = [item.strip() for item in args.kb_names if item.strip()]
+    if args.kb_name.strip() and args.kb_name.strip() not in names:
+        names.append(args.kb_name.strip())
+    targets: list[KnowledgeBase] = []
+    if names:
+        for name in names[:5]:
+            rows = (
+                (
+                    await session.execute(
+                        select(KnowledgeBase).where(
+                            KnowledgeBase.deleted_at.is_(None),
+                            KnowledgeBase.name.ilike(f"%{name}%"),
+                        )
                     )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        target = next((kb for kb in rows if kb.name == name), None) or (
-            rows[0] if len(rows) == 1 else None
-        )
-        if target is None:
-            available = ", ".join(kb.name for kb in rows[:10]) or "无匹配"
-            raise ToolError(f"没有唯一匹配的知识库「{name}」；候选：{available}")
-    else:
+            target = next((kb for kb in rows if kb.name == name), None) or (
+                rows[0] if len(rows) == 1 else None
+            )
+            if target is None:
+                available = ", ".join(kb.name for kb in rows[:10]) or "无匹配"
+                raise ToolError(f"没有唯一匹配的知识库「{name}」；候选：{available}")
+            targets.append(target)
+    elif kb_id is not None:
         target = await session.get(KnowledgeBase, kb_id)
-    if target is None or target.deleted_at is not None:
-        raise ToolError("目标知识库不存在")
+        if target is not None and target.deleted_at is None:
+            targets.append(target)
+    if not targets:
+        raise ToolError("请指定至少一个知识库名称；可先用 list_knowledge_bases 查询")
+
+    try:
+        if args.cron.strip():
+            cron = cron_schedule.validate_cron(args.cron.strip())
+        elif args.schedule.strip():
+            cron, _description = await schedule_parser.parse_schedule(
+                args.schedule.strip(), session=session
+            )
+        elif args.time.strip():
+            cron = cron_schedule.from_legacy_time(args.time.strip())
+        else:
+            raise ToolError("请提供 cron、自然语言计划或 HH:MM 时间")
+    except (cron_schedule.CronError, schedule_parser.ScheduleParseError) as exc:
+        raise ToolError(str(exc)) from exc
 
     try:
         item = await wechat_clawbot.get_channel().schedule_push(
             sender,
-            str(target.id),
+            [str(target.id) for target in targets],
             args.prompt,
-            args.time,
-            args.days,
+            cron,
         )
-    except ValueError as exc:
+    except (ValueError, cron_schedule.CronError) as exc:
         raise ToolError(str(exc)) from exc
     return {
         "ok": True,
         "schedule": {
             "id": item["id"],
-            "time": item["time"],
-            "kb_id": str(target.id),
-            "kb_name": target.name,
+            "cron": item["cron"],
+            "description": cron_schedule.describe(item["cron"]),
+            "kb_ids": [str(target.id) for target in targets],
+            "kb_names": [target.name for target in targets],
             "prompt": item["prompt"],
         },
     }
@@ -1473,40 +1511,52 @@ async def _schedule_wechat_push(
 
 @_tool(
     "list_wechat_pushes",
-    "列出微信定时推送",
-    "仅微信渠道可用：列出当前微信联系人的定时推送任务。",
+    "列出 ClawBot 定时推送",
+    "仅 ClawBot 渠道可用：列出当前对话的定时推送任务。",
     ListWeChatPushesArgs,
     read_only=True,
+    requires_kb=False,
 )
 async def _list_wechat_pushes(
     session: AsyncSession, _kb_id, _args: ListWeChatPushesArgs
 ) -> dict:
-    from app.services import wechat_clawbot
+    from app.services import cron_schedule, wechat_clawbot
     from app.services.channel_context import current_wechat_sender
 
     sender = current_wechat_sender.get()
     if not sender:
-        raise ToolError("仅微信渠道可用")
-    items = [
-        {
-            "id": item.get("id"),
-            "time": item.get("time"),
-            "prompt": item.get("prompt"),
-            "enabled": bool(item.get("enabled", True)),
-        }
-        for item in await wechat_clawbot.get_channel().list_schedules()
-        if item.get("sender") == sender
-    ]
+        raise ToolError("仅 ClawBot 渠道可用")
+    items = []
+    for item in await wechat_clawbot.get_channel().list_schedules():
+        if item.get("sender") != sender:
+            continue
+        try:
+            cron = cron_schedule.schedule_cron(item)
+            description = cron_schedule.describe(cron)
+        except cron_schedule.CronError:
+            cron = str(item.get("cron") or "")
+            description = cron
+        items.append(
+            {
+                "id": item.get("id"),
+                "cron": cron,
+                "description": description,
+                "prompt": item.get("prompt"),
+                "kb_ids": item.get("kb_ids") or [],
+                "enabled": bool(item.get("enabled", True)),
+            }
+        )
     return {"items": items}
 
 
 @_tool(
     "cancel_wechat_push",
-    "取消微信定时推送",
-    "仅微信渠道可用：按任务 ID 取消当前微信联系人的定时推送。",
+    "取消 ClawBot 定时推送",
+    "仅 ClawBot 渠道可用：按任务 ID 取消当前对话的定时推送。",
     CancelWeChatPushArgs,
     read_only=True,
-    summary_template="取消微信定时推送 {schedule_id}",
+    requires_kb=False,
+    summary_template="取消定时推送 {schedule_id}",
 )
 async def _cancel_wechat_push(
     session: AsyncSession, _kb_id, args: CancelWeChatPushArgs

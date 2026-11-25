@@ -1,8 +1,9 @@
-"""微信 ClawBot 渠道管理：扫码登录、允许联系人、知识库绑定与定时推送。"""
+"""ClawBot 渠道管理：扫码登录、知识库绑定、计划预览与定时推送。"""
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,11 +13,13 @@ from app.db.models import KnowledgeBase
 from app.db.session import get_session
 from app.schemas.wechat import (
     WeChatScheduleCreate,
+    WeChatSchedulePreview,
     WeChatScheduleUpdate,
     WeChatSettingsUpdate,
     WeChatTestPush,
 )
-from app.services import wechat_clawbot
+from app.services import cron_schedule, schedule_parser, wechat_clawbot
+from app.services.agent_planner import app_timezone
 
 router = APIRouter(prefix="/api/wechat", tags=["wechat"])
 
@@ -36,9 +39,19 @@ async def _validate_kb(session: AsyncSession, kb_id: str) -> str:
     return str(kb.id)
 
 
+async def _validate_kbs(session: AsyncSession, kb_ids: list[str]) -> list[str]:
+    values = [item.strip() for item in kb_ids if item and item.strip()]
+    if not values:
+        return []
+    out: list[str] = []
+    for item in dict.fromkeys(values):
+        out.append(await _validate_kb(session, item))
+    return out
+
+
 @router.get("/status")
 async def wechat_status():
-    """当前登录状态、允许联系人、知识库绑定与定时任务。"""
+    """当前登录状态、知识库绑定与定时任务。"""
     return await _channel().full_status()
 
 
@@ -47,16 +60,19 @@ async def update_wechat_settings(
     payload: WeChatSettingsUpdate,
     session: AsyncSession = Depends(get_session),
 ):
-    default_kb_id = payload.default_kb_id
-    if default_kb_id is not None and default_kb_id.strip():
-        default_kb_id = await _validate_kb(session, default_kb_id.strip())
-    elif default_kb_id is not None:
-        default_kb_id = ""
+    kb_ids: list[str] | None = None
+    if payload.default_kb_ids is not None:
+        kb_ids = await _validate_kbs(session, payload.default_kb_ids)
+    elif payload.default_kb_id is not None:
+        kb_ids = (
+            [await _validate_kb(session, payload.default_kb_id.strip())]
+            if payload.default_kb_id.strip()
+            else []
+        )
     return await _channel().update_settings(
         enabled=payload.enabled,
-        default_kb_id=default_kb_id,
+        default_kb_ids=kb_ids,
         allow_write=payload.allow_write,
-        allowed_users=payload.allowed_users,
     )
 
 
@@ -78,7 +94,29 @@ async def logout_wechat():
 
 @router.get("/schedules")
 async def list_wechat_schedules():
-    return {"items": await _channel().list_schedules()}
+    status = await _channel().full_status()
+    return {"items": status.get("schedules") or []}
+
+
+@router.post("/schedules/preview")
+async def preview_wechat_schedule(
+    payload: WeChatSchedulePreview,
+    session: AsyncSession = Depends(get_session),
+):
+    """自然语言或 cron → 标准 cron、中文描述与最近运行时间。"""
+    try:
+        cron, description = await schedule_parser.parse_schedule(
+            payload.text, session=session
+        )
+    except schedule_parser.ScheduleParseError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "cron": cron,
+        "description": description,
+        "next_runs": cron_schedule.next_runs(
+            cron, count=3, now=datetime.now(app_timezone()).replace(tzinfo=None)
+        ),
+    }
 
 
 @router.post("/schedules", status_code=201)
@@ -91,24 +129,37 @@ async def create_wechat_schedule(
     if not sender:
         last = status.get("last_contact") or {}
         sender = str(last.get("sender") or "")
-    if not sender:
-        allowed = status.get("allowed_users") or []
-        sender = str(allowed[0]) if allowed else ""
-    if not sender:
-        raise HTTPException(400, "还没有联系人；请先让用户给 Bot 发一条消息")
-    kb_id = (payload.kb_id or "").strip() or str(status.get("default_kb_id") or "")
-    if not kb_id:
+    kb_ids = payload.kb_ids or (
+        [payload.kb_id] if payload.kb_id else status.get("default_kb_ids") or []
+    )
+    kb_ids = await _validate_kbs(session, list(kb_ids))
+    if not kb_ids:
         raise HTTPException(400, "请先选择默认知识库")
-    kb_id = await _validate_kb(session, kb_id)
+
+    try:
+        if payload.cron:
+            cron = cron_schedule.validate_cron(payload.cron)
+        elif payload.schedule_text:
+            cron, _description = await schedule_parser.parse_schedule(
+                payload.schedule_text, session=session
+            )
+        elif payload.time:
+            cron = cron_schedule.from_legacy_time(payload.time, payload.days)
+        else:
+            raise HTTPException(400, "请设置执行计划（自然语言或 cron）")
+    except cron_schedule.CronError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except schedule_parser.ScheduleParseError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     try:
         item = await _channel().schedule_push(
             sender,
-            kb_id,
+            kb_ids,
             payload.prompt,
-            payload.time,
-            payload.days,
+            cron,
         )
-    except ValueError as exc:
+    except (ValueError, cron_schedule.CronError) as exc:
         raise HTTPException(400, str(exc)) from exc
     return item
 

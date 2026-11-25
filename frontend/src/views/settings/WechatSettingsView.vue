@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
- * ClawBot 设置：扫码登录、允许联系人、知识库绑定与定时推送。
+ * ClawBot 设置：扫码登录、知识库绑定与定时推送。
  *
- * 登录二维码直接显示在页面里；未登录时轮询 /api/wechat/status 直到扫码完成。
- * 主动推送受官方 24 小时 context_token 窗口限制，过期内容会在下一次互动时补发。
+ * ClawBot 是单联系人渠道，不需要维护联系人 ID；知识库支持多选。
+ * 定时计划支持系统时间选择器、5 段 cron 与自然语言转 cron（由后端大模型解析）。
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
+import KiwiMultiSelect from '@/components/ui/KiwiMultiSelect.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
+import KiwiTimePicker from '@/components/ui/KiwiTimePicker.vue'
 import SettingsTabs from '@/components/settings/SettingsTabs.vue'
 import { toast } from '@/components/ui/toast'
 import { copyTextToClipboard } from '@/utils/clipboard'
@@ -18,11 +20,13 @@ import {
   deleteWeChatSchedule,
   getWeChatStatus,
   logoutWeChat,
+  previewWeChatSchedule,
   sendWeChatTest,
   startWeChatLogin,
   toggleWeChatSchedule,
   updateWeChatSettings,
   type WeChatSchedule,
+  type WeChatSchedulePreview,
   type WeChatStatus,
 } from '@/api/wechat'
 
@@ -31,25 +35,43 @@ const status = ref<WeChatStatus | null>(null)
 const loading = ref(true)
 const loginBusy = ref(false)
 const saving = ref(false)
-const newUser = ref('')
 const testText = ref('')
 const scheduleBusy = ref(false)
+const previewBusy = ref(false)
+const schedulePreview = ref<WeChatSchedulePreview | null>(null)
 
 const form = reactive({
   enabled: false,
-  default_kb_id: '',
+  default_kb_ids: [] as string[],
   allow_write: false,
-  allowed_users: [] as string[],
 })
 
+type ScheduleMode = 'common' | 'cron'
 const scheduleForm = reactive({
+  mode: 'common' as ScheduleMode,
+  frequency: 'daily',
   time: '09:00',
+  cron: '0 9 * * *',
+  natural: '',
   prompt: '',
-  kb_id: '',
-  sender: '',
+  kb_ids: [] as string[],
 })
 
 let pollTimer: number | undefined
+
+const FREQUENCIES = [
+  { value: 'daily', label: '每天' },
+  { value: 'weekdays', label: '工作日（周一至周五）' },
+  { value: 'weekly:1', label: '每周一' },
+  { value: 'weekly:2', label: '每周二' },
+  { value: 'weekly:3', label: '每周三' },
+  { value: 'weekly:4', label: '每周四' },
+  { value: 'weekly:5', label: '每周五' },
+  { value: 'weekly:6', label: '每周六' },
+  { value: 'weekly:0', label: '每周日' },
+  { value: 'monthly:1', label: '每月 1 号' },
+  { value: 'monthly:15', label: '每月 15 号' },
+]
 
 const connected = computed(() => !!status.value?.connected)
 const login = computed(() => status.value?.login ?? { status: 'disconnected' })
@@ -80,9 +102,6 @@ const warningTextStyle = { color: 'rgb(var(--theme-warning, 245 158 11))' }
 
 const kbOptions = computed(() =>
   kbs.kbs.map((kb) => ({ value: kb.id, label: kb.name })),
-)
-const senderOptions = computed(() =>
-  (status.value?.allowed_users ?? []).map((item) => ({ value: item, label: item })),
 )
 
 const qrRaw = computed(() => String(login.value.qr || '').trim())
@@ -115,6 +134,44 @@ watch(
   { immediate: true },
 )
 const qrSrc = computed(() => qrDirect.value || generatedQr.value)
+
+const frequencyOptions = FREQUENCIES.map((item) => ({
+  value: item.value,
+  label: item.label,
+}))
+const frequencyLabel = computed(
+  () => FREQUENCIES.find((item) => item.value === scheduleForm.frequency)?.label || '每天',
+)
+
+const commonCron = computed(() => {
+  const [hourText, minuteText] = scheduleForm.time.split(':')
+  const hour = Math.min(23, Math.max(0, Number(hourText) || 0))
+  const minute = Math.min(59, Math.max(0, Number(minuteText) || 0))
+  const base = `${minute} ${hour}`
+  const value = scheduleForm.frequency
+  if (value === 'weekdays') return `${base} * * 1-5`
+  if (value.startsWith('weekly:')) {
+    return `${base} * * ${value.slice('weekly:'.length)}`
+  }
+  if (value.startsWith('monthly:')) {
+    return `${base} ${value.slice('monthly:'.length)} * *`
+  }
+  return `${base} * * *`
+})
+const commonDescription = computed(() => `${frequencyLabel.value} ${scheduleForm.time}`)
+const activeCron = computed(() =>
+  scheduleForm.mode === 'common' ? commonCron.value : scheduleForm.cron.trim(),
+)
+
+function kbNames(ids: string[]) {
+  return ids
+    .map((id) => kbs.kbs.find((kb) => kb.id === id)?.name || id.slice(0, 8))
+    .join('、')
+}
+
+function formatNextRun(value: string) {
+  return value.replace('T', ' ').slice(0, 16)
+}
 
 async function copyLoginLink() {
   if (!qrLink.value) return
@@ -151,13 +208,10 @@ async function refresh(silent = false) {
     const data = await getWeChatStatus()
     status.value = data
     form.enabled = data.enabled
-    form.default_kb_id = data.default_kb_id || ''
+    form.default_kb_ids = [...(data.default_kb_ids || [])]
     form.allow_write = data.allow_write
-    form.allowed_users = [...data.allowed_users]
-    if (!scheduleForm.kb_id) scheduleForm.kb_id = data.default_kb_id || ''
-    if (!scheduleForm.sender) {
-      scheduleForm.sender =
-        data.last_contact?.sender || data.allowed_users[0] || ''
+    if (!scheduleForm.kb_ids.length) {
+      scheduleForm.kb_ids = [...form.default_kb_ids]
     }
     if (data.login.status === 'pending') startPolling()
   } catch (e: any) {
@@ -209,11 +263,11 @@ async function saveSettings() {
   saving.value = true
   try {
     status.value = await updateWeChatSettings({
-      default_kb_id: form.default_kb_id || null,
-      allow_write: form.allow_write,
-      allowed_users: form.allowed_users,
+      default_kb_ids: form.default_kb_ids,
+      allow_write: form.default_kb_ids.length === 1 ? form.allow_write : false,
     })
-    scheduleForm.kb_id = scheduleForm.kb_id || status.value.default_kb_id
+    form.default_kb_ids = [...(status.value.default_kb_ids || [])]
+    form.allow_write = status.value.allow_write
     toast.success('ClawBot 设置已保存')
   } catch (e: any) {
     toast.error(e.message || '保存失败')
@@ -222,41 +276,51 @@ async function saveSettings() {
   }
 }
 
-function addUser(sender?: string) {
-  const value = (sender ?? newUser.value).trim()
-  if (!value) return
-  if (!form.allowed_users.includes(value)) {
-    form.allowed_users.push(value)
+async function parseNatural() {
+  if (previewBusy.value) return
+  const text = scheduleForm.natural.trim() || scheduleForm.cron.trim()
+  if (!text) {
+    toast.info('请输入计划，例如「每天早上九点」')
+    return
   }
-  if (!sender) newUser.value = ''
-}
-
-function removeUser(sender: string) {
-  form.allowed_users = form.allowed_users.filter((item) => item !== sender)
-}
-
-async function approveUser(sender: string) {
-  addUser(sender)
-  await saveSettings()
+  previewBusy.value = true
+  try {
+    const result = await previewWeChatSchedule(text)
+    schedulePreview.value = result
+    scheduleForm.cron = result.cron
+    toast.success(`已解析：${result.description}`)
+  } catch (e: any) {
+    toast.error(e.message || '解析计划失败')
+  } finally {
+    previewBusy.value = false
+  }
 }
 
 async function addSchedule() {
-  if (!scheduleForm.time || !scheduleForm.prompt.trim()) {
-    toast.info('请填写推送时间和推送内容')
+  const prompt = scheduleForm.prompt.trim()
+  if (!prompt) {
+    toast.info('请填写推送内容')
     return
   }
-  if (!scheduleForm.sender) {
-    toast.info('请选择联系人；先让用户给 Bot 发一条消息')
+  let cron = activeCron.value
+  if (!cron && scheduleForm.natural.trim()) {
+    await parseNatural()
+    cron = scheduleForm.cron.trim()
+  }
+  if (!cron) {
+    toast.info('请设置执行计划（常用时间或 cron）')
+    return
+  }
+  const kbIds = scheduleForm.kb_ids.length
+    ? scheduleForm.kb_ids
+    : form.default_kb_ids
+  if (!kbIds.length) {
+    toast.info('请选择至少一个知识库')
     return
   }
   scheduleBusy.value = true
   try {
-    await createWeChatSchedule({
-      time: scheduleForm.time,
-      prompt: scheduleForm.prompt.trim(),
-      kb_id: scheduleForm.kb_id || status.value?.default_kb_id || undefined,
-      sender: scheduleForm.sender,
-    })
+    await createWeChatSchedule({ cron, prompt, kb_ids: kbIds })
     scheduleForm.prompt = ''
     await refresh(true)
     toast.success('定时推送已创建')
@@ -277,7 +341,7 @@ async function toggleSchedule(item: WeChatSchedule) {
 }
 
 async function removeSchedule(item: WeChatSchedule) {
-  if (!window.confirm(`删除每天 ${item.time} 的定时推送？`)) return
+  if (!window.confirm(`删除「${item.description || item.cron}」的定时推送？`)) return
   try {
     await deleteWeChatSchedule(item.id)
     await refresh(true)
@@ -293,16 +357,11 @@ async function sendTest() {
   try {
     const result = await sendWeChatTest(text)
     testText.value = ''
-    toast[result.ok ? 'success' : 'info'](
-      result.ok ? '测试消息已发送' : '当前离线/窗口过期，消息已排队，下次互动时补发',
-    )
+    if (result.ok) toast.success('测试消息已发送')
+    else toast.info('当前离线/窗口过期，消息已排队，下次互动时补发')
   } catch (e: any) {
     toast.error(e.message || '发送失败')
   }
-}
-
-function kbName(id: string) {
-  return kbs.kbs.find((kb) => kb.id === id)?.name || id.slice(0, 8)
 }
 
 onMounted(async () => {
@@ -373,9 +432,6 @@ onBeforeUnmount(stopPolling)
                 </span>
                 <span v-if="connected && remainingLabel" class="text-slate-400">
                   剩余 {{ remainingLabel }}
-                </span>
-                <span v-if="status?.last_contact" class="text-slate-400">
-                  最近联系：{{ status.last_contact.sender }}
                 </span>
               </div>
             </div>
@@ -454,10 +510,7 @@ onBeforeUnmount(stopPolling)
               alt="扫码登录二维码"
               class="h-40 w-40 rounded-lg"
             />
-            <div
-              v-else
-              class="grid h-40 w-40 place-items-center text-[11px] text-slate-400"
-            >
+            <div v-else class="grid h-40 w-40 place-items-center text-[11px] text-slate-400">
               二维码加载中…
             </div>
           </div>
@@ -505,118 +558,49 @@ onBeforeUnmount(stopPolling)
           <div class="min-w-0">
             <h2 class="text-[14px] font-semibold text-slate-800">问答权限</h2>
             <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-              未授权的联系人无法使用知识库；写操作默认关闭，开启后也必须在对话里回复「确认」。
+              选择问答使用的知识库；多选时只读，写操作需要单库。写操作默认关闭，开启后也必须在对话里回复「确认」。
             </p>
           </div>
         </div>
 
-        <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <div class="mt-4 grid items-start gap-4 lg:grid-cols-2">
           <label class="block">
-            <span class="mb-1 block text-[11px] font-medium text-slate-500">默认知识库</span>
-            <KiwiSelect
-              v-model="form.default_kb_id"
+            <span class="mb-1 block text-[11px] font-medium text-slate-500">知识库（可多选）</span>
+            <KiwiMultiSelect
+              v-model="form.default_kb_ids"
               :options="kbOptions"
-              variant="input"
-              width="w-full"
               aria-label="默认知识库"
               placeholder="选择知识库"
+              width="w-full"
             />
           </label>
-          <div class="flex items-center justify-between gap-4 rounded-xl border border-slate-200/70 bg-white/50 px-3 py-2.5">
-            <div class="min-w-0">
+          <div class="self-start rounded-xl border border-slate-200/70 bg-white/50 px-3 py-2">
+            <div class="flex items-center justify-between gap-4">
               <p class="text-[12px] font-medium text-slate-700">允许写操作</p>
-              <p class="mt-0.5 text-[10.5px] text-slate-400">
-                新建 / 修改 / 删除笔记前仍需在对话中确认
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              :aria-checked="form.allow_write"
-              class="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-              :class="form.allow_write ? 'bg-kiwi-500' : 'bg-slate-300'"
-              @click="form.allow_write = !form.allow_write"
-            >
-              <span
-                class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
-                :class="form.allow_write ? 'left-[18px]' : 'left-0.5'"
-              />
-            </button>
-          </div>
-        </div>
-
-        <div class="mt-4">
-          <div class="flex items-center justify-between gap-2">
-            <p class="text-[11px] font-medium text-slate-500">允许的联系人</p>
-            <span class="text-[10.5px] text-slate-400">{{ form.allowed_users.length }} 个</span>
-          </div>
-          <div class="mt-2 overflow-hidden rounded-xl border border-slate-200/70 bg-white/50">
-            <div
-              v-for="user in form.allowed_users"
-              :key="user"
-              class="flex items-center gap-2 border-b border-slate-200/60 px-3 py-2 last:border-b-0"
-            >
-              <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-kiwi-50 text-kiwi-600">
-                <KiwiIcon name="chat" :size="11" />
-              </span>
-              <span class="min-w-0 flex-1 truncate font-mono text-[11.5px] text-slate-600">
-                {{ user }}
-              </span>
               <button
                 type="button"
-                class="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-white hover:text-rose-500"
-                title="移除联系人"
-                @click="removeUser(user)"
+                role="switch"
+                :aria-checked="form.allow_write"
+                :disabled="form.default_kb_ids.length !== 1"
+                class="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                :class="form.allow_write && form.default_kb_ids.length === 1 ? 'bg-kiwi-500' : 'bg-slate-300'"
+                @click="form.allow_write = !form.allow_write"
               >
-                <KiwiIcon name="close" :size="11" />
+                <span
+                  class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
+                  :class="form.allow_write && form.default_kb_ids.length === 1 ? 'left-[18px]' : 'left-0.5'"
+                />
               </button>
             </div>
-            <div v-if="!form.allowed_users.length" class="px-3 py-3 text-[11px] text-slate-400">
-              还没有允许的联系人
-            </div>
-          </div>
-          <div class="mt-2 flex gap-2">
-            <input
-              v-model="newUser"
-              class="kiwi-input h-9 flex-1"
-              placeholder="联系人 ID，例如 xxx@im.wechat"
-              @keydown.enter.prevent="addUser()"
-            />
-            <button type="button" class="kiwi-btn-secondary" @click="addUser()">
-              <KiwiIcon name="plus" :size="13" />
-              添加
-            </button>
           </div>
         </div>
 
-        <div
-          v-if="status?.unknown_users?.length"
-          class="mt-3 overflow-hidden rounded-xl border"
-          :style="warningBoxStyle"
+        <p
+          v-if="form.default_kb_ids.length !== 1"
+          class="mt-2 text-[10.5px] leading-relaxed text-slate-400"
         >
-          <div class="flex items-center gap-2 px-3 py-2">
-            <KiwiIcon name="alert" :size="12" :style="warningTextStyle" />
-            <span class="text-[11px] font-medium" :style="warningTextStyle">待授权联系人</span>
-          </div>
-          <div
-            v-for="item in status.unknown_users"
-            :key="item.sender"
-            class="flex flex-wrap items-center gap-2 border-t px-3 py-2"
-            :style="{ borderColor: 'rgb(var(--theme-warning, 245 158 11) / 0.2)' }"
-          >
-            <span class="min-w-0 flex-1 truncate font-mono text-[11px]" :style="warningTextStyle">
-              {{ item.sender }}
-            </span>
-            <button
-              type="button"
-              class="rounded-md bg-white/70 px-2 py-0.5 text-[10.5px] font-medium shadow-sm hover:bg-white"
-              :style="warningTextStyle"
-              @click="approveUser(item.sender)"
-            >
-              允许
-            </button>
-          </div>
-        </div>
+          {{ form.default_kb_ids.length > 1 ? '已选择多个知识库，写操作自动关闭' : '选择单个知识库后可开启写操作' }}
+        </p>
 
         <div class="mt-4 flex justify-end">
           <button type="button" class="kiwi-btn-primary" :disabled="saving" @click="saveSettings">
@@ -635,49 +619,121 @@ onBeforeUnmount(stopPolling)
           <div class="min-w-0">
             <h2 class="text-[14px] font-semibold text-slate-800">定时主动推送</h2>
             <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-              例如「每天早上 9 点总结 XXX 知识库的待办」。官方 24 小时会话窗口过期时，内容会排队到下次互动补发。
+              支持每天 / 工作日 / 每周 / 每月，或直接写 cron 与自然语言计划。官方 24 小时会话窗口过期时，内容会排队到下次互动补发。
             </p>
           </div>
         </div>
 
         <div class="mt-4 rounded-xl border border-slate-200/70 bg-white/50 p-3">
-          <div class="grid gap-3 lg:grid-cols-[130px_180px_minmax(0,1fr)]">
+          <div class="inline-flex rounded-xl bg-slate-100/80 p-1">
+            <button
+              type="button"
+              class="rounded-lg px-3 py-1 text-[11.5px] font-medium transition-colors"
+              :class="scheduleForm.mode === 'common' ? 'bg-white text-kiwi-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+              @click="scheduleForm.mode = 'common'"
+            >
+              常用
+            </button>
+            <button
+              type="button"
+              class="rounded-lg px-3 py-1 text-[11.5px] font-medium transition-colors"
+              :class="scheduleForm.mode === 'cron' ? 'bg-white text-kiwi-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+              @click="scheduleForm.mode = 'cron'"
+            >
+              Cron / 自然语言
+            </button>
+          </div>
+
+          <div v-if="scheduleForm.mode === 'common'" class="mt-3 grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
+            <label class="block">
+              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">频率</span>
+              <KiwiSelect
+                v-model="scheduleForm.frequency"
+                :options="frequencyOptions"
+                variant="input"
+                width="w-full"
+                aria-label="推送频率"
+              />
+            </label>
             <label class="block">
               <span class="mb-1 block text-[10.5px] font-medium text-slate-500">时间</span>
-              <input v-model="scheduleForm.time" type="time" class="kiwi-input h-9" aria-label="推送时间" />
-            </label>
-            <label class="block">
-              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">知识库</span>
-              <KiwiSelect
-                v-model="scheduleForm.kb_id"
-                :options="kbOptions"
-                variant="input"
-                width="w-full"
-                aria-label="推送知识库"
-                placeholder="知识库"
+              <KiwiTimePicker
+                v-model="scheduleForm.time"
+                aria-label="推送时间"
               />
             </label>
-            <label v-if="senderOptions.length" class="block">
-              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">联系人</span>
-              <KiwiSelect
-                v-model="scheduleForm.sender"
-                :options="senderOptions"
-                variant="input"
-                width="w-full"
-                aria-label="推送联系人"
-                placeholder="联系人"
-              />
-            </label>
-            <label v-else class="block">
-              <span class="mb-1 block text-[10.5px] font-medium text-slate-500">联系人</span>
-              <input
-                v-model="scheduleForm.sender"
-                class="kiwi-input h-9"
-                placeholder="联系人 ID"
-                aria-label="推送联系人"
-              />
-            </label>
+            <div class="rounded-lg bg-slate-50/80 px-3 py-1.5 text-[11px] text-slate-500">
+              <div>
+                <span class="text-slate-400">计划：</span>
+                <span class="font-medium text-slate-600">{{ commonDescription }}</span>
+              </div>
+              <div class="font-mono text-[10px] text-slate-400">{{ commonCron }}</div>
+            </div>
           </div>
+
+          <div v-else class="mt-3 space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <label class="block">
+                <span class="mb-1 block text-[10.5px] font-medium text-slate-500">Cron 表达式</span>
+                <input
+                  v-model="scheduleForm.cron"
+                  class="kiwi-input h-9 font-mono text-[12px]"
+                  placeholder="0 9 * * *"
+                  aria-label="Cron 表达式"
+                  @input="schedulePreview = null"
+                />
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[10.5px] font-medium text-slate-500">自然语言转 Cron</span>
+                <div class="flex gap-2">
+                  <input
+                    v-model="scheduleForm.natural"
+                    class="kiwi-input h-9 flex-1"
+                    placeholder="例如：每天早上九点"
+                    aria-label="自然语言计划"
+                    @keydown.enter.prevent="parseNatural"
+                    @input="schedulePreview = null"
+                  />
+                  <button
+                    type="button"
+                    class="kiwi-btn-secondary shrink-0"
+                    :disabled="previewBusy"
+                    @click="parseNatural"
+                  >
+                    <KiwiIcon :name="previewBusy ? 'loader' : 'sparkle'" :size="13" :spin="previewBusy" />
+                    解析
+                  </button>
+                </div>
+              </label>
+            </div>
+            <div
+              v-if="schedulePreview"
+              class="rounded-lg border border-kiwi-100 bg-kiwi-50/50 px-3 py-2 text-[11px] text-slate-600"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium text-kiwi-700">{{ schedulePreview.description }}</span>
+                <span class="font-mono text-[10px] text-slate-400">{{ schedulePreview.cron }}</span>
+              </div>
+              <p v-if="schedulePreview.next_runs.length" class="mt-1 text-[10px] text-slate-400">
+                最近运行：{{ schedulePreview.next_runs.map(formatNextRun).join(' · ') }}
+              </p>
+            </div>
+            <p v-else class="text-[10.5px] text-slate-400">
+              可直接填写 5 段 cron，或输入自然语言后点「解析」；解析优先使用已配置的大模型。
+            </p>
+          </div>
+
+          <div class="mt-3">
+            <span class="mb-1 block text-[10.5px] font-medium text-slate-500">知识库（可多选）</span>
+            <KiwiMultiSelect
+              v-model="scheduleForm.kb_ids"
+              :options="kbOptions"
+              aria-label="推送知识库"
+              placeholder="使用默认知识库"
+              width="w-full"
+            />
+          </div>
+
           <div class="mt-3 flex flex-col gap-2 sm:flex-row">
             <input
               v-model="scheduleForm.prompt"
@@ -708,10 +764,11 @@ onBeforeUnmount(stopPolling)
             </span>
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-1.5">
-                <span class="font-mono text-[11px] font-medium text-kiwi-700">{{ item.time }}</span>
-                <span class="text-[10px] text-slate-400">· 每天</span>
+                <span class="text-[11px] font-medium text-kiwi-700">
+                  {{ item.description || item.cron }}
+                </span>
                 <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                  {{ kbName(item.kb_id) }}
+                  {{ kbNames(item.kb_ids || []) || '默认知识库' }}
                 </span>
               </div>
               <p class="mt-0.5 truncate text-[12px] text-slate-600" :title="item.prompt">
@@ -752,7 +809,7 @@ onBeforeUnmount(stopPolling)
           </div>
           <p class="text-[12px] font-medium text-slate-600">还没有定时推送</p>
           <p class="mt-0.5 text-[10.5px] text-slate-400">
-            设置一个时间，Kiwi 会每天自动把结果发给你。
+            设置一个计划，Kiwi 会按时把结果发给你。
           </p>
         </div>
       </section>
@@ -766,7 +823,7 @@ onBeforeUnmount(stopPolling)
           <div class="min-w-0">
             <h2 class="text-[14px] font-semibold text-slate-800">发送测试消息</h2>
             <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-              发到最近一次互动的联系人；如果窗口已过期，会排队到下次互动。
+              发到最近一次互动的对话；如果窗口已过期，会排队到下次互动。
             </p>
           </div>
         </div>

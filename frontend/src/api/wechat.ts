@@ -13,12 +13,13 @@ export interface WeChatLoginState {
 export interface WeChatSchedule {
   id: string
   sender: string
-  kb_id: string
+  kb_ids: string[]
+  kb_id?: string
   prompt: string
-  time: string
-  days: string
+  cron: string
+  description: string
   enabled: boolean
-  last_run: string
+  last_fire?: string
   created_at: number
 }
 
@@ -29,27 +30,29 @@ export interface WeChatStatus {
   login_at: number
   remaining_seconds: number
   login: WeChatLoginState
-  default_kb_id: string
+  default_kb_ids: string[]
+  default_kb_id?: string
   allow_write: boolean
-  allowed_users: string[]
-  unknown_users: Array<{ sender: string; at: number }>
   schedules: WeChatSchedule[]
   last_contact: { sender: string; at: number } | null
 }
 
 export interface WeChatSettingsPayload {
   enabled?: boolean
-  default_kb_id?: string | null
+  default_kb_ids?: string[]
   allow_write?: boolean
-  allowed_users?: string[]
 }
 
 export interface WeChatSchedulePayload {
-  time: string
+  cron: string
   prompt: string
-  kb_id?: string
-  sender?: string
-  days?: string
+  kb_ids?: string[]
+}
+
+export interface WeChatSchedulePreview {
+  cron: string
+  description: string
+  next_runs: string[]
 }
 
 export function getWeChatStatus() {
@@ -85,6 +88,13 @@ export function createWeChatSchedule(payload: WeChatSchedulePayload) {
   return request<WeChatSchedule>('/wechat/schedules', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export function previewWeChatSchedule(text: string) {
+  return request<WeChatSchedulePreview>('/wechat/schedules/preview', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
   })
 }
 
