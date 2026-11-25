@@ -1367,17 +1367,19 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
         # Agent 模式：RAG 上下文作为第一轮资料，随后进入工具循环。
         # 读工具自动执行；写工具暂停等待用户确认（不回退到普通单次生成）。
         if data.agent:
+            write_kb_id = data.write_kb_id or prepared.kb_id
             can_write = (
-                data.scope.scope == "kb"
-                and len(prepared.kb_ids) == 1
-                and prepared.kb_id is not None
+                data.scope.scope in ("kb", "multi", "global")
+                and bool(prepared.kb_ids)
+                and write_kb_id is not None
+                and write_kb_id in prepared.kb_ids
                 and (data.allow_write is not False)
             )
             toolbox = await agent_tools.load_toolbox()
             ctx = agent_harness.AgentContext(
                 messages=agent_harness.build_messages(
                     prepared.openai_msgs,
-                    kb_id=prepared.kb_id,
+                    kb_id=write_kb_id,
                     can_write=can_write,
                     toolbox=toolbox,
                 ),
@@ -1386,7 +1388,7 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 client=prepared.client,
                 model_name=prepared.model_name,
                 temperature=prepared.cfg.extra_params.get("temperature", 0.3),
-                kb_id=prepared.kb_id,
+                kb_id=write_kb_id,
                 kb_ids=prepared.kb_ids,
                 llm_config_id=data.llm_config_id,
                 model_override=data.model_override,

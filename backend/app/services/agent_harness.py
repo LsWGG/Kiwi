@@ -122,9 +122,9 @@ def agent_system_prompt(
     max_steps: int,
 ) -> str:
     permission = (
-        "当前问题限定在单个知识库内，写工具可用，但必须先请求用户确认。"
+        "读写工具可用；写操作会落到当前目标知识库，且必须先请求用户确认。"
         if can_write
-        else "当前为多库 / 全局范围：读工具可用，写工具不可用；若用户要求编辑，请提示其切换到单个知识库。"
+        else "当前范围只有读工具可用；若用户要求编辑，请提示其先切换到具体知识库。"
     )
     now = datetime.now(app_timezone())
     weekday = "一二三四五六日"[now.weekday()]

@@ -56,24 +56,8 @@ async def wechat_status():
 
 
 @router.put("/settings")
-async def update_wechat_settings(
-    payload: WeChatSettingsUpdate,
-    session: AsyncSession = Depends(get_session),
-):
-    kb_ids: list[str] | None = None
-    if payload.default_kb_ids is not None:
-        kb_ids = await _validate_kbs(session, payload.default_kb_ids)
-    elif payload.default_kb_id is not None:
-        kb_ids = (
-            [await _validate_kb(session, payload.default_kb_id.strip())]
-            if payload.default_kb_id.strip()
-            else []
-        )
-    return await _channel().update_settings(
-        enabled=payload.enabled,
-        default_kb_ids=kb_ids,
-        allow_write=payload.allow_write,
-    )
+async def update_wechat_settings(payload: WeChatSettingsUpdate):
+    return await _channel().update_settings(enabled=payload.enabled)
 
 
 @router.post("/login")
@@ -129,12 +113,8 @@ async def create_wechat_schedule(
     if not sender:
         last = status.get("last_contact") or {}
         sender = str(last.get("sender") or "")
-    kb_ids = payload.kb_ids or (
-        [payload.kb_id] if payload.kb_id else status.get("default_kb_ids") or []
-    )
+    kb_ids = payload.kb_ids or ([payload.kb_id] if payload.kb_id else [])
     kb_ids = await _validate_kbs(session, list(kb_ids))
-    if not kb_ids:
-        raise HTTPException(400, "请先选择默认知识库")
 
     try:
         if payload.cron:

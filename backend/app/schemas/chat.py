@@ -79,6 +79,8 @@ class ChatRequest(BaseModel):
     approve: bool | None = None
     # 外部渠道（微信等）可显式关闭写工具；Web 端不传，保持原有权限。
     allow_write: bool | None = None
+    # 全局 / 多库检索时，写操作固定落到这个知识库；单库检索可省略。
+    write_kb_id: uuid.UUID | None = None
 
 
 class ChatEvent(BaseModel):

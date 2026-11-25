@@ -30,17 +30,12 @@ export interface WeChatStatus {
   login_at: number
   remaining_seconds: number
   login: WeChatLoginState
-  default_kb_ids: string[]
-  default_kb_id?: string
-  allow_write: boolean
   schedules: WeChatSchedule[]
   last_contact: { sender: string; at: number } | null
 }
 
 export interface WeChatSettingsPayload {
   enabled?: boolean
-  default_kb_ids?: string[]
-  allow_write?: boolean
 }
 
 export interface WeChatSchedulePayload {

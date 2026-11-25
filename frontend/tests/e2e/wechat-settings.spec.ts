@@ -21,8 +21,6 @@ function statusPayload(login: Record<string, unknown>, extra: Record<string, unk
     login_at: 0,
     remaining_seconds: 0,
     login,
-    default_kb_ids: ['kb-1'],
-    allow_write: false,
     schedules: [],
     last_contact: { sender: 'tester@im.wechat', at: Date.now() / 1000 },
     ...extra,
@@ -40,9 +38,8 @@ async function mockBase(page: any) {
 }
 
 test.describe('ClawBot 设置', () => {
-  test('扫码登录、多选知识库与写权限保存', async ({ page }) => {
+  test('扫码登录并展示全库读写说明', async ({ page }) => {
     let login = { status: 'disconnected' }
-    let settingsPayload: any = null
 
     await mockBase(page)
     await page.route('**/api/wechat/status', async (route) => {
@@ -52,38 +49,19 @@ test.describe('ClawBot 设置', () => {
       login = { status: 'pending', qr: QR, message: '请扫码' }
       await route.fulfill({ json: { system_enabled: true, login } })
     })
-    await page.route('**/api/wechat/settings', async (route) => {
-      settingsPayload = route.request().postDataJSON()
-      await route.fulfill({
-        json: { ...statusPayload(login), ...settingsPayload, enabled: true },
-      })
-    })
 
     await page.goto('/settings/wechat', { waitUntil: 'networkidle' })
     await expect(page.getByText('ClawBot', { exact: true }).first()).toBeVisible({
       timeout: 30_000,
     })
     await expect(page.getByRole('button', { name: '扫码登录' })).toBeVisible()
+    await expect(page.getByText(/默认全库可读可写/)).toBeVisible()
     await expect(page.locator('body')).not.toContainText('微信')
+    await expect(page.getByText('问答权限', { exact: true })).toHaveCount(0)
 
     await page.getByRole('button', { name: '扫码登录' }).click()
     await expect(page.locator('img[alt="扫码登录二维码"]')).toBeVisible()
     await expect(page.getByText('用手机扫码并确认')).toBeVisible()
-
-    // 单选知识库时可以开启写操作。
-    await page.getByRole('switch').nth(1).click()
-    await page.getByRole('button', { name: '保存设置' }).click()
-    await expect.poll(() => settingsPayload?.allow_write).toBe(true)
-    await expect.poll(() => settingsPayload?.default_kb_ids).toEqual(['kb-1'])
-
-    // 多选后写操作自动关闭，并以多库保存。
-    await page.getByLabel('默认知识库').click()
-    await page.getByRole('option', { name: /知识库二/ }).click()
-    await page.getByRole('button', { name: '完成', exact: true }).click()
-    await page.getByRole('button', { name: '保存设置' }).click()
-    await expect.poll(() => settingsPayload?.default_kb_ids?.length).toBe(2)
-    await expect.poll(() => settingsPayload?.allow_write).toBe(false)
-    await expect(page.getByText('已选择多个知识库，写操作自动关闭')).toBeVisible()
   })
 
   test('常用模式使用系统时间选择器创建任务', async ({ page }) => {
@@ -119,7 +97,7 @@ test.describe('ClawBot 设置', () => {
       .getByRole('button', { name: '添加' })
       .click()
     await expect.poll(() => schedulePayload?.cron).toBe('30 10 * * *')
-    await expect.poll(() => schedulePayload?.kb_ids).toEqual(['kb-1'])
+    await expect.poll(() => schedulePayload?.kb_ids).toEqual([])
     await expect.poll(() => schedulePayload?.prompt).toBe('总结今天的待办，按优先级列出')
   })
 

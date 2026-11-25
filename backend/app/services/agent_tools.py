@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -470,6 +471,50 @@ class ScheduleWeChatPushArgs(BaseModel):
 
 class ListWeChatPushesArgs(BaseModel):
     pass
+
+class CreateNoteInKbArgs(BaseModel):
+    kb_name: str = Field(
+        min_length=1,
+        max_length=200,
+        title="知识库",
+        description="目标知识库名称，例如「木子家」。可先用 list_knowledge_bases 查询。",
+    )
+    title: str = Field(
+        min_length=1, max_length=300, title="标题", description="笔记标题。"
+    )
+    body_md: str = Field(
+        default="",
+        max_length=MAX_NOTE_BODY,
+        title="正文",
+        description="Markdown 正文。",
+    )
+    folder_path: str = Field(
+        default="",
+        max_length=400,
+        title="目录路径",
+        description="知识库内目录路径，用 / 分隔，例如「学习/读书」；留空表示根目录。",
+    )
+    kind: str = Field(
+        default="doc",
+        max_length=20,
+        title="类型",
+        description="doc / canvas / sheet / notebook，默认 doc。",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        title="标签",
+        description="标签名数组。",
+    )
+
+
+class SwitchWeChatKbArgs(BaseModel):
+    kb_name: str = Field(
+        min_length=1,
+        max_length=200,
+        title="知识库名称",
+        description="要切换到的知识库名称，例如「木子家」。",
+    )
 
 
 class CancelWeChatPushArgs(BaseModel):
@@ -1388,6 +1433,139 @@ async def execute_tool(
             await session.rollback()
         logger.exception("Agent 工具执行失败：%s", tool)
         raise ToolError(f"工具执行失败：{e}") from e
+
+
+@_tool(
+    "create_note_in_kb",
+    "跨知识库新建笔记",
+    "按知识库名称新建笔记，可指定目录路径。用户说「创建到 XXX 知识库 YY 目录下」时使用；"
+    "写操作需要用户确认，确认前不要声称已创建。",
+    CreateNoteInKbArgs,
+    read_only=False,
+    requires_kb=False,
+    summary_template="新建笔记《{title}》到 {kb_name}",
+)
+async def _create_note_in_kb(
+    session: AsyncSession, _kb_id, args: CreateNoteInKbArgs
+) -> dict:
+    from app.db.models import KnowledgeBase, NoteFolder
+
+    if args.kind not in {"doc", "canvas", "sheet", "notebook"}:
+        raise ToolError("kind 只支持 doc / canvas / sheet / notebook")
+    name = args.kb_name.strip()
+    rows = (
+        (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.deleted_at.is_(None),
+                    KnowledgeBase.name.ilike(f"%{name}%"),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    target = next((kb for kb in rows if kb.name == name), None) or (
+        rows[0] if len(rows) == 1 else None
+    )
+    if target is None:
+        available = ", ".join(kb.name for kb in rows[:10]) or "无匹配"
+        raise ToolError(f"没有唯一匹配的知识库「{name}」；候选：{available}")
+
+    folder_id = None
+    path = [
+        part.strip()
+        for part in re.split(r"[/>＞]+", args.folder_path or "")
+        if part.strip()
+    ]
+    if path:
+        current_parent = None
+        for part in path:
+            folder = (
+                await session.execute(
+                    select(NoteFolder).where(
+                        NoteFolder.kb_id == target.id,
+                        NoteFolder.name == part,
+                        NoteFolder.parent_id.is_(current_parent)
+                        if current_parent is None
+                        else NoteFolder.parent_id == current_parent,
+                    )
+                )
+            ).scalar_one_or_none()
+            if folder is None:
+                raise ToolError(
+                    f"知识库「{target.name}」中找不到目录「{'/'.join(path)}」"
+                )
+            folder_id = folder.id
+            current_parent = folder.id
+
+    note = await create_note_route(
+        NoteCreate(
+            title=args.title,
+            body_md=args.body_md,
+            kind=args.kind,  # type: ignore[arg-type]
+            folder_id=folder_id,
+            tags=args.tags,
+        ),
+        kb_id=target.id,
+        session=session,
+    )
+    return {
+        "ok": True,
+        "note": {
+            "id": str(note.id),
+            "title": note.title,
+            "kind": note.kind,
+            "kb_id": str(target.id),
+            "kb_name": target.name,
+        },
+    }
+
+
+@_tool(
+    "switch_wechat_kb",
+    "切换 ClawBot 知识库",
+    "仅 ClawBot 渠道可用：用户说「用 / 切换到 XXX 知识库」时调用。"
+    "切换后从下一轮提问开始使用该库；当前轮如果还要执行写操作，应先告知用户切换结果。",
+    SwitchWeChatKbArgs,
+    read_only=True,
+    requires_kb=False,
+)
+async def _switch_wechat_kb(
+    session: AsyncSession, _kb_id, args: SwitchWeChatKbArgs
+) -> dict:
+    from app.db.models import KnowledgeBase
+    from app.services import wechat_clawbot
+    from app.services.channel_context import current_wechat_sender
+
+    sender = current_wechat_sender.get()
+    if not sender:
+        raise ToolError("仅 ClawBot 渠道可用")
+    name = args.kb_name.strip()
+    rows = (
+        (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.deleted_at.is_(None),
+                    KnowledgeBase.name.ilike(f"%{name}%"),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    target = next((kb for kb in rows if kb.name == name), None) or (
+        rows[0] if len(rows) == 1 else None
+    )
+    if target is None:
+        available = ", ".join(kb.name for kb in rows[:10]) or "无匹配"
+        raise ToolError(f"没有唯一匹配的知识库「{name}」；候选：{available}")
+    await wechat_clawbot.get_channel().set_sender_kb(sender, str(target.id))
+    return {
+        "ok": True,
+        "kb": {"id": str(target.id), "name": target.name},
+        "note": "切换从下一轮提问生效。",
+    }
 
 
 @_tool(

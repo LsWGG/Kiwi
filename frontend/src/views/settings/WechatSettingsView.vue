@@ -34,7 +34,6 @@ const kbs = useKbsStore()
 const status = ref<WeChatStatus | null>(null)
 const loading = ref(true)
 const loginBusy = ref(false)
-const saving = ref(false)
 const testText = ref('')
 const scheduleBusy = ref(false)
 const previewBusy = ref(false)
@@ -42,8 +41,6 @@ const schedulePreview = ref<WeChatSchedulePreview | null>(null)
 
 const form = reactive({
   enabled: false,
-  default_kb_ids: [] as string[],
-  allow_write: false,
 })
 
 type ScheduleMode = 'common' | 'cron'
@@ -208,11 +205,6 @@ async function refresh(silent = false) {
     const data = await getWeChatStatus()
     status.value = data
     form.enabled = data.enabled
-    form.default_kb_ids = [...(data.default_kb_ids || [])]
-    form.allow_write = data.allow_write
-    if (!scheduleForm.kb_ids.length) {
-      scheduleForm.kb_ids = [...form.default_kb_ids]
-    }
     if (data.login.status === 'pending') startPolling()
   } catch (e: any) {
     if (!silent) toast.error(e.message || '读取 ClawBot 状态失败')
@@ -258,24 +250,6 @@ async function toggleEnabled() {
   }
 }
 
-async function saveSettings() {
-  if (saving.value) return
-  saving.value = true
-  try {
-    status.value = await updateWeChatSettings({
-      default_kb_ids: form.default_kb_ids,
-      allow_write: form.default_kb_ids.length === 1 ? form.allow_write : false,
-    })
-    form.default_kb_ids = [...(status.value.default_kb_ids || [])]
-    form.allow_write = status.value.allow_write
-    toast.success('ClawBot 设置已保存')
-  } catch (e: any) {
-    toast.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
 async function parseNatural() {
   if (previewBusy.value) return
   const text = scheduleForm.natural.trim() || scheduleForm.cron.trim()
@@ -311,16 +285,13 @@ async function addSchedule() {
     toast.info('请设置执行计划（常用时间或 cron）')
     return
   }
-  const kbIds = scheduleForm.kb_ids.length
-    ? scheduleForm.kb_ids
-    : form.default_kb_ids
-  if (!kbIds.length) {
-    toast.info('请选择至少一个知识库')
-    return
-  }
   scheduleBusy.value = true
   try {
-    await createWeChatSchedule({ cron, prompt, kb_ids: kbIds })
+    await createWeChatSchedule({
+      cron,
+      prompt,
+      kb_ids: scheduleForm.kb_ids,
+    })
     scheduleForm.prompt = ''
     await refresh(true)
     toast.success('定时推送已创建')
@@ -434,6 +405,10 @@ onBeforeUnmount(stopPolling)
                   剩余 {{ remainingLabel }}
                 </span>
               </div>
+              <p class="mt-1 text-[10.5px] leading-relaxed text-slate-400">
+                默认全库可读可写；发送 <code class="rounded bg-white/50 px-1">/kb 名称</code>
+                或在对话里说「切换到 XXX 知识库」即可切换。
+              </p>
             </div>
           </div>
 
@@ -547,68 +522,6 @@ onBeforeUnmount(stopPolling)
         >
           {{ login.message }}
         </p>
-      </section>
-
-      <!-- 问答权限 -->
-      <section class="animate-fade-up rounded-2xl glass-strong p-4 sm:p-5">
-        <div class="flex items-start gap-3">
-          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-kiwi-50 text-kiwi-600">
-            <KiwiIcon name="shield" :size="16" />
-          </span>
-          <div class="min-w-0">
-            <h2 class="text-[14px] font-semibold text-slate-800">问答权限</h2>
-            <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
-              选择问答使用的知识库；多选时只读，写操作需要单库。写操作默认关闭，开启后也必须在对话里回复「确认」。
-            </p>
-          </div>
-        </div>
-
-        <div class="mt-4 grid items-start gap-4 lg:grid-cols-2">
-          <label class="block">
-            <span class="mb-1 block text-[11px] font-medium text-slate-500">知识库（可多选）</span>
-            <KiwiMultiSelect
-              v-model="form.default_kb_ids"
-              :options="kbOptions"
-              aria-label="默认知识库"
-              placeholder="选择知识库"
-              width="w-full"
-            />
-          </label>
-          <div>
-            <span class="mb-1 block text-[11px] font-medium text-slate-500">写操作</span>
-            <div class="flex h-9 items-center justify-between gap-4 rounded-xl border border-slate-200/70 bg-white/50 px-3">
-              <p class="text-[12px] font-medium text-slate-700">允许写操作</p>
-              <button
-                type="button"
-                role="switch"
-                :aria-checked="form.allow_write"
-                :disabled="form.default_kb_ids.length !== 1"
-                class="relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                :class="form.allow_write && form.default_kb_ids.length === 1 ? 'bg-kiwi-500' : 'bg-slate-300'"
-                @click="form.allow_write = !form.allow_write"
-              >
-                <span
-                  class="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
-                  :class="form.allow_write && form.default_kb_ids.length === 1 ? 'left-[18px]' : 'left-0.5'"
-                />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <p
-          v-if="form.default_kb_ids.length !== 1"
-          class="mt-2 text-[10.5px] leading-relaxed text-slate-400"
-        >
-          {{ form.default_kb_ids.length > 1 ? '已选择多个知识库，写操作自动关闭' : '选择单个知识库后可开启写操作' }}
-        </p>
-
-        <div class="mt-4 flex justify-end">
-          <button type="button" class="kiwi-btn-primary" :disabled="saving" @click="saveSettings">
-            <KiwiIcon :name="saving ? 'loader' : 'check'" :size="13" :spin="saving" />
-            保存设置
-          </button>
-        </div>
       </section>
 
       <!-- 定时主动推送 -->
@@ -730,7 +643,7 @@ onBeforeUnmount(stopPolling)
               v-model="scheduleForm.kb_ids"
               :options="kbOptions"
               aria-label="推送知识库"
-              placeholder="使用默认知识库"
+              placeholder="使用全部知识库（可多选）"
               width="w-full"
             />
           </div>
@@ -769,7 +682,7 @@ onBeforeUnmount(stopPolling)
                   {{ item.description || item.cron }}
                 </span>
                 <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                  {{ kbNames(item.kb_ids || []) || '默认知识库' }}
+                  {{ kbNames(item.kb_ids || []) || '全部知识库' }}
                 </span>
               </div>
               <p class="mt-0.5 truncate text-[12px] text-slate-600" :title="item.prompt">

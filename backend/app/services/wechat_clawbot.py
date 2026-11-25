@@ -85,7 +85,7 @@ def _default_store() -> dict[str, Any]:
         "unknown_users": {},
         "default_kb_id": "",
         "default_kb_ids": [],
-        "allow_write": False,
+        "allow_write": True,
         "contacts": {},
         "sender_kb": {},
         "history": {},
@@ -725,6 +725,12 @@ class WeChatChannel:
         await self.store.update(save)
         await self.send_reply(sender, context_token, f"已切换到知识库「{target.name}」。")
 
+    async def set_sender_kb(self, sender: str, kb_id: str) -> None:
+        def save(state):
+            state.setdefault("sender_kb", {})[sender] = str(kb_id)
+
+        await self.store.update(save)
+
     async def _command_status(
         self, sender: str, context_token: str
     ) -> None:
@@ -797,17 +803,20 @@ class WeChatChannel:
         }
 
     def _kb_ids_for(self, sender: str, data: dict[str, Any]) -> list[str]:
+        """未用 /kb 切库时返回空列表，表示全库检索。"""
         override = str((data.get("sender_kb") or {}).get(sender) or "")
-        if override:
-            return [override]
-        ids = [
-            str(item)
-            for item in (data.get("default_kb_ids") or [])
-            if str(item).strip()
-        ]
-        if not ids and data.get("default_kb_id"):
-            ids = [str(data["default_kb_id"])]
-        return list(dict.fromkeys(ids))
+        return [override] if override else []
+
+    async def _first_kb_id(self) -> uuid.UUID | None:
+        async with async_session_factory() as session:
+            return (
+                await session.execute(
+                    select(KnowledgeBase.id)
+                    .where(KnowledgeBase.deleted_at.is_(None))
+                    .order_by(KnowledgeBase.created_at)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
 
     async def _answer(self, sender: str, text: str, context_token: str) -> None:
         data = await self.store.read()
@@ -816,13 +825,6 @@ class WeChatChannel:
             for item in self._kb_ids_for(sender, data)
             if item
         ]
-        if not kb_ids:
-            await self.send_reply(
-                sender,
-                context_token,
-                "还没有设置默认知识库，请在 Kiwi「设置 → ClawBot」中选择。",
-            )
-            return
         history = list((data.get("history") or {}).get(sender) or [])
         history.append({"role": "user", "content": text})
         messages = history[-MAX_HISTORY_MESSAGES:]
@@ -853,28 +855,25 @@ class WeChatChannel:
         *,
         resume_action_id: str | None = None,
         approve: bool | None = None,
-        allow_write: bool | None = None,
     ) -> ChatResult:
         # 延迟导入，避免 routers.chat ↔ services 的循环依赖。
         from app.routers import chat as chat_router
         from app.schemas.chat import ChatRequest, SearchScope
 
-        data = await self.store.read()
-        write_allowed = (
-            bool(data.get("allow_write")) if allow_write is None else allow_write
+        scene_scope = (
+            "kb" if len(kb_ids) == 1 else ("multi" if len(kb_ids) > 1 else "global")
         )
+        write_kb = kb_ids[0] if kb_ids else await self._first_kb_id()
         request = ChatRequest(
             messages=messages,
-            scope=SearchScope(
-                scope="kb" if len(kb_ids) == 1 else "multi",
-                kb_ids=kb_ids,
-            ),
+            scope=SearchScope(scope=scene_scope, kb_ids=kb_ids),
             intent="auto",
             agent=True,
             web_search=False,
             resume_action_id=resume_action_id,
             approve=approve,
-            allow_write=write_allowed,
+            allow_write=True,
+            write_kb_id=write_kb,
         )
         sender_token = current_wechat_sender.set(sender)
         kb_token = current_wechat_kb_id.set(",".join(str(item) for item in kb_ids))
@@ -962,9 +961,6 @@ class WeChatChannel:
             ]
         except ValueError:
             kb_ids = []
-        if not kb_ids:
-            await self.send_reply(sender, context_token, "当前没有绑定知识库。")
-            return
         await self._send_typing(sender, context_token, 1)
         try:
             result = await self._run_chat(
@@ -1056,8 +1052,6 @@ class WeChatChannel:
     ) -> dict[str, Any]:
         expr = cron_schedule.validate_cron(cron)
         ids = [str(item) for item in kb_ids if str(item).strip()]
-        if not ids:
-            raise ValueError("请选择至少一个知识库")
         data = await self.store.read()
         target_sender = sender or self._primary_sender(data)
         if not target_sender:
@@ -1160,7 +1154,7 @@ class WeChatChannel:
         except ValueError:
             kb_ids = []
         prompt = str(item.get("prompt") or "").strip()
-        if not sender or not kb_ids or not prompt:
+        if not sender or not prompt:
             return
         try:
             result = await self._run_chat(
@@ -1246,12 +1240,6 @@ class WeChatChannel:
             if login_at
             else 0,
             "login": dict(self._login_state),
-            "default_kb_ids": list(data.get("default_kb_ids") or []),
-            "default_kb_id": str(
-                (data.get("default_kb_ids") or [data.get("default_kb_id") or ""])[0]
-                or ""
-            ),
-            "allow_write": bool(data.get("allow_write")),
             "schedules": [
                 self._schedule_payload(item)
                 for item in data.get("schedules") or []
@@ -1268,22 +1256,10 @@ class WeChatChannel:
         self,
         *,
         enabled: bool | None = None,
-        default_kb_ids: list[str] | None = None,
-        allow_write: bool | None = None,
     ) -> dict[str, Any]:
         def save(state):
             if enabled is not None:
                 state["enabled"] = bool(enabled)
-            if default_kb_ids is not None:
-                ids = [
-                    str(item).strip()
-                    for item in default_kb_ids
-                    if str(item).strip()
-                ]
-                state["default_kb_ids"] = list(dict.fromkeys(ids))
-                state["default_kb_id"] = ids[0] if ids else ""
-            if allow_write is not None:
-                state["allow_write"] = bool(allow_write)
 
         await self.store.update(save)
         data = await self.store.read()

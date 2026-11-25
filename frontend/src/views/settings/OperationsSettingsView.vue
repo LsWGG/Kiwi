@@ -731,6 +731,15 @@ function setAuditAction(value: string | number) {
                 <KiwiIcon name="chevronRight" :size="10" />
               </span>
             </div>
+            <div class="mt-1.5 flex items-start gap-1.5">
+              <KiwiIcon name="chat" :size="11" class="mt-0.5 shrink-0 text-slate-300" />
+              <p
+                class="trace-query text-[12px] leading-relaxed text-slate-600"
+                :title="trace.query || ''"
+              >
+                {{ trace.query || '（未记录提问内容）' }}
+              </p>
+            </div>
             <div class="mt-2 flex flex-wrap gap-1.5">
               <span
                 v-for="(event, index) in trace.events"
@@ -1074,3 +1083,13 @@ function setAuditAction(value: string | number) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.trace-query {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+</style>
