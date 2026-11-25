@@ -249,3 +249,61 @@ async def test_stream_reports_unexpected_prepare_error(monkeypatch):
 
     assert [name for name, _ in events] == ["error"]
     assert events[0][1]["message"] == "检索资料时出现异常，请稍后重试。"
+
+
+async def test_prepare_chat_runs_wiki_and_note_retrieval_concurrently(monkeypatch):
+    """Wiki 与笔记检索应在同一时间窗口内执行，而不是前后排队。"""
+    import asyncio
+
+    from app.services.agent_planner import AgentPlan
+
+    started: list[str] = []
+    both_started = asyncio.Event()
+
+    async def fake_scope(session, scope):
+        return []
+
+    async def fake_resolve_llm(session, kb_id, llm_config_id=None):
+        return (
+            SimpleNamespace(
+                base_url="http://127.0.0.1:9", model_name="m", extra_params={}
+            ),
+            "",
+        )
+
+    async def fake_plan(*args, **kwargs):
+        return AgentPlan(
+            queries=["问题"], needs_retrieval=True, source="llm", steps=[]
+        )
+
+    async def fake_context(session, kb_ids, collection, filters=None):
+        return {}, None
+
+    async def fake_index(kb_ids):
+        return None
+
+    async def fake_search(session, queries, kb_ids, *, collection, **kwargs):
+        started.append(collection)
+        if len(started) == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=1)
+        return [], ""
+
+    monkeypatch.setattr(chat, "_resolve_scope", fake_scope)
+    monkeypatch.setattr(chat, "resolve_llm", fake_resolve_llm)
+    monkeypatch.setattr(chat, "_plan_request", fake_plan)
+    monkeypatch.setattr(chat, "prepare_search_context", fake_context)
+    monkeypatch.setattr(chat, "ensure_notes_indexed", fake_index)
+    monkeypatch.setattr(chat, "_safe_search_many", fake_search)
+    monkeypatch.setattr(chat, "is_remote_provider", lambda: False)
+    monkeypatch.setattr(chat.llm_factory, "get_client", lambda *a, **k: SimpleNamespace())
+
+    prepared = await chat._prepare_chat(
+        None,
+        ChatRequest(messages=[{"role": "user", "content": "问题"}], agent=True),
+        "问题",
+        "note",
+        lambda *args: None,
+    )
+    assert started == ["wiki", "note"] or sorted(started) == ["note", "wiki"]
+    assert prepared.planner_queries == 1

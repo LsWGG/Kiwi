@@ -41,6 +41,7 @@ const TRACE_KIND: Record<string, { label: string; tone: string; icon: string }> 
   request: { label: '请求', tone: 'info', icon: 'chat' },
   planner: { label: '规划', tone: 'info', icon: 'target' },
   query: { label: '查询', tone: 'info', icon: 'search' },
+  embedding: { label: '向量', tone: 'info', icon: 'sparkle' },
   model: { label: '模型', tone: 'accent', icon: 'sparkle' },
   tool: { label: '工具', tone: 'success', icon: 'terminal' },
   approval: { label: '审批', tone: 'warning', icon: 'shield' },
@@ -165,11 +166,6 @@ const layout = computed(() => {
   const queryIndexes = events
     .map((event, index) => (isQuery(event) ? index : -1))
     .filter((index) => index >= 0)
-  const mainStart = events.findIndex(
-    (event) =>
-      event.kind !== 'request' && event.kind !== 'planner' && !isQuery(event),
-  )
-
   const nodeId = (index: number) => `trace-node-${index}`
   const logicalNodes = new Set<number>([0])
   const logicalEdges: Array<{
@@ -196,51 +192,66 @@ const layout = computed(() => {
           dashed: true,
         })
       })
-      if (mainStart >= 0) {
-        queryIndexes.forEach((index) => {
-          logicalEdges.push({
-            id: `edge-query-main-${index}`,
-            source: nodeId(index),
-            target: nodeId(mainStart),
-          })
-        })
-      }
-    } else if (mainStart >= 0) {
-      logicalEdges.push({
-        id: 'edge-planner-main',
-        source: nodeId(plannerIndex),
-        target: nodeId(mainStart),
-      })
     }
-  } else if (mainStart >= 0) {
-    logicalEdges.push({
-      id: 'edge-request-main',
-      source: nodeId(0),
-      target: nodeId(mainStart),
-    })
   }
 
   const mainIndexes = events
     .map((event, index) => ({ event, index }))
     .filter(
       ({ event, index }) =>
-        index !== 0 &&
-        index !== plannerIndex &&
-        !isQuery(event),
+        index !== 0 && index !== plannerIndex && !isQuery(event),
     )
     .map(({ index }) => index)
 
-  mainIndexes.forEach((index, position) => {
-    logicalNodes.add(index)
-    if (position > 0) {
-      const previous = mainIndexes[position - 1]
-      logicalEdges.push({
-        id: `edge-main-${previous}-${index}`,
-        source: nodeId(previous),
-        target: nodeId(index),
-      })
+  // 按时间区间分组：重叠的节点属于同一并行组，组之间才串行。
+  const spans = mainIndexes
+    .map((index) => ({
+      index,
+      start: Math.max(0, events[index].start),
+      end: Math.max(0, events[index].end),
+    }))
+    .sort((a, b) => a.start - b.start || a.end - b.end)
+
+  const groups: number[][] = []
+  let groupEnd = -1
+  for (const span of spans) {
+    const current = groups[groups.length - 1]
+    if (!current || span.start >= groupEnd) {
+      groups.push([span.index])
+      groupEnd = span.end
+    } else {
+      current.push(span.index)
+      groupEnd = Math.max(groupEnd, span.end)
     }
+  }
+
+  const addEdge = (id: string, source: string, target: string, dashed = false) => {
+    logicalEdges.push({ id, source, target, dashed })
+  }
+
+  const firstGroup = groups[0] ?? []
+  const firstParents = queryIndexes.length
+    ? queryIndexes
+    : plannerIndex > 0
+      ? [plannerIndex]
+      : [0]
+  firstGroup.forEach((index) => {
+    logicalNodes.add(index)
+    firstParents.forEach((parent) => {
+      addEdge(`edge-main-in-${parent}-${index}`, nodeId(parent), nodeId(index))
+    })
   })
+
+  for (let groupIndex = 1; groupIndex < groups.length; groupIndex += 1) {
+    const previous = groups[groupIndex - 1]
+    const current = groups[groupIndex]
+    current.forEach((index) => {
+      logicalNodes.add(index)
+      previous.forEach((parent) => {
+        addEdge(`edge-main-${parent}-${index}`, nodeId(parent), nodeId(index))
+      })
+    })
+  }
 
   // 使用 dagre 做分层布局：规划后的多条查询会落在同一层并自动展开，
   // 再汇入下一次模型调用；不再手写坐标，避免节点挤压 / 连线交叉。

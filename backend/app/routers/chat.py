@@ -195,11 +195,13 @@ async def _search_many(
     models: dict[uuid.UUID, str] | None = None,
     allowed_note_ids: list[str] | None = None,
     note_ids_resolved: bool = False,
+    query_vectors: list[list[float] | None] | None = None,
 ) -> list[dict]:
     """对多个子问题分别检索，按命中分块去重后合并（保持原顺序）。
 
-    ``models`` 与 ``allowed_note_ids`` 由调用方预先解析时，各子问题可并发
-    执行且不再触碰 AsyncSession；未提供时保持串行，避免并发复用 session。
+    ``query_vectors`` 由调用方在检索前统一计算时，Wiki 与笔记两条链路复用
+    同一份向量，避免重复调用嵌入接口；子问题按顺序检索，避免同一台机器上
+    多路 Qdrant / BM25 相互争抢。
     """
     search_kwargs = {
         "limit": limit,
@@ -209,37 +211,31 @@ async def _search_many(
         "allowed_note_ids": allowed_note_ids,
         "note_ids_resolved": note_ids_resolved,
     }
+    vectors = query_vectors
+    if vectors is None:
+        vectors = [None] * len(queries)
+        if len(queries) > 1 and is_remote_provider():
+            try:
+                embedded = await embed_texts_async(list(queries))
+                if len(embedded) == len(queries):
+                    vectors = [list(vector) for vector in embedded]
+            except Exception:  # noqa: BLE001 —— 批量失败时退回逐条嵌入
+                logger.warning("批量嵌入子问题失败，回退逐条检索", exc_info=True)
     if len(queries) == 1:
-        return await search(session, queries[0], kb_ids, **search_kwargs)
-    # 远程 embedding：多个子问题一次批量请求，避免逐条等待嵌入接口。
-    query_vectors: list[list[float] | None] = [None] * len(queries)
-    if is_remote_provider():
-        try:
-            vectors = await embed_texts_async(list(queries))
-            if len(vectors) == len(queries):
-                query_vectors = [list(vector) for vector in vectors]
-        except Exception:  # noqa: BLE001 —— 批量失败时退回逐条嵌入
-            logger.warning("批量嵌入子问题失败，回退逐条检索", exc_info=True)
-
-    async def one(index: int, query: str) -> list[dict]:
         return await search(
-            session,
-            query,
-            kb_ids,
-            query_vector=query_vectors[index],
-            **search_kwargs,
+            session, queries[0], kb_ids, query_vector=vectors[0], **search_kwargs
         )
-
-    if models is not None and note_ids_resolved:
-        results = await asyncio.gather(
-            *(one(index, query) for index, query in enumerate(queries))
-        )
-    else:
-        results = [await one(index, query) for index, query in enumerate(queries)]
 
     merged: list[dict] = []
     seen: set[str] = set()
-    for hits in results:
+    for index, query in enumerate(queries):
+        hits = await search(
+            session,
+            query,
+            kb_ids,
+            query_vector=vectors[index],
+            **search_kwargs,
+        )
         for hit in hits:
             payload = hit.get("payload") or {}
             key = str(hit.get("id") or "")
@@ -523,10 +519,6 @@ async def _prepare_chat(
     kb_names: dict[str, str] = {}
     if needs_retrieval:
         stage("search", "start", "正在检索 Wiki 与笔记")
-        # 先解析模型与笔记范围；并发检索时各子任务不再使用 AsyncSession。
-        search_models, note_allowed_ids = await prepare_search_context(
-            session, kb_ids, "note", filters
-        )
 
         async def _sync_note_index() -> tuple[bool, float]:
             started = time.perf_counter()
@@ -545,9 +537,36 @@ async def _prepare_chat(
             )
             return hits, error, (time.perf_counter() - started) * 1000
 
-        # 索引同步、Wiki 检索互不依赖，先并行启动；笔记检索等索引完成后再
-        # 与 Wiki 检索并行，整体等待时间从「三段相加」降到「最慢一段」。
+        # 索引同步不依赖查询向量，先启动；与向量化、Wiki 检索并行。
         index_task = asyncio.create_task(_sync_note_index())
+        # 先解析模型与笔记范围；并发检索时各子任务不再使用 AsyncSession。
+        search_models, note_allowed_ids = await prepare_search_context(
+            session, kb_ids, "note", filters
+        )
+        # Wiki 与笔记检索共用同一份查询向量：并发时各链路不再各自调用
+        # 嵌入接口，避免重复请求把两路都拖慢。
+        query_vectors: list[list[float] | None] = [None] * len(queries)
+        if is_remote_provider():
+            _embed_started = time.perf_counter()
+            _embed_ok = False
+            try:
+                embedded = await embed_texts_async(list(queries))
+                if len(embedded) == len(queries):
+                    query_vectors = [list(vector) for vector in embedded]
+                    _embed_ok = True
+            except Exception:  # noqa: BLE001 —— 失败时回退检索内逐条嵌入
+                logger.warning("查询向量化失败，回退检索内逐条嵌入", exc_info=True)
+            trace.event(
+                "embedding",
+                "查询向量化",
+                ms=(time.perf_counter() - _embed_started) * 1000,
+                ok=_embed_ok,
+                input={"queries": list(queries)},
+                output={"count": len(query_vectors), "ok": _embed_ok},
+                meta={"provider": "remote"},
+            )
+
+        # Wiki 检索与索引同步并行；笔记检索等索引完成后再与 Wiki 并行。
         wiki_task = (
             asyncio.create_task(
                 _timed_search_many(
@@ -555,6 +574,7 @@ async def _prepare_chat(
                     collection="wiki",
                     models=search_models,
                     note_ids_resolved=True,
+                    query_vectors=query_vectors,
                 )
             )
             if not filters.has_note_constraints
@@ -579,6 +599,7 @@ async def _prepare_chat(
                 models=search_models,
                 allowed_note_ids=note_allowed_ids,
                 note_ids_resolved=True,
+                query_vectors=query_vectors,
             )
         )
         if wiki_task is not None:

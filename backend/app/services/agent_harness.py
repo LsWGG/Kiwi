@@ -526,6 +526,304 @@ async def _complete(ctx: AgentContext) -> str:
     return str(content or "")
 
 
+class _AnswerStreamExtractor:
+    """从流式 JSON 中增量提取 ``answer`` 字段。
+
+    只在确认 ``action`` 为 null 后输出，工具调用轮不会漏出回答；如果模型
+    把 answer 写在 action 之前，会先缓冲，等 action 判定后再一次性放出。
+    """
+
+    def __init__(self, protocol_prompt: str = ""):
+        self.raw = ""
+        self.key_pos = -1
+        self.pos = -1
+        self.value = ""
+        self.emitted = 0
+        self.action = "unknown"  # unknown / null / tool
+        self.closed = False
+        self.blocked = False
+        self.guard_done = False
+        self.protocol_prompt = protocol_prompt
+
+    def feed(self, delta: str) -> str:
+        self.raw += delta
+        if not self._json_like():
+            return ""
+        if self.action == "unknown":
+            match = re.search(
+                r'(?:^|[{,])\s*"action"\s*:\s*(null|\{|\[)', self.raw
+            )
+            if match:
+                self.action = "null" if match.group(1) == "null" else "tool"
+        if not self._locate_answer():
+            return ""
+        if self.action == "tool":
+            return ""
+        self._decode()
+        if self.action != "null":
+            return ""
+        return self._drain()
+
+    def finish(self) -> str:
+        if not self.raw:
+            return ""
+        if self.action == "unknown" and self.key_pos >= 0:
+            # 模型省略 action 时，已解析出的 answer 仍按最终回答输出。
+            self.action = "null"
+        if self.action != "null":
+            return ""
+        self._decode()
+        return self._drain()
+
+    def _json_like(self) -> bool:
+        text = self.raw.lstrip()
+        if text.startswith("```"):
+            newline = text.find("\n")
+            if newline < 0:
+                return False
+            text = text[newline + 1 :].lstrip()
+        return text.startswith("{")
+
+    def _locate_answer(self) -> bool:
+        if self.key_pos >= 0:
+            return True
+        match = re.search(r'(?:^|[{,])\s*"answer"\s*:\s*"', self.raw)
+        if not match:
+            return False
+        self.key_pos = match.end()
+        self.pos = self.key_pos
+        return True
+
+    def _decode(self) -> None:
+        if self.key_pos < 0 or self.closed:
+            return
+        raw = self.raw
+        total = len(raw)
+        index = self.pos
+        pieces: list[str] = []
+        while index < total:
+            char = raw[index]
+            if char == '"':
+                self.closed = True
+                index += 1
+                break
+            if char != "\\":
+                pieces.append(char)
+                index += 1
+                continue
+            if index + 1 >= total:
+                break
+            escape = raw[index + 1]
+            simple = {
+                '"': '"',
+                "\\": "\\",
+                "/": "/",
+                "b": "\b",
+                "f": "\f",
+                "n": "\n",
+                "r": "\r",
+                "t": "\t",
+            }
+            if escape in simple:
+                pieces.append(simple[escape])
+                index += 2
+                continue
+            if escape == "u":
+                if index + 6 > total:
+                    break
+                hex_value = raw[index + 2 : index + 6]
+                if not re.fullmatch(r"[0-9a-fA-F]{4}", hex_value):
+                    break
+                code = int(hex_value, 16)
+                if 0xD800 <= code <= 0xDBFF:
+                    # 代理对：等低代理位到齐后再解码。
+                    if index + 12 > total:
+                        break
+                    if raw[index + 6 : index + 8] != "\\u":
+                        pieces.append(chr(code))
+                        index += 6
+                        continue
+                    low_hex = raw[index + 8 : index + 12]
+                    if not re.fullmatch(r"[0-9a-fA-F]{4}", low_hex):
+                        break
+                    low = int(low_hex, 16)
+                    if 0xDC00 <= low <= 0xDFFF:
+                        pieces.append(
+                            chr(0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00))
+                        )
+                        index += 12
+                        continue
+                    pieces.append(chr(code))
+                    index += 6
+                    continue
+                pieces.append(chr(code))
+                index += 6
+                continue
+            # 非标准转义：保留字符，避免丢字。
+            pieces.append(escape)
+            index += 2
+        self.pos = index
+        if pieces:
+            self.value += "".join(pieces)
+
+    def _guard_ok(self) -> bool:
+        if self.blocked:
+            return False
+        if self.guard_done:
+            return True
+        if len(self.value) < 80 and not self.closed:
+            return False
+        if self.protocol_prompt and answer_echoes_prompt(
+            self.value, self.protocol_prompt
+        ):
+            self.blocked = True
+            return False
+        self.guard_done = True
+        return True
+
+    def _drain(self) -> str:
+        if self.blocked or not self._guard_ok():
+            return ""
+        chunk = self.value[self.emitted :]
+        self.emitted = len(self.value)
+        return chunk
+
+
+async def _complete_events(
+    ctx: AgentContext, protocol_prompt: str = ""
+) -> AsyncIterator[tuple[str, str]]:
+    """流式模型调用：最终回答以 ``chunk`` 逐段产出，最后产出完整 ``raw``。
+
+    工具调用轮不会产出 chunk；不支持流式的客户端 / 测试桩会退回普通响应。
+    """
+    attempts = 0
+    ctx.last_usage = {}
+    ctx.last_finish_reason = ""
+    ctx.last_attempts = 0
+    while True:
+        extractor = _AnswerStreamExtractor(protocol_prompt)
+        emitted = False
+        raw = ""
+        try:
+            kwargs: dict[str, Any] = {
+                "model": ctx.model_name,
+                "messages": _history(ctx.messages),
+                "stream": True,
+                "temperature": ctx.temperature,
+                "stream_options": {"include_usage": True},
+            }
+            create_call = ctx.client.chat.completions.create(**kwargs)
+            if ctx.completion_timeout and ctx.completion_timeout > 0:
+                stream = await asyncio.wait_for(
+                    create_call, timeout=ctx.completion_timeout
+                )
+            else:
+                stream = await create_call
+            if not hasattr(stream, "__aiter__"):
+                # 兼容不支持流式的客户端 / 测试桩。
+                response = stream
+                choices = getattr(response, "choices", None) or []
+                if not choices:
+                    raise AgentFormatError("模型没有返回内容")
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    ctx.last_usage = {
+                        "prompt_tokens": int(
+                            getattr(usage, "prompt_tokens", 0) or 0
+                        ),
+                        "completion_tokens": int(
+                            getattr(usage, "completion_tokens", 0) or 0
+                        ),
+                        "total_tokens": int(
+                            getattr(usage, "total_tokens", 0) or 0
+                        ),
+                    }
+                ctx.last_finish_reason = str(
+                    getattr(choices[0], "finish_reason", "") or ""
+                )
+                message = getattr(choices[0], "message", None)
+                raw = str(
+                    getattr(message, "content", None)
+                    if message is not None
+                    else ""
+                )
+                ctx.last_attempts = attempts + 1
+                yield ("raw", raw)
+                return
+            async for chunk in stream:
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    ctx.last_usage = {
+                        "prompt_tokens": int(
+                            getattr(usage, "prompt_tokens", 0) or 0
+                        ),
+                        "completion_tokens": int(
+                            getattr(usage, "completion_tokens", 0) or 0
+                        ),
+                        "total_tokens": int(
+                            getattr(usage, "total_tokens", 0) or 0
+                        ),
+                    }
+                choices = getattr(chunk, "choices", None) or []
+                if choices:
+                    delta = getattr(choices[0].delta, "content", None)
+                    if delta:
+                        raw += str(delta)
+                        piece = extractor.feed(str(delta))
+                        if piece:
+                            emitted = True
+                            yield ("chunk", piece)
+                    finish_reason = getattr(choices[0], "finish_reason", None)
+                    if finish_reason:
+                        ctx.last_finish_reason = str(finish_reason)
+            tail = extractor.finish()
+            if tail:
+                emitted = True
+                yield ("chunk", tail)
+            ctx.last_attempts = attempts + 1
+            yield ("raw", raw)
+            return
+        except asyncio.TimeoutError:
+            if emitted or attempts >= MAX_LLM_RETRIES:
+                raise
+            attempts += 1
+            logger.warning(
+                "模型流式调用超时，第 %s/%s 次重试", attempts, MAX_LLM_RETRIES
+            )
+            await asyncio.sleep(LLM_RETRY_DELAY * attempts)
+        except (APIConnectionError, APITimeoutError) as e:
+            if emitted or attempts >= MAX_LLM_RETRIES:
+                raise
+            attempts += 1
+            logger.warning(
+                "模型流式连接失败（%s），第 %s/%s 次重试",
+                type(e).__name__,
+                attempts,
+                MAX_LLM_RETRIES,
+            )
+            await asyncio.sleep(LLM_RETRY_DELAY * attempts)
+        except APIStatusError as e:
+            if e.status_code in (400, 404, 422) and not emitted:
+                # 兼容不支持流式的接口：退回普通调用，牺牲流式但保持可用。
+                raw = await _complete(ctx)
+                yield ("raw", raw)
+                return
+            if (
+                e.status_code not in (429, 500, 502, 503, 504)
+                or emitted
+                or attempts >= MAX_LLM_RETRIES
+            ):
+                raise
+            attempts += 1
+            logger.warning(
+                "模型流式服务返回 %s，第 %s/%s 次重试",
+                e.status_code,
+                attempts,
+                MAX_LLM_RETRIES,
+            )
+            await asyncio.sleep(LLM_RETRY_DELAY * attempts)
+
+
 def _context_from_pending(
     pending: agent_actions.PendingAction,
     *,
@@ -700,6 +998,7 @@ async def run_agent(
     try:
         while tool_steps < max_steps and attempts < max_steps * 2:
             attempts += 1
+            streamed_answer = False
             fast_action = (
                 agent_fast_path.build_after_read_tool(
                     ctx.user_query,
@@ -759,7 +1058,15 @@ async def run_agent(
             else:
                 _model_started = time.perf_counter()
                 try:
-                    raw = await _complete(ctx)
+                    raw = ""
+                    async for kind, payload in _complete_events(
+                        ctx, protocol_prompt
+                    ):
+                        if kind == "chunk":
+                            streamed_answer = True
+                            yield "chunk", {"text": payload}
+                        else:
+                            raw = payload
                 except Exception as exc:
                     _model_elapsed = time.perf_counter() - _model_started
                     trace.event(
@@ -895,7 +1202,8 @@ async def run_agent(
                     _finalize_plan(plan)
                     yield "plan", {"steps": plan, "thought": reply.thought}
                 yield "stage", {"stage": "agent", "status": "done", "message": "已完成思考"}
-                yield "stage", {"stage": "generate", "status": "start", "message": "正在整理回答"}
+                if not streamed_answer:
+                    yield "stage", {"stage": "generate", "status": "start", "message": "正在整理回答"}
                 answer_text = _repair_note_links(reply.answer, known_links)
                 trace.event(
                     "answer",
@@ -905,9 +1213,10 @@ async def run_agent(
                         "citations": len(ctx.citations),
                     },
                     output=answer_text,
-                    meta={"chars": len(answer_text)},
+                    meta={"chars": len(answer_text), "streamed": streamed_answer},
                 )
-                yield "chunk", {"text": answer_text}
+                if not streamed_answer:
+                    yield "chunk", {"text": answer_text}
                 yield "stage", {"stage": "generate", "status": "done", "message": "回答生成完成"}
                 yield "done", {"ok": True, "plan": plan, **_undo_fields(undo_record)}
                 return
@@ -1081,7 +1390,14 @@ async def run_agent(
                 ),
             }
         )
-        raw = await _complete(ctx)
+        raw = ""
+        streamed_answer = False
+        async for kind, payload in _complete_events(ctx, protocol_prompt):
+            if kind == "chunk":
+                streamed_answer = True
+                yield "chunk", {"text": payload}
+            else:
+                raw = payload
         reply = _parse_reply_with_dsml(raw)
         # 原生工具调用标记不能当回答展示；这里只接受普通文本回答。
         answer_text = "" if _DSML_MARKER_RE.search(raw) else reply.answer
@@ -1096,9 +1412,10 @@ async def run_agent(
             "answer",
             "最终回答（步数上限）",
             output=answer,
-            meta={"chars": len(answer), "step_limit": True},
+            meta={"chars": len(answer), "step_limit": True, "streamed": streamed_answer},
         )
-        yield "chunk", {"text": answer}
+        if not streamed_answer:
+            yield "chunk", {"text": answer}
         yield "done", {
             "ok": True,
             "plan": plan,

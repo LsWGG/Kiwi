@@ -44,6 +44,7 @@ const TRACE_KIND: Record<string, { label: string; tone: string }> = {
   request: { label: '请求', tone: 'info' },
   planner: { label: '规划', tone: 'info' },
   query: { label: '查询', tone: 'info' },
+  embedding: { label: '向量', tone: 'info' },
   model: { label: '模型', tone: 'accent' },
   tool: { label: '工具', tone: 'success' },
   fast_path: { label: '快路径', tone: 'warning' },

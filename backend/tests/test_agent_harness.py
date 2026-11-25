@@ -787,3 +787,173 @@ def test_system_prompt_includes_current_week_range():
     assert (monday + timedelta(days=6)).strftime("%Y-%m-%d") in prompt
     assert "$week_start" not in prompt
     assert "$week_end" not in prompt
+
+
+def test_answer_stream_extractor_emits_only_final_answer():
+    extractor = agent_harness._AnswerStreamExtractor("")
+    raw = '{"thought":"x","plan":[],"action":null,"answer":"你好\\n世界"}'
+    out = ""
+    for index in range(0, len(raw), 4):
+        out += extractor.feed(raw[index : index + 4])
+    out += extractor.finish()
+    assert out == "你好\n世界"
+
+
+def test_answer_stream_extractor_discards_tool_calls():
+    extractor = agent_harness._AnswerStreamExtractor("")
+    raw = '{"action":{"tool":"search_notes","args":{}},"answer":"不应出现"}'
+    out = ""
+    for index in range(0, len(raw), 5):
+        out += extractor.feed(raw[index : index + 5])
+    out += extractor.finish()
+    assert out == ""
+
+
+def test_answer_stream_extractor_buffers_answer_before_action():
+    extractor = agent_harness._AnswerStreamExtractor("")
+    answer = "长" * 120
+    raw = '{"answer":"' + answer + '","action":null}'
+    assert extractor.feed(raw[:60]) == ""
+    rest = extractor.feed(raw[60:]) + extractor.finish()
+    assert rest == answer
+
+
+def test_answer_stream_extractor_handles_surrogate_pairs():
+    extractor = agent_harness._AnswerStreamExtractor("")
+    raw = '{"action":null,"answer":"\\ud83d\\ude00"}'
+    split = raw.index("\\ude00")
+    out = extractor.feed(raw[:split]) + extractor.feed(raw[split:]) + extractor.finish()
+    assert out == "😀"
+
+
+class _StreamingCompletions:
+    def __init__(self, text: str):
+        self.text = text
+        self.calls: list[dict] = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        text = self.text
+
+        async def chunks():
+            for index in range(0, len(text), 7):
+                yield SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(content=text[index : index + 7]),
+                            finish_reason=None,
+                        )
+                    ],
+                    usage=None,
+                )
+            yield SimpleNamespace(
+                choices=[],
+                usage=SimpleNamespace(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
+            )
+
+        return chunks()
+
+
+class _StreamingClient:
+    def __init__(self, text: str):
+        self.completions = _StreamingCompletions(text)
+        self.chat = SimpleNamespace(completions=self.completions)
+
+
+async def test_complete_events_streams_final_answer_incrementally():
+    answer = "流" * 120
+    raw = json.dumps(
+        {"thought": "", "plan": [], "action": None, "answer": answer},
+        ensure_ascii=False,
+    )
+    client = _StreamingClient(raw)
+    ctx = _ctx(client)
+    chunks: list[str] = []
+    full = ""
+    async for kind, payload in agent_harness._complete_events(ctx, ""):
+        if kind == "chunk":
+            chunks.append(payload)
+        else:
+            full = payload
+    assert "".join(chunks) == answer
+    assert len(chunks) >= 2
+    assert json.loads(full)["answer"] == answer
+    assert ctx.last_usage["total_tokens"] == 15
+    assert client.completions.calls[0]["stream"] is True
+
+
+async def test_complete_events_does_not_stream_tool_calls():
+    raw = json.dumps(
+        {
+            "thought": "查一下",
+            "plan": ["搜索"],
+            "action": {"tool": "search_notes", "args": {"query": "x"}},
+            "answer": None,
+        },
+        ensure_ascii=False,
+    )
+    client = _StreamingClient(raw)
+    ctx = _ctx(client)
+    events = [item async for item in agent_harness._complete_events(ctx, "")]
+    assert not [payload for kind, payload in events if kind == "chunk"]
+    assert json.loads(events[-1][1])["action"]["tool"] == "search_notes"
+
+
+class _StreamingSequenceClient:
+    def __init__(self, texts: list[str]):
+        self.texts = iter(texts)
+        self.calls: list[dict] = []
+        self.chat = SimpleNamespace(completions=self)
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        text = next(self.texts)
+
+        async def chunks():
+            for index in range(0, len(text), 7):
+                yield SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(content=text[index : index + 7]),
+                            finish_reason=None,
+                        )
+                    ],
+                    usage=None,
+                )
+            yield SimpleNamespace(
+                choices=[],
+                usage=SimpleNamespace(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
+            )
+
+        return chunks()
+
+
+async def test_run_agent_streams_final_answer_without_duplicate(monkeypatch):
+    first = _reply(
+        thought="搜索",
+        plan=["搜索笔记"],
+        action={"tool": "search_notes", "args": {"query": "周报"}},
+        answer=None,
+    )
+    answer = "流式最终回答" * 20
+    second = _reply(thought="完成", plan=[], action=None, answer=answer)
+    client = _StreamingSequenceClient([first, second])
+
+    async def fake_execute(session, kb_id, tool, args):
+        return {"total": 0, "items": []}
+
+    monkeypatch.setattr(agent_tools, "execute_tool", fake_execute)
+    ctx = _ctx(client)
+    ctx.user_query = "总结周报"
+    events = await _collect(ctx, session=object())
+    chunks = [payload["text"] for name, payload in events if name == "chunk"]
+    assert chunks
+    assert "".join(chunks) == answer
+    # 流式分片不能与最终整段回答重复。
+    assert "".join(chunks).count(answer) == 1
+    assert any(name == "done" and payload.get("ok") for name, payload in events)
+    assert client.calls and client.calls[0]["stream"] is True
