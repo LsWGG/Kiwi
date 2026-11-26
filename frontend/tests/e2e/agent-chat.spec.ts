@@ -276,3 +276,189 @@ test.describe('问答 Agent 确认流', () => {
     await expect(page.locator('[aria-label="输入问题"]')).toBeVisible()
   })
 })
+
+test.describe('Agent 流转实时刷新', () => {
+  test('轨迹运行中弹窗轮询更新并自动停止', async ({ page }) => {
+    const sessionId = randomUUID()
+    const kbId = '22222222-2222-4222-8222-222222222222'
+    const detail = {
+      id: sessionId,
+      title: '新的问答',
+      scope: { scope: 'kb', kb_ids: [kbId], note_ids: [], folder_ids: [] },
+      intent: 'auto',
+      llm_config_id: null,
+      message_count: 1,
+      messages: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    await page.route('**/api/kbs', async (route) => {
+      await route.fulfill({
+        json: [
+          {
+            id: kbId,
+            name: '实时流转测试库',
+            slug: 'live-trace',
+            description: '',
+            embedding_model: 'bge-m3',
+            llm_config_id: null,
+            pinned: false,
+            learning_enabled: false,
+            is_builtin: false,
+            builtin_key: null,
+            deleted_at: null,
+            sort_order: 0,
+            wiki_compile_interval_hours: 0,
+            wiki_compile_last_at: null,
+            wiki_compile_last_status: {},
+            todo_sync_interval_hours: 0,
+            todo_sync_last_at: null,
+            todo_open_count: 0,
+            todo_done_count: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            source_count: 0,
+            wiki_count: 0,
+            note_count: 0,
+            onboarded: true,
+          },
+        ],
+      })
+    })
+    await page.route('**/api/llm/configs', async (route) => {
+      await route.fulfill({ json: [] })
+    })
+    await page.route('**/api/chat/sessions?*', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ json: { items: [] } })
+        return
+      }
+      await route.fulfill({ json: detail })
+    })
+    await page.route('**/api/chat/sessions', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 201, json: detail })
+        return
+      }
+      await route.fulfill({ json: { items: [] } })
+    })
+    await page.route(`**/api/chat/sessions/${sessionId}`, async (route) => {
+      await route.fulfill({ json: detail })
+    })
+
+    await page.route('**/api/chat/stream', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: sse([
+          ['trace', { trace_id: 'live-trace-e2e' }],
+          ['chunk', { text: '本周完成 5 项待办。' }],
+          ['done', { ok: true }],
+        ]),
+      })
+    })
+
+    const understand = {
+      at: 0.05,
+      kind: 'understand',
+      name: '理解请求',
+      ms: 50,
+      ok: true,
+      detail: '识别为知识库问答',
+      output: { kb_ids: [kbId] },
+    }
+    const planner = {
+      at: 1.3,
+      kind: 'planner',
+      name: '检索规划',
+      ms: 1200,
+      ok: true,
+      detail: '大模型规划',
+      output: {
+        reason: '需要检索本周待办',
+        queries: ['本周待办', '完成情况'],
+        plan: [{ title: '检索待办' }],
+      },
+    }
+    const embedding = {
+      at: 1.5,
+      kind: 'embedding',
+      name: '向量化查询',
+      ms: 180,
+      ok: true,
+      detail: '2 条查询向量',
+    }
+    const traceBase = {
+      id: 'live-trace-e2e',
+      started_at: Date.now() / 1000 - 2,
+      query: '这周我干嘛了？',
+      query_chars: 7,
+      model: 'e2e-model',
+      scope: 'kb',
+    }
+    let traceCalls = 0
+    await page.route('**/api/maintenance/agent-traces/**', async (route) => {
+      traceCalls += 1
+      if (traceCalls === 1) {
+        await route.fulfill({
+          json: {
+            ...traceBase,
+            finished_at: null,
+            duration_ms: 900,
+            status: 'running',
+            planner_source: '',
+            planner_ms: 0,
+            planner_queries: 0,
+            events: [understand],
+          },
+        })
+        return
+      }
+      await route.fulfill({
+        json: {
+          ...traceBase,
+          finished_at: Date.now() / 1000,
+          duration_ms: 3200,
+          status: 'done',
+          planner_source: 'llm',
+          planner_ms: 1200,
+          planner_queries: 2,
+          events: [understand, planner, embedding],
+        },
+      })
+    })
+
+    await page.addInitScript((id) => {
+      localStorage.setItem('kiwi.kb.edit', id as string)
+    }, kbId)
+    await page.goto('/chat', { waitUntil: 'networkidle' })
+
+    const input = page.locator('[aria-label="输入问题"]')
+    await expect(input).toBeVisible({ timeout: 30_000 })
+    await input.fill('这周我干嘛了？')
+    await input.press('Enter')
+    await expect(page.getByText('本周完成 5 项待办。')).toBeVisible({ timeout: 10_000 })
+
+    await page.getByRole('button', { name: 'Agent 流转' }).first().click()
+    const dialog = page.getByRole('dialog', { name: 'Agent 流转详情' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('理解请求').first()).toBeVisible()
+    await expect(dialog.getByText('进行中').first()).toBeVisible()
+
+    // 轨迹仍在运行，弹窗应按轮询间隔刷新出新的规划 / 向量节点。
+    await expect(dialog.getByText('向量化查询').first()).toBeVisible({ timeout: 10_000 })
+    await expect(dialog.getByText('完成', { exact: true }).first()).toBeVisible()
+    const edges = await dialog.locator('.vue-flow__edge').count()
+    expect(edges).toBeGreaterThan(0)
+
+    // 轨迹完成后停止轮询，避免后台持续请求。
+    const callsAfterDone = traceCalls
+    await page.waitForTimeout(2200)
+    expect(traceCalls).toBe(callsAfterDone)
+
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page).toHaveURL(/\/chat/)
+  })
+})

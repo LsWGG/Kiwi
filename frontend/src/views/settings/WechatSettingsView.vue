@@ -347,6 +347,22 @@ onBeforeUnmount(stopPolling)
 
 <template>
   <div class="page-wrap-slim px-3 py-4 sm:px-8 sm:py-8">
+    <div class="mb-5 flex flex-wrap items-end justify-between gap-3 animate-fade-up">
+      <div class="flex items-center gap-3">
+        <span
+          class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-kiwi-400 to-kiwi-600 text-white shadow-glow"
+        >
+          <KiwiIcon name="chat" :size="20" />
+        </span>
+        <div>
+          <h1 class="text-2xl font-semibold text-slate-800">ClawBot</h1>
+          <p class="mt-1 text-sm text-slate-500">
+            在手机上直接向 Kiwi 提问，或让系统定时推送待办、周报；写操作会在对话里二次确认。
+          </p>
+        </div>
+      </div>
+    </div>
+
     <SettingsTabs />
 
     <div v-if="loading" class="py-16 text-center text-sm text-slate-400">
@@ -371,24 +387,18 @@ onBeforeUnmount(stopPolling)
         </p>
       </section>
 
-      <!-- 页面头部 / 连接状态 -->
+      <!-- 连接状态 -->
       <section class="animate-fade-up rounded-2xl glass-strong p-4 sm:p-5">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div class="flex min-w-0 items-start gap-3">
-            <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-kiwi-50 text-kiwi-600">
-              <KiwiIcon name="chat" :size="20" />
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-kiwi-50 text-kiwi-600">
+              <KiwiIcon name="link2" :size="16" />
             </span>
             <div class="min-w-0">
-              <p class="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                消息渠道
-              </p>
-              <h1 class="mt-0.5 text-[17px] font-semibold text-slate-800">ClawBot</h1>
-              <p class="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-slate-500">
-                在手机上直接向 Kiwi 提问，或让系统定时推送待办、周报；写操作会在对话里二次确认。
-              </p>
-              <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="text-[14px] font-semibold text-slate-800">连接状态</h2>
                 <span
-                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium"
+                  class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium"
                   :style="connectedStyle"
                 >
                   <span
@@ -401,12 +411,13 @@ onBeforeUnmount(stopPolling)
                   />
                   {{ connected ? '已连接' : '未连接' }}
                 </span>
-                <span v-if="connected && remainingLabel" class="text-slate-400">
+                <span v-if="connected && remainingLabel" class="text-[10.5px] text-slate-400">
                   剩余 {{ remainingLabel }}
                 </span>
               </div>
-              <p class="mt-1 text-[10.5px] leading-relaxed text-slate-400">
-                默认全库可读可写；发送 <code class="rounded bg-white/50 px-1">/kb 名称</code>
+              <p class="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                扫码登录后即可在手机上对话，登录约 24 小时有效；默认全库可读可写，发送
+                <code class="rounded bg-white/50 px-1">/kb 名称</code>
                 或在对话里说「切换到 XXX 知识库」即可切换。
               </p>
             </div>

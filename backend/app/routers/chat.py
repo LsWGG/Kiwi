@@ -1324,6 +1324,10 @@ async def chat_stream(data: ChatRequest, session: AsyncSession = Depends(get_ses
                 on_plan=plan_event,
             )
         )
+        # 先把轨迹 ID 推给前端：从理解、规划、检索开始就能打开实时流转画布，
+        # 不必等 Agent 循环第一次模型调用。
+        if prepare_trace is not None:
+            yield sse("trace", {"trace_id": prepare_trace.id})
         try:
             # 检索期间持续把阶段事件推给前端；等待时发注释帧保持连接。
             while True:

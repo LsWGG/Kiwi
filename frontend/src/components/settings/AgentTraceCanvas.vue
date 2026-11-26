@@ -2,9 +2,9 @@
 /**
  * Agent 轨迹画布：Vue Flow 驱动的可拖动节点图。
  *
- * 规划节点会按 planner 输出展开成多个并行查询节点（知识库 / 联网），再汇入
- * 第一次模型调用，因此不是单纯的时间线列表；后续模型 / 工具 / 审批 / 回答
- * 节点按执行顺序连接。点击节点由父组件弹出输入 / 输出详情。
+ * 主链按真实时间排序，重叠事件作为并行组；规划节点会按 planner 输出展开成
+ * 多个并行查询分支（知识库 / 联网），再汇入下一组（向量化 / 检索 / 模型），
+ * 因此不是单纯的时间线列表。点击节点由父组件弹出输入 / 输出详情。
  */
 import { computed } from 'vue'
 import dagre from '@dagrejs/dagre'
@@ -105,6 +105,25 @@ function modelPreview(output: unknown) {
 
 function nodePreview(event: TraceCanvasEvent) {
   if (event.kind === 'request') return event.detail || ''
+  if (event.kind === 'understand') {
+    const output = event.output as any
+    const count = Array.isArray(output?.kb_ids) ? output.kb_ids.length : 0
+    return count ? `范围：${count} 个知识库` : event.detail
+  }
+  if (event.kind === 'planner') {
+    const output = event.output as any
+    if (output && typeof output === 'object') {
+      const reason = String(output.reason || '').trim()
+      const queries = Array.isArray(output.queries) ? output.queries.length : 0
+      const steps = Array.isArray(output.plan) ? output.plan.length : 0
+      const parts = [reason]
+      if (queries) parts.push(`${queries} 条查询`)
+      if (steps) parts.push(`${steps} 步计划`)
+      const text = parts.filter(Boolean).join(' · ')
+      if (text) return text
+    }
+    return event.detail
+  }
   if (event.kind === 'model') {
     const text = modelPreview(event.output)
     if (text) return text.replace(/\s+/g, ' ').slice(0, 140)
@@ -130,7 +149,7 @@ function isQuery(event: TraceCanvasEvent) {
   return event.kind === 'query'
 }
 
-const EDGE_COLOR = 'rgb(var(--theme-text-secondary, 71 85 105) / 0.62)'
+const EDGE_COLOR = 'rgb(var(--theme-text-secondary, 71 85 105) / 0.9)'
 const EDGE_MARKER_COLOR = 'rgb(var(--theme-text-secondary, 71 85 105) / 0.85)'
 
 function makeEdge(
@@ -143,7 +162,8 @@ function makeEdge(
     id,
     source,
     target,
-    type: 'default',
+    type: 'smoothstep',
+    pathOptions: { borderRadius: 12 },
     style: {
       stroke: EDGE_COLOR,
       strokeWidth: 2,
@@ -152,8 +172,8 @@ function makeEdge(
     markerEnd: {
       type: MarkerType.ArrowClosed,
       color: EDGE_MARKER_COLOR,
-      width: 18,
-      height: 18,
+      width: 14,
+      height: 14,
     },
   }
 }
@@ -162,48 +182,42 @@ const layout = computed(() => {
   const events = props.events
   if (!events.length) return { nodes: [], edges: [] }
 
+  const requestIndex = 0
   const plannerIndex = events.findIndex((event) => event.kind === 'planner')
   const queryIndexes = events
     .map((event, index) => (isQuery(event) ? index : -1))
     .filter((index) => index >= 0)
   const nodeId = (index: number) => `trace-node-${index}`
-  const logicalNodes = new Set<number>([0])
+  const logicalNodes = new Set<number>([requestIndex])
   const logicalEdges: Array<{
     id: string
     source: string
     target: string
     dashed?: boolean
   }> = []
-
-  if (plannerIndex > 0) {
-    logicalNodes.add(plannerIndex)
-    logicalEdges.push({
-      id: 'edge-request-planner',
-      source: nodeId(0),
-      target: nodeId(plannerIndex),
-    })
-    if (queryIndexes.length) {
-      queryIndexes.forEach((index) => {
-        logicalNodes.add(index)
-        logicalEdges.push({
-          id: `edge-planner-query-${index}`,
-          source: nodeId(plannerIndex),
-          target: nodeId(index),
-          dashed: true,
-        })
-      })
-    }
+  const addEdge = (id: string, source: string, target: string, dashed = false) => {
+    logicalEdges.push({ id, source, target, dashed })
   }
 
+  // 规划节点派生查询分支；查询分支会汇总到规划之后的检索组。
+  if (plannerIndex > 0 && queryIndexes.length) {
+    queryIndexes.forEach((index) => {
+      logicalNodes.add(index)
+      addEdge(
+        `edge-planner-query-${index}`,
+        nodeId(plannerIndex),
+        nodeId(index),
+        true,
+      )
+    })
+  }
+
+  // 主链按真实时间排序分组：understand 在 planner 之前，重叠事件为并行组。
   const mainIndexes = events
     .map((event, index) => ({ event, index }))
-    .filter(
-      ({ event, index }) =>
-        index !== 0 && index !== plannerIndex && !isQuery(event),
-    )
+    .filter(({ index }) => index !== requestIndex && !isQuery(events[index]))
     .map(({ index }) => index)
 
-  // 按时间区间分组：重叠的节点属于同一并行组，组之间才串行。
   const spans = mainIndexes
     .map((index) => ({
       index,
@@ -225,47 +239,60 @@ const layout = computed(() => {
     }
   }
 
-  const addEdge = (id: string, source: string, target: string, dashed = false) => {
-    logicalEdges.push({ id, source, target, dashed })
-  }
-
-  const firstGroup = groups[0] ?? []
-  const firstParents = queryIndexes.length
-    ? queryIndexes
-    : plannerIndex > 0
-      ? [plannerIndex]
-      : [0]
-  firstGroup.forEach((index) => {
-    logicalNodes.add(index)
-    firstParents.forEach((parent) => {
-      addEdge(`edge-main-in-${parent}-${index}`, nodeId(parent), nodeId(index))
-    })
-  })
-
-  for (let groupIndex = 1; groupIndex < groups.length; groupIndex += 1) {
-    const previous = groups[groupIndex - 1]
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
     const current = groups[groupIndex]
-    current.forEach((index) => {
-      logicalNodes.add(index)
-      previous.forEach((parent) => {
-        addEdge(`edge-main-${parent}-${index}`, nodeId(parent), nodeId(index))
+    current.forEach((index) => logicalNodes.add(index))
+    if (groupIndex === 0) {
+      current.forEach((index) => {
+        addEdge(
+          `edge-request-${index}`,
+          nodeId(requestIndex),
+          nodeId(index),
+        )
+      })
+      continue
+    }
+    const previous = groups[groupIndex - 1]
+    const plannerInPrevious = previous.includes(plannerIndex)
+    const useQueries =
+      plannerInPrevious && plannerIndex > 0 && queryIndexes.length > 0
+    previous.forEach((parent) => {
+      current.forEach((target) => {
+        // 有查询分支时，规划节点通过查询分支汇入下一组，避免重复连线。
+        if (useQueries && parent === plannerIndex) return
+        addEdge(
+          `edge-main-${parent}-${target}`,
+          nodeId(parent),
+          nodeId(target),
+        )
       })
     })
+    if (useQueries) {
+      queryIndexes.forEach((queryIndex) => {
+        current.forEach((target) => {
+          addEdge(
+            `edge-query-${queryIndex}-${target}`,
+            nodeId(queryIndex),
+            nodeId(target),
+          )
+        })
+      })
+    }
   }
 
   // 使用 dagre 做分层布局：规划后的多条查询会落在同一层并自动展开，
   // 再汇入下一次模型调用；不再手写坐标，避免节点挤压 / 连线交叉。
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({
-    rankdir: 'TB',
-    nodesep: 38,
-    ranksep: 62,
-    marginx: 28,
+    rankdir: 'LR',
+    nodesep: 22,
+    ranksep: 48,
+    marginx: 24,
     marginy: 24,
   })
   graph.setDefaultEdgeLabel(() => ({}))
   for (const index of logicalNodes) {
-    graph.setNode(nodeId(index), { width: 188, height: 104 })
+    graph.setNode(nodeId(index), { width: 188, height: 96 })
   }
   for (const edge of logicalEdges) {
     graph.setEdge(edge.source, edge.target)
@@ -281,7 +308,7 @@ const layout = computed(() => {
       type: 'trace',
       position: {
         x: Number(position?.x || 0) - 94,
-        y: Number(position?.y || 0) - 52,
+        y: Number(position?.y || 0) - 48,
       },
       draggable: true,
       selectable: false,
@@ -299,8 +326,8 @@ const layout = computed(() => {
         synthetic: Boolean(event.synthetic),
       },
       style: { width: '188px' },
-      sourcePosition: Position.Bottom,
-      targetPosition: Position.Top,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
     }
   })
 
@@ -313,6 +340,11 @@ const layout = computed(() => {
 
 function onNodeClick({ node }: { node: any }) {
   emit('select', Number(node?.data?.index ?? -1))
+}
+
+/** 新节点完成尺寸测量后再 fit，避免用零尺寸计算出错误视口。 */
+function onNodesInitialized() {
+  fitView({ padding: 0.08 })
 }
 </script>
 
@@ -329,8 +361,8 @@ function onNodeClick({ node }: { node: any }) {
       :id="flowId"
       :nodes="layout.nodes"
       :edges="layout.edges"
-      :min-zoom="0.5"
-      :max-zoom="1.4"
+      :min-zoom="0.2"
+      :max-zoom="1"
       :nodes-draggable="true"
       :nodes-connectable="false"
       :elements-selectable="false"
@@ -341,10 +373,11 @@ function onNodeClick({ node }: { node: any }) {
       class="h-full w-full"
       :style="{ background: 'transparent' }"
       @node-click="onNodeClick"
+      @nodes-initialized="onNodesInitialized"
     >
       <template #node-trace="nodeProps">
         <div
-          class="w-full cursor-pointer rounded-xl border px-3 py-2 shadow-sm transition-all"
+          class="flex h-24 w-full cursor-pointer flex-col rounded-xl border px-3 py-2 shadow-sm transition-all"
           :class="
             props.selectedIndex === nodeProps.data.index
               ? 'border-kiwi-300 bg-kiwi-50/90 ring-2 ring-kiwi-100'
@@ -353,8 +386,8 @@ function onNodeClick({ node }: { node: any }) {
         >
           <Handle
             type="target"
-            :position="Position.Top"
-            class="!h-1.5 !w-1.5 !border-0 !bg-transparent"
+            :position="Position.Left"
+            class="!h-1.5 !w-1.5 !border-2 !border-white !bg-kiwi-400"
           />
           <div class="flex items-center gap-1.5">
             <span
@@ -366,35 +399,46 @@ function onNodeClick({ node }: { node: any }) {
             >
               <KiwiIcon :name="nodeProps.data.icon" :size="12" />
             </span>
-            <span class="text-[11px] font-medium text-slate-700">
+            <span class="shrink-0 text-[11px] font-medium text-slate-700">
               {{ nodeProps.data.label }}
             </span>
             <span class="min-w-0 truncate text-[9.5px] text-slate-400">
               {{ nodeProps.data.name }}
             </span>
             <span
+              v-if="!nodeProps.data.synthetic || nodeProps.data.ms"
               class="ml-auto shrink-0 font-mono text-[8.5px]"
               :style="nodeProps.data.ok ? undefined : { color: toneColor('danger') }"
             >
               {{ formatShortMs(Number(nodeProps.data.ms || 0)) }}
             </span>
           </div>
-          <p class="mt-1 line-clamp-2 text-[9.5px] leading-relaxed text-slate-500">
-            {{ nodeProps.data.preview || '—' }}
+          <p
+            v-if="nodeProps.data.preview"
+            class="mt-1 line-clamp-2 text-[9.5px] leading-relaxed text-slate-500"
+          >
+            {{ nodeProps.data.preview }}
           </p>
-          <div class="mt-1 flex items-center gap-1.5 text-[8.5px] text-slate-400">
+          <div
+            v-if="
+              nodeProps.data.tokens ||
+              (nodeProps.data.synthetic && nodeProps.data.kind === 'query') ||
+              !nodeProps.data.ok
+            "
+            class="mt-auto flex items-center gap-1.5 text-[8.5px] text-slate-400"
+          >
             <span v-if="nodeProps.data.tokens">
               {{ nodeProps.data.tokens }} tokens
             </span>
-            <span v-if="nodeProps.data.synthetic">派生节点</span>
+            <span v-if="nodeProps.data.synthetic && nodeProps.data.kind === 'query'">查询分支</span>
             <span v-if="!nodeProps.data.ok" :style="{ color: toneColor('danger') }">
               异常
             </span>
           </div>
           <Handle
             type="source"
-            :position="Position.Bottom"
-            class="!h-1.5 !w-1.5 !border-0 !bg-transparent"
+            :position="Position.Right"
+            class="!h-1.5 !w-1.5 !border-2 !border-white !bg-kiwi-400"
           />
         </div>
       </template>

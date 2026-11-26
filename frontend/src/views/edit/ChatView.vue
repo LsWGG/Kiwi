@@ -216,6 +216,29 @@ const router = useRouter()
 /** 当前打开的本轮 Agent 流转；不跳转页面，关闭后仍停留在问答。 */
 const traceDialogTrace = ref<AgentTrace | null>(null)
 const traceDialogLoading = ref(false)
+let tracePollTimer: number | undefined
+
+function stopTracePoll() {
+  if (tracePollTimer !== undefined) {
+    window.clearTimeout(tracePollTimer)
+    tracePollTimer = undefined
+  }
+}
+
+function scheduleTracePoll(traceId: string) {
+  stopTracePoll()
+  tracePollTimer = window.setTimeout(async () => {
+    tracePollTimer = undefined
+    try {
+      const trace = await getAgentTrace(traceId)
+      if (traceDialogTrace.value?.id !== traceId) return
+      traceDialogTrace.value = trace
+      if (trace.status === 'running') scheduleTracePoll(traceId)
+    } catch {
+      // 轨迹过期或后端重启：保留当前内容并停止轮询。
+    }
+  }, 1000)
+}
 
 const messages = ref<Msg[]>([])
 const input = ref('')
@@ -454,6 +477,7 @@ watch(
   },
 )
 onUnmounted(() => {
+  stopTracePoll()
   stopRevealingApproval()
   window.clearInterval(streamTickTimer)
   document.removeEventListener('click', onDocumentClick)
@@ -1757,18 +1781,26 @@ function resolveAction(msg: Msg, approve: boolean) {
   )
 }
 
-/** 在问答页原地打开本轮 Agent 流转，不改变当前路由。 */
+/** 在问答页原地打开本轮 Agent 流转，不改变当前路由；运行中自动刷新。 */
 async function openAgentTrace(msg: Msg) {
   const traceId = String(msg.traceId || '').trim()
   if (!traceId || traceDialogLoading.value) return
   traceDialogLoading.value = true
   try {
-    traceDialogTrace.value = await getAgentTrace(traceId)
+    const trace = await getAgentTrace(traceId)
+    traceDialogTrace.value = trace
+    if (trace.status === 'running') scheduleTracePoll(traceId)
+    else stopTracePoll()
   } catch {
     toast.info('该轮 Agent 轨迹已过期（仅保留最近 100 轮）')
   } finally {
     traceDialogLoading.value = false
   }
+}
+
+function closeTraceDialog() {
+  stopTracePoll()
+  traceDialogTrace.value = null
 }
 
 /** 撤销本轮 Agent 写操作；记录只在服务端保留 15 分钟。 */
@@ -2906,6 +2938,16 @@ watch(
                     <span v-if="elapsedLabel(m)" class="shrink-0 text-slate-400">· {{ elapsedLabel(m) }}</span>
                   </span>
                   <span v-else-if="m.citations?.length">{{ m.citations.length }} 个引用来源</span>
+                  <button
+                    v-if="m.streaming && m.traceId"
+                    type="button"
+                    class="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] text-kiwi-600 transition-colors hover:bg-kiwi-50"
+                    title="查看实时 Agent 流转"
+                    @click="openAgentTrace(m)"
+                  >
+                    <KiwiIcon name="graph" :size="10" />
+                    实时流转
+                  </button>
                 </div>
 
                 <!-- Agent 行动计划：先列步骤，再逐项执行，完成后保留回看 -->
@@ -3631,7 +3673,7 @@ watch(
     <!-- 本轮 Agent 流转：原地弹窗，关闭后仍停留在问答页 -->
     <AgentTraceDialog
       :trace="traceDialogTrace"
-      @close="traceDialogTrace = null"
+      @close="closeTraceDialog"
     />
   </div>
 </template>
