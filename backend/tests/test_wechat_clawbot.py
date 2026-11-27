@@ -223,3 +223,48 @@ async def test_wechat_tool_requires_channel_sender(tmp_path, monkeypatch):
             )
     finally:
         current_wechat_sender.reset(token)
+
+
+async def test_status_renews_login_while_polling_works(tmp_path):
+    channel = _channel(tmp_path)
+    now = wechat_clawbot._now()
+    await channel.store.update(
+        lambda state: state.update(
+            {"login_at": now - 25 * 3600, "warning_sent_at": 0}
+        )
+    )
+    channel._last_activity_at = now
+    status = await channel.full_status()
+    assert status["remaining_seconds"] > 23 * 3600
+
+
+async def test_status_expires_without_activity(tmp_path):
+    channel = _channel(tmp_path)
+    now = wechat_clawbot._now()
+    await channel.store.update(
+        lambda state: state.update({"login_at": now - 25 * 3600})
+    )
+    status = await channel.full_status()
+    assert status["remaining_seconds"] == 0
+
+
+async def test_inbound_message_renews_login_time(tmp_path, monkeypatch):
+    channel = _channel(tmp_path)
+    sent: list[str] = []
+
+    async def fake_send(sender, token, text):
+        sent.append(text)
+        return True
+
+    monkeypatch.setattr(channel, "send_reply", fake_send)
+    now = wechat_clawbot._now()
+    await channel.store.update(
+        lambda state: state.update(
+            {"login_at": now - 25 * 3600, "warning_sent_at": 123}
+        )
+    )
+    await channel._handle_message_locked("u@im.wechat", "/time", "ctx")
+    data = await channel.store.read()
+    assert data["login_at"] >= now - 5
+    assert data["warning_sent_at"] == 0
+    assert sent and "小时" in sent[0]

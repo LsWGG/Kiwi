@@ -1,5 +1,5 @@
 /** 附件上传：数据表附件字段使用 any_type 允许任意文件类型。 */
-import { uploadWithProgress, type UploadProgressHandler } from './client'
+import { request, uploadWithProgress, type UploadProgressHandler } from './client'
 
 export interface UploadedAttachment {
   id: string
@@ -10,6 +10,14 @@ export interface UploadedAttachment {
   size: number
   url: string
   created_at: string
+}
+
+export function listAttachments(
+  kbId: string,
+  noteId: string,
+): Promise<UploadedAttachment[]> {
+  const query = new URLSearchParams({ kb_id: kbId, note_id: noteId })
+  return request<UploadedAttachment[]>(`/attachments?${query.toString()}`)
 }
 
 export function uploadAttachment(

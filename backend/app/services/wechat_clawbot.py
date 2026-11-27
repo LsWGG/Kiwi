@@ -248,6 +248,7 @@ class WeChatChannel:
         self._tasks: set[asyncio.Task] = set()
         self._user_locks: dict[str, asyncio.Lock] = {}
         self._seen: list[str] = []
+        self._last_activity_at = 0.0
         self._started = False
 
     # ------------------------------------------------------------ lifecycle
@@ -561,6 +562,14 @@ class WeChatChannel:
                 data = await self.store.read()
                 buf = str(data.get("get_updates_buf") or "")
                 result = await self._get_updates(buf)
+                ret = result.get("ret", result.get("errcode"))
+                if ret not in (None, 0, "0"):
+                    # 令牌失效等业务错误不能当成功：否则会无间隔地重新拉取，
+                    # 既刷日志也会占用 CPU。抛给外层统一退避重试。
+                    raise RuntimeError(f"getupdates 返回异常：{ret}")
+                # 成功拉取说明 bot_token 仍然有效；用它续期，避免“还能用却一直
+                # 提示重新扫码”。真正失效时 activity 停止更新，到期提醒恢复。
+                self._last_activity_at = _now()
                 new_buf = str(result.get("get_updates_buf") or "")
                 if new_buf and new_buf != buf:
                     def save(state):
@@ -616,10 +625,14 @@ class WeChatChannel:
         self, sender: str, text: str, context_token: str
     ) -> None:
         def touch(state):
+            now = _now()
             state.setdefault("contacts", {})[sender] = {
                 "context_token": context_token,
-                "at": _now(),
+                "at": now,
             }
+            # 收到消息同样证明连接可用：续期并清掉即将到期的提醒。
+            state["login_at"] = now
+            state["warning_sent_at"] = 0
 
         await self.store.update(touch)
         data = await self.store.read()
@@ -657,7 +670,7 @@ class WeChatChannel:
             return
         if command == "/time":
             data = await self.store.read()
-            login_at = float(data.get("login_at") or 0)
+            login_at = self._effective_login_at(data)
             remaining = max(0, login_at + settings.wechat_session_hours * 3600 - _now())
             await self.send_reply(
                 sender,
@@ -761,7 +774,7 @@ class WeChatChannel:
             for item in data.get("schedules") or []
             if item.get("sender") == sender
         ]
-        login_at = float(data.get("login_at") or 0)
+        login_at = self._effective_login_at(data)
         remaining = max(0, login_at + settings.wechat_session_hours * 3600 - _now())
         lines = [
             f"知识库：{'、'.join(kb_names) or '未设置'}",
@@ -1175,6 +1188,22 @@ class WeChatChannel:
 
     # ------------------------------------------------------------ expiry
 
+    def _activity_at(self, data: dict[str, Any]) -> float:
+        """最近一次可用证据：成功拉取消息，或收到用户消息。"""
+        contacts = data.get("contacts") or {}
+        last_contact = max(
+            (
+                float(item.get("at") or 0)
+                for item in contacts.values()
+                if isinstance(item, dict)
+            ),
+            default=0.0,
+        )
+        return max(self._last_activity_at, last_contact)
+
+    def _effective_login_at(self, data: dict[str, Any]) -> float:
+        return max(float(data.get("login_at") or 0), self._activity_at(data))
+
     async def _expiry_loop(self) -> None:
         while True:
             try:
@@ -1182,14 +1211,24 @@ class WeChatChannel:
                 if not settings.wechat_enabled or not self._token:
                     continue
                 data = await self.store.read()
-                login_at = float(data.get("login_at") or 0)
+                login_at = self._effective_login_at(data)
                 if not login_at:
                     continue
-                remaining = login_at + settings.wechat_session_hours * 3600 - _now()
+                now = _now()
+                remaining = login_at + settings.wechat_session_hours * 3600 - now
                 if remaining > 3600:
                     continue
+                activity = self._activity_at(data)
+                if activity and now - activity < 3600:
+                    # 连接仍在正常工作：直接把登录时间续到当前，不再生成二维码。
+                    def renew(state):
+                        state["login_at"] = _now()
+                        state["warning_sent_at"] = 0
+
+                    await self.store.update(renew)
+                    continue
                 last_warn = float(data.get("warning_sent_at") or 0)
-                if _now() - last_warn < 1800:
+                if now - last_warn < 21600:
                     continue
 
                 def save(state):
@@ -1221,7 +1260,7 @@ class WeChatChannel:
 
     async def full_status(self) -> dict[str, Any]:
         data = await self.store.read()
-        login_at = float(data.get("login_at") or 0)
+        login_at = self._effective_login_at(data)
         contact = data.get("contacts") or {}
         last_sender, last = (
             max(contact.items(), key=lambda item: item[1].get("at", 0))

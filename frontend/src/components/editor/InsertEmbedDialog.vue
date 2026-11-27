@@ -8,6 +8,7 @@ import { ref, watch } from 'vue'
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiModal from '@/components/ui/KiwiModal.vue'
 import { fetchLinkMeta, type LinkMeta } from '@/api/links'
+import type { UploadedAttachment } from '@/api/attachments'
 
 export type EmbedTab = 'link' | 'file'
 
@@ -16,6 +17,7 @@ const props = defineProps<{
   tab: EmbedTab
   initialUrl?: string
   initialFiles?: File[]
+  existing?: UploadedAttachment[]
   selectionText?: string
 }>()
 
@@ -26,6 +28,7 @@ const emit = defineEmits<{
     payload: { url: string; title: string; meta: LinkMeta | null },
   ): void
   (e: 'insert-files', payload: { files: File[] }): void
+  (e: 'insert-existing', attachment: UploadedAttachment): void
 }>()
 
 const tab = ref<EmbedTab>('link')
@@ -252,6 +255,26 @@ function submitFiles() {
             @click.stop="removeFile(index)"
           >
             <KiwiIcon name="close" :size="11" />
+          </button>
+        </div>
+      </div>
+
+      <div v-if="existing?.length" class="space-y-1.5">
+        <p class="text-[11px] font-medium text-slate-500">本笔记已上传</p>
+        <div
+          v-for="att in existing"
+          :key="att.id"
+          class="embed-file-row"
+        >
+          <KiwiIcon name="file" :size="13" class="shrink-0 text-slate-400" />
+          <span class="min-w-0 flex-1 truncate text-[12px] text-slate-600">{{ att.filename }}</span>
+          <span class="shrink-0 text-[10.5px] tabular-nums text-slate-400">{{ formatSize(att.size) }}</span>
+          <button
+            type="button"
+            class="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kiwi-600 transition-colors hover:bg-white"
+            @click="emit('insert-existing', att)"
+          >
+            插入
           </button>
         </div>
       </div>

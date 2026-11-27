@@ -134,7 +134,7 @@ test.describe('编辑器附件持久化', () => {
     await expect(reloaded.locator('.embed-node')).toContainText('e2e-attach.pdf')
   })
 
-  test('光标在表格单元格内插入附件会落到表格之后', async ({
+  test('光标在表格单元格内插入多个附件会写入单元格链接', async ({
     page,
     kb,
     notesApi,
@@ -144,35 +144,135 @@ test.describe('编辑器附件持久化', () => {
       body_md: [
         '# 表格内插入附件',
         '',
-        '<table><tbody><tr><td>值1</td><td>值2</td></tr></tbody></table>',
-        '',
-        '表格之后的正文。',
+        '| 说明 | 附件 |',
+        '| --- | --- |',
+        '| 户口本 |  |',
+        '| 身份证 |  |',
       ].join('\n'),
     })
     await openWorkspace(page, kb.id, `/notes/${note.id}`)
 
     const editor = page.locator('.ProseMirror').first()
     await expect(editor.locator('table')).toHaveCount(1)
-    await editor.locator('td').first().click()
+    await editor.locator('table tbody tr').last().locator('td').nth(1).click()
 
     await page.getByTitle('上传附件').click()
     const dialog = page.locator('.kiwi-modal-panel').filter({ hasText: '点击选择文件' })
     await expect(dialog).toBeVisible()
-    await dialog.locator('input[type="file"]').setInputFiles({
-      name: 'e2e-table.pdf',
-      mimeType: 'application/pdf',
-      buffer: PDF,
-    })
+    await dialog.locator('input[type="file"]').setInputFiles([
+      { name: 'e2e-table-1.pdf', mimeType: 'application/pdf', buffer: PDF },
+      { name: 'e2e-table-2.pdf', mimeType: 'application/pdf', buffer: PDF },
+    ])
     await dialog.getByRole('button', { name: '插入', exact: true }).click()
 
     await expect
       .poll(async () => (await notesApi.getNote(note.id)).body_md, { timeout: 20_000 })
-      .toContain('kiwi-embed')
+      .toContain('[e2e-table-1.pdf](/media/')
+    const body = (await notesApi.getNote(note.id)).body_md
+    expect(body).toContain('[e2e-table-2.pdf](/media/')
+    expect(body).not.toContain('kiwi-embed')
 
     await page.reload()
     const reloaded = page.locator('.ProseMirror').first()
     await expect(reloaded.locator('table')).toHaveCount(1)
-    await expect(reloaded.locator('.embed-node')).toHaveCount(1)
-    await expect(reloaded.locator('.embed-node')).toContainText('e2e-table.pdf')
+    await expect(reloaded.locator('.embed-node')).toHaveCount(0)
+    const cell = reloaded.locator('table tbody tr').last().locator('td').nth(1)
+    await expect(cell.locator('a', { hasText: 'e2e-table-1.pdf' })).toHaveCount(1)
+    await expect(cell.locator('a', { hasText: 'e2e-table-2.pdf' })).toHaveCount(1)
   })
+
+  test('表格单元格内直接上传图片会插入可点击链接', async ({
+    page,
+    kb,
+    notesApi,
+  }) => {
+    const note = await notesApi.createNote({
+      title: 'E2E 表格内上传图片',
+      body_md: [
+        '# 表格内上传图片',
+        '',
+        '| 说明 | 附件 |',
+        '| --- | --- |',
+        '| 证件照 |  |',
+      ].join('\n'),
+    })
+    await openWorkspace(page, kb.id, `/notes/${note.id}`)
+
+    const editor = page.locator('.ProseMirror').first()
+    await expect(editor.locator('table')).toHaveCount(1)
+    await editor.locator('table tbody tr').last().locator('td').nth(1).click()
+
+    const fileInput = page
+      .locator('.kiwi-editor input[type="file"][accept*="image"]')
+      .first()
+    await fileInput.setInputFiles({
+      name: 'e2e-cell.png',
+      mimeType: 'image/png',
+      buffer: PNG,
+    })
+
+    await expect
+      .poll(async () => (await notesApi.getNote(note.id)).body_md, { timeout: 20_000 })
+      .toContain('[e2e-cell.png](/media/')
+    expect((await notesApi.getNote(note.id)).body_md).not.toContain('![')
+
+    await page.reload()
+    const reloaded = page.locator('.ProseMirror').first()
+    const cell = reloaded.locator('table tbody tr').last().locator('td').nth(1)
+    await expect(cell.locator('a', { hasText: 'e2e-cell.png' })).toHaveCount(1)
+  })
+})
+
+test('可复用本笔记已上传的附件插入表格单元格', async ({
+  page,
+  kb,
+  notesApi,
+  api,
+}) => {
+  const note = await notesApi.createNote({
+    title: 'E2E 复用已上传附件',
+    body_md: [
+      '# 复用已上传附件',
+      '',
+      '| 说明 | 附件 |',
+      '| --- | --- |',
+      '| 证明材料 |  |',
+    ].join('\n'),
+  })
+  const uploaded = await api.post(
+    `/api/attachments?kb_id=${kb.id}&note_id=${note.id}&any_type=true`,
+    {
+      multipart: {
+        file: {
+          name: 'existing.pdf',
+          mimeType: 'application/pdf',
+          buffer: PDF,
+        },
+      },
+    },
+  )
+  expect(uploaded.status(), await uploaded.text()).toBe(201)
+
+  await openWorkspace(page, kb.id, `/notes/${note.id}`)
+  const editor = page.locator('.ProseMirror').first()
+  await expect(editor.locator('table')).toHaveCount(1)
+  await editor.locator('table tbody tr').last().locator('td').nth(1).click()
+
+  await page.getByRole('button', { name: '上传附件' }).click()
+  const dialog = page.locator('.kiwi-modal-panel').filter({ hasText: '点击选择文件' })
+  await expect(dialog.getByText('本笔记已上传')).toBeVisible()
+  const row = dialog.locator('.embed-file-row').filter({ hasText: 'existing.pdf' })
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: '插入' }).click()
+
+  await expect
+    .poll(async () => (await notesApi.getNote(note.id)).body_md, { timeout: 20_000 })
+    .toContain('[existing.pdf](/media/')
+  const body = (await notesApi.getNote(note.id)).body_md
+  expect(body).not.toContain('kiwi-embed')
+
+  await page.reload()
+  const reloaded = page.locator('.ProseMirror').first()
+  const cell = reloaded.locator('table tbody tr').last().locator('td').nth(1)
+  await expect(cell.locator('a', { hasText: 'existing.pdf' })).toHaveCount(1)
 })

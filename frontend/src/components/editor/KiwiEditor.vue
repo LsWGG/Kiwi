@@ -124,7 +124,7 @@ import {
 import KiwiIcon from '@/components/ui/KiwiIcon.vue'
 import KiwiSelect from '@/components/ui/KiwiSelect.vue'
 import { request, uploadWithProgress } from '@/api/client'
-import { importMdBundle } from '@/api/attachments'
+import { importMdBundle, listAttachments, type UploadedAttachment } from '@/api/attachments'
 import { runPython, type RunCodeResult } from '@/api/run'
 import { useKbsStore } from '@/stores/kbs'
 import { useNotesStore } from '@/stores/notes'
@@ -1272,11 +1272,30 @@ function insertAttachmentLink(
   ed: Editor,
   filename: string,
   url: string,
+  range?: { from: number; to: number } | null,
+  separator = false,
 ): boolean {
-  const content = {
+  const link = {
     type: 'text',
     text: filename,
     marks: [{ type: 'link', attrs: { href: url } }],
+  }
+  // 同一单元格插入多个附件时用空格分隔，避免文件名连在一起。
+  const content = separator ? [{ type: 'text', text: ' ' }, link] : link
+  if (range) {
+    try {
+      if (
+        ed
+          .chain()
+          .focus()
+          .insertContentAt({ from: range.from, to: range.to }, content)
+          .run()
+      ) {
+        return true
+      }
+    } catch {
+      // 继续尝试当前选区
+    }
   }
   try {
     if (ed.chain().focus().insertContent(content).run()) return true
@@ -1296,13 +1315,18 @@ async function uploadAndInsert(file: File, asImage: boolean) {
     const ed = editor.value
     if (!ed) return
     let inserted = false
-    if (asImage && att.content_type.startsWith('image/')) {
-      inserted = ed.chain().focus().setImage({ src: att.url, alt: att.filename }).run()
-      if (!inserted) {
-        inserted = ed.chain().focus('end').setImage({ src: att.url, alt: att.filename }).run()
+    if (selectionInTable(ed)) {
+      // 表格里的附件使用行内链接，Markdown 表格仍可保存并正常展示。
+      inserted = insertAttachmentLink(ed, att.filename, att.url, null, true)
+    } else {
+      if (asImage && att.content_type.startsWith('image/')) {
+        inserted = ed.chain().focus().setImage({ src: att.url, alt: att.filename }).run()
+        if (!inserted) {
+          inserted = ed.chain().focus('end').setImage({ src: att.url, alt: att.filename }).run()
+        }
       }
+      if (!inserted) inserted = insertAttachmentLink(ed, att.filename, att.url)
     }
-    if (!inserted) inserted = insertAttachmentLink(ed, att.filename, att.url)
     if (inserted) emit('attachment-inserted')
     else toast.error(`${file.name} 已上传，但未能插入正文；请把光标放到正文中重试`)
   } catch (e: any) {
@@ -1325,6 +1349,7 @@ function onPick(e: Event) {
 // ---------- 插入链接 / 附件（展示方式选择） ----------
 const embedDialogOpen = ref(false)
 const embedDialogTab = ref<EmbedTab>('file')
+const embedExisting = ref<UploadedAttachment[]>([])
 const embedDialogUrl = ref('')
 const embedDialogFiles = ref<File[]>([])
 const embedSelectionText = ref('')
@@ -1361,6 +1386,15 @@ function safeBlockInsertPos(ed: Editor): number | null {
     }
   }
   return null
+}
+
+/** 光标是否在表格单元格内：附件应作为单元格内链接，而不是整块卡片。 */
+function selectionInTable(ed: Editor): boolean {
+  const { $from } = ed.state.selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.spec.tableRole === 'table') return true
+  }
+  return false
 }
 
 /**
@@ -1412,7 +1446,18 @@ function openEmbedDialog(tab: EmbedTab, files: File[] = [], url = '') {
   embedDialogFiles.value = files
   embedSelectionText.value = selection.text
   embedRange.value = { from: selection.from, to: selection.to }
+  embedExisting.value = []
   embedDialogOpen.value = true
+  if (tab === 'file' && props.noteId && kbs.currentKbId) {
+    const noteId = props.noteId
+    void listAttachments(kbs.currentKbId, noteId)
+      .then((items) => {
+        if (embedDialogOpen.value && props.noteId === noteId) {
+          embedExisting.value = items
+        }
+      })
+      .catch(() => undefined)
+  }
 }
 
 function pickAttachment() {
@@ -1490,7 +1535,48 @@ async function insertAttachmentEmbeds(payload: { files: File[] }) {
       const att = await uploadFile(file)
       const ed = editor.value
       if (!ed) return
-      let inserted = insertEmbedNode(
+      const inTable = selectionInTable(ed)
+      let inserted = inTable
+        ? insertAttachmentLink(
+            ed,
+            att.filename,
+            att.url,
+            first ? insertRange : null,
+            true,
+          )
+        : insertEmbedNode(
+            ed,
+            embedAttrs({
+              kind: 'file',
+              url: att.url,
+              title: att.filename,
+              filename: att.filename,
+              contentType: att.content_type,
+              size: att.size,
+              display: 'content',
+            }),
+            first ? insertRange : null,
+          )
+      first = false
+      if (!inserted) inserted = insertAttachmentLink(ed, att.filename, att.url)
+      if (inserted) emit('attachment-inserted')
+      else toast.error(`${file.name} 已上传，但未能插入正文；请把光标放到正文中重试`)
+    } catch (e: any) {
+      if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
+      else toast.error(e.message || `${file.name} 上传失败`)
+    }
+  }
+}
+
+function insertExistingAttachment(att: UploadedAttachment) {
+  const ed = editor.value
+  const range = embedRange.value
+  closeEmbedDialog()
+  if (!ed) return
+  const inTable = selectionInTable(ed)
+  const inserted = inTable
+    ? insertAttachmentLink(ed, att.filename, att.url, range, true)
+    : insertEmbedNode(
         ed,
         embedAttrs({
           kind: 'file',
@@ -1501,17 +1587,10 @@ async function insertAttachmentEmbeds(payload: { files: File[] }) {
           size: att.size,
           display: 'content',
         }),
-        first ? insertRange : null,
+        range,
       )
-      first = false
-      if (!inserted) inserted = insertAttachmentLink(ed, att.filename, att.url)
-      if (inserted) emit('attachment-inserted')
-      else toast.error(`${file.name} 已上传，但未能插入正文；请把光标放到正文中重试`)
-    } catch (e: any) {
-      if (e?.name === 'AbortError') toast.info(`已取消上传 ${file.name}`)
-      else toast.error(e.message || `${file.name} 上传失败`)
-    }
-  }
+  if (inserted) emit('attachment-inserted')
+  else toast.error(`${att.filename} 未能插入正文；请把光标放到正文中重试`)
 }
 
 function promptVideo(ed: Editor) {
@@ -3090,10 +3169,12 @@ defineExpose({
       :tab="embedDialogTab"
       :initial-url="embedDialogUrl"
       :initial-files="embedDialogFiles"
+      :existing="embedExisting"
       :selection-text="embedSelectionText"
       @close="closeEmbedDialog"
       @insert-link="insertLinkEmbed"
       @insert-files="insertAttachmentEmbeds"
+      @insert-existing="insertExistingAttachment"
     />
 
     <SourceQuoteDialog

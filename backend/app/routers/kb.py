@@ -74,6 +74,12 @@ def _slugify(name: str) -> str:
 
 @router.get("", response_model=list[KBOverview])
 async def list_kbs(session: AsyncSession = Depends(get_session)):
+    """列表页一次取完所有聚合计数。
+
+    ``_overview`` 单个知识库需要约 10 次查询；知识库较多时逐库查询会在
+    数据库负载高时把首页拖到几十秒。这里按 kb_id 分组批量查询，固定为
+    约 10 次查询。
+    """
     rows = (
         (
             await session.execute(
@@ -89,10 +95,122 @@ async def list_kbs(session: AsyncSession = Depends(get_session)):
         .scalars()
         .all()
     )
-    result = []
+    if not rows:
+        return []
+    ids = [kb.id for kb in rows]
+
+    async def count_by_kb(model, *where) -> dict[uuid.UUID, int]:
+        stmt = select(model.kb_id, func.count()).where(model.kb_id.in_(ids))
+        if where:
+            stmt = stmt.where(*where)
+        result = await session.execute(stmt.group_by(model.kb_id))
+        return {kb_id: int(count) for kb_id, count in result.all()}
+
+    async def max_by_kb(column, model) -> dict[uuid.UUID, datetime | None]:
+        stmt = (
+            select(model.kb_id, func.max(column))
+            .where(model.kb_id.in_(ids))
+            .group_by(model.kb_id)
+        )
+        result = await session.execute(stmt)
+        return {kb_id: value for kb_id, value in result.all()}
+
+    now = datetime.now(timezone.utc)
+    source_counts = await count_by_kb(Source)
+    wiki_counts = await count_by_kb(WikiPage)
+    note_counts = await count_by_kb(Note)
+    due_reviews = await count_by_kb(StudyReview, StudyReview.due_at <= now)
+    todo_open = await count_by_kb(TodoMirror, TodoMirror.status == "open")
+    todo_done = await count_by_kb(TodoMirror, TodoMirror.status == "done")
+    profiles = {
+        profile.kb_id: profile
+        for profile in (
+            await session.execute(
+                select(StudyProfile).where(StudyProfile.kb_id.in_(ids))
+            )
+        )
+        .scalars()
+        .all()
+    }
+    note_activity = await max_by_kb(Note.updated_at, Note)
+    wiki_activity = await max_by_kb(WikiPage.updated_at, WikiPage)
+    source_activity = await max_by_kb(Source.created_at, Source)
+
+    result: list[KBOverview] = []
     for kb in rows:
-        result.append(await _overview(session, kb))
+        last_activity = kb.updated_at
+        for value in (
+            note_activity.get(kb.id),
+            wiki_activity.get(kb.id),
+            source_activity.get(kb.id),
+        ):
+            if value and (last_activity is None or value > last_activity):
+                last_activity = value
+        result.append(
+            _overview_kwargs(
+                kb,
+                src=source_counts.get(kb.id, 0),
+                wiki=wiki_counts.get(kb.id, 0),
+                notes=note_counts.get(kb.id, 0),
+                profile=profiles.get(kb.id),
+                due_reviews=due_reviews.get(kb.id, 0),
+                todo_open=todo_open.get(kb.id, 0),
+                todo_done=todo_done.get(kb.id, 0),
+                last_activity=last_activity,
+            )
+        )
     return result
+
+
+def _overview_kwargs(
+    kb: KnowledgeBase,
+    *,
+    src: int,
+    wiki: int,
+    notes: int,
+    profile: StudyProfile | None,
+    due_reviews: int,
+    todo_open: int,
+    todo_done: int,
+    last_activity: datetime | None,
+) -> KBOverview:
+    mastery = dict(profile.mastery or {}) if profile else {}
+    mastered = sum(1 for v in mastery.values() if float(v) >= 0.7)
+    return KBOverview(
+        **{
+            "id": kb.id,
+            "name": kb.name,
+            "slug": kb.slug,
+            "description": kb.description,
+            "embedding_model": kb.embedding_model,
+            "llm_config_id": kb.llm_config_id,
+            "pinned": bool(kb.pinned),
+            "learning_enabled": bool(kb.learning_enabled),
+            "is_builtin": bool(kb.is_builtin),
+            "builtin_key": kb.builtin_key,
+            "deleted_at": kb.deleted_at,
+            "sort_order": kb.sort_order,
+            "wiki_compile_interval_hours": kb.wiki_compile_interval_hours,
+            "wiki_compile_last_at": kb.wiki_compile_last_at,
+            "wiki_compile_last_status": kb.wiki_compile_last_status or {},
+            "todo_sync_interval_hours": kb.todo_sync_interval_hours,
+            "todo_sync_last_at": kb.todo_sync_last_at,
+            "created_at": kb.created_at,
+            "updated_at": kb.updated_at,
+        },
+        source_count=src,
+        wiki_count=wiki,
+        note_count=notes,
+        onboarded=bool(profile.onboarded) if profile else False,
+        goal_type=profile.goal_type if profile else None,
+        attempted_topics=len(mastery),
+        mastered_topics=mastered,
+        mastery_coverage=round(mastered / wiki, 3) if wiki else 0.0,
+        due_reviews=int(due_reviews or 0),
+        todo_open_count=int(todo_open or 0),
+        todo_done_count=int(todo_done or 0),
+        last_activity_at=last_activity,
+    )
 
 
 async def _overview(session: AsyncSession, kb: KnowledgeBase) -> KBOverview:
@@ -114,8 +232,6 @@ async def _overview(session: AsyncSession, kb: KnowledgeBase) -> KBOverview:
         .scalars()
         .first()
     )
-    mastery = dict(profile.mastery or {}) if profile else {}
-    mastered = sum(1 for v in mastery.values() if float(v) >= 0.7)
     due_reviews = (
         await session.execute(
             select(func.count())
@@ -154,40 +270,16 @@ async def _overview(session: AsyncSession, kb: KnowledgeBase) -> KBOverview:
         if value and (last_activity is None or value > last_activity):
             last_activity = value
 
-    return KBOverview(
-        **{
-            "id": kb.id,
-            "name": kb.name,
-            "slug": kb.slug,
-            "description": kb.description,
-            "embedding_model": kb.embedding_model,
-            "llm_config_id": kb.llm_config_id,
-            "pinned": bool(kb.pinned),
-            "learning_enabled": bool(kb.learning_enabled),
-            "is_builtin": bool(kb.is_builtin),
-            "builtin_key": kb.builtin_key,
-            "deleted_at": kb.deleted_at,
-            "sort_order": kb.sort_order,
-            "wiki_compile_interval_hours": kb.wiki_compile_interval_hours,
-            "wiki_compile_last_at": kb.wiki_compile_last_at,
-            "wiki_compile_last_status": kb.wiki_compile_last_status or {},
-            "todo_sync_interval_hours": kb.todo_sync_interval_hours,
-            "todo_sync_last_at": kb.todo_sync_last_at,
-            "created_at": kb.created_at,
-            "updated_at": kb.updated_at,
-        },
-        source_count=src,
-        wiki_count=wiki,
-        note_count=notes,
-        onboarded=bool(profile.onboarded) if profile else False,
-        goal_type=profile.goal_type if profile else None,
-        attempted_topics=len(mastery),
-        mastered_topics=mastered,
-        mastery_coverage=round(mastered / wiki, 3) if wiki else 0.0,
+    return _overview_kwargs(
+        kb,
+        src=src,
+        wiki=wiki,
+        notes=notes,
+        profile=profile,
         due_reviews=int(due_reviews or 0),
-        todo_open_count=int(todo_open or 0),
-        todo_done_count=int(todo_done or 0),
-        last_activity_at=last_activity,
+        todo_open=int(todo_open or 0),
+        todo_done=int(todo_done or 0),
+        last_activity=last_activity,
     )
 
 
